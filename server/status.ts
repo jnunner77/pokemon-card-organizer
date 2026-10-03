@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import type { Check } from './checks';
+import { DETAILS_VERSION, type DetailsStatus } from './details';
 import { NO_PRICE } from './pricing/updater';
 
 // A plain-text status file for the server's nightly job (Boards' deploy/ops/nightly.sh), which
@@ -35,25 +36,48 @@ interface CardLike {
   number?: unknown;
   status?: unknown;
   pricing?: { source?: unknown; error?: unknown; candidates?: unknown } | null;
+  details?: Partial<DetailsStatus> | null;
+  checksIgnored?: unknown;
+}
+
+const norm = (s: unknown) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+/** The card as named and numbered; Ignore in Cards to check holds until either changes. */
+export const checkIdentity = (c: CardLike) => `${String(c.name ?? '').trim().toLowerCase()}|${String(c.number ?? '').replace(/\s+/g, '').toLowerCase()}`;
+
+/**
+ * What's wrong with a card's details, as found by its last lookup (details.ts), or null. The
+ * same rules as Cards to check in the page (public/app.js, cardChecks).
+ */
+export function detailsProblem(c: CardLike): string | null {
+  const d = c.details;
+  if (!d || d.v !== DETAILS_VERSION || c.checksIgnored === checkIdentity(c)) return null;
+  if (d.filedUnder && norm(c.set) === norm(d.filedUnder.as)) return `filed under ${d.filedUnder.name}, but it's from ${d.set}.`;
+  if (d.result === 'notFound' && d.suggest?.length) return `not in the card database. Did you mean ${d.suggest[0].name}?`;
+  if (d.result === 'several') return 'several cards match. Choose yours.';
+  if (d.result === 'notFound') return "not in the card database (TCGdex). Check its name and number, or ignore it.";
+  return null;
 }
 
 /** Most cards listed by name; the rest are counted. */
 const MAX_LISTED = 10;
 
 /**
- * Cards that need a person: the search found no certain match, or the card is matched to a
- * product without a price. A search that failed (site down) isn't one: the next run retries it.
+ * Cards that need a person: details that look wrong (detailsProblem), the price search found no
+ * certain match, or the card is matched to a product without a price. A search that failed
+ * (site down) isn't one: the next run retries it.
  */
 export function cardsNeedingAttention(cards: CardLike[]): string[] {
   const out: string[] = [];
   for (const c of cards) {
-    if (c.status === 'sold' || c.status === 'traded' || !c.pricing) continue;
     const label = [c.name || 'Unnamed card', c.setCode || c.set, c.number].filter(Boolean).join(' ');
+    const problem = detailsProblem(c);
+    if (problem) out.push(`${label}: ${problem} Open Cards to check in the binder.`);
+    if (c.status === 'sold' || c.status === 'traded' || !c.pricing) continue;
     if (c.pricing.source === 'none' && !c.pricing.error && Array.isArray(c.pricing.candidates)) out.push(`${label}: no certain match. Open the card and choose the product.`);
     else if (typeof c.pricing.error === 'string' && c.pricing.error.includes(NO_PRICE)) out.push(`${label}: ${c.pricing.error}`);
   }
   if (out.length <= MAX_LISTED) return out;
-  return [...out.slice(0, MAX_LISTED), `…and ${out.length - MAX_LISTED} more cards that need a match or a price.`];
+  return [...out.slice(0, MAX_LISTED), `…and ${out.length - MAX_LISTED} more. Open Cards to check in the binder.`];
 }
 
 export function statusText(now: Date, checks: Check[], attention: string[]): string {
