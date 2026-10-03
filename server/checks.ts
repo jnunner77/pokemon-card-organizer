@@ -27,6 +27,8 @@ export interface CheckInputs {
   failedSignIns24h: number;
   backups: { newestDaily: string | null; dailyCopies: number; snapshots: number; retention: { daily: number; weekly: number; monthly: number } };
   lastFullBackupAt: string | null;
+  /** The server's nightly job copied a backup off the server (offsite.json in the data directory). */
+  offsite: { at: string; where: string } | null;
   logs: { fileOk: boolean | null; dir: string | undefined; errors24h: number; warnings24h: number };
   pricing: { enabled: boolean; hour: number; timeZone: string; lastRun: { date: string; finishedAt: string; counts: Record<string, number> } | null; running: boolean; rateDate: string | null };
   disk: { freeBytes: number | null; dataBytes: number };
@@ -92,11 +94,16 @@ export function runChecks(i: CheckInputs): Check[] {
       : { id: 'daily-copy', group: 'Backups', title: 'Daily copies on the server', status: 'fail', detail: i.backups.newestDaily ? `The newest daily copy is from ${i.backups.newestDaily.slice(0, 10)}.` : 'No daily copy yet.', fix: 'Take a snapshot under Backups now; check the Logs page (category backup) for errors.' },
   );
   const offAge = hoursSince(i.lastFullBackupAt, i.now) / 24;
-  add(
-    offAge <= 30
-      ? { id: 'offsite', group: 'Backups', title: 'Copy off the server', status: 'pass', detail: `A full backup (with photos) was downloaded ${Math.floor(offAge)} day${Math.floor(offAge) === 1 ? '' : 's'} ago.` }
-      : { id: 'offsite', group: 'Backups', title: 'Copy off the server', status: 'warn', detail: i.lastFullBackupAt ? `The last full backup was downloaded ${Math.floor(offAge)} days ago.` : 'No full backup has been downloaded from here.', fix: 'Download a full backup under Backups now and then, and run deploy/backup.sh nightly on the server (it only keeps copies on the same disk, so also copy them off).' },
-  );
+  const autoAge = hoursSince(i.offsite?.at ?? null, i.now) / 24;
+  const days = (d: number) => (d < 1 ? 'today' : `${Math.floor(d)} day${Math.floor(d) === 1 ? '' : 's'} ago`);
+  if (autoAge <= 2) add({ id: 'offsite', group: 'Backups', title: 'Copy off the server', status: 'pass', detail: `The nightly job copied a backup to ${i.offsite!.where} ${days(autoAge)}.` });
+  else if (i.offsite) add({ id: 'offsite', group: 'Backups', title: 'Copy off the server', status: 'warn', detail: `The nightly job last copied a backup off the server ${days(autoAge)}.${offAge <= 30 ? ` A full backup was downloaded ${days(offAge)}.` : ''}`, fix: 'Check the nightly job on the server: journalctl -u nunner-ops (Boards deploy/README.md, "Automatic operations").' });
+  else
+    add(
+      offAge <= 30
+        ? { id: 'offsite', group: 'Backups', title: 'Copy off the server', status: 'pass', detail: `A full backup (with photos) was downloaded ${days(offAge)}.` }
+        : { id: 'offsite', group: 'Backups', title: 'Copy off the server', status: 'warn', detail: i.lastFullBackupAt ? `The last full backup was downloaded ${days(offAge)}.` : 'No full backup has been downloaded from here.', fix: 'Set up the nightly job that copies backups to Cloud Storage (Boards deploy/README.md, "Automatic operations"), or download a full backup under Backups now and then.' },
+    );
 
   // ---- Logs
   add(
