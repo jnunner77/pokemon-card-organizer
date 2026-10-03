@@ -189,6 +189,43 @@ describe('new cards fill themselves in', () => {
     a.stop();
   });
 
+  it('fills in a card that a CSV row replaced (same id, different name and number)', async () => {
+    store.set('cards', 'pocket', { name: 'Bill', number: '118/130', set: 'Base Set', setCode: 'PBS', binderId: 'b', page: 1, slot: 1 });
+    const { updater, updateCard } = fakeUpdater();
+    const a = new Autofill({ store, details: new CardDetails({ fetcher: replay() }), updater, delayMs: 1 });
+    a.start();
+    // What the CSV import writes: the whole card, under the pocket's card id.
+    store.set('cards', 'pocket', { name: 'Charizard V', number: '17/172', binderId: 'b', page: 1, slot: 1 });
+    await a.idle();
+    expect(updateCard.mock.calls.map((c) => c[0])).toEqual(['pocket']);
+    expect(store.get('cards', 'pocket')).toMatchObject({ set: 'Brilliant Stars', setCode: 'BRS', rarity: 'Ultra Rare', artist: 'N-DESIGN Inc.' });
+    a.stop();
+  });
+
+  it("redoes an automatic match when a card's name or number is edited, and keeps one the person chose", async () => {
+    const recent = new Date().toISOString();
+    store.set('cards', 'auto', { name: 'Pikachu', number: '51', setCode: 'XYZ', pricing: { source: 'pricecharting', id: '/old', linkedBy: 'auto' }, officialImageId: 'old', details: { source: 'tcgdex', result: 'several', checkedAt: recent } });
+    store.set('cards', 'mine', { name: 'Pikachu', number: '51', pricing: { source: 'tcgplayer', id: '9', linkedBy: 'user' }, officialImageId: 'img' });
+    const { updater, updateCard } = fakeUpdater();
+    const seen: Record<string, unknown> = {};
+    updateCard.mockImplementation(async (id: string) => {
+      seen[id] = store.get('cards', id)!.pricing ?? null;
+      return 'updated' as const;
+    });
+    const a = new Autofill({ store, details: new CardDetails({ fetcher: replay() }), updater, delayMs: 1 });
+    a.start();
+    store.update('cards', 'auto', { number: '51/162' });
+    store.update('cards', 'mine', { number: '51/162' });
+    store.update('cards', 'mine', { notes: 'only the notes changed' });
+    await a.idle();
+    expect(seen).toEqual({ auto: null, mine: { source: 'tcgplayer', id: '9', linkedBy: 'user' } });
+    // Looked up again despite this week's lookup, because it's a different card now.
+    expect(store.get('cards', 'auto')).toMatchObject({ set: 'Temporal Forces', artist: 'kodama', setCode: 'XYZ', officialImageId: null, details: { result: 'filled' } });
+    expect(store.get('cards', 'mine')!.officialImageId).toBe('img');
+    expect(updateCard).toHaveBeenCalledTimes(2);
+    a.stop();
+  });
+
   it('fills details only when automatic prices are off, and leaves pricing to a daily run in progress', async () => {
     for (const o of [{ enabled: false }, { running: true }]) {
       const { updater, updateCard } = fakeUpdater(o);

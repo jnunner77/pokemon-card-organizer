@@ -1,4 +1,5 @@
-// New cards fill themselves in: as soon as a card is added (the form, a CSV import, the API),
+// New cards fill themselves in: as soon as a card is added (the form, a CSV import, the API) or
+// becomes a different card (a CSV row replacing it, or its name or number edited),
 // its empty details are looked up (details.ts) and then its price and official picture
 // (pricing/updater.ts), instead of waiting for the next morning's run. Cards are handled one at
 // a time with a pause between them, so a big import doesn't hammer the sites.
@@ -30,8 +31,11 @@ export class Autofill {
   private readonly updater?: PriceUpdater;
   private readonly log: Logger;
   private readonly delayMs: number;
-  private known = new Set<string>();
+  /** Each card's name and number, to notice when a card becomes a different one. */
+  private known = new Map<string, string>();
   private readonly queue: string[] = [];
+  /** Queued cards that were a different card before (their old automatic match is dropped). */
+  private readonly changed = new Set<string>();
   private working: Promise<void> | null = null;
   private filling: Promise<void> | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -44,12 +48,16 @@ export class Autofill {
     this.delayMs = o.delayMs ?? 1500;
   }
 
-  /** Watch for new cards. Cards already there (or brought back by a restore) aren't new. */
+  /**
+   * Watch for new cards, and for cards whose name or number changes (a CSV row replacing the card
+   * in a pocket keeps that card's id). Cards already there, or brought back by a restore, aren't new.
+   */
   start() {
-    this.known = new Set(this.store.all().cards.map((c) => c.id));
+    const snapshot = () => new Map(this.store.all().cards.map((c) => [c.id, identity(c)]));
+    this.known = snapshot();
     this.unsubscribe = this.store.subscribe((e) => {
       if (e.type === 'reset') {
-        this.known = new Set(this.store.all().cards.map((c) => c.id));
+        this.known = snapshot();
         return;
       }
       const { collection, id, doc } = e.change;
@@ -58,8 +66,11 @@ export class Autofill {
         this.known.delete(id);
         return;
       }
-      if (this.known.has(id)) return;
-      this.known.add(id);
+      const now = identity(doc);
+      const before = this.known.get(id);
+      if (before === now) return;
+      this.known.set(id, now);
+      if (before !== undefined) this.changed.add(id);
       this.enqueue(id);
     });
   }
@@ -95,12 +106,17 @@ export class Autofill {
     }
   }
 
-  /** One new card: its details, then its price and picture. */
+  /** One new (or changed) card: its details, then its price and picture. */
   private async complete(id: string) {
     const card = this.store.get('cards', id);
+    const changed = this.changed.delete(id);
     if (!card) return;
     const label = [card.name || 'Unnamed card', card.setCode || card.set, card.number].filter(Boolean).join(' ');
-    const result = await this.details.fill(this.store, id);
+    // A card that became a different one: an automatic match was for the old card (one the
+    // person chose is kept), and a lookup from this week was for it too.
+    const link = card.pricing as { linkedBy?: string } | null | undefined;
+    if (changed && link && link.linkedBy !== 'user') this.store.update('cards', id, { pricing: null, officialImageId: null });
+    const result = await this.details.fill(this.store, id, changed);
     if (result === 'filled') {
       const d = this.store.get('cards', id)?.details as DetailsStatus | undefined;
       this.log.info('pricing', `Filled in ${label}: ${(d?.filled ?? []).join(', ')} from TCGdex`);
@@ -110,7 +126,7 @@ export class Autofill {
     // The daily run is about to price it anyway.
     if (u.running) return;
     const outcome = await u.updateCard(id);
-    this.log.info('pricing', `New card ${label}: ${OUTCOME[outcome] ?? outcome}`);
+    this.log.info('pricing', `${changed ? 'Changed' : 'New'} card ${label}: ${OUTCOME[outcome] ?? outcome}`);
   }
 
   // ---- Fill in missing details (all cards) --------------------------------------------
@@ -174,5 +190,8 @@ const OUTCOME: Record<string, string> = {
   skipped: 'skipped',
   off: 'automatic pricing is off for it',
 };
+
+/** What makes a card that card: its name and number, however they're spaced or capitalised. */
+const identity = (c: Doc) => `${String(c.name ?? '').trim().toLowerCase()}\u0000${String(c.number ?? '').replace(/\s+/g, '').toLowerCase()}`;
 
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
