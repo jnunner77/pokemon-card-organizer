@@ -87,6 +87,8 @@ const card = z.looseObject({
   slot: count(64).nullish(),
   sale: sale.nullish(),
   pricing: pricingLink.nullish(),
+  /** Cards to check: the card's name and number when the person chose to ignore its problem. */
+  checksIgnored: optText(300),
   /** When the card's set came out, YYYY-MM-DD, from TCGdex (details.ts). */
   released: optText(10),
   /** The last TCGdex lookup of the card's set, set code, rarity, illustrator and release date (details.ts). */

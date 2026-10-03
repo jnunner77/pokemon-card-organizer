@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../server/app';
 import { Assets } from '../server/assets';
 import { Autofill } from '../server/autofill';
-import { CardDetails, mapRarity } from '../server/details';
+import { CardDetails, DETAILS_VERSION, mapRarity, similarity } from '../server/details';
 import type { PriceUpdater } from '../server/pricing/updater';
 import { type Fetcher, retryPolicy } from '../server/pricing/sources';
 import { Store } from '../server/store';
@@ -34,6 +34,7 @@ describe('looking up a card by name and number', () => {
     expect(rest).toEqual([]);
     expect(m).toEqual({
       id: 'sv05-051',
+      setId: 'sv05',
       name: 'Pikachu',
       number: '051',
       set: 'Temporal Forces',
@@ -145,14 +146,14 @@ describe('filling in a stored card', () => {
     store.set('cards', 'full', { name: 'Pikachu', number: '51/162', set: 'x', setCode: 'x', rarity: 'x', artist: 'x', released: '2024-03-22' });
     store.set('cards', 'ja', { name: 'Pikachu', number: '51/162', language: 'Japanese' });
     store.set('cards', 'noname', { number: '51/162' });
-    store.set('cards', 'recent', { name: 'Pikachu', number: '51', details: { source: 'tcgdex', result: 'several', checkedAt: '2026-10-01T00:00:00Z' } });
+    store.set('cards', 'recent', { name: 'Pikachu', number: '51', details: { source: 'tcgdex', result: 'several', v: DETAILS_VERSION, checkedAt: '2026-10-01T00:00:00Z' } });
     store.set('cards', 'old', { name: 'Pikachu', number: '51/162', details: { source: 'tcgdex', result: 'notFound', checkedAt: '2026-09-20T00:00:00Z' } });
     for (const id of ['full', 'ja', 'noname', 'recent']) expect(await d.fill(store, id)).toBe('skipped');
     expect(await d.fill(store, 'recent', true)).toBe('several');
     expect(await d.fill(store, 'old')).toBe('filled');
   });
 
-  it('gets the release date of a card matched before release dates were kept by its TCGdex id, straight away', async () => {
+  it('redoes a lookup from before the current checks straight away, by its TCGdex id', async () => {
     const now = new Date('2026-10-03T12:00:00Z');
     const urls: string[] = [];
     const fetcher = replay();
@@ -161,11 +162,16 @@ describe('filling in a stored card', () => {
     // Looked up yesterday, before release dates: wanted anyway, and fetched by id, not searched.
     store.set('cards', 'a', { name: 'Pokedex', number: '87/102', ...done, details: { source: 'tcgdex', result: 'filled', id: 'base1-87', checkedAt: '2026-10-02T00:00:00Z' } });
     // Looked up since: has its date, or TCGdex had none for it; either way not asked again this week.
-    store.set('cards', 'b', { name: 'Pokedex', number: '87/102', ...done, released: '1999-01-09', details: { source: 'tcgdex', result: 'complete', id: 'base1-87', released: '1999-01-09', checkedAt: '2026-10-02T00:00:00Z' } });
-    store.set('cards', 'c', { name: 'Pokedex', number: '87/102', ...done, details: { source: 'tcgdex', result: 'complete', id: 'base1-87', released: null, checkedAt: '2026-10-02T00:00:00Z' } });
+    store.set('cards', 'b', { name: 'Pokedex', number: '87/102', ...done, released: '1999-01-09', details: { source: 'tcgdex', result: 'complete', v: DETAILS_VERSION, id: 'base1-87', released: '1999-01-09', checkedAt: '2026-10-02T00:00:00Z' } });
+    store.set('cards', 'c', { name: 'Pokedex', number: '87/102', ...done, details: { source: 'tcgdex', result: 'complete', v: DETAILS_VERSION, id: 'base1-87', released: null, checkedAt: '2026-10-02T00:00:00Z' } });
+    // Complete, with its date, but checked before the set it's filed under was checked: redone too.
+    store.set('cards', 'd', { name: 'Pokedex', number: '87/102', ...done, released: '1999-01-09', details: { source: 'tcgdex', result: 'complete', id: 'base1-87', released: '1999-01-09', checkedAt: '2026-10-02T00:00:00Z' } });
     expect(d.wants(store.get('cards', 'a'))).toBe(true);
     expect(d.wants(store.get('cards', 'b'))).toBe(false);
     expect(d.wants(store.get('cards', 'c'))).toBe(false);
+    expect(d.wants(store.get('cards', 'd'))).toBe(true);
+    expect(await d.fill(store, 'd')).toBe('complete');
+    expect(store.get('cards', 'd')!.details).toMatchObject({ v: DETAILS_VERSION, setId: 'base1', set: 'Base Set', setCode: 'BS', filedUnder: null });
     expect(await d.fill(store, 'a')).toBe('filled');
     expect(store.get('cards', 'a')).toMatchObject({ ...done, released: '1999-01-09', details: { result: 'filled', id: 'base1-87', filled: ['released'], released: '1999-01-09' } });
     expect(urls.some((u) => u.includes('/cards?'))).toBe(false);
@@ -182,6 +188,48 @@ describe('filling in a stored card', () => {
     // Not filed anywhere, or under a set TCGdex doesn't have: the promo series' date.
     expect(store.get('cards', 'bare')).toMatchObject({ set: 'SWSH Black Star Promos', released: '2019-11-15' });
     expect(store.get('cards', 'odd')!.released).toBe('2019-11-15');
+  });
+
+  it('flags a card filed under a set that TCGdex knows but that its name and number are not from', async () => {
+    const d = new CardDetails({ fetcher: replay() });
+    store.set('cards', 'wrong', { name: 'Bill', number: '118/130', set: 'Pokemon Base Set', setCode: 'PBS' });
+    store.set('cards', 'right', { name: 'Bill', number: '118/130', set: 'Base Set 2', setCode: 'PBS' });
+    store.set('cards', 'ownLabel', { name: 'Bill', number: '118/130', set: 'Pokemon Base Set Two', setCode: 'PBS' });
+    for (const id of ['wrong', 'right', 'ownLabel']) await d.fill(store, id);
+    expect(store.get('cards', 'wrong')).toMatchObject({
+      set: 'Pokemon Base Set', // never changed by itself
+      released: '2000-02-24',
+      details: { result: 'filled', id: 'base4-118', setId: 'base4', set: 'Base Set 2', setCode: 'B2', filedUnder: { as: 'Pokemon Base Set', id: 'base1', name: 'Base Set' } },
+    });
+    // The right set, or a label TCGdex doesn't know (the person's own naming): not flagged.
+    expect(store.get('cards', 'right')!.details).toMatchObject({ filedUnder: null });
+    expect(store.get('cards', 'ownLabel')!.details).toMatchObject({ filedUnder: null });
+  });
+
+  it('suggests the name a card not found probably has, when it agrees with the set typed', async () => {
+    const d = new CardDetails({ fetcher: replay() });
+    store.set('cards', 'eel', { name: 'Mega Eelktross EX', number: '61/217', set: 'Ascended Heroes', setCode: 'ASC' });
+    store.set('cards', 'elsewhere', { name: 'Mega Eelktross EX', number: '61/99', setCode: 'XYZ' });
+    expect(await d.fill(store, 'eel')).toBe('notFound');
+    expect(store.get('cards', 'eel')!.details).toMatchObject({
+      result: 'notFound',
+      v: DETAILS_VERSION,
+      suggest: [{ id: 'me02.5-061', name: 'Mega Eelektross ex', set: 'Ascended Heroes', setCode: 'ASC', number: '061', total: 217 }],
+    });
+    expect(await d.fill(store, 'elsewhere')).toBe('notFound');
+    expect(store.get('cards', 'elsewhere')!.details).toMatchObject({ suggest: null });
+    expect(similarity('Mega Eelktross EX', 'Mega Eelektross ex')).toBeGreaterThan(0.9);
+    expect(similarity('Nidorina', 'Pikachu')).toBeLessThan(0.5);
+  });
+
+  it('keeps the choices when several cards match, and uses the one chosen', async () => {
+    const d = new CardDetails({ fetcher: replay() });
+    store.set('cards', 'a', { name: 'Pikachu', number: '51', rarity: 'Mine' });
+    expect(await d.fill(store, 'a')).toBe('several');
+    const options = (store.get('cards', 'a')!.details as { options: { id: string; setCode: string }[] }).options;
+    expect(options.map((o) => o.setCode).sort()).toEqual(['30C', 'TEF']);
+    expect(await d.fill(store, 'a', true, 'sv05-051')).toBe('filled');
+    expect(store.get('cards', 'a')).toMatchObject({ set: 'Temporal Forces', setCode: 'TEF', rarity: 'Mine', released: '2024-03-22', details: { result: 'filled', id: 'sv05-051' } });
   });
 
   it('records a failed lookup without changing the card', async () => {
@@ -293,7 +341,7 @@ describe('new cards fill themselves in', () => {
     // Typed in full before details were filled in, so never looked up.
     store.set('cards', 'b', { name: 'Charizard V', number: '17/172', set: 'Brilliant Stars', setCode: 'BRS', rarity: 'Ultra Rare', artist: 'N-DESIGN Inc.' });
     // Looked up this week without a match: left to the weekly retry.
-    store.set('cards', 'c', { name: 'Pikachu', number: '51', details: { source: 'tcgdex', result: 'several', checkedAt: new Date().toISOString() } });
+    store.set('cards', 'c', { name: 'Pikachu', number: '51', details: { source: 'tcgdex', result: 'several', v: DETAILS_VERSION, checkedAt: new Date().toISOString() } });
     const a = new Autofill({ store, details: new CardDetails({ fetcher: replay() }), delayMs: 1, backfillAfterMs: 1 });
     a.start();
     await new Promise((r) => setTimeout(r, 20));
@@ -342,6 +390,19 @@ describe('lookup routes', () => {
     expect((await request(app).post('/api/cards/fill-details').expect(202)).body).toEqual({ started: true, cards: 1 });
     await autofill.filled();
     expect(store.get('cards', 'a')).toMatchObject({ setCode: 'TEF' });
+  });
+
+  it('uses the TCGdex card a person chose for a card, and prices it', async () => {
+    const details = new CardDetails({ fetcher: replay() });
+    const updateCard = vi.fn(async () => 'updated' as const);
+    const updater = { schedule: () => ({ enabled: true, hour: 5, timeZone: 'UTC' }), running: false, updateCard } as unknown as PriceUpdater;
+    const app = createApp({ store, assets: new Assets(dir), publicDir: path.join(__dirname, '../public'), details, updater });
+    store.set('cards', 'a', { name: 'Pikachu', number: '51', details: { source: 'tcgdex', result: 'several', v: DETAILS_VERSION, checkedAt: new Date().toISOString() } });
+    const r = await request(app).post('/api/cards/a/details').send({ id: '30th-051' }).expect(200);
+    expect(r.body).toMatchObject({ result: 'filled', card: { set: '30th Celebration', setCode: '30C', details: { id: '30th-051' } } });
+    expect(updateCard).toHaveBeenCalledWith('a');
+    await request(app).post('/api/cards/a/details').send({ id: 'no such/id' }).expect(400);
+    await request(app).post('/api/cards/gone/details').send({ id: '30th-051' }).expect(404);
   });
 
   it('answers 503 when lookups are turned off, and 502 when TCGdex is down', async () => {

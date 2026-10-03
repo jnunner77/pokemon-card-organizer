@@ -5,8 +5,8 @@
 // a time with a pause between them, so a big import doesn't hammer the sites.
 //
 // Also "Fill in missing details" for the cards already in the ledger, with its progress in
-// settings/details. It runs by itself shortly after the server starts when cards still need
-// their release date (a one-off backfill after the update that added them).
+// settings/details. It runs by itself shortly after the server starts when cards were looked up
+// before the current checks (a one-off backfill after an update that adds some).
 
 import { CardDetails, type DetailsStatus } from './details';
 import { type Logger, quietLogger } from './log';
@@ -93,14 +93,15 @@ export class Autofill {
   }
 
   /**
-   * Release dates for the cards matched before they were kept, and for cards never looked up
-   * (complete before details were filled in). Returns how many cards it looks at.
+   * Cards looked up before the current checks (release dates, the set a card is filed under,
+   * suggested names), and cards never looked up (complete before details were filled in).
+   * Returns how many cards it looks at.
    */
   backfill(): number {
     const cards = this.store.all().cards;
-    const need = cards.filter((c) => this.details.wants(c) && (CardDetails.lacksReleaseDate(c) || !((c as Doc).details as DetailsStatus | null | undefined)?.checkedAt)).length;
+    const need = cards.filter((c) => this.details.wants(c) && (CardDetails.outdated(c) || !((c as Doc).details as DetailsStatus | null | undefined)?.checkedAt)).length;
     if (!need || this.filling) return 0;
-    this.log.info('pricing', `${need} cards need their release date`);
+    this.log.info('pricing', `${need} cards to look up or check again after an update`);
     return this.fillAll(false);
   }
 

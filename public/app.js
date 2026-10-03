@@ -136,6 +136,7 @@ function renderStats(){
     <div class="stat"><span class="k">Est. value held</span><span class="v">${money(st.val)} <small>${st.priced}/${st.held} priced</small></span></div>
     <div class="stat"><span class="k">Paid</span><span class="v">${money(st.paid)}</span></div>
     <div class="stat"><span class="k">Sold for</span><span class="v">${money(st.sold)}</span></div>
+    ${checkCount()?`<button class="stat chkstat" type="button" id="btnChecks" title="Cards whose details or price need you"><span class="k">To check</span><span class="v">${checkCount()} <small>card${checkCount()===1?"":"s"}</small></span></button>`:""}
     <div class="stat"><span class="k">All binders</span><span class="v">${money(all.val)} <small>${all.n} cards</small></span></div>
     ${tot.n?`<div class="stat"><span class="k">Sales profit</span><span class="v ${tot.profit>=0?"pos":"neg"}">${signed(tot.profit)} <small>${tot.n} sold</small></span></div>`:""}
     ${pricingStat()}`;
@@ -180,7 +181,7 @@ function renderMainInner(){
     const inner = shown(c)
       ? `<img src="${imgURL(shown(c))}" alt="${esc(c.name||"Card")}" loading="lazy"><span class="cap"><span class="n">${esc(c.name||"Unnamed card")}</span><span class="m">${esc(metaLine(c))}</span></span>`
       : `<span class="face"><span class="n">${esc(c.name||"Unnamed card")}</span><span class="m">${esc(metaLine(c)||"No set yet")}</span><span class="np">No photo</span></span>`;
-    cells += `<button class="pocket${S.sel===c.id?" sel":""}${held(c)?"":" dim"}${S.pick?.has(c.id)?" picked":""}${isFound(c.id)?" found":""}" type="button" data-card="${esc(c.id)}" aria-label="${esc((c.name||"Unnamed card")+", pocket "+s)}"${S.pick?` aria-pressed="${S.pick.has(c.id)}"`:""}><span class="slotno">${s}</span><span class="tick" aria-hidden="true">✓</span>${inner}${v!=null?`<span class="price">${esc(money(v).replace(".00",""))}</span>`:""}${flag}</button>`;
+    cells += `<button class="pocket${S.sel===c.id?" sel":""}${held(c)?"":" dim"}${S.pick?.has(c.id)?" picked":""}${isFound(c.id)?" found":""}" type="button" data-card="${esc(c.id)}" aria-label="${esc((c.name||"Unnamed card")+", pocket "+s+(cardChecks(c).length?", needs checking":""))}"${S.pick?` aria-pressed="${S.pick.has(c.id)}"`:""}><span class="slotno">${s}</span>${cardChecks(c).length?`<span class="chkmark" title="${esc(cardChecks(c)[0].title)}" aria-hidden="true">!</span>`:""}<span class="tick" aria-hidden="true">✓</span>${inner}${v!=null?`<span class="price">${esc(money(v).replace(".00",""))}</span>`:""}${flag}</button>`;
   }
   const pageCards = cardsIn(b.id).filter(c=>c.page===S.page);
   const pst = statsFor(pageCards);
@@ -221,7 +222,7 @@ function renderList(m){
     const st = STATUSES.find(x=>x[0]===(c.status||"binder"));
     return `<tr data-card="${esc(c.id)}" class="${S.sel===c.id?"sel":""}${S.pick?.has(c.id)?" picked":""}${isFound(c.id)?" found":""}"${S.pick?` aria-selected="${S.pick.has(c.id)}"`:""}>
       ${S.pick?`<td class="tdtick"><span class="rowtick" aria-hidden="true">✓</span></td>`:""}<td>${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="" loading="lazy">`:`<span class="thumb"></span>`}</td>
-      <td class="cellname"><b>${esc(c.name||"Unnamed card")}</b><span>${esc([c.rarity,c.variant].filter(Boolean).join(" · "))}</span></td>
+      <td class="cellname"><b>${esc(c.name||"Unnamed card")}${cardChecks(c).length?` <span class="chkmark inline" title="${esc(cardChecks(c)[0].title)}">!</span>`:""}</b><span>${esc([c.rarity,c.variant].filter(Boolean).join(" · "))}</span></td>
       <td class="mono">${esc(metaLine(c))}</td>
       <td class="mono">${esc(c.released||"—")}</td>
       <td class="mono">${esc(locShort(c))}</td>
@@ -636,9 +637,10 @@ function undoDetails(){
 }
 /* Settings: what new cards get, and Fill in missing details for the cards already here */
 const lookedUpThisWeek = c => c.details?.checkedAt && Date.now()-Date.parse(c.details.checkedAt) < 7*86400000;
-/* cards matched before release dates were kept get theirs straight away (same rule as the server) */
-const lacksReleaseDate = c => !!c.details?.id && !("released" in c.details) && !c.released;
-const wantsDetails = c => c.name && c.number && (!c.language || /^en/i.test(c.language)) && [...DETAIL_FIELDS,"released"].some(f=>!String(c[f]??"").trim()) && (!lookedUpThisWeek(c) || lacksReleaseDate(c));
+/* cards looked up before the current checks are looked up again straight away (same rule as the server) */
+const DETAILS_VERSION = 2;
+const detailsOutdated = c => { const d = c.details; return !!d?.checkedAt && d.v!==DETAILS_VERSION && (!!d.id || d.result==="notFound" || d.result==="several"); };
+const wantsDetails = c => c.name && c.number && (!c.language || /^en/i.test(c.language)) && (detailsOutdated(c) || [...DETAIL_FIELDS,"released"].some(f=>!String(c[f]??"").trim()) && !lookedUpThisWeek(c));
 function detailsSettingsHTML(){
   const st = S.detailsRun || {}, last = st.lastRun, n = S.cards.filter(wantsDetails).length;
   return `<div class="sec" style="margin-top:18px;border-top:1px solid var(--line-2);padding-top:14px" id="sDetails">
@@ -929,6 +931,95 @@ function binderModal(id){
     $("#bDelYes").onclick = async () => { if(await guard(()=> S.db.doc("binders/"+id).delete())){ closeModal(); S.binderId = sortedBinders().find(x=>x.id!==id)?.id || null; persistNav(); toast("Binder deleted"); render(); } };
   };
 }
+/* ---------- cards to check ----------
+   What the nightly check against TCGdex (server/details.ts) found wrong with a card, plus cards
+   without a certain price match. The same rules as status.txt (server/status.ts, detailsProblem). */
+const checkIdentity = c => `${String(c.name??"").trim().toLowerCase()}|${String(c.number??"").replace(/\s+/g,"").toLowerCase()}`;
+const normLabel = s => String(s??"").toLowerCase().replace(/[^a-z0-9]/g,"");
+const CHECK_KINDS = [
+  {k:"set", h:"Filed under another set"},
+  {k:"name", h:"Name may be misspelled"},
+  {k:"several", h:"Several cards match"},
+  {k:"missing", h:"Not in the card database"},
+  {k:"price", h:"No certain price match"}
+];
+function cardChecks(c){
+  const out = [], d = c.details;
+  if(d && d.v===DETAILS_VERSION && c.checksIgnored!==checkIdentity(c)){
+    if(d.filedUnder && normLabel(c.set)===normLabel(d.filedUnder.as)) out.push({k:"set", title:"Filed under the wrong set", text:`Filed under ${d.filedUnder.name}, but ${c.name} ${c.number} is from ${d.set}${c.released?` (${c.released.slice(0,4)})`:""}.`});
+    else if(d.result==="notFound" && d.suggest?.length) out.push({k:"name", title:"Name may be misspelled", text:`Not in the card database. Did you mean ${d.suggest.map(x=>x.name).join(" or ")}?`});
+    else if(d.result==="several") out.push({k:"several", title:"Several cards match", text:`${(d.options||[]).length || "Several"} cards are ${c.name} ${c.number}. Which one is yours?`});
+    else if(d.result==="notFound") out.push({k:"missing", title:"Not in the card database", text:"TCGdex doesn't have it. Check the name and number, or ignore it if it's right (brand-new and some box-set cards aren't listed; it's checked again weekly)."});
+  }
+  const p = c.pricing;
+  if(p && c.status!=="sold" && c.status!=="traded"){
+    if(p.source==="none" && !p.error && Array.isArray(p.candidates)) out.push({k:"price", title:"No certain price match", text:"The price sites had no certain match. Open it and choose the product."});
+    else if(typeof p.error==="string" && p.error.includes("has no price for this printing")) out.push({k:"price", title:"No price yet", text:p.error});
+  }
+  return out;
+}
+const checkCount = () => S.cards.filter(c=>cardChecks(c).length).length;
+/* the person's own label for a set: another card matched to it (Pokemon Base Set 2 · PBS), else TCGdex's */
+function labelForSet(c){
+  const d = c.details, mine = S.cards.find(x => x.id!==c.id && x.details?.setId===d.setId && x.set && !(x.details?.filedUnder && normLabel(x.set)===normLabel(x.details.filedUnder.as)));
+  return mine ? {set:mine.set, setCode:mine.setCode||d.setCode||""} : {set:d.set, setCode:d.setCode||""};
+}
+/* "Mega Eelektross ex" typed as "… EX": keep the person's way of writing the last word */
+function suggestedName(c, s){
+  const mine = String(c.name||"").trim().split(/\s+/), theirs = s.name.split(/\s+/);
+  if(mine.length && theirs.length && mine.at(-1).toLowerCase()===theirs.at(-1).toLowerCase()) theirs[theirs.length-1] = mine.at(-1);
+  return theirs.join(" ");
+}
+let CHK = {done:new Set()};
+function checksModal(){
+  CHK = {done:new Set()};
+  $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard" id="chkCard" role="dialog" aria-modal="true" aria-labelledby="chkTitle">
+    <h2 id="chkTitle">Cards to check</h2>
+    <p class="lead">Each night the binder checks every card against TCGdex, a free card database. These look wrong or couldn't be confirmed. Fix one in a tap, open it, or ignore it if it's right. An ignored card comes back if you change its name or number.</p>
+    <div id="chkList"></div>
+    <div class="mfoot"><button class="btn" type="button" data-mclose>Close</button></div>
+  </div></div>`;
+  $("#chkList").onclick = e => void checkAction(e);
+  renderChecks();
+}
+function renderChecks(){
+  const box = $("#chkList"); if(!box) return;
+  const items = S.cards.flatMap(c => cardChecks(c).map(x => ({c, ...x}))).filter(x => !CHK.done.has(x.c.id+"|"+x.k));
+  if(!items.length){ box.innerHTML = `<p class="empty-state">Nothing to check. Every card matches the card database or has been ignored.</p>`; return; }
+  const viewer = S.me?.user?.role==="viewer";
+  box.innerHTML = CHECK_KINDS.map(K => {
+    const list = items.filter(x=>x.k===K.k); if(!list.length) return "";
+    return `<section class="chksec"><h3>${esc(K.h)} <span class="hint">${list.length}</span></h3><ul class="chklist">${list.map(x => {
+      const c = x.c, d = c.details || {}, id = esc(c.id);
+      let fix = "";
+      if(!viewer && x.k==="set"){ const l = labelForSet(c); fix = `<button class="btn sm primary" type="button" data-cfix="set" data-cid="${id}">File under ${esc(l.set)}</button>`; }
+      if(!viewer && x.k==="name") fix = d.suggest.map((s,i)=>`<button class="btn sm primary" type="button" data-cfix="name" data-cid="${id}" data-copt="${i}">Rename to ${esc(suggestedName(c, s))}</button>`).join("");
+      const choices = !viewer && x.k==="several" && d.options?.length ? `<div class="dchoices">${d.options.map(o=>`<button type="button" class="dchoice" data-cfix="pick" data-cid="${id}" data-copt="${esc(o.id)}">${o.thumb?`<img src="${esc(o.thumb)}" alt="" loading="lazy">`:`<span class="thumb"></span>`}<span class="dtxt"><b>${esc(o.set)}</b><span class="mono">${esc([o.setCode, o.number+(o.total?`/${o.total}`:"")].filter(Boolean).join(" "))}</span></span></button>`).join("")}</div>` : "";
+      const ign = !viewer && x.k!=="price" ? `<button class="btn sm ghost" type="button" data-cfix="ignore" data-cid="${id}">Ignore</button>` : "";
+      return `<li><div class="chkhead">${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="" loading="lazy">`:`<span class="thumb"></span>`}<div><b>${esc(c.name||"Unnamed card")}</b> <span class="mono hint">${esc(metaLine(c))}</span><p>${esc(x.text)}</p><p class="hint">${esc(whereIs(c).label)}</p></div></div>
+        ${choices}<div class="chkacts">${fix}<button class="btn sm" type="button" data-cfix="open" data-cid="${id}">Open</button>${ign}</div></li>`;
+    }).join("")}</ul></section>`;
+  }).join("");
+}
+async function checkAction(e){
+  const b = e.target.closest("[data-cfix]"); if(!b) return;
+  const c = S.cards.find(x=>x.id===b.dataset.cid); if(!c) return;
+  const kind = b.dataset.cfix, k = {set:"set", name:"name", pick:"several"}[kind];
+  if(kind==="open"){ closeModal(); return showCard(c.id); }
+  b.disabled = true;
+  let ok = false, msg = "";
+  if(kind==="set"){ const l = labelForSet(c); ok = await updateCard(c.id, {set:l.set, setCode:l.setCode}); msg = `${c.name} is filed under ${l.set}`; }
+  if(kind==="name"){ const n = suggestedName(c, c.details.suggest[+b.dataset.copt]); ok = await updateCard(c.id, {name:n}); msg = `Renamed to ${n}. Its details and price are being looked up.`; }
+  if(kind==="pick"){
+    try{ await window.ledgerApi.call("POST", `api/cards/${encodeURIComponent(c.id)}/details`, {id:b.dataset.copt}); ok = true; msg = `${c.name}: set filled in. Its price is being looked up.`; }
+    catch(err){ toast(err?.message || "Couldn't use that card. Try again."); }
+  }
+  if(kind==="ignore"){ ok = await updateCard(c.id, {checksIgnored:checkIdentity(c)}); msg = `${c.name} won't be flagged unless its name or number changes`; }
+  if(!ok){ b.disabled = false; return; }
+  for(const x of cardChecks(c)) if(kind==="ignore" ? x.k!=="price" : x.k===k) CHK.done.add(c.id+"|"+x.k);
+  toast(msg); renderChecks(); renderStats();
+}
+
 /* ---------- sort a binder ----------
    Puts every card of a binder in order (release date or price) from page 1, pocket 1 with no
    gaps, after a preview. The server saves all the moves together; Undo sends the old places back. */
@@ -1668,6 +1759,7 @@ document.addEventListener("click", e => {
   const oc = t.closest("[data-openc]"); if(oc){ closeModal(); return openCard(oc.dataset.openc); }
   if(t.closest("#btnBinderSettings")){ const b=curBinder(); if(b) binderModal(b.id); return; }
   if(t.closest("#btnSortBinder")){ const b=curBinder(); if(b) sortModal(b.id); return; }
+  if(t.closest("#btnChecks")) return checksModal();
   const pc = t.closest("[data-page]"); if(pc){ S.page=+pc.dataset.page; persistNav(); renderMain(); return; }
   const stp = t.closest("[data-step]"); if(stp){ S.page+= +stp.dataset.step; persistNav(); renderMain(); return; }
   const em = t.closest("[data-empty]"); if(em){ return openNew({binderId:curBinder().id, page:S.page, slot:+em.dataset.empty}); }
@@ -1966,7 +2058,7 @@ async function boot(){
   const done = () => { if(got.b && got.c && S.mode==="loading"){ S.mode="ready"; } pickDefaults(); render(); };
   const onErr = e => { console.error(e); if(e?.code==="revoked"||e?.code==="not_granted"){ S.mode="nodb"; render(); } };
   db.collection("binders").onSnapshot(s => { S.binders = s.docs.map(d=>({id:d.id, ...d.data()})); got.b=true; done(); }, onErr);
-  db.collection("cards").onSnapshot(s => { S.cards = s.docs.map(d=>({id:d.id, ...d.data()})); got.c=true; if(S.sel && S.sel!=="__new" && !S.cards.some(c=>c.id===S.sel)) { S.sel=null; } done(); }, onErr);
+  db.collection("cards").onSnapshot(s => { S.cards = s.docs.map(d=>({id:d.id, ...d.data()})); got.c=true; if(S.sel && S.sel!=="__new" && !S.cards.some(c=>c.id===S.sel)) { S.sel=null; } done(); if($("#chkCard")) renderChecks(); }, onErr);
   db.doc("settings/main").onSnapshot(s => { if(s.exists) S.settings = {...S.settings, ...s.data()}; if(S.mode==="ready") render(); }, onErr);
   db.doc("settings/details").onSnapshot(s => { S.detailsRun = s.exists ? s.data() : {}; const sd=$("#sDetails"); if(sd) sd.outerHTML = detailsSettingsHTML(); }, onErr);
   db.doc("settings/pricing").onSnapshot(s => { S.pricing = s.exists ? s.data() : {}; if(S.mode==="ready"){ renderStats(); const sp=$("#sPricing"); if(sp) sp.outerHTML = pricingSettingsHTML(); } }, onErr);

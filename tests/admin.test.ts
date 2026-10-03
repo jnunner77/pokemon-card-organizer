@@ -12,6 +12,7 @@ import { Logger, redact } from '../server/log';
 import { type Fetcher, retryPolicy } from '../server/pricing/sources';
 import { PriceUpdater } from '../server/pricing/updater';
 import { Security } from '../server/security';
+import { DETAILS_VERSION } from '../server/details';
 import { cardsNeedingAttention } from '../server/status';
 import { Store } from '../server/store';
 
@@ -323,7 +324,27 @@ describe('status for the nightly job', () => {
     const out = cardsNeedingAttention(many);
     expect(out).toHaveLength(11);
     expect(out[9]).toBe('Card 10: no certain match. Open the card and choose the product.');
-    expect(out[10]).toBe('…and 3 more cards that need a match or a price.');
+    expect(out[10]).toBe('…and 3 more. Open Cards to check in the binder.');
+  });
+
+  it("lists cards whose details look wrong, until they're fixed or ignored", () => {
+    const v = DETAILS_VERSION;
+    const at = '2026-10-03T00:00:00Z';
+    const cards = [
+      { name: 'Bill', number: '118/130', set: 'Pokemon Base Set', setCode: 'PBS', details: { result: 'filled' as const, v, set: 'Base Set 2', filedUnder: { as: 'Pokemon Base Set', id: 'base1', name: 'Base Set' }, checkedAt: at } },
+      { name: 'Bill', number: '118/130', set: 'Pokemon Base Set 2', setCode: 'PBS', details: { result: 'filled' as const, v, set: 'Base Set 2', filedUnder: { as: 'Pokemon Base Set', id: 'base1', name: 'Base Set' }, checkedAt: at } },
+      { name: 'Mega Eelktross EX', number: '61/217', setCode: 'ASC', details: { result: 'notFound' as const, v, suggest: [{ id: 'me02.5-061', name: 'Mega Eelektross ex', set: 'Ascended Heroes', setCode: 'ASC', number: '061', total: 217, thumb: null }], checkedAt: at } },
+      { name: 'Pikachu', number: '51', details: { result: 'several' as const, v, checkedAt: at } },
+      { name: 'Mr. Mime', number: '13/34', setCode: 'CLB', details: { result: 'notFound' as const, v, checkedAt: at } },
+      { name: 'Lugia EX', number: '17/34', setCode: 'CLV', checksIgnored: 'lugia ex|17/34', details: { result: 'notFound' as const, v, checkedAt: at } },
+      { name: 'Old', number: '1/2', details: { result: 'notFound' as const, checkedAt: at } },
+    ];
+    expect(cardsNeedingAttention(cards)).toEqual([
+      "Bill PBS 118/130: filed under Base Set, but it's from Base Set 2. Open Cards to check in the binder.",
+      'Mega Eelktross EX ASC 61/217: not in the card database. Did you mean Mega Eelektross ex? Open Cards to check in the binder.',
+      'Pikachu 51: several cards match. Choose yours. Open Cards to check in the binder.',
+      'Mr. Mime CLB 13/34: not in the card database (TCGdex). Check its name and number, or ignore it. Open Cards to check in the binder.',
+    ]);
   });
 });
 

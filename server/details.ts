@@ -17,6 +17,8 @@ export type DetailField = (typeof DETAIL_FIELDS)[number];
 export interface DetailsMatch {
   /** TCGdex card id, e.g. "sv05-051". */
   id: string;
+  /** TCGdex set id, e.g. "sv05". */
+  setId: string;
   name: string;
   /** The number on the card, as TCGdex writes it ("051"). */
   number: string;
@@ -32,17 +34,43 @@ export interface DetailsMatch {
   thumb: string | null;
 }
 
+/** A TCGdex card offered to the person: one of several matches, or a name they may have meant. */
+export interface DetailsOption {
+  id: string;
+  name: string;
+  set: string;
+  setCode: string | null;
+  number: string;
+  total: number | null;
+  thumb: string | null;
+}
+
 /** What the last lookup for a card found, stored on the card as `details`. */
 export interface DetailsStatus {
   source: 'tcgdex';
   result: 'filled' | 'complete' | 'several' | 'notFound' | 'error';
+  /** Which checks the lookup made (DETAILS_VERSION); older lookups are redone once. */
+  v?: number;
   id?: string | null;
   filled?: DetailField[] | null;
   error?: string | null;
-  /** The set's release date found with the match (absent on lookups from before release dates). */
+  /** The matched card's set as TCGdex has it (the person's own label for it may differ). */
+  setId?: string | null;
+  set?: string | null;
+  setCode?: string | null;
+  /** The set's release date found with the match. */
   released?: string | null;
+  /** The card is filed under a different set than the one its name and number belong to. */
+  filedUnder?: { as: string; id: string; name: string } | null;
+  /** Several cards match: the choices. */
+  options?: DetailsOption[] | null;
+  /** Not found, but a card with that number has a similar name. */
+  suggest?: DetailsOption[] | null;
   checkedAt: string;
 }
+
+/** Bumped when lookups record something new, so cards looked up before are looked up again once. */
+export const DETAILS_VERSION = 2;
 
 /** "Pokémon", "N's", "V Star" → "pokemon", "ns", "vstar": compares names however they're written. */
 const norm = (s: unknown) =>
@@ -78,6 +106,24 @@ const searchWord = (name: string) => {
   const pick = (words.length > 1 ? words.filter((w) => !/^pokemon$/i.test(w)) : words).reduce((a, b) => (b.length >= a.length ? b : a), '');
   return ACCENTED[pick.toLowerCase()] ?? pick;
 };
+
+/** How alike two names are, 0 to 1, by edit distance: "Mega Eelktross EX" vs "Mega Eelektross ex" ≈ 0.94. */
+export function similarity(a: string, b: string): number {
+  const x = norm(a), y = norm(b);
+  if (!x || !y) return 0;
+  let prev = Array.from({ length: y.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= x.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= y.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (x[i - 1] === y[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return 1 - prev[y.length] / Math.max(x.length, y.length);
+}
+const SIMILAR = 0.8;
+const isPromo = (m: DetailsMatch) => /promo/i.test(m.set);
+/** "Pokemon Base Set" → "Base Set": how a set label is searched on TCGdex. */
+const setLabel = (s: unknown) => String(s ?? '').replace(/^\s*pok[eé]mon\s+/i, '').trim();
+const option = (m: DetailsMatch): DetailsOption => ({ id: m.id, name: m.name, set: m.set, setCode: m.setCode, number: m.number, total: m.total, thumb: m.thumb });
 
 /** TCGdex rarities in the ledger's own words. */
 const RARITIES: Record<string, string> = {
@@ -200,6 +246,7 @@ export class CardDetails {
     const total = c.set.cardCount?.official;
     return {
       id: c.id,
+      setId: c.set.id,
       name: c.name,
       number: c.localId,
       set: c.set.name,
@@ -212,19 +259,52 @@ export class CardDetails {
     };
   }
 
-  /**
-   * When a card came out. A promo set's date is when that promo series began (SWSH Black Star
-   * Promos: 2019), so a promo filed under a set by name ("Crown Zenith") takes that set's date.
-   */
-  private async releasedFor(m: DetailsMatch, filedUnder: unknown): Promise<string | null> {
-    if (!/promo/i.test(m.set) || isBlank(filedUnder)) return m.released;
-    const name = String(filedUnder).replace(/^\s*pok[eé]mon\s+/i, '').trim();
-    if (!name || norm(name) === norm(m.set)) return m.released;
+  /** The TCGdex set a label names exactly ("Pokemon Crown Zenith" → swsh12.5), or null. */
+  private async setNamed(label: unknown): Promise<{ id: string; name: string; released: string | null } | null> {
+    const name = setLabel(label);
+    if (!name) return null;
     const sets = await this.json<{ id: string; name: string }[]>(`/sets?name=${encodeURIComponent(name)}`).catch(() => []);
     const hit = (Array.isArray(sets) ? sets : []).find((x) => norm(x.name) === norm(name));
-    if (!hit) return m.released;
+    if (!hit) return null;
     const info = await this.json<SetInfo>(`/sets/${encodeURIComponent(hit.id)}`).catch(() => null);
-    return isoDate(info?.releaseDate) ?? m.released;
+    return { id: hit.id, name: hit.name, released: isoDate(info?.releaseDate) };
+  }
+
+  /**
+   * Check a match against the set the card is filed under. A promo set's date is when that promo
+   * series began (SWSH Black Star Promos: 2019), so a promo filed under a set by name ("Crown
+   * Zenith") takes that set's date. Any other card filed under a set TCGdex knows by that exact
+   * name, but which belongs to a different set, is flagged (Bill 118/130 filed under Base Set is
+   * from Base Set 2). Labels TCGdex doesn't know ("Scarlet & Violet Base") aren't errors.
+   */
+  private async checkFiling(m: DetailsMatch, filedUnder: unknown): Promise<{ released: string | null; filedUnder: DetailsStatus['filedUnder'] }> {
+    const label = setLabel(filedUnder);
+    if (!label || norm(label) === norm(m.set)) return { released: m.released, filedUnder: null };
+    const named = await this.setNamed(label);
+    if (!named || named.id === m.setId) return { released: m.released, filedUnder: null };
+    if (isPromo(m)) return { released: named.released ?? m.released, filedUnder: null };
+    return { released: m.released, filedUnder: { as: String(filedUnder), id: named.id, name: named.name } };
+  }
+
+  /** Cards with this number whose names are close to the one typed (a misspelling such as "Eelktross"). */
+  async suggest(name: string, number: string, hints: { set?: string | null; setCode?: string | null } = {}): Promise<DetailsOption[]> {
+    const own = ownNumber(number);
+    if (!own || !name.trim()) return [];
+    const list = await this.json<Brief[]>(`/cards?localId=${encodeURIComponent(own)}`).catch(() => [] as Brief[]);
+    const close = (Array.isArray(list) ? list : [])
+      .filter((c) => ownNumber(c.localId) === own)
+      .map((c) => ({ c, sim: Math.max(similarity(name, c.name), similarity(withoutBrackets(name), c.name)) }))
+      .filter((x) => x.sim >= SIMILAR)
+      .sort((a, b) => b.sim - a.sim)
+      .slice(0, 6);
+    const matches = await Promise.all(close.map((x) => this.match(x.c.id)));
+    // A suggestion has to agree with something typed about the set, when anything was: a lookalike
+    // from an unrelated set (Nidorino for a Nidorina promo TCGdex lacks) would mislead.
+    const size = setSize(number);
+    const told = size != null || !isBlank(hints.setCode) || !isBlank(hints.set);
+    const agrees = (m: DetailsMatch) =>
+      (size != null && m.total === size) || (!isBlank(hints.setCode) && norm(m.setCode) === norm(hints.setCode)) || (!isBlank(hints.set) && norm(m.set) === norm(setLabel(hints.set)));
+    return (told ? matches.filter(agrees) : matches).slice(0, 3).map(option);
   }
 
   /** The fields of `card` that are empty and that `m` knows. */
@@ -242,21 +322,24 @@ export class CardDetails {
   }
 
   /**
-   * Whether a card has blanks this could fill and hasn't been looked up recently. A card matched
-   * before release dates were kept is wanted straight away: its release date is one quick fetch.
+   * Whether a card has blanks this could fill and hasn't been looked up recently. A card looked up
+   * before the current checks is wanted straight away, complete or not (a matched one is one
+   * quick fetch by its id).
    */
   wants(card: Doc | undefined, force = false): boolean {
     if (!card || isBlank(card.name) || isBlank(card.number) || !englishOrUnset(card.language)) return false;
+    if (CardDetails.outdated(card)) return true;
     if (!DETAIL_FIELDS.some((f) => isBlank(card[f]))) return false;
     const last = card.details as DetailsStatus | undefined;
-    if (force || !last?.checkedAt || CardDetails.lacksReleaseDate(card)) return true;
+    if (force || !last?.checkedAt) return true;
     return this.now().getTime() - Date.parse(last.checkedAt) > RECHECK_MS;
   }
 
-  /** A card matched to one TCGdex card before release dates were kept, still without one. */
-  static lacksReleaseDate(card: Doc): boolean {
+  /** Looked up (matched, not found or several) before the current checks were made. */
+  static outdated(card: Doc): boolean {
     const last = card.details as DetailsStatus | null | undefined;
-    return !!last?.id && !('released' in last) && isBlank(card.released);
+    if (!last?.checkedAt || last.v === DETAILS_VERSION) return false;
+    return !!last.id || last.result === 'notFound' || last.result === 'several';
   }
 
   /**
@@ -265,25 +348,41 @@ export class CardDetails {
    * (a card that becomes a different one has its match cleared first, see autofill.ts).
    * Re-reads the card before writing so nothing typed meanwhile is lost.
    */
-  async fill(store: Store, id: string, force = false): Promise<DetailsStatus['result'] | 'skipped'> {
+  async fill(store: Store, id: string, force = false, chosen?: string): Promise<DetailsStatus['result'] | 'skipped'> {
     const card = store.get('cards', id);
-    if (!this.wants(card, force)) return 'skipped';
+    if (!chosen && !this.wants(card, force)) return 'skipped';
+    if (!card) return 'skipped';
     const checkedAt = this.now().toISOString();
+    const base = { source: 'tcgdex', v: DETAILS_VERSION, checkedAt } as const;
     let status: DetailsStatus;
     let patch: Doc = {};
     try {
-      const known = (card!.details as DetailsStatus | null | undefined)?.id;
-      const found = known
-        ? [await this.match(known)]
-        : await this.lookup(String(card!.name), String(card!.number), { set: card!.set as string, setCode: card!.setCode as string });
+      const hints = { set: card.set as string, setCode: card.setCode as string };
+      const known = chosen ?? (card.details as DetailsStatus | null | undefined)?.id;
+      const found = known ? [await this.match(known)] : await this.lookup(String(card.name), String(card.number), hints);
       if (found.length === 1) {
-        const m = { ...found[0], released: await this.releasedFor(found[0], store.get('cards', id)?.set) };
+        const check = await this.checkFiling(found[0], store.get('cards', id)?.set);
+        const m = { ...found[0], released: check.released };
         const fresh = store.get('cards', id);
         if (!fresh) return 'skipped';
         const p = CardDetails.patchFor(fresh, m);
         patch = p.patch;
-        status = { source: 'tcgdex', result: p.filled.length ? 'filled' : 'complete', id: m.id, filled: p.filled, released: m.released, checkedAt };
-      } else status = { source: 'tcgdex', result: found.length ? 'several' : 'notFound', checkedAt };
+        status = {
+          ...base,
+          result: p.filled.length ? 'filled' : 'complete',
+          id: m.id,
+          filled: p.filled,
+          setId: m.setId,
+          set: m.set,
+          setCode: m.setCode,
+          released: m.released,
+          filedUnder: check.filedUnder,
+        };
+      } else if (found.length) status = { ...base, result: 'several', options: found.map(option) };
+      else {
+        const suggest = await this.suggest(String(card.name), String(card.number), hints);
+        status = { ...base, result: 'notFound', suggest: suggest.length ? suggest : null };
+      }
     } catch (err) {
       status = { source: 'tcgdex', result: 'error', error: err instanceof SourceError || err instanceof Error ? err.message.slice(0, 300) : String(err), checkedAt };
     }

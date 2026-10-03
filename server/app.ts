@@ -309,6 +309,21 @@ export function createApp(o: AppOptions) {
     if (!q.success) throw new HttpError(400, 'Give the card name and number.');
     res.json({ matches: await o.details.lookup(q.data.name, q.data.number, q.data) });
   });
+  // "This is my card": one of several matches, or a name suggested for a card not found.
+  const chooseBody = z.object({ id: z.string().regex(/^[A-Za-z0-9._-]{1,80}$/) });
+  api.post('/cards/:id/details', need('editor'), json, async (req, res) => {
+    if (!o.details) throw new HttpError(503, 'Card lookups are turned off on this server.');
+    const id = idSchema.safeParse(req.params.id);
+    if (!id.success || !store.get('cards', id.data)) throw new HttpError(404, 'That card no longer exists.', 'not_found');
+    const body = chooseBody.safeParse(req.body);
+    if (!body.success) throw new HttpError(400, 'Give the TCGdex card id.');
+    const result = await o.details.fill(store, id.data, true, body.data.id);
+    const card = store.get('cards', id.data);
+    if (result === 'error') throw new HttpError(502, "The card database didn't answer. Try again.", 'upstream_error');
+    // Its set is known now, which helps find its price.
+    if (updater?.schedule().enabled && !updater.running) void updater.updateCard(id.data).catch(() => {});
+    res.json({ result, card });
+  });
   api.post('/cards/fill-details', need('editor'), heavy, (req, res) => {
     if (!o.autofill) throw new HttpError(503, 'Card lookups are turned off on this server.');
     const already = o.autofill.fillingAll;

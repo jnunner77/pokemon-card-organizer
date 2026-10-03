@@ -59,6 +59,28 @@ On a 122-card collection, Fill in missing details added 108 illustrators; the ca
 were from the *Trading Card Game Classic* box, a brand-new promo, and a misspelled name.
 Only English cards are looked up.
 
+## Cards to check
+
+Each night (and once after an update) every card is checked against TCGdex. A **To check** count
+in the summary bar opens the list, flagged pockets show a **!**, and the nightly report
+(`status.txt`) lists them so the *attention* alert fires until they're dealt with:
+
+- **Filed under another set**: the set it's filed under is one TCGdex knows, but the card's name
+  and number belong to another (Bill 118/130 filed under Base Set is from Base Set 2). One tap
+  files it under the right set, with your own label for that set when another card has one. Your
+  own naming (PBS, "Scarlet & Violet Base") is never flagged, and nor is a promo filed under the
+  set it came with.
+- **Name may be misspelled**: not found, but a card with that number has a close name in the same
+  set (Mega Eelktross EX → Mega Eelektross ex). One tap renames it, keeping how you write "EX";
+  its details, price and picture then fill in.
+- **Several cards match**: pick yours from pictures.
+- **Not in the card database**: TCGdex doesn't have it (Classic box cards, brand-new promos).
+  *Ignore* it if it's right; it comes back only if its name or number changes, and it's checked
+  again weekly in case TCGdex adds it.
+- **No certain price match**: open it and choose the product.
+
+Nothing is changed by itself: what you typed only changes when you tap a fix.
+
 ## Sort a binder by release date or price
 
 *Sort* (next to *Rename / edit binder*) puts every card of the binder in order, from page 1,
