@@ -31,14 +31,14 @@ Google's free tier includes 1 GB of outbound traffic a month. Card pictures are 
 
 On the VM (`gcloud compute ssh boards --zone=us-central1-a --tunnel-through-iap`):
 
-1. **Get the code and set a password.**
+1. **Get the code and set the first password.**
 
    ```bash
    cd ~
    git clone https://github.com/jnunner77/pokemon-card-organizer.git
    cd pokemon-card-organizer
    cp deploy/.env.example .env
-   nano .env        # set BINDER_PASSWORD (long), check TZ and PRICE_UPDATE_HOUR
+   nano .env        # set BINDER_PASSWORD (long; only used to create "admin"), check TZ
    ```
 
 2. **Start it on Boards' network** (Boards must be running):
@@ -48,29 +48,33 @@ On the VM (`gcloud compute ssh boards --zone=us-central1-a --tunnel-through-iap`
    docker compose ps    # binder should become "healthy"
    ```
 
-3. **Give it an address.** Add this block to the end of `~/agile-development-operations/deploy/Caddyfile`,
-   then reload Caddy with `cd ~/agile-development-operations && docker compose restart caddy`:
+3. **Give it an address.** Boards' Caddyfile serves `binder.{$DOMAIN}` once
+   [Boards PR #6](https://github.com/jnunner77/agile-development-operations/pull/6) is merged
+   (it adds the block below with Boards' protections: body limit, allowed methods, scanner
+   blocking, security headers). Then reload Caddy:
+   `cd ~/agile-development-operations && git pull && docker compose restart caddy`.
 
    ```
    binder.{$DOMAIN} {
-   	request_body {
-   		max_size 60MB
-   	}
-   	@compressible not path /api/events
-   	encode @compressible zstd gzip
+   	import protect
    	reverse_proxy binder:4100
-   	header {
-   		Strict-Transport-Security "max-age=63072000"
-   		X-Content-Type-Options "nosniff"
-   		-Server
-   	}
    }
    ```
 
-4. **Open `https://binder.nunner.duckdns.org`**, sign in, and load your collection:
-   **Settings → Restore from backup** (or **Restore from a backup** on the empty first page),
-   choosing the backup file exported from the artifact. Then **Settings → Update all prices now**
-   (about 5 minutes for 120 cards) or wait for the morning run.
+4. **Open `https://binder.nunner.duckdns.org` and sign in** as `admin` with the
+   `BINDER_PASSWORD` from step 1. Then, under **Settings → Administration**:
+   - **People:** add yourself as an administrator (and anyone else as editor or viewer), sign
+     in as yourself, and deactivate `admin` or give it a new password. Remove `BINDER_PASSWORD`
+     from `.env`; the **Overview** warns until it no longer works.
+   - **Overview:** every check should be *Passing* or a *Note*; anything else says what to do.
+
+   Load your collection with **Settings → Restore from backup** (or **Restore from a backup** on
+   the empty first page), choosing the backup file exported from the artifact. Then
+   **Administration → Prices → Update all prices now** (about 5 minutes for 120 cards), or wait
+   for the morning run.
+
+   *No `BINDER_PASSWORD`?* The first visit shows a setup form instead; it needs the one-time
+   code printed by `docker compose logs binder`.
 
 5. **Back it up nightly** (archives in `~/binder-backups`, newest 14 kept):
 
@@ -80,7 +84,8 @@ On the VM (`gcloud compute ssh boards --zone=us-central1-a --tunnel-through-iap`
 
 **Upgrading:** `cd ~/pokemon-card-organizer && git pull && docker compose -f docker-compose.yml -f deploy/with-boards.yml up -d --build`.
 
-**Logs:** `docker compose logs -f binder` (the daily update logs a line per problem).
+**Logs:** *Administration → Logs* (filter by level and category, download a day's file), or
+`docker compose logs -f binder`. Files are kept in the data volume under `logs/` for two weeks.
 
 ## On a server of its own
 
@@ -95,9 +100,11 @@ docker compose --profile caddy up -d --build
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `BINDER_PASSWORD` | _(required in Docker)_ | The ledger's password. Changing it signs every browser out. |
+| `BINDER_PASSWORD` | | Creates the first administrator, `admin`, on the very first start only |
+| `SECURITY_ALLOWLIST` | | Comma-separated IPs or IPv4 ranges never rate limited or blocked |
+| `AUTH` | | `off` turns sign-in off entirely: only for running on your own computer |
 | `TZ` | `America/Vancouver` | Time zone for "today" in the price log and for the daily run |
-| `PRICE_UPDATE_HOUR` | `5` | The daily update starts after this hour (it catches up if the server was off) |
-| `PRICE_UPDATES` | `on` | `off` turns automatic prices and images off |
+| `PRICE_UPDATE_HOUR` | `5` | Starting hour for the daily update (then set under Administration → Prices) |
+| `PRICE_UPDATES` | `on` | `off` starts with the daily update turned off (Administration → Prices turns it on) |
 | `DOMAIN` | | Host name, only with `--profile caddy` |
 | `BOARDS_NETWORK` | `agile-development-operations_default` | Boards' Docker network, only with `deploy/with-boards.yml` |

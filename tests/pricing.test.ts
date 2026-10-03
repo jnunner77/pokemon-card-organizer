@@ -5,11 +5,12 @@ import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../server/app';
 import { Assets } from '../server/assets';
-import { Auth } from '../server/auth';
 import { chooseMatch, searchQuery } from '../server/pricing/match';
-import { type Candidate, type Fetcher, parsePriceChartingProduct, parsePriceChartingSearch, parseTcgplayerSearch, pickTcgPrice } from '../server/pricing/sources';
+import { type Candidate, type Fetcher, retryPolicy, parsePriceChartingProduct, parsePriceChartingSearch, parseTcgplayerSearch, pickTcgPrice } from '../server/pricing/sources';
 import { PriceUpdater } from '../server/pricing/updater';
 import { Store } from '../server/store';
+
+retryPolicy.baseMs = 1; // retries happen at once in tests
 
 const fixture = (f: string) => fs.readFileSync(path.join(__dirname, 'fixtures', f), 'utf8');
 const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('a card image')]);
@@ -211,7 +212,7 @@ describe('the daily update', () => {
   });
 });
 
-describe('pricing and sign-in over HTTP', () => {
+describe('pricing over HTTP', () => {
   let dir: string;
   let store: Store;
   let assets: Assets;
@@ -237,29 +238,4 @@ describe('pricing and sign-in over HTTP', () => {
     await request(createApp({ store, assets })).post('/api/pricing/run').expect(503);
   });
 
-  it('requires the password when one is set', async () => {
-    const auth = new Auth(dir, 'binder pass');
-    const app = createApp({ store, assets, auth, publicDir: path.join(__dirname, '../public') });
-    await request(app).get('/api/data').expect(401);
-    await request(app).get('/blob/' + 'a'.repeat(32)).expect(401);
-    expect((await request(app).get('/').expect(302)).headers.location).toBe('login.html');
-    await request(app).get('/login.html').expect(200);
-    await request(app).get('/api/health').expect(200);
-    await request(app).post('/api/login').send({ password: 'nope' }).expect(401);
-    const agent = request.agent(app);
-    await agent.post('/api/login').send({ password: 'binder pass' }).expect(200);
-    await agent.get('/api/data').expect(200);
-    await agent.get('/').expect(200);
-    expect((await agent.get('/api/session')).body).toEqual({ required: true, signedIn: true });
-    // A new password signs every browser out.
-    const app2 = createApp({ store, assets, auth: new Auth(dir, 'new pass') });
-    const cookie = (await request(app).post('/api/login').send({ password: 'binder pass' })).headers['set-cookie'];
-    await request(app2).get('/api/data').set('Cookie', cookie).expect(401);
-  });
-
-  it('slows down password guessing', async () => {
-    const app = createApp({ store, assets, auth: new Auth(dir, 'secret') });
-    for (let i = 0; i < 10; i++) await request(app).post('/api/login').send({ password: 'guess' + i }).expect(401);
-    await request(app).post('/api/login').send({ password: 'secret' }).expect(429);
-  });
 });

@@ -36,21 +36,39 @@ const TIMEOUT_MS = 20_000;
 
 export class SourceError extends Error {}
 
-/** fetch with a timeout, an honest user agent and one retry when the site is busy. */
+/**
+ * How often a busy or unreachable site is retried: after baseMs, then twice as long each time
+ * (2 s, 4 s …), with a little random spread, or as long as the site's Retry-After asks (up to maxMs).
+ */
+export const retryPolicy = { attempts: 3, baseMs: 2000, maxMs: 60_000 };
+
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+function backoff(attempt: number, retryAfter: string | null) {
+  const asked = retryAfter && /^\d+$/.test(retryAfter) ? Number(retryAfter) * 1000 : 0;
+  const ms = asked || retryPolicy.baseMs * 2 ** attempt;
+  return Math.min(retryPolicy.maxMs, ms) * (1 + Math.random() * 0.25);
+}
+
+/** fetch with a timeout, an honest user agent, and retries with exponential backoff when the site is busy. */
 export async function get(fetcher: Fetcher, url: string, init: RequestInit = {}): Promise<Response> {
+  const host = new URL(url).host;
   for (let attempt = 0; ; attempt++) {
+    const last = attempt >= retryPolicy.attempts - 1;
     let res: Response;
     try {
       res = await fetcher(url, { ...init, headers: { 'User-Agent': UA, ...(init.headers ?? {}) }, signal: AbortSignal.timeout(TIMEOUT_MS) });
     } catch (err) {
-      if (attempt < 1) continue;
-      throw new SourceError(`Couldn't reach ${new URL(url).host}: ${err instanceof Error ? err.message : err}`);
+      if (!last) {
+        await pause(backoff(attempt, null));
+        continue;
+      }
+      throw new SourceError(`Couldn't reach ${host}: ${err instanceof Error ? err.message : err}`);
     }
-    if ((res.status === 429 || res.status >= 500) && attempt < 1) {
-      await new Promise((r) => setTimeout(r, 5000));
+    if ((res.status === 429 || res.status >= 500) && !last) {
+      await pause(backoff(attempt, res.headers.get('retry-after')));
       continue;
     }
-    if (!res.ok) throw new SourceError(`${new URL(url).host} answered ${res.status}`);
+    if (!res.ok) throw new SourceError(`${host} answered ${res.status}`);
     return res;
   }
 }

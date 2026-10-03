@@ -24,11 +24,16 @@ export function sniffImage(buf: Buffer): ImageType | null {
   return null;
 }
 
+/** Days a deleted photo is kept: longer than the oldest (monthly) copy of the ledger. */
+export const TRASH_DAYS = 400;
+
 export class Assets {
   readonly dir: string;
+  readonly trash: string;
 
   constructor(dataDir: string) {
     this.dir = path.join(dataDir, 'assets');
+    this.trash = path.join(this.dir, '.trash');
     fs.mkdirSync(this.dir, { recursive: true });
   }
 
@@ -53,10 +58,50 @@ export class Assets {
     return null;
   }
 
+  /**
+   * Move a photo to the trash folder. It stays there for TRASH_DAYS, longer than the daily
+   * copies of the ledger are kept, so restoring a copy can bring it back.
+   */
   remove(id: string) {
     const hit = this.find(id);
-    if (hit) fs.rmSync(hit.file);
-    return !!hit;
+    if (!hit) return false;
+    fs.mkdirSync(this.trash, { recursive: true });
+    const dest = path.join(this.trash, path.basename(hit.file));
+    fs.renameSync(hit.file, dest);
+    const now = new Date();
+    fs.utimesSync(dest, now, now);
+    return true;
+  }
+
+  /** Bring a photo back from the trash. */
+  untrash(id: string) {
+    if (!assetIdSchema.test(id) || !fs.existsSync(this.trash)) return false;
+    const f = fs.readdirSync(this.trash).find((n) => n.startsWith(id + '.'));
+    if (!f) return false;
+    fs.renameSync(path.join(this.trash, f), path.join(this.dir, f));
+    return true;
+  }
+
+  /** Delete trashed photos older than TRASH_DAYS. */
+  purgeTrash(now = Date.now()) {
+    if (!fs.existsSync(this.trash)) return 0;
+    let n = 0;
+    for (const f of fs.readdirSync(this.trash)) {
+      const p = path.join(this.trash, f);
+      if (now - fs.statSync(p).mtimeMs > TRASH_DAYS * 86_400_000) {
+        fs.rmSync(p, { force: true });
+        n++;
+      }
+    }
+    return n;
+  }
+
+  /** Files and bytes in use, for the Checks page. */
+  usage() {
+    let bytes = 0;
+    const ids = this.list();
+    for (const id of ids) bytes += fs.statSync(this.find(id)!.file).size;
+    return { photos: ids.length, bytes, trashed: fs.existsSync(this.trash) ? fs.readdirSync(this.trash).length : 0 };
   }
 
   list(): string[] {

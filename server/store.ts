@@ -21,9 +21,6 @@ export type Event = { type: 'change'; change: Change } | { type: 'reset' };
 
 const emptyData = (): Data => ({ binders: {}, cards: {}, settings: {} });
 
-/** Daily copies of db.json kept in <data>/backups, oldest dropped first. */
-const DAILY_BACKUPS = 14;
-
 export class NotFound extends Error {}
 
 export class Store {
@@ -31,6 +28,8 @@ export class Store {
   readonly backupDir: string;
   private data: Data;
   private readonly listeners = new Set<(e: Event) => void>();
+  /** Called after a new daily copy is taken (the backups module applies retention). */
+  onDailyCopy: (() => void) | null = null;
 
   constructor(readonly dataDir: string) {
     fs.mkdirSync(dataDir, { recursive: true });
@@ -118,17 +117,13 @@ export class Store {
     fs.renameSync(tmp, this.file);
   }
 
-  /** First change of each day: keep yesterday's file so a bad edit can be undone by hand. */
+  /** First change of each day: keep the ledger as it was, so a bad edit can be undone. */
   private dailyCopy() {
     if (!fs.existsSync(this.file)) return;
     const name = `db-${new Date().toISOString().slice(0, 10)}.json`;
     if (fs.existsSync(path.join(this.backupDir, name))) return;
     this.keepCopy(name.slice(3, -5));
-    const daily = fs
-      .readdirSync(this.backupDir)
-      .filter((f) => /^db-\d{4}-\d{2}-\d{2}\.json$/.test(f))
-      .sort();
-    for (const f of daily.slice(0, Math.max(0, daily.length - DAILY_BACKUPS))) fs.rmSync(path.join(this.backupDir, f));
+    this.onDailyCopy?.();
   }
 
   private keepCopy(label: string) {

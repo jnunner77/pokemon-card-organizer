@@ -80,6 +80,7 @@ function writeErr(e){
   const code = e && e.code;
   if(code==="quota_exceeded") return toast("The ledger is full. Delete some cards to add more.");
   if(code==="invalid_argument") return toast(`That change wasn't saved${e.message?`: ${e.message}`:"."}`);
+  if(code==="forbidden") return toast(e.message || "You have view-only access.");
   if(code==="revoked"||code==="not_granted") return toast("Saving isn't available in this view.");
   toast("Couldn't save. Check your connection and try again.");
   console.error(e);
@@ -94,6 +95,7 @@ function renderBanner(){
   const el = $("#banner");
   if(S.mode==="loading") el.innerHTML = `<div class="banner">Opening your binders…</div>`;
   else if(S.mode==="nodb") el.innerHTML = `<div class="banner" data-kind="warn">Can't reach the ledger's server, so nothing you enter here will be kept. Check your connection and reload the page.</div>`;
+  else if(S.me?.user?.role==="viewer") el.innerHTML = `<div class="banner">You have view-only access. Ask an administrator if you need to make changes.</div>`;
   else el.innerHTML = "";
 }
 function renderTabs(){
@@ -159,7 +161,7 @@ function renderMainInner(){
   if(S.view==="list") return renderList(m);
   const b = curBinder();
   if(S.binderId==="__loose"){ S.view="list"; return renderList(m); }
-  if(!b){ m.innerHTML = `<div class="empty-state"><p>No binders yet.</p><p style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center"><button class="btn primary" type="button" id="btnFirstBinder">Create your first binder</button>${S.cards.length?"":`<button class="btn" type="button" id="btnFirstRestore">Restore from a backup</button>`}</p></div>`; return; }
+  if(!b){ m.innerHTML = `<div class="empty-state"><p>No binders yet.</p><p style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center"><button class="btn primary" type="button" id="btnFirstBinder">Create your first binder</button>${S.cards.length || (S.me?.user && S.me.user.role!=="admin")?"":`<button class="btn" type="button" id="btnFirstRestore">Restore from a backup</button>`}</p></div>`; return; }
   const n = pocketsOf(b), cols = POCKETS[n].cols, mp = maxPage(b.id);
   S.page = Math.min(Math.max(1, S.page|0), mp+1);
   let cells = ""; S.shown = cardsIn(b.id).filter(c=>c.page===S.page).map(c=>c.id);
@@ -856,19 +858,19 @@ function settingsModal(){
     <div class="sec" style="margin-top:18px;border-top:1px solid var(--line-2);padding-top:14px">
       <h3>Backups</h3>
       <p class="hint" style="margin:0 0 10px">A full backup is one file with every binder, card, price and photo. Keep one somewhere safe, or use it to move the ledger to another server.</p>
-      <div class="links"><button class="btn sm" type="button" id="sBackup">Download full backup</button><span class="btn sm filebtn">Restore from backup…<input id="sRestore" type="file" accept=".json,application/json" aria-label="Restore from backup"></span></div>
+      <div class="links"><button class="btn sm" type="button" id="sBackup">Download full backup</button>${!S.me?.user || S.me.user.role==="admin"?`<span class="btn sm filebtn">Restore from backup…<input id="sRestore" type="file" accept=".json,application/json" aria-label="Restore from backup"></span>`:""}</div>
       <div id="sRestoreZone" style="margin-top:10px"></div>
     </div>
     ${pricingSettingsHTML()}
-    ${S.session?.required?`<div class="mfoot" style="justify-content:flex-start;border-top:1px solid var(--line-2);padding-top:14px"><button class="btn sm" type="button" id="sSignOut">Sign out</button></div>`:""}
+    ${S.me?.user?`<div class="mfoot" style="justify-content:space-between;align-items:center;border-top:1px solid var(--line-2);padding-top:14px"><span class="hint">Signed in as <b>${esc(S.me.user.name)}</b> (${esc(S.me.user.username)}, ${esc(S.me.user.role)})</span><span style="display:flex;gap:8px">${S.me.user.role==="admin"?`<a class="btn sm" href="admin.html">Administration</a>`:""}${S.me.authEnabled?`<button class="btn sm" type="button" id="sSignOut">Sign out</button>`:""}</span></div>`:""}
     </div></div>`;
   $("#sSave").onclick = async () => {
     const r = parseFloat($("#s_rate").value); if(!(r>0)) return toast("Enter a rate like 1.37.");
     if(await guard(()=> S.db.doc("settings/main").set({...S.settings, usdToCad:r}))){ closeModal(); toast("Rate saved"); }
   };
   $("#sBackup").onclick = () => window.ledgerBackup?.download();
-  const signOut = $("#sSignOut"); if(signOut) signOut.onclick = async () => { try{ await window.ledgerApi.call("POST","api/logout"); }catch(_){} location.replace("login.html"); };
-  $("#sRestore").onchange = e => {
+  const signOut = $("#sSignOut"); if(signOut) signOut.onclick = async () => { try{ await window.ledgerApi.call("POST","api/auth/logout"); }catch(_){} location.replace("login.html"); };
+  if($("#sRestore")) $("#sRestore").onchange = e => {
     const f = e.target.files && e.target.files[0]; e.target.value = ""; if(!f) return;
     const zone = $("#sRestoreZone");
     zone.innerHTML = `<span class="confirm">${nc||nb?`Replace your ${nb} binder${nb===1?"":"s"} and ${nc} card${nc===1?"":"s"} with ${esc(f.name)}? The current ledger is kept on the server, in its backups folder.`:`Restore ${esc(f.name)}?`} <button class="btn sm danger solid" type="button" id="sRestoreYes">Restore</button><button class="btn sm" type="button" id="sRestoreNo">Cancel</button></span>`;
@@ -1679,7 +1681,7 @@ async function boot(){
     window.claude?.use?.("db") ?? null, window.claude?.use?.("assets") ?? null, window.claude?.use?.("downloads") ?? null
   ].map(p => Promise.resolve(p).catch(()=>null)));
   S.db=db; S.assets=assets; S.downloads=downloads;
-  window.ledgerApi?.call("GET","api/session").then(r=>{ S.session=r; }, ()=>{});
+  window.ledgerApi?.call("GET","api/auth/me").then(r=>{ S.me=r; renderBanner(); }, ()=>{});
   if(!db){ S.mode="nodb"; pickDefaults(); render(); return; }
   const done = () => { if(got.b && got.c && S.mode==="loading"){ S.mode="ready"; } pickDefaults(); render(); };
   const onErr = e => { console.error(e); if(e?.code==="revoked"||e?.code==="not_granted"){ S.mode="nodb"; render(); } };
