@@ -27,6 +27,27 @@ export interface Quote {
   usd: number | null;
   /** Largest available image of the card. */
   image: string | null;
+  /** What the product page says about the card, for filling in its details (updater.ts). */
+  info?: ProductInfo | null;
+}
+
+/** A product's set, release date (YYYY-MM-DD) and rarity, as the price site lists them. */
+export interface ProductInfo {
+  set: string | null;
+  released: string | null;
+  rarity: string | null;
+}
+
+const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+/** "December 1, 2023" → "2023-12-01"; "2023-11-17T00:00:00Z" → "2023-11-17"; anything else → null. */
+export function releaseDate(s: unknown): string | null {
+  const t = String(s ?? '').trim();
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(t);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const m = /^([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})$/.exec(t);
+  const month = m ? MONTHS.indexOf(m[1].toLowerCase()) : -1;
+  if (!m || month < 0) return null;
+  return `${m[3]}-${String(month + 1).padStart(2, '0')}-${m[2].padStart(2, '0')}`;
 }
 
 export type Fetcher = (url: string, init?: RequestInit) => Promise<Response>;
@@ -105,7 +126,8 @@ export function parsePriceChartingProduct(html: string, path: string): Candidate
   const { name, number } = splitTitle(decode(h1[1].replace(/<a[\s\S]*<\/a>/, '')));
   const usd = money(html.match(/id="used_price"[\s\S]*?<span class="price js-price">([\s\S]*?)<\/span>/)?.[1]);
   const img = html.match(/id="product_details"[\s\S]*?<img src='([^']+)'/)?.[1] ?? html.match(/<img[^>]+src=['"](https:\/\/storage\.googleapis\.com\/images\.pricecharting\.com\/[^'"]+)['"]/)?.[1];
-  return { source: 'pricecharting', id: path, url: PC + path, title: name, set, number, usd, thumb: pcImage(img, 240), image: pcImage(img, 1600) };
+  const released = releaseDate(decode(html.match(/itemprop="datePublished"[^>]*>([\s\S]*?)<\/td>/)?.[1] ?? ''));
+  return { source: 'pricecharting', id: path, url: PC + path, title: name, set, number, usd, thumb: pcImage(img, 240), image: pcImage(img, 1600), info: { set: set || null, released, rarity: null } };
 }
 
 export function parsePriceChartingSearch(html: string): Candidate[] {
@@ -136,7 +158,7 @@ export async function quotePriceCharting(fetcher: Fetcher, path: string): Promis
   if (!/^\/game\/[^/?#\s]+\/[^/?#\s]+$/.test(path)) throw new SourceError(`Not a PriceCharting product path: ${path}`);
   const res = await get(fetcher, PC + path);
   const p = parsePriceChartingProduct(await res.text(), path);
-  return { usd: p.usd, image: p.image };
+  return { usd: p.usd, image: p.image, info: p.info };
 }
 
 // ---- TCGplayer --------------------------------------------------------------------
@@ -203,8 +225,24 @@ export function pickTcgPrice(points: unknown, foil: boolean, strict = false): nu
 
 export async function quoteTcgplayer(fetcher: Fetcher, id: string, foil: boolean, strict = false): Promise<Quote> {
   if (!/^\d{1,10}$/.test(id)) throw new SourceError(`Not a TCGplayer product id: ${id}`);
-  const res = await get(fetcher, `https://mpapi.tcgplayer.com/v2/product/${id}/pricepoints`);
-  return { usd: pickTcgPrice(await res.json(), foil, strict), image: tcgImage(id, 1000) };
+  const [res, info] = await Promise.all([get(fetcher, `https://mpapi.tcgplayer.com/v2/product/${id}/pricepoints`), tcgplayerInfo(fetcher, id)]);
+  return { usd: pickTcgPrice(await res.json(), foil, strict), image: tcgImage(id, 1000), info };
+}
+
+/** A TCGplayer product's set, release date and rarity. Missing details never fail a price update. */
+export function parseTcgplayerDetails(json: unknown): ProductInfo | null {
+  const d = json as { setName?: unknown; rarityName?: unknown; customAttributes?: { releaseDate?: unknown } } | null;
+  if (!d || typeof d.setName !== 'string') return null;
+  const rarity = typeof d.rarityName === 'string' && d.rarityName.trim() ? d.rarityName.trim() : null;
+  return { set: d.setName.trim() || null, released: releaseDate(d.customAttributes?.releaseDate), rarity };
+}
+async function tcgplayerInfo(fetcher: Fetcher, id: string): Promise<ProductInfo | null> {
+  try {
+    const res = await get(fetcher, `https://mp-search-api.tcgplayer.com/v1/product/${id}/details`);
+    return parseTcgplayerDetails(await res.json());
+  } catch {
+    return null;
+  }
 }
 
 // ---- Exchange rate ----------------------------------------------------------------

@@ -949,7 +949,7 @@ function cardChecks(c){
     if(d.filedUnder && normLabel(c.set)===normLabel(d.filedUnder.as)) out.push({k:"set", title:"Filed under the wrong set", text:`Filed under ${d.filedUnder.name}, but ${c.name} ${c.number} is from ${d.set}${c.released?` (${c.released.slice(0,4)})`:""}.`});
     else if(d.result==="notFound" && d.suggest?.length) out.push({k:"name", title:"Name may be misspelled", text:`Not in the card database. Did you mean ${d.suggest.map(x=>x.name).join(" or ")}?`});
     else if(d.result==="several") out.push({k:"several", title:"Several cards match", text:`${(d.options||[]).length || "Several"} cards are ${c.name} ${c.number}. Which one is yours?`});
-    else if(d.result==="notFound") out.push({k:"missing", title:"Not in the card database", text:"TCGdex doesn't have it. Check the name and number, or ignore it if it's right (brand-new and some box-set cards aren't listed; it's checked again weekly)."});
+    else if(d.result==="notFound" && !pricedFromProduct(c)) out.push({k:"missing", title:"Not in the card database", text:"TCGdex doesn't have it. Check the name and number, or ignore it if it's right (brand-new and some box-set cards aren't listed; it's checked again weekly)."});
   }
   const p = c.pricing;
   if(p && c.status!=="sold" && c.status!=="traded"){
@@ -959,6 +959,8 @@ function cardChecks(c){
   return out;
 }
 const checkCount = () => S.cards.filter(c=>cardChecks(c).length).length;
+/* linked to a product on a price site: that confirms its name and number, and fills its set and release date */
+function pricedFromProduct(c){ const p = c.pricing; return !!p && (p.source==="pricecharting" || p.source==="tcgplayer") && !!p.id; }
 /* the person's own label for a set: another card matched to it (Pokemon Base Set 2 · PBS), else TCGdex's */
 function labelForSet(c){
   const d = c.details, mine = S.cards.find(x => x.id!==c.id && x.details?.setId===d.setId && x.set && !(x.details?.filedUnder && normLabel(x.set)===normLabel(x.details.filedUnder.as)));

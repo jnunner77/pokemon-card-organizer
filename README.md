@@ -79,7 +79,17 @@ in the summary bar opens the list, flagged pockets show a **!**, and the nightly
   again weekly in case TCGdex adds it.
 - **No certain price match**: open it and choose the product.
 
-Nothing is changed by itself: what you typed only changes when you tap a fix.
+Nothing is changed by itself: what you typed only changes when you tap a fix. A card TCGdex
+doesn't have, but that a price site matched (for certain, or as you chose), isn't flagged: the
+price site confirms its name and number.
+
+### Details from the price match
+
+Every price update also reads the product the card is priced from: PriceCharting's set and release
+date, or TCGplayer's set, release date and rarity. They fill the card's empty fields, after TCGdex
+has filled what it knows (so Classic box cards and new promos get a set and a release date too).
+When you chose the product yourself and the card is filed under a different set, the card takes
+the product's set: you said that product is your card.
 
 ## Sort a binder by release date or price
 

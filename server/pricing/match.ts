@@ -1,4 +1,5 @@
-import type { Candidate } from './sources';
+import { mapRarity } from '../details';
+import type { Candidate, ProductInfo } from './sources';
 
 // Deciding which product on a price site is the card in the binder. A card is linked
 // automatically only when exactly one English product has the same number, the same name
@@ -85,6 +86,24 @@ function setMatches(card: CardForMatch, candidateSet: string): number {
   const within = (x: string[], y: string[]) => x.every((w) => y.some((v) => nearly(w, v)));
   if (a.length && b.length && (within(a, b) || within(b, a))) return 2;
   return 0;
+}
+
+const blank = (v: unknown) => v == null || String(v).trim() === '';
+
+/**
+ * What a card takes from the product its price comes from: its empty set, release date and
+ * rarity. When the person chose the product and the card is filed under a different set, the
+ * product's set wins: they said this product is their card. An automatic match already agrees
+ * with the card's set, so it only fills blanks. (TCGdex details come first: they fill blanks before
+ * the price update runs.)
+ */
+export function detailsFromProduct(card: CardForMatch & { released?: unknown; rarity?: unknown }, info: ProductInfo, chosen: boolean): { patch: Record<string, string>; filled: string[] } {
+  const patch: Record<string, string> = {};
+  if (info.set && (blank(card.set) || (chosen && setMatches(card, info.set) === 0))) patch.set = info.set;
+  if (info.released && blank(card.released)) patch.released = info.released;
+  const rarity = mapRarity(info.rarity);
+  if (rarity && blank(card.rarity)) patch.rarity = rarity;
+  return { patch, filled: Object.keys(patch) };
 }
 
 export interface MatchResult {
