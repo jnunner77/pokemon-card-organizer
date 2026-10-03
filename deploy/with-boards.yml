@@ -1,0 +1,12 @@
+# Run next to Boards (github.com/jnunner77/agile-development-operations) on the same server:
+# joins Boards' Docker network so its Caddy can reach this app as binder:4100.
+#   docker compose -f docker-compose.yml -f deploy/with-boards.yml up -d --build
+services:
+  binder:
+    networks: [default, boards]
+
+networks:
+  boards:
+    external: true
+    # Docker names it after the folder Boards was cloned into.
+    name: ${BOARDS_NETWORK:-agile-development-operations_default}

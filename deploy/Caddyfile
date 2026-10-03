@@ -1,0 +1,14 @@
+# HTTPS for a server that runs only this app (docker compose --profile caddy).
+{$DOMAIN} {
+	request_body {
+		max_size 60MB
+	}
+	# Live updates must reach browsers unbuffered.
+	@compressible not path /api/events
+	encode @compressible zstd gzip
+	reverse_proxy binder:4100
+	header {
+		Strict-Transport-Security "max-age=63072000"
+		-Server
+	}
+}

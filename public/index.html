@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#E8ECF0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0D1217" media="(prefers-color-scheme: dark)">
+<title>Pokémon Binder Ledger</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="fonts/archivo/wdth.css">
+<link rel="stylesheet" href="fonts/jetbrains-mono/latin-400.css">
+<link rel="stylesheet" href="fonts/jetbrains-mono/latin-600.css">
+<link rel="stylesheet" href="styles.css">
+<script src="runtime.js" defer></script>
+<script src="app.js" defer></script>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <div>
+        <h1>Pokémon Binder Ledger</h1>
+        <p>Every pocket, what's in it, and what it's worth. Prices in <span id="curLabel">CAD</span>.</p>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn" id="btnImport" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h3l2-3h6l2 3h3v13H4z"/><circle cx="12" cy="13" r="4"/></svg>Import page photo</button>
+      <button class="btn" id="btnCsvImport" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15V3m0 0-4 4m4-4 4 4M4 17v3h16v-3"/></svg>Import CSV</button>
+      <button class="btn" id="btnExport" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v3h16v-3"/></svg>Export CSV</button>
+      <button class="btn ghost" id="btnSettings" type="button" aria-label="Settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</button>
+    </div>
+  </header>
+  <div id="banner"></div>
+  <nav class="tabs" id="tabs" role="tablist" aria-label="Binders"></nav>
+  <section class="sheet" id="sheet">
+    <div class="sheet-head">
+      <div class="stats" id="stats"></div>
+      <div class="head-right">
+        <div class="seg" role="group" aria-label="View">
+          <button type="button" id="vPages" aria-pressed="true">Pages</button>
+          <button type="button" id="vList" aria-pressed="false">List</button>
+        </div>
+        <button class="btn" id="btnPhotos" type="button" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>Photos <span class="cnt"></span></button>
+        <button class="btn ghost" id="btnBinderSettings" type="button">Rename / edit binder</button>
+        <button class="btn primary" id="btnAdd" type="button">+ Add card</button>
+      </div>
+    </div>
+    <div id="main"></div>
+  </section>
+</div>
+<div id="drawerRoot"></div>
+<div id="modalRoot"></div>
+<div id="lbRoot"></div>
+<div id="toastRoot"></div>
+</body>
+</html>

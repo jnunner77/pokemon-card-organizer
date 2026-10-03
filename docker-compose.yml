@@ -1,0 +1,70 @@
+# Pokémon Binder Ledger. Configure it with a .env file next to this one (see deploy/.env.example).
+#
+# Next to Boards on the same server (recommended, see deploy/README.md):
+#   docker compose -f docker-compose.yml -f deploy/with-boards.yml up -d --build
+# On a server of its own, with Caddy for HTTPS:
+#   docker compose --profile caddy up -d --build
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  binder:
+    build: .
+    restart: unless-stopped
+    init: true
+    environment:
+      TRUST_PROXY: "1"
+      BINDER_PASSWORD: ${BINDER_PASSWORD:?Set BINDER_PASSWORD in .env}
+      TZ: ${TZ:-America/Vancouver}
+      PRICE_UPDATE_HOUR: ${PRICE_UPDATE_HOUR:-5}
+      PRICE_UPDATES: ${PRICE_UPDATES:-on}
+    volumes:
+      - binder-data:/data
+    expose:
+      - "4100"
+    # Read-only apart from /data and a small /tmp, no Linux capabilities, capped memory.
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 100
+    # Room to read a large backup during a restore.
+    mem_limit: 384m
+    logging: *logging
+
+  # HTTPS for a server that runs only this app. Not used next to Boards, whose Caddy serves it.
+  caddy:
+    profiles: ["caddy"]
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      binder:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    logging: *logging
+
+volumes:
+  binder-data:
+  caddy-data:
+  caddy-config:
