@@ -76,13 +76,22 @@ On the VM (`gcloud compute ssh boards --zone=us-central1-a --tunnel-through-iap`
    *No `BINDER_PASSWORD`?* The first visit shows a setup form instead; it needs the one-time
    code printed by `docker compose logs binder`.
 
-5. **Back it up nightly** (archives in `~/binder-backups`, newest 14 kept):
+5. **Let the server look after it.** Set up Boards'
+   [`deploy/ops`](https://github.com/jnunner77/agile-development-operations/blob/main/deploy/ops/README.md)
+   once. Every night it backs up the ledger to `~/binder-backups` and copies the archive to
+   Cloud Storage, which turns the Overview's *Copy off the server* check green. It also updates
+   the ledger when `main` changes, rolling back a version that doesn't come up healthy, and
+   checks the site. It reads this app's checks from `status.txt` in the data volume, which the
+   app writes every five minutes, and emails you through healthchecks.io when a check fails or a
+   card needs a match.
+
+   Without it, back up nightly from cron (archives in `~/binder-backups`, newest 14 kept):
 
    ```bash
    ( crontab -l; echo "0 3 * * * cd $HOME/pokemon-card-organizer && deploy/backup.sh >> $HOME/binder-backup.log 2>&1" ) | crontab -
    ```
 
-**Upgrading:** `cd ~/pokemon-card-organizer && git pull && docker compose -f docker-compose.yml -f deploy/with-boards.yml up -d --build`.
+**Upgrading** (Boards' `deploy/ops` does this every night): `cd ~/pokemon-card-organizer && git pull && docker compose -f docker-compose.yml -f deploy/with-boards.yml up -d --build`.
 
 **Logs:** *Administration → Logs* (filter by level and category, download a day's file), or
 `docker compose logs -f binder`. Files are kept in the data volume under `logs/` for two weeks.
