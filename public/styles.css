@@ -356,7 +356,8 @@ tbody tr.sel{background:var(--accent-soft)}
 .signin{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px 0}
 .signin h1{margin:0 0 4px;font-size:24px;font-weight:800;font-stretch:78%}
 .signin .field{margin-top:6px}
-.signin #msg{color:var(--bad);min-height:1.2em;margin:8px 0 0}
+.signin .msg{color:var(--bad);min-height:1.2em;margin:8px 0 0}
+.signin code{font-family:var(--f-mono);font-size:12px;background:var(--surface-2);padding:1px 5px;border-radius:4px}
 
 /* automatic prices */
 .statbtn{border:none;background:none;padding:0;text-align:left;cursor:pointer;color:inherit;font:inherit}
@@ -386,3 +387,46 @@ tbody tr.sel{background:var(--accent-soft)}
 .autolog .plog{border:none;border-top:1px solid var(--line-2);border-radius:0 0 8px 8px}
 .errs{margin:0;padding:6px 10px 10px 26px;font-size:12px;color:var(--ink-2)}
 #photoSec .seg{margin-bottom:2px}
+
+/* administration */
+.admin .brand p a{color:var(--info);text-decoration:none;font-weight:600}
+.admintabs .tab{text-decoration:none}
+.adminsheet{padding:6px 0 18px;min-height:240px}
+.adminsheet h3{margin:16px 0 8px;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);font-weight:700}
+.pad{padding-inline:16px}
+.adminhead{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 20px;padding:12px 16px;border-bottom:1px solid var(--line-2)}
+.adminhead .v.neg{color:var(--bad)}.adminhead .v.pos{color:var(--good)}
+.checkgroup{padding:0 16px}
+.checks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.check{display:grid;grid-template-columns:132px minmax(0,1fr);gap:10px;align-items:start;border:1px solid var(--line-2);border-radius:8px;padding:9px 12px}
+.check b{font-size:13.5px}
+.check p{margin:2px 0 0;font-size:12.5px;color:var(--ink-2)}
+.check .fix{color:var(--ink);font-weight:600}
+.check .chip{justify-self:start}
+.chip.st-pass{background:var(--good-soft);color:var(--good)}
+.chip.st-warn{background:var(--warn-soft);color:var(--warn)}
+.chip.st-fail{background:var(--bad-soft);color:var(--bad)}
+.chip.st-info{background:var(--info-soft);color:var(--info)}
+.adminform{margin:14px 16px 0;border:1px solid var(--line-2);border-radius:10px;padding:12px 14px}
+.adminform h3{margin-top:0}
+.adminform .form{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.adminform .field .hint{font-size:11.5px}
+.check-inline{display:flex;gap:8px;align-items:center;margin-top:10px;font-size:13px}
+.acts{white-space:nowrap}
+.acts .btn{margin:2px 2px 2px 0}
+.adminsheet tbody tr{cursor:default}
+.adminsheet tbody tr:hover{background:transparent}
+.adminsheet td select{border:1px solid var(--line);border-radius:6px;background:var(--surface-2);padding:4px 6px}
+.tokenrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+.tokenrow input{flex:1 1 220px;border:1px solid var(--line);border-radius:7px;background:var(--surface-2);padding:7px 9px}
+.tokenrow code{overflow-wrap:anywhere;font-size:12px}
+.agent{max-width:280px;font-size:11.5px;color:var(--ink-3);overflow-wrap:anywhere}
+.events{list-style:none;margin:0;padding:0 16px;display:flex;flex-direction:column;gap:6px;font-size:12.5px}
+.events .mono{color:var(--ink-3);font-size:11.5px}
+.errrow td{font-size:12px;color:var(--ink-2);background:var(--surface-2)}
+.logtable td{vertical-align:top;font-size:12.5px}
+.logtable pre{margin:4px 0 0;font-family:var(--f-mono);font-size:11px;white-space:pre-wrap;overflow-wrap:anywhere;max-width:70ch}
+.logtable details summary{cursor:pointer;color:var(--ink-3);font-size:11.5px}
+.nowrap{white-space:nowrap}
+#logForm select{border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:6px 8px}
+@media (max-width:640px){.check{grid-template-columns:1fr}.adminform{margin-inline:10px}.checkgroup,.pad,.events{padding-inline:10px}}

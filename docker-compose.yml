@@ -18,7 +18,9 @@ services:
     init: true
     environment:
       TRUST_PROXY: "1"
-      BINDER_PASSWORD: ${BINDER_PASSWORD:?Set BINDER_PASSWORD in .env}
+      # Only used on the very first start, to create the "admin" account (see deploy/README.md).
+      BINDER_PASSWORD: ${BINDER_PASSWORD:-}
+      SECURITY_ALLOWLIST: ${SECURITY_ALLOWLIST:-}
       TZ: ${TZ:-America/Vancouver}
       PRICE_UPDATE_HOUR: ${PRICE_UPDATE_HOUR:-5}
       PRICE_UPDATES: ${PRICE_UPDATES:-on}

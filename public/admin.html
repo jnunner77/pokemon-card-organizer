@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Administration · Pokémon Binder Ledger</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="fonts/archivo/wdth.css">
+<link rel="stylesheet" href="fonts/jetbrains-mono/latin-400.css">
+<link rel="stylesheet" href="fonts/jetbrains-mono/latin-600.css">
+<link rel="stylesheet" href="styles.css">
+<script src="admin.js" defer></script>
+</head>
+<body>
+<div class="app admin">
+  <header class="top">
+    <div class="brand"><div>
+      <h1>Administration</h1>
+      <p><a href="./">← Back to the ledger</a> · <span id="who"></span></p>
+    </div></div>
+  </header>
+  <nav class="tabs admintabs" role="tablist" aria-label="Administration">
+    <a class="tab" role="tab" href="#overview">Overview</a>
+    <a class="tab" role="tab" href="#people">People</a>
+    <a class="tab" role="tab" href="#signin">Sign-in</a>
+    <a class="tab" role="tab" href="#tokens">API tokens</a>
+    <a class="tab" role="tab" href="#sessions">Sessions</a>
+    <a class="tab" role="tab" href="#backups">Backups</a>
+    <a class="tab" role="tab" href="#prices">Prices</a>
+    <a class="tab" role="tab" href="#security">Security</a>
+    <a class="tab" role="tab" href="#logs">Logs</a>
+  </nav>
+  <section class="sheet adminsheet" id="main" aria-live="polite"><div class="empty-state">Loading…</div></section>
+</div>
+<div id="toastRoot"></div>
+</body>
+</html>

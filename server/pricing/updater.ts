@@ -1,5 +1,7 @@
 import type { Assets } from '../assets';
 import { MAX_IMAGE_BYTES } from '../assets';
+import type { Config } from '../config';
+import { type Logger, quietLogger } from '../log';
 import type { Doc } from '../schema';
 import type { Store } from '../store';
 import { chooseMatch, searchQuery, type CardForMatch } from './match';
@@ -35,6 +37,11 @@ export interface UpdaterOptions {
   keepDays?: number;
   /** Pause between cards, to be gentle with the price sites. */
   delayMs?: number;
+  log?: Logger;
+  /** Administrators' schedule (on/off and hour); overrides `hour` when given. */
+  config?: Config;
+  /** Consecutive failures from one site before the rest of the run stops asking it. */
+  breakerAfter?: number;
 }
 
 type Card = Doc & CardForMatch & {
@@ -100,6 +107,9 @@ export class PriceUpdater {
   private readonly delayMs: number;
   private timer: NodeJS.Timeout | null = null;
   private current: Promise<RunSummary> | null = null;
+  private readonly log: Logger;
+  private readonly config?: Config;
+  private readonly breakerAfter: number;
 
   constructor(o: UpdaterOptions) {
     this.store = o.store;
@@ -110,6 +120,15 @@ export class PriceUpdater {
     this.hour = o.hour ?? 5;
     this.keepDays = o.keepDays ?? 30;
     this.delayMs = o.delayMs ?? 2000;
+    this.log = o.log ?? quietLogger();
+    this.config = o.config;
+    this.breakerAfter = o.breakerAfter ?? 5;
+  }
+
+  /** Whether the daily run is on, and its hour (administrators can change both). */
+  schedule() {
+    const c = this.config?.get().pricing;
+    return { enabled: c?.enabled ?? true, hour: c?.hour ?? this.hour, timeZone: this.timeZone };
   }
 
   get running() {
@@ -138,10 +157,11 @@ export class PriceUpdater {
   /** Check every few minutes; run once a day after `hour`, including a day missed while the server was off. */
   startScheduler(everyMs = 10 * 60_000) {
     const tick = () => {
-      if (this.running || this.localHour() < this.hour) return;
+      const sch = this.schedule();
+      if (!sch.enabled || this.running || this.localHour() < sch.hour) return;
       const last = this.status().lastRun as RunSummary | undefined;
       if (last?.date === this.today()) return;
-      this.runAll('schedule').catch((err) => console.error('Daily price update failed:', err));
+      this.runAll('schedule').catch((err) => this.log.error('pricing', `Daily price update failed: ${message(err)}`));
     };
     this.timer = setInterval(tick, everyMs);
     this.timer.unref();
@@ -172,16 +192,32 @@ export class PriceUpdater {
     const counts: Record<CardOutcome, number> = { updated: 0, needsMatch: 0, noPrice: 0, failed: 0, skipped: 0, off: 0 };
     const errors: RunSummary['errors'] = [];
     let done = 0;
+    // A site that keeps failing (down, or blocking us) is left alone for the rest of the run.
+    const streak: Record<Source, number> = { pricecharting: 0, tcgplayer: 0 };
+    const tripped = new Set<Source>();
+    this.log.info('pricing', `Price update started (${reason}) for ${ids.length} cards at US$1 = C$${rate}`, { reason, cards: ids.length, rate });
     try {
       for (const id of ids) {
         const card = this.store.get('cards', id) as Card | undefined;
         let outcome: CardOutcome = 'skipped';
         if (card) {
+          const src = isLinked(card.pricing) ? card.pricing.source : card.pricing?.source === 'off' ? null : 'pricecharting';
           try {
-            outcome = await this.updateCard(id, rate);
+            if (src && tripped.has(src) && card.status !== 'sold' && card.status !== 'traded') {
+              this.patchLink(id, { error: `Skipped: ${SOURCE_NAME[src]} kept failing during this update. It will be tried again next time.` });
+              outcome = 'failed';
+            } else outcome = await this.updateCard(id, rate);
           } catch (err) {
             outcome = 'failed';
-            console.error(`Price update for ${label(card)} failed:`, err);
+            this.log.error('pricing', `Price update for ${label(card)} failed: ${message(err)}`);
+          }
+          if (src && !tripped.has(src)) {
+            if (outcome === 'failed') {
+              if (++streak[src] >= this.breakerAfter) {
+                tripped.add(src);
+                this.log.warn('pricing', `${SOURCE_NAME[src]} failed ${streak[src]} times in a row; skipping it for the rest of this update`, { source: src });
+              }
+            } else if (outcome !== 'skipped' && outcome !== 'off') streak[src] = 0;
           }
           const after = this.store.get('cards', id) as Card | undefined;
           if (outcome === 'failed' || outcome === 'noPrice') errors.push({ card: label(card), error: after?.pricing?.error ?? 'Failed' });
@@ -192,7 +228,10 @@ export class PriceUpdater {
       }
     } finally {
       const summary: RunSummary = { reason, date, startedAt, finishedAt: this.now().toISOString(), rate, rateDate, counts, errors: errors.slice(0, 30) };
-      this.setStatus({ running: false, lastRun: summary });
+      const history = ((this.status().history as RunSummary[] | undefined) ?? []).slice(0, 29);
+      this.setStatus({ running: false, lastRun: summary, history: [{ ...summary, errors: summary.errors.slice(0, 5) }, ...history] });
+      const lvl = counts.failed ? 'warn' : 'info';
+      this.log[lvl]('pricing', `Price update finished: ${counts.updated} updated, ${counts.needsMatch} need a match, ${counts.noPrice} without a price, ${counts.failed} failed`, { ...counts, tripped: [...tripped] });
     }
     return this.status().lastRun as RunSummary;
   }
@@ -209,7 +248,7 @@ export class PriceUpdater {
       this.store.set('settings', 'main', { ...main, usdToCad: rate, usdToCadDate: date, usdToCadSource: 'Bank of Canada' });
       return { rate, rateDate: date };
     } catch (err) {
-      console.warn('Using the saved exchange rate:', err instanceof Error ? err.message : err);
+      this.log.warn('pricing', `Couldn't get the Bank of Canada rate, using the saved one: ${message(err)}`);
       return { rate: Number(main.usdToCad) > 0 ? Number(main.usdToCad) : 1.37, rateDate: (main.usdToCadDate as string) ?? null };
     }
   }
@@ -300,7 +339,7 @@ export class PriceUpdater {
       if (!saved) throw new SourceError("the image isn't a JPG, PNG, WebP or GIF");
       return { id: saved.id, url };
     } catch (err) {
-      console.warn(`No new image for ${label(card)}:`, message(err));
+      this.log.warn('pricing', `No new image for ${label(card)}: ${message(err)}`);
       return null;
     }
   }

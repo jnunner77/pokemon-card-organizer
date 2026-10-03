@@ -52,14 +52,61 @@ from the prices logged by hand a week earlier.
 - **CSV import and export**, with a template, per-row checks and a "rows to fix" file.
 - **Full backups** with photos: *Settings → Download full backup* / *Restore from backup*.
   The server also keeps the ledger as it was at the start of each of the last 14 days.
-- **Live updates** between every open tab and device. **Password sign-in.**
+- **Live updates** between every open tab and device.
+
+## People and administration
+
+Everyone signs in with a username and password. Roles: **administrator** (everything,
+including Administration), **editor** (changes the ledger) and **viewer** (looks only).
+*Settings → Administration* (administrators only) has:
+
+- **Overview:** checks of whether the server is ready for the public internet and healthy:
+  sign-in, administrators, password rules, lockouts, HTTPS and proxy set-up, rate limits,
+  daily copies and an off-server backup, log files and errors, the daily price update, the
+  exchange rate and disk space. Anything not passing says what to do.
+- **People:** add people with a temporary password (they choose their own on first sign-in),
+  change roles, set passwords, deactivate, sign out everywhere, remove. One active administrator
+  always remains.
+- **Sign-in:** session length (unused, and at most), shortest password, lockout threshold.
+- **API tokens:** for scripts and assistants (`Authorization: Bearer binder_…`); a token acts as
+  one person, read-only or read & write, never with administrator rights, and always expires.
+- **Sessions:** who is signed in where; end any session.
+- **Backups:** full backup download; copies on the server (daily, thinning out to weekly and
+  monthly) and snapshots, each downloadable or restorable; how long copies are kept.
+- **Prices:** daily schedule (on/off, hour), update now, recent runs with their problems.
+- **Security:** blocked addresses (unblock), limits, recent security events.
+- **Logs:** requests, sign-ins, administration, security, prices and backups, filtered by level
+  and category, with a file per day to download.
+
+## Security on the public internet
+
+- **Sign-in:** scrypt password hashes in `auth.json` (never in backups or responses); at least
+  10 characters, not the username, not a common password; after 5 wrong passwords a username is
+  locked for 1 minute, then 2, 4 … up to a day. Sessions are random tokens stored as hashes, end
+  after two weeks unused and 30 days at most, and end when the password changes or the person is
+  deactivated. Cookies are HttpOnly, SameSite and Secure over HTTPS.
+- **Rate limits** per address and per person (with tighter ones before signing in, for
+  sign-in attempts and for backups, restores and price-site searches), with `Retry-After`.
+  Addresses that keep going over the limits, failing sign-in or probing for API paths are
+  blocked for 15 minutes, then 30, 60 … up to a day for repeat offenders. Live-update
+  connections are capped. `SECURITY_ALLOWLIST` exempts trusted addresses.
+- **Requests:** changes from other websites are refused; bodies are size-limited; uploads are
+  checked by their bytes; slow requests are dropped (header and request timeouts).
+- **Browser:** strict Content Security Policy, HSTS over HTTPS, no framing, nosniff,
+  same-origin referrers; API responses never cached.
+- **Price sites** are retried with exponential backoff (honouring `Retry-After`), and a site
+  that fails five cards in a row is left alone for the rest of that run.
+- **Backups:** a copy of the ledger every day, kept 14 days, then one a week for 8 weeks and one
+  a month for 12 months; deleted pictures are kept 400 days so any copy restores completely.
+- **Container:** read-only file system apart from the data volume, no Linux capabilities,
+  unprivileged user, memory and process limits.
 
 ## Running it
 
 ```bash
 npm install
-npm start                       # http://localhost:4100, data in ./data, no password
-BINDER_PASSWORD=... npm start   # with sign-in
+BINDER_PASSWORD='a long password' npm start   # http://localhost:4100, sign in as "admin"
+AUTH=off npm start              # no sign-in at all (only on your own computer)
 ```
 
 To host it for free, see [`deploy/README.md`](deploy/README.md) (recommended: next to Boards on
@@ -69,7 +116,9 @@ the existing free Google Cloud VM, at `binder.nunner.duckdns.org`).
 | --- | --- | --- |
 | `PORT` | `4100` | HTTP port |
 | `DATA_DIR` | `./data` | Ledger, photos, daily copies |
-| `BINDER_PASSWORD` | _(none: open)_ | The password; changing it signs everyone out |
+| `BINDER_PASSWORD` | | Creates the first administrator, `admin`, on the very first start (otherwise a setup code is printed in the log) |
+| `AUTH` | | `off`: no sign-in at all, only for your own computer |
+| `SECURITY_ALLOWLIST` | | IPs or IPv4 ranges never rate limited or blocked |
 | `TZ` | `America/Vancouver` | Calendar for the price log and the daily run |
 | `PRICE_UPDATE_HOUR` | `5` | Daily update starts after this hour |
 | `PRICE_UPDATES` | `on` | `off` turns automatic prices and pictures off |
@@ -78,8 +127,11 @@ the existing free Google Cloud VM, at `binder.nunner.duckdns.org`).
 ## Data
 
 `DATA_DIR` holds `db.json` (binders, cards and their price logs, settings), `assets/` (your
-photos and the official pictures), `backups/` (the last 14 days, and the ledger before every
-restore) and `session.key` (signs sign-in cookies; never in backups).
+photos and the official pictures; deleted ones in `assets/.trash` for 400 days), `backups/`
+(daily, weekly and monthly copies, snapshots, and the ledger before every restore), `logs/` (a
+file per day, two weeks), `admin.json` (backup retention, price schedule), and `auth.json` and
+`sessions.json` (people, password hashes, API token hashes and sessions; never in backups or
+responses).
 
 To restore without a browser, stop the app and run `npm run import-backup -- backup.json`.
 
@@ -89,12 +141,15 @@ To restore without a browser, stop the app and run `npm run import-backup -- bac
 npm run dev          # restarts on changes
 npm run typecheck
 npm test             # server tests, including the price parsers on saved pages
-DATA_DIR=$(mktemp -d) PRICE_UPDATES=off npm start &
+DATA_DIR=$(mktemp -d) AUTH=off PRICE_UPDATES=off npm start &
 BASE_URL=http://localhost:4100/ npm run test:e2e    # browser smoke test
 ```
 
 - `server/pricing/`: `sources.ts` (PriceCharting, TCGplayer, Bank of Canada), `match.ts`
   (which product is this card), `updater.ts` (the daily run and per-card updates).
-- `server/`: `store.ts` (ledger file and change feed), `assets.ts` (pictures), `backup.ts`,
-  `auth.ts` (password sign-in), `app.ts` (HTTP API).
+- `server/`: `store.ts` (ledger file and change feed), `assets.ts` (pictures), `backup.ts`
+  (full backups), `backups.ts` (copies and retention), `accounts.ts` (people, sessions, API
+  tokens), `security.ts` (rate limits and blocks), `log.ts`, `checks.ts` (Overview checks),
+  `config.ts` (administrators' settings), `app.ts` (HTTP API).
+- `public/`: `admin.html`/`admin.js` (Administration), `login.html`/`login.js` (sign-in).
 - `public/`: the page. `app.js` is the ledger UI; `runtime.js` connects it to the server.

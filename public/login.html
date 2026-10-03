@@ -12,12 +12,33 @@
 </head>
 <body>
 <main class="signin">
-  <form class="mcard narrow" id="signinForm">
+  <form class="mcard narrow" id="signinForm" hidden>
     <h1>Pokémon Binder Ledger</h1>
-    <p class="lead">Enter the ledger's password.</p>
-    <div class="field"><label for="pw">Password</label><input id="pw" name="password" type="password" autocomplete="current-password" required autofocus></div>
-    <p class="hint" id="msg" role="alert"></p>
-    <div class="mfoot"><button class="btn primary" type="submit" id="go">Sign in</button></div>
+    <p class="lead">Sign in to your ledger.</p>
+    <div class="field"><label for="username">Username</label><input id="username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required></div>
+    <div class="field"><label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required></div>
+    <p class="hint msg" role="alert"></p>
+    <div class="mfoot"><button class="btn primary" type="submit">Sign in</button></div>
+  </form>
+  <form class="mcard narrow" id="changeForm" hidden>
+    <h1>Choose your password</h1>
+    <p class="lead">You signed in with a temporary password. Choose your own to continue.</p>
+    <div class="field"><label for="newPassword">New password</label><input id="newPassword" type="password" autocomplete="new-password" required minlength="8"></div>
+    <div class="field"><label for="confirm">Type it again</label><input id="confirm" type="password" autocomplete="new-password" required></div>
+    <p class="hint">At least 10 characters, not your username and not a common password.</p>
+    <p class="hint msg" role="alert"></p>
+    <div class="mfoot"><button class="btn primary" type="submit">Save and sign in</button></div>
+  </form>
+  <form class="mcard narrow" id="setupForm" hidden>
+    <h1>Set up your ledger</h1>
+    <p class="lead">Create the first administrator. The setup code is in the server's log: <code>docker compose logs binder</code>.</p>
+    <div class="field"><label for="setupCode">Setup code</label><input id="setupCode" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" required></div>
+    <div class="field"><label for="sName">Your name</label><input id="sName" autocomplete="name" required></div>
+    <div class="field"><label for="sUser">Username</label><input id="sUser" autocomplete="username" autocapitalize="none" spellcheck="false" required></div>
+    <div class="field"><label for="sPass">Password</label><input id="sPass" type="password" autocomplete="new-password" required></div>
+    <p class="hint">At least 10 characters, not your username and not a common password.</p>
+    <p class="hint msg" role="alert"></p>
+    <div class="mfoot"><button class="btn primary" type="submit">Create and sign in</button></div>
   </form>
 </main>
 </body>

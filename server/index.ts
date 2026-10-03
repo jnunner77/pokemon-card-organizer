@@ -1,38 +1,84 @@
 import path from 'node:path';
-import { Assets } from './assets';
+import { Accounts } from './accounts';
 import { createApp } from './app';
-import { Auth } from './auth';
+import { Assets } from './assets';
+import { Backups } from './backups';
+import { Config } from './config';
+import { Logger } from './log';
 import { PriceUpdater } from './pricing/updater';
+import { Security } from './security';
 import { Store } from './store';
 
-const dataDir = path.resolve(process.env.DATA_DIR ?? 'data');
-const port = Number(process.env.PORT ?? 4100);
-const trust = process.env.TRUST_PROXY;
+const env = process.env;
+const dataDir = path.resolve(env.DATA_DIR ?? 'data');
+const port = Number(env.PORT ?? 4100);
+const trust = env.TRUST_PROXY;
 
+const log = new Logger({ dir: path.join(dataDir, 'logs') });
 const store = new Store(dataDir);
 const assets = new Assets(dataDir);
-const auth = new Auth(dataDir);
-if (!auth.enabled) console.warn('BINDER_PASSWORD is not set: anyone who can reach this server can use the ledger.');
+// PRICE_UPDATE_HOUR and PRICE_UPDATES are the starting schedule; administrators can change it.
+const config = new Config(dataDir, { pricing: { enabled: env.PRICE_UPDATES !== 'off', hour: Number(env.PRICE_UPDATE_HOUR ?? 5) } });
+const backups = new Backups(store, assets, config, log);
+store.onDailyCopy = () => backups.prune();
 
-// Daily prices and images. PRICE_UPDATES=off turns them off; TZ and PRICE_UPDATE_HOUR set when.
-const updater =
-  process.env.PRICE_UPDATES === 'off'
-    ? undefined
-    : new PriceUpdater({ store, assets, timeZone: process.env.TZ || 'America/Vancouver', hour: Number(process.env.PRICE_UPDATE_HOUR ?? 5) });
-updater?.startScheduler();
+// AUTH=off is only for running on your own computer: no sign-in at all.
+const accounts = env.AUTH === 'off' ? undefined : new Accounts(dataDir, log);
+if (accounts) await accounts.bootstrap(env.BINDER_PASSWORD);
+else log.warn('security', 'AUTH=off: sign-in is turned off and anyone who can reach this server can use the ledger.');
 
-const app = createApp({ store, assets, auth, updater, trustProxy: trust === undefined ? undefined : /^\d+$/.test(trust) ? Number(trust) : trust === 'true' });
+// SECURITY_ALLOWLIST: comma-separated IPs or IPv4 ranges never rate limited or blocked.
+const security = new Security({ allowlist: (env.SECURITY_ALLOWLIST ?? '').split(',').map((s) => s.trim()).filter(Boolean) }, log);
+security.start();
+
+const updater = new PriceUpdater({ store, assets, log, config, timeZone: env.TZ || 'America/Vancouver' });
+updater.startScheduler();
+
+const app = createApp({
+  store,
+  assets,
+  accounts,
+  security,
+  updater,
+  log,
+  config,
+  backups,
+  envPassword: env.BINDER_PASSWORD,
+  trustProxy: trust === undefined ? undefined : /^\d+$/.test(trust) ? Number(trust) : trust === 'true',
+});
+
+// Housekeeping: today's copy of the ledger, and trashed photos older than the oldest backup.
+const housekeeping = () => {
+  try {
+    backups.ensureDaily();
+    const purged = assets.purgeTrash();
+    if (purged) log.info('backup', `Deleted ${purged} trashed photo${purged === 1 ? '' : 's'} older than the oldest backup`);
+  } catch (err) {
+    log.error('backup', `Housekeeping failed: ${err instanceof Error ? err.message : err}`);
+  }
+};
+housekeeping();
+setInterval(housekeeping, 60 * 60_000).unref();
+// Save sessions' last-seen times once a minute rather than on every request.
+setInterval(() => accounts?.flush(), 60_000).unref();
 
 const server = app.listen(port, () => {
   const n = store.all();
-  console.log(`Binder ledger on http://localhost:${port} (${n.binders.length} binders, ${n.cards.length} cards, data in ${dataDir})`);
+  log.info('app', `Binder ledger on port ${port}: ${n.binders.length} binders, ${n.cards.length} cards, data in ${dataDir}`);
 });
+// Drop clients that send requests too slowly (slowloris) or hold idle connections open.
+server.headersTimeout = 15_000;
+server.requestTimeout = 120_000; // a whole request, including a large restore upload
+server.keepAliveTimeout = 30_000;
+server.maxHeadersCount = 100;
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, () => {
-    updater?.stopScheduler();
+    updater.stopScheduler();
+    security.stop();
+    accounts?.flush();
     server.close(() => process.exit(0));
-    // Live-update streams never finish on their own.
+    server.closeAllConnections();
     setTimeout(() => process.exit(0), 2000).unref();
   });
 }

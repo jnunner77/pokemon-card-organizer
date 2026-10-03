@@ -1,5 +1,5 @@
 // Browser smoke test. Start the app on an empty data directory first:
-//   DATA_DIR=$(mktemp -d) npm start
+//   DATA_DIR=$(mktemp -d) AUTH=off PRICE_UPDATES=off npm start
 //   BASE_URL=http://localhost:4100/ npm run test:e2e
 // It creates a binder and cards, prices, moves and sells one, checks live updates between
 // two tabs, a backup download, and the phone layout.
