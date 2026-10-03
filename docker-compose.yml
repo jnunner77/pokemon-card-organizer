@@ -49,7 +49,9 @@ services:
       - "443:443"
       - "443:443/udp"
     environment:
-      DOMAIN: ${DOMAIN:?Set DOMAIN in .env}
+      # Required with --profile caddy. Not "${DOMAIN:?...}": Compose checks that even when the
+      # profile is off, which would stop the app from starting next to Boards.
+      DOMAIN: ${DOMAIN:-}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data

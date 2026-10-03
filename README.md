@@ -129,9 +129,11 @@ the existing free Google Cloud VM, at `binder.nunner.duckdns.org`).
 `DATA_DIR` holds `db.json` (binders, cards and their price logs, settings), `assets/` (your
 photos and the official pictures; deleted ones in `assets/.trash` for 400 days), `backups/`
 (daily, weekly and monthly copies, snapshots, and the ledger before every restore), `logs/` (a
-file per day, two weeks), `admin.json` (backup retention, price schedule), and `auth.json` and
+file per day, two weeks), `admin.json` (backup retention, price schedule), `auth.json` and
 `sessions.json` (people, password hashes, API token hashes and sessions; never in backups or
-responses).
+responses), `status.txt` (the Overview's checks and the cards that need a person, rewritten every
+five minutes for the server's nightly job) and `offsite.json` (written by that job after it copies
+a backup off the server).
 
 To restore without a browser, stop the app and run `npm run import-backup -- backup.json`.
 

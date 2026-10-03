@@ -59,6 +59,11 @@ const housekeeping = () => {
 };
 housekeeping();
 setInterval(housekeeping, 60 * 60_000).unref();
+// status.txt for the server's nightly job (Boards' deploy/ops), which alerts on it. Every five
+// minutes, so the job sees its own off-site copy reflected soon after making it.
+const writeStatus = () => app.writeStatusFile().catch((err) => log.error('app', `Couldn't write the status file: ${err instanceof Error ? err.message : err}`));
+void writeStatus();
+setInterval(writeStatus, 5 * 60_000).unref();
 // Save sessions' last-seen times once a minute rather than on every request.
 setInterval(() => accounts?.flush(), 60_000).unref();
 

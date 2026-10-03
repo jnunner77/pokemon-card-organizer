@@ -76,6 +76,9 @@ interface Link {
   candidates?: Candidate[] | null;
 }
 
+/** Part of the error a card keeps while its site has no price for it (a person should pick another product). */
+export const NO_PRICE = 'has no price for this printing';
+
 export type CardOutcome = 'updated' | 'needsMatch' | 'noPrice' | 'failed' | 'skipped' | 'off';
 
 export interface RunSummary {
@@ -318,7 +321,7 @@ export class PriceUpdater {
     const oldImage = fresh.officialImageId;
     const patch: Doc = {
       prices,
-      pricing: { ...fresh.pricing, checkedAt, error: quote.usd == null ? `${SOURCE_NAME[link.source]} has no price for this printing of the card. If it's the wrong product, choose another.` : null, ...(image ? { imageUrl: image.url } : {}) },
+      pricing: { ...fresh.pricing, checkedAt, error: quote.usd == null ? `${SOURCE_NAME[link.source]} ${NO_PRICE} of the card. If it's the wrong product, choose another.` : null, ...(image ? { imageUrl: image.url } : {}) },
       updatedAt: checkedAt,
     };
     if (image) patch.officialImageId = image.id;

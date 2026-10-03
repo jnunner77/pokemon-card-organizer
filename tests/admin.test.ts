@@ -12,6 +12,7 @@ import { Logger, redact } from '../server/log';
 import { type Fetcher, retryPolicy } from '../server/pricing/sources';
 import { PriceUpdater } from '../server/pricing/updater';
 import { Security } from '../server/security';
+import { cardsNeedingAttention } from '../server/status';
 import { Store } from '../server/store';
 
 retryPolicy.baseMs = 1;
@@ -280,6 +281,49 @@ describe('logs and checks', () => {
     const again = (await admin.get('/api/admin/overview').set('X-Forwarded-Proto', 'https').set('X-Forwarded-For', '203.0.113.9').expect(200)).body.checks as { id: string; status: string }[];
     const s2 = Object.fromEntries(again.map((c) => [c.id, c.status]));
     expect(s2).toMatchObject({ https: 'pass', offsite: 'pass', 'daily-copy': 'pass' });
+  });
+});
+
+describe('status for the nightly job', () => {
+  it('counts an automatic copy off the server', async () => {
+    const app = makeApp({ trustProxy: 1 });
+    const admin = await signIn(app, 'admin', 'start password 1');
+    const offsite = async () => ((await admin.get('/api/admin/overview').expect(200)).body.checks as { id: string; status: string; detail: string }[]).find((c) => c.id === 'offsite')!;
+    expect((await offsite()).status).toBe('warn');
+    fs.writeFileSync(path.join(dir, 'offsite.json'), JSON.stringify({ at: new Date().toISOString(), where: 'gs://nunner-backups/binder/binder-1.tar.gz' }));
+    expect(await offsite()).toMatchObject({ status: 'pass', detail: 'The nightly job copied a backup to gs://nunner-backups/binder/binder-1.tar.gz today.' });
+    fs.writeFileSync(path.join(dir, 'offsite.json'), JSON.stringify({ at: new Date(Date.now() - 5 * 86_400_000).toISOString(), where: 'gs://x/y' }));
+    expect(await offsite()).toMatchObject({ status: 'warn', detail: 'The nightly job last copied a backup off the server 5 days ago.' });
+    fs.writeFileSync(path.join(dir, 'offsite.json'), '{"at":"not a date"}');
+    expect((await offsite()).detail).toBe('No full backup has been downloaded from here.');
+  });
+
+  it('writes the checks and the cards that need a person to status.txt', async () => {
+    const app = makeApp();
+    store.set('cards', 'a', { ...card, name: 'Bill', set: 'Base Set', number: '118/130', pricing: { source: 'none', candidates: [] } });
+    store.set('cards', 'b', { ...card, name: 'Pikachu', setCode: 'M22', number: '7/15', pricing: { source: 'tcgplayer', id: '1', error: "TCGplayer has no price for this printing of the card. If it's the wrong product, choose another." } });
+    store.set('cards', 'c', { ...card, name: 'Gengar', pricing: { source: 'pricecharting', id: '2', error: "PriceCharting didn't answer." } });
+    store.set('cards', 'e', { ...card, name: 'Eevee', pricing: { source: 'none', error: "Couldn't reach PriceCharting" } });
+    store.set('cards', 'd', { ...card, name: 'Sold one', status: 'sold', pricing: { source: 'none' } });
+    await app.writeStatusFile();
+    const lines = fs.readFileSync(path.join(dir, 'status.txt'), 'utf8').trimEnd().split('\n');
+    expect(lines[0]).toMatch(/^written \d{4}-\d\d-\d\dT/);
+    expect(lines).toContain('ok Sign-in required: Everyone must sign in; every page, picture and API call is refused without a session or API token.');
+    expect(lines.find((l) => l.startsWith('warn Start-up password:'))).toContain('Fix: Sign in as admin');
+    expect(lines.find((l) => l.startsWith('warn Copy off the server:'))).toContain('Fix: Set up the nightly job');
+    expect(lines.filter((l) => / HTTPS:| Reverse proxy:/.test(l))).toEqual([]);
+    expect(lines.filter((l) => l.startsWith('attention '))).toEqual([
+      'attention Bill Base Set 118/130: no certain match. Open the card and choose the product.',
+      "attention Pikachu M22 7/15: TCGplayer has no price for this printing of the card. If it's the wrong product, choose another.",
+    ]);
+  });
+
+  it('lists ten cards by name and counts the rest', () => {
+    const many = Array.from({ length: 13 }, (_, i) => ({ name: `Card ${i + 1}`, pricing: { source: 'none', candidates: [] } }));
+    const out = cardsNeedingAttention(many);
+    expect(out).toHaveLength(11);
+    expect(out[9]).toBe('Card 10: no certain match. Open the card and choose the product.');
+    expect(out[10]).toBe('…and 3 more cards that need a match or a price.');
   });
 });
 

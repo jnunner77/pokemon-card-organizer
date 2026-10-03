@@ -15,6 +15,7 @@ import { SourceError } from './pricing/sources';
 import type { PriceUpdater } from './pricing/updater';
 import { InvalidDoc, collectionSchema, idSchema } from './schema';
 import { HttpError, MUTATING, type Security } from './security';
+import { cardsNeedingAttention, readOffsite, statusText, writeStatus } from './status';
 import { NotFound, type Store } from './store';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -281,18 +282,16 @@ export function createApp(o: AppOptions) {
     return accounts;
   };
 
-  admin.get('/overview', async (req, res) => {
-    const caller = res.locals.caller as Caller;
+  /** The Overview's checks. Without a request (the status file) HTTPS and proxy checks are left out by statusText. */
+  const overviewChecks = async (request: { secure: boolean; untrustedProxy: boolean; localRequest: boolean }) => {
     const pricingStatus = (store.get('settings', 'pricing') ?? {}) as { running?: boolean; lastRun?: { date: string; finishedAt: string; counts: Record<string, number> } };
     const sch = updater?.schedule();
     const counts = log.counts(86_400_000);
     const failed = log.query({ cat: 'auth', text: 'failed sign-in', limit: 5000 }).filter((e) => Date.now() - Date.parse(e.at) < 86_400_000).length;
     const sec = security?.summary();
-    const checks = runChecks({
+    return runChecks({
       now: new Date(),
-      secure: req.secure,
-      untrustedProxy: !!req.get('x-forwarded-for') && !app.get('trust proxy'),
-      localRequest: LOCAL.test(req.ip ?? ''),
+      ...request,
       authEnabled: !!accounts,
       accounts: accounts ? accounts.health() : null,
       envPasswordStillWorks: accounts ? await accounts.envPasswordStillWorks(o.envPassword) : false,
@@ -300,10 +299,21 @@ export function createApp(o: AppOptions) {
       failedSignIns24h: failed,
       backups: backups.health(),
       lastFullBackupAt: config.get().lastFullBackupAt,
+      offsite: readOffsite(store.dataDir),
       logs: { fileOk: log.fileOk, dir: log.dir, errors24h: counts.error, warnings24h: counts.warn },
       pricing: { enabled: !!updater && (sch?.enabled ?? false), hour: sch?.hour ?? 5, timeZone: sch?.timeZone ?? '', lastRun: pricingStatus.lastRun ?? null, running: !!pricingStatus.running, rateDate: (store.get('settings', 'main')?.usdToCadDate as string) ?? null },
       disk: { freeBytes: freeBytes(store.dataDir), dataBytes: dirBytes(store.dataDir) },
     });
+  };
+  /** Write status.txt for the server's nightly job (see status.ts). */
+  const writeStatusFile = async () => {
+    const checks = await overviewChecks({ secure: true, untrustedProxy: false, localRequest: false });
+    writeStatus(store.dataDir, statusText(new Date(), checks, cardsNeedingAttention(store.all().cards as Parameters<typeof cardsNeedingAttention>[0])));
+  };
+
+  admin.get('/overview', async (req, res) => {
+    const caller = res.locals.caller as Caller;
+    const checks = await overviewChecks({ secure: req.secure, untrustedProxy: !!req.get('x-forwarded-for') && !app.get('trust proxy'), localRequest: LOCAL.test(req.ip ?? '') });
     const all = store.all();
     res.json({
       checks,
@@ -462,7 +472,7 @@ export function createApp(o: AppOptions) {
     if (res.headersSent) return void res.end();
     res.status(status).json({ error: message, code });
   });
-  return app;
+  return Object.assign(app, { writeStatusFile });
 }
 
 /** Log API requests, failures and slow requests (pictures and page files only when they fail). */
