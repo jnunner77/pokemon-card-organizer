@@ -22,7 +22,7 @@ const S = {
   binderId: null, page: 1, view: store.get("view","pages") === "list" ? "list" : "pages",
   q:"", scope: store.get("scope","binder"), sort: store.get("sort",{k:"loc",d:1}),
   sel:null, draft:null, dirty:false, editPrice:null, confirm:null,
-  pick:null, pickConfirm:false, shown:[]
+  pick:null, pickConfirm:false, shown:[], found:null
 };
 
 /* ---------- money ---------- */
@@ -62,6 +62,8 @@ const maxPage = bid => Math.max(1, ...cardsIn(bid).map(c => c.page||1));
 const locText = c => { const b = binderById(c.binderId); return b ? `${b.name} · Page ${c.page} · Pocket ${c.slot}` : "Not in a binder"; };
 const locShort = c => { const b = binderById(c.binderId); return b ? `${b.name.replace(/^Binder\s*/i,"B")} · p${c.page} · #${c.slot}` : "Loose"; };
 const metaLine = c => [c.setCode || c.set, c.number].filter(Boolean).join(" ");
+/* the card Find just took you to: highlighted for a few seconds */
+const isFound = id => !!S.found && S.found.id===id && Date.now() < S.found.until;
 const isInline = id => typeof id==="string" && id.startsWith("data:");
 const imgURL = id => !id ? "" : isInline(id) ? id : "blob/" + encodeURIComponent(id);
 /* the picture to show: the official high-resolution image when there is one, unless the person picked their own photo */
@@ -172,7 +174,7 @@ function renderMainInner(){
     const inner = shown(c)
       ? `<img src="${imgURL(shown(c))}" alt="${esc(c.name||"Card")}" loading="lazy"><span class="cap"><span class="n">${esc(c.name||"Unnamed card")}</span><span class="m">${esc(metaLine(c))}</span></span>`
       : `<span class="face"><span class="n">${esc(c.name||"Unnamed card")}</span><span class="m">${esc(metaLine(c)||"No set yet")}</span><span class="np">No photo</span></span>`;
-    cells += `<button class="pocket${S.sel===c.id?" sel":""}${held(c)?"":" dim"}${S.pick?.has(c.id)?" picked":""}" type="button" data-card="${esc(c.id)}" aria-label="${esc((c.name||"Unnamed card")+", pocket "+s)}"${S.pick?` aria-pressed="${S.pick.has(c.id)}"`:""}><span class="slotno">${s}</span><span class="tick" aria-hidden="true">✓</span>${inner}${v!=null?`<span class="price">${esc(money(v).replace(".00",""))}</span>`:""}${flag}</button>`;
+    cells += `<button class="pocket${S.sel===c.id?" sel":""}${held(c)?"":" dim"}${S.pick?.has(c.id)?" picked":""}${isFound(c.id)?" found":""}" type="button" data-card="${esc(c.id)}" aria-label="${esc((c.name||"Unnamed card")+", pocket "+s)}"${S.pick?` aria-pressed="${S.pick.has(c.id)}"`:""}><span class="slotno">${s}</span><span class="tick" aria-hidden="true">✓</span>${inner}${v!=null?`<span class="price">${esc(money(v).replace(".00",""))}</span>`:""}${flag}</button>`;
   }
   const pageCards = cardsIn(b.id).filter(c=>c.page===S.page);
   const pst = statsFor(pageCards);
@@ -210,7 +212,7 @@ function renderList(m){
   const th = (k,l,cls="") => `<th class="${cls}"><button type="button" data-sort="${k}">${l}${S.sort.k===k?(S.sort.d>0?" ▲":" ▼"):""}</button></th>`;
   const rows = list.map(c => {
     const st = STATUSES.find(x=>x[0]===(c.status||"binder"));
-    return `<tr data-card="${esc(c.id)}" class="${S.sel===c.id?"sel":""}${S.pick?.has(c.id)?" picked":""}"${S.pick?` aria-selected="${S.pick.has(c.id)}"`:""}>
+    return `<tr data-card="${esc(c.id)}" class="${S.sel===c.id?"sel":""}${S.pick?.has(c.id)?" picked":""}${isFound(c.id)?" found":""}"${S.pick?` aria-selected="${S.pick.has(c.id)}"`:""}>
       ${S.pick?`<td class="tdtick"><span class="rowtick" aria-hidden="true">✓</span></td>`:""}<td>${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="" loading="lazy">`:`<span class="thumb"></span>`}</td>
       <td class="cellname"><b>${esc(c.name||"Unnamed card")}</b><span>${esc([c.rarity,c.variant].filter(Boolean).join(" · "))}</span></td>
       <td class="mono">${esc(metaLine(c))}</td>
@@ -232,7 +234,7 @@ function renderSales(m){
   S.shown = [];
   const l = salesList(), t = salesTotals();
   if(!l.length){ m.innerHTML = `<div class="empty-state"><p>No sales yet.</p><p class="hint">Press and hold a card in a binder, then tap Quick sell.</p></div>`; return; }
-  const rows = l.map(({c,s}) => `<tr data-sale="${esc(c.id)}">
+  const rows = l.map(({c,s}) => `<tr data-sale="${esc(c.id)}"${isFound(c.id)?` class="found"`:""}>
       <td class="mono">${esc(s.date||"—")}</td>
       <td class="hide-sm">${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="" loading="lazy">`:`<span class="thumb"></span>`}</td>
       <td class="cellname"><b>${esc(c.name||"Unnamed card")}</b><span>${esc([metaLine(c), s.where].filter(Boolean).join(" · "))}</span></td>
@@ -1504,6 +1506,7 @@ document.addEventListener("click", e => {
   if(t.closest("#vPages")){ if(S.binderId==="__loose" || S.binderId==="__sales") S.binderId = sortedBinders()[0]?.id || null; S.view="pages"; persistNav(); render(); return; }
   if(t.closest("#vList")){ if(S.binderId==="__sales") S.binderId = sortedBinders()[0]?.id || "__loose"; S.view="list"; persistNav(); render(); return; }
   if(t.closest("#btnPhotos")) return openViewer();
+  if(t.closest("#btnFind")) return openFind();
   if(t.closest("#btnAdd")) return openNew();
   if(t.closest("#btnImport")) return importModal();
   if(t.closest("#btnCsvImport")) return csvImportModal();
@@ -1548,6 +1551,7 @@ document.addEventListener("click", e => {
 document.addEventListener("input", e => {
   if(e.target.closest("#cardForm")){ S.dirty=true; const b=$("#btnSave"); if(b) b.disabled=false; if(e.target.id==="f_name") $("#dTitle").textContent = e.target.value || "New card"; }
   if(e.target.id==="q"){ S.q=e.target.value; clearTimeout(S._qt); S._qt=setTimeout(renderMain,120); }
+  if(e.target.id==="findQ"){ FIND.q=e.target.value; findRun(); }
   if(e.target.closest("#priceSec")) S.priceTouched=true;
   if(e.target.closest("#moveSec")){ S.moveTouched=true; updateMoveNote(); }
 });
@@ -1566,6 +1570,8 @@ document.addEventListener("submit", e => {
 });
 document.addEventListener("toggle", e => { if(e.target.id==="autoLog") S.autoLogOpen = e.target.open; }, true);
 document.addEventListener("keydown", e => {
+  if(FIND.open) return findKey(e);
+  if(!LB.open && !$("#modalRoot").innerHTML && !isTyping(e.target) && !e.altKey && ((e.key==="/" && !e.ctrlKey && !e.metaKey) || ((e.key==="k" || e.key==="K") && (e.ctrlKey || e.metaKey)))){ e.preventDefault(); return openFind(); }
   if(LB.open){ if(e.key==="Escape"){ e.preventDefault(); closeViewer(); } else if(e.key==="ArrowLeft"||e.key==="ArrowRight"){ e.preventDefault(); lbGo(LB.i+(e.key==="ArrowLeft"?-1:1)); } else if(e.key==="Home"||e.key==="End"){ e.preventDefault(); lbGo(e.key==="Home"?0:LB.list.length-1); } return; }
   if(e.key==="Escape"){ if($("#modalRoot").innerHTML){ if(!CI?.busy || !$("#ci_card")) closeModal(); } else if(S.sel) closeDrawer(); else if(S.pick) endPick(); } });
 function updateMoveNote(){
@@ -1574,6 +1580,120 @@ function updateMoveNote(){
   const o = cardAt(bid, Math.max(1,+$("#m_page").value||1), +$("#m_slot").value);
   n.textContent = o && o.id!==c.id ? `${o.name||"Another card"} is in that pocket. They'll swap places.` : o ? "That's where it is now." : "That pocket is empty.";
 }
+
+/* ---------- find a card ---------- */
+/* Find (button or "/"): type a Pokémon name, set, set code or number; each match can be shown where
+   it sits (binder page, Not in a binder, or Sales) or opened full screen. Matching is in search.js. */
+const FIND = {open:false, q:"", res:[], i:0, back:null};
+const FOUND_MS = 6000;
+const reduceMotion = () => !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+const isTyping = t => !!t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
+function whereIs(c){
+  const b = binderById(c.binderId);
+  if(b) return {kind:"binder", label:`${b.name} · Page ${c.page} · Pocket ${c.slot}`, act:"Show in binder"};
+  if(saleInfo(c) && !looseCards().some(x=>x.id===c.id)) return {kind:"sales", label:"Sold", act:"Show in sales"};
+  return {kind:"loose", label:"Not in a binder", act:"Show in list"};
+}
+function openFind(){
+  if(FIND.open){ $("#findQ")?.focus(); return; }
+  FIND.open = true; FIND.back = document.activeElement;
+  $("#findRoot").innerHTML = `<div class="find" data-find="backdrop">
+    <div class="find-card" role="dialog" aria-modal="true" aria-label="Find a card">
+      <div class="find-bar">
+        <label class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="findQ" type="search" placeholder="Name, set, set code or number" value="${esc(FIND.q)}" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" aria-label="Find a card" aria-describedby="findNote" aria-controls="findList"></label>
+        <button type="button" class="btn ghost" data-find="close">Close</button>
+      </div>
+      <p class="find-note hint" id="findNote" aria-live="polite"></p>
+      <ul class="find-list" id="findList" aria-label="Matching cards"></ul>
+    </div></div>`;
+  document.documentElement.style.overflow = "hidden";
+  findRun();
+  const q = $("#findQ"); q.focus(); q.select();
+}
+function closeFind(restoreFocus=true){
+  if(!FIND.open) return;
+  FIND.open = false; $("#findRoot").innerHTML = ""; document.documentElement.style.overflow = "";
+  const b = FIND.back; FIND.back = null;
+  if(restoreFocus && b && document.contains(b)) try{ b.focus({preventScroll:true}); }catch(_){}
+}
+function findRun(){
+  FIND.res = window.BinderSearch ? window.BinderSearch.search(S.cards, FIND.q, {limit:50, order:SORTS.loc}) : [];
+  FIND.i = 0; findRender();
+}
+function findRender(){
+  const list = $("#findList"), note = $("#findNote"); if(!list) return;
+  const q = FIND.q.trim(), n = FIND.res.length;
+  const keys = window.matchMedia && matchMedia("(pointer: fine)").matches ? " · Enter shows it, Shift+Enter opens it full screen" : "";
+  note.textContent = !q ? (S.cards.length ? `Type a Pokémon name, a set (Base Set), a set code (PBS) or a number (7/15). ${S.cards.length} cards to look through.` : "No cards yet.")
+    : !n ? `No card matches “${q}”. Try fewer words, a set code like PBS, or a number like 7/15.`
+    : `${n===50?"The best 50 matches":`${n} match${n===1?"":"es"}`}${keys}`;
+  list.innerHTML = FIND.res.map(({card:c}, k) => {
+    const w = whereIs(c), pic = shown(c);
+    const st = c.status && c.status!=="binder" && c.status!=="sold" ? ` · ${(STATUSES.find(x=>x[0]===c.status)||[,""])[1]}` : "";
+    const meta = [c.set, [c.setCode, c.number].filter(Boolean).join(" ")].filter(Boolean).join(" · ") || "No set yet";
+    return `<li class="find-item" id="fi${k}" data-fi="${k}">
+      <button type="button" class="find-main" data-find="show" data-fi="${k}" aria-label="${esc(`${c.name||"Unnamed card"}, ${meta}, ${w.label}. ${w.act}`)}">
+        ${pic?`<img class="thumb" src="${imgURL(pic)}" alt="" loading="lazy">`:`<span class="thumb"></span>`}
+        <span class="find-txt"><b>${esc(c.name||"Unnamed card")}</b><span class="mono">${esc(meta)}</span><span class="find-loc">${esc(w.label + st)}</span></span>
+      </button>
+      <span class="find-acts"><button type="button" class="btn sm" data-find="show" data-fi="${k}">${esc(w.act)}</button><button type="button" class="btn sm" data-find="full" data-fi="${k}" ${pic?"":`disabled title="No picture of this card yet"`}>Full screen</button></span>
+    </li>`;
+  }).join("");
+  findSync();
+}
+function findSync(){
+  document.querySelectorAll("#findList .find-item").forEach((li,k) => li.classList.toggle("cur", k===FIND.i));
+  const cur = document.getElementById("fi"+FIND.i); if(cur) cur.scrollIntoView({block:"nearest"});
+}
+function findAct(kind, k){
+  const r = FIND.res[k]; if(!r) return;
+  const c = S.cards.find(x=>x.id===r.card.id) || r.card;
+  if(kind==="full" && shown(c)){
+    const list = FIND.res.map(x=>S.cards.find(y=>y.id===x.card.id) || x.card).filter(x=>shown(x));
+    closeFind(false); return openViewer(c.id, list);
+  }
+  if(S.dirty) return toast("Save or discard the card you're editing first.");
+  closeFind(false);
+  if(kind==="full") toast("No picture of this card yet, so here it is instead.");
+  showCard(c.id);
+}
+/* Take the person to a card: its binder and page (or the list it's in), scrolled to and highlighted. */
+function showCard(id){
+  const c = S.cards.find(x=>x.id===id); if(!c) return toast("That card isn't in the ledger any more.");
+  if(S.dirty) return toast("Save or discard the card you're editing first.");
+  S.pick = null; S.pickConfirm = false;
+  S.pricePick = null; S.pickRes = null; S.sel = null; S.draft = null; S.editPrice = null; S.confirm = null;
+  const w = whereIs(c);
+  if(w.kind==="binder"){ S.binderId = c.binderId; S.view = "pages"; S.page = c.page || 1; }
+  else if(w.kind==="loose"){ S.binderId = "__loose"; S.view = "list"; S.scope = "binder"; S.q = ""; }
+  else S.binderId = "__sales";
+  S.found = {id:c.id, until:Date.now()+FOUND_MS};
+  persistNav(); render();
+  const sel = CSS.escape(c.id), el = $(`#main [data-card="${sel}"], #main [data-sale="${sel}"]`);
+  if(el){ el.scrollIntoView({block:"center", behavior: reduceMotion() ? "auto" : "smooth"}); try{ el.focus({preventScroll:true}); }catch(_){} }
+  clearTimeout(S._foundT);
+  S._foundT = setTimeout(() => { S.found = null; document.querySelectorAll("#main .found").forEach(x=>x.classList.remove("found")); }, FOUND_MS);
+  toast(`${c.name||"Card"}: ${w.label}`);
+}
+function findKey(e){
+  if(e.key==="Escape"){ e.preventDefault(); return closeFind(); }
+  if(e.target.id!=="findQ") return;
+  const n = FIND.res.length;
+  if(e.key==="ArrowDown" || e.key==="ArrowUp"){ if(!n) return; e.preventDefault(); FIND.i = (FIND.i + (e.key==="ArrowDown" ? 1 : -1) + n) % n; return findSync(); }
+  if(e.key==="Enter"){ e.preventDefault(); if(n) findAct(e.shiftKey ? "full" : "show", FIND.i); }
+}
+$("#findRoot").addEventListener("click", e => {
+  e.stopPropagation();
+  const a = e.target.closest("[data-find]"); if(!a) return;
+  const k = a.dataset.find;
+  if(k==="backdrop"){ if(e.target===a) closeFind(); return; }
+  if(k==="close") return closeFind();
+  if(k==="show" || k==="full") return findAct(k, +a.dataset.fi);
+});
+$("#findRoot").addEventListener("pointermove", e => {
+  const li = e.target.closest && e.target.closest(".find-item"); if(!li || e.pointerType!=="mouse") return;
+  const k = +li.dataset.fi; if(k!==FIND.i){ FIND.i = k; document.querySelectorAll("#findList .find-item").forEach((x,j) => x.classList.toggle("cur", j===k)); }
+});
 
 /* ---------- full-screen photo viewer ---------- */
 const LB = {open:false, list:[], i:0, fromDrawer:false, back:null, raf:0};
@@ -1598,19 +1718,20 @@ function lbCaption(c){
     <span class="m">${esc(c.id==="__new" ? "New card" : locShort(c))}${st?` · ${esc(st)}`:""}</span>
     ${v!=null?`<span class="v">${esc(money(v))}</span>`:""}`;
 }
-function openViewer(startId){
-  let list = photoScope();
+/* only: show just these cards (Find's matches) instead of the current binder's */
+function openViewer(startId, only){
+  let list = only && only.length ? only : photoScope();
   if(startId && !list.some(c=>c.id===startId)){ const c = selCard(); list = c && shown(c) ? [c] : list; }
   if(!list.length){ toast("No card photos here yet."); return; }
   let i = startId ? list.findIndex(c=>c.id===startId) : (S.view==="pages" && S.binderId!=="__loose" ? list.findIndex(c=>c.page===S.page) : 0);
   if(i<0) i = 0;
-  Object.assign(LB, {open:true, list, i, fromDrawer: !!startId, back: document.activeElement});
+  Object.assign(LB, {open:true, list, i, fromDrawer: !!startId && !only, fromFind: !!only, back: document.activeElement});
   const n = list.length;
   const slides = list.map((c,k)=>`<div class="lb-slide" role="group" aria-roledescription="slide" aria-label="${k+1} of ${n}: ${esc(c.name||"Unnamed card")}"><img data-src="${esc(imgURL(shown(c)))}" alt="${esc(c.name||"Card")}" draggable="false"></div>`).join("");
   const thumbs = n>1 ? `<div class="lb-strip" id="lbStrip">${list.map((c,k)=>`<button type="button" class="lb-th" data-lbi="${k}" aria-label="Photo ${k+1}: ${esc(c.name||"Unnamed card")}"><img src="${esc(imgURL(shown(c)))}" alt="" loading="lazy" draggable="false"></button>`).join("")}</div>` : "";
   $("#lbRoot").innerHTML = `<div class="lb" role="dialog" aria-modal="true" aria-label="Card photos">
     <div class="lb-top"><span class="lb-count" id="lbCount" aria-live="polite"></span>
-      <div class="lb-acts">${LB.fromDrawer?"":`<button type="button" class="lb-btn" data-lb="details">Card details</button>`}<button type="button" class="lb-btn" data-lb="close" aria-label="Close photos">✕ Close</button></div></div>
+      <div class="lb-acts">${LB.fromFind?`<button type="button" class="lb-btn" data-lb="locate">Show in binder</button>`:""}${LB.fromDrawer?"":`<button type="button" class="lb-btn" data-lb="details">Card details</button>`}<button type="button" class="lb-btn" data-lb="close" aria-label="Close photos">✕ Close</button></div></div>
     <div class="lb-stage">
       <div class="lb-track" id="lbTrack" tabindex="-1">${slides}</div>
       ${n>1?`<button type="button" class="lb-nav prev" data-lb="prev" aria-label="Previous photo">‹</button><button type="button" class="lb-nav next" data-lb="next" aria-label="Next photo">›</button>`:""}
@@ -1635,6 +1756,7 @@ function lbSync(force){
   const c = LB.list[i];
   $("#lbCount").textContent = `${i+1} / ${n}`;
   $("#lbCap").innerHTML = lbCaption(c);
+  const lo = $('#lbRoot [data-lb="locate"]'); if(lo) lo.textContent = whereIs(c).act;
   const pv = $('#lbRoot [data-lb="prev"]'), nx = $('#lbRoot [data-lb="next"]');
   if(pv) pv.disabled = i<=0; if(nx) nx.disabled = i>=n-1;
   const strip = $("#lbStrip");
@@ -1662,6 +1784,7 @@ $("#lbRoot").addEventListener("click", e => {
     if(k==="close") return closeViewer();
     if(k==="prev") return lbGo(LB.i-1);
     if(k==="next") return lbGo(LB.i+1);
+    if(k==="locate"){ const id = LB.list[LB.i]?.id; closeViewer(); if(id) showCard(id); return; }
     if(k==="details"){ const id = LB.list[LB.i]?.id; closeViewer(); if(id && S.cards.some(c=>c.id===id)) openCard(id); return; }
   }
   const th = t.closest("[data-lbi]"); if(th) return lbGo(+th.dataset.lbi);

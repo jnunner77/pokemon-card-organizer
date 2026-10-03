@@ -45,6 +45,11 @@ from the prices logged by hand a week earlier.
   Swipe between pages on a phone.
 - **Cards** with set, number, rarity, variant, language, condition, grading, illustrator,
   status (in binder, listed, out for grading, sold, traded) and notes.
+- **Find a card** (the *Find a card* button, or press `/`): type a Pokémon name, set name, set code
+  or set number, in any combination ("pikachu m22", "base set 2 118", "7/15"). Each match shows
+  where it is; **Show in binder** turns to its binder and page and highlights the pocket (loose and
+  sold cards are highlighted in their list), and **Full screen** opens it in the photo viewer,
+  flipping through all the matches. Arrow keys and Enter (Shift+Enter for full screen) work too.
 - **Your photos**: choose, take, browse, paste or drop one; or photograph a whole binder page
   and slice it into one photo per pocket. Flip through pictures full screen.
 - **Quick sell** one or many cards (press and hold to select), with profit against what you
@@ -154,4 +159,5 @@ BASE_URL=http://localhost:4100/ npm run test:e2e    # browser smoke test
   tokens), `security.ts` (rate limits and blocks), `log.ts`, `checks.ts` (Overview checks),
   `config.ts` (administrators' settings), `app.ts` (HTTP API).
 - `public/`: `admin.html`/`admin.js` (Administration), `login.html`/`login.js` (sign-in).
-- `public/`: the page. `app.js` is the ledger UI; `runtime.js` connects it to the server.
+- `public/`: the page. `app.js` is the ledger UI; `search.js` matches cards for Find (tested in
+  `tests/search.test.ts`); `runtime.js` connects it to the server.
