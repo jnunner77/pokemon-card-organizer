@@ -6,10 +6,12 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import { z } from 'zod';
 import { type Accounts, type Caller, type Role, SESSION_COOKIE, atLeast, schemas } from './accounts';
 import { Assets, MAX_IMAGE_BYTES } from './assets';
+import type { Autofill } from './autofill';
 import { RestoreError, makeBackup, restoreBackup } from './backup';
 import { Backups } from './backups';
 import { dirBytes, freeBytes, runChecks } from './checks';
 import { Config, pricingConfigSchema, retentionSchema } from './config';
+import type { CardDetails } from './details';
 import { CATEGORIES, LEVELS, type Logger, quietLogger } from './log';
 import { SourceError } from './pricing/sources';
 import type { PriceUpdater } from './pricing/updater';
@@ -37,6 +39,10 @@ export interface AppOptions {
   backups?: Backups;
   /** BINDER_PASSWORD, for the check that it no longer opens the admin account. */
   envPassword?: string;
+  /** Card details lookups (TCGdex); the lookup routes answer 503 without them. */
+  details?: CardDetails;
+  /** New cards filling themselves in, and Fill in missing details. */
+  autofill?: Autofill;
 }
 
 /** Largest restore upload. The reverse proxy may cap it lower; `npm run import-backup` has no cap. */
@@ -258,6 +264,27 @@ export function createApp(o: AppOptions) {
     const { id } = cardFor(req.params.id);
     const outcome = await needUpdater().updateCard(id);
     res.json({ outcome, card: { id, ...store.get('cards', id) } });
+  });
+
+  // ---- card details (TCGdex) ---------------------------------------------------------
+  const lookupQuery = z.object({
+    name: z.string().trim().min(1).max(200),
+    number: z.string().trim().min(1).max(40),
+    set: z.string().trim().max(200).optional(),
+    setCode: z.string().trim().max(40).optional(),
+  });
+  api.get('/cards/lookup', need('editor'), async (req, res) => {
+    if (!o.details) throw new HttpError(503, 'Card lookups are turned off on this server.');
+    const q = lookupQuery.safeParse(req.query);
+    if (!q.success) throw new HttpError(400, 'Give the card name and number.');
+    res.json({ matches: await o.details.lookup(q.data.name, q.data.number, q.data) });
+  });
+  api.post('/cards/fill-details', need('editor'), heavy, (req, res) => {
+    if (!o.autofill) throw new HttpError(503, 'Card lookups are turned off on this server.');
+    const already = o.autofill.fillingAll;
+    const cards = o.autofill.fillAll(req.query.force === '1');
+    if (!already) log.info('pricing', `${who(res)} started Fill in missing details (${cards} cards)`);
+    res.status(202).json({ started: !already, cards });
   });
 
   // ---- full backups (with photos) -----------------------------------------------------
@@ -519,7 +546,7 @@ function securityHeaders(req: Request, res: Response, next: NextFunction) {
       "style-src 'self' 'unsafe-inline'",
       // data: and blob: for pasted and freshly picked photos, which the page reads back.
       // Price sites' thumbnails, shown when choosing which product a card is.
-      "img-src 'self' data: blob: https://storage.googleapis.com https://tcgplayer-cdn.tcgplayer.com",
+      "img-src 'self' data: blob: https://storage.googleapis.com https://tcgplayer-cdn.tcgplayer.com https://assets.tcgdex.net",
       "font-src 'self'",
       "connect-src 'self' data: blob:",
       "object-src 'none'",

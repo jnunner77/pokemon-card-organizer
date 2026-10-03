@@ -465,3 +465,17 @@ tbody tr.found{background:var(--accent-soft);box-shadow:inset 4px 0 0 var(--acce
 }
 @keyframes foundPulse{50%{box-shadow:0 0 0 10px rgba(242,183,5,.35)}}
 @keyframes foundRow{50%{box-shadow:inset 10px 0 0 var(--accent)}}
+
+/* ---------- card details lookup (Add card) ---------- */
+.detailshint{font-size:12.5px;border:1px solid var(--line-2);background:var(--surface-2);border-radius:8px;padding:8px 10px}
+.detailshint .dok{color:var(--good)}
+.detailshint .dok b{color:var(--ink)}
+.form input.autofilled{background:var(--good-soft);border-color:var(--good)}
+.dchoices{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:6px}
+.dchoice{display:flex;align-items:center;gap:8px;text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px;color:inherit}
+.dchoice:hover{border-color:var(--accent)}
+.dchoice img,.dchoice .thumb{width:40px;height:56px;object-fit:cover;border-radius:3px;background:var(--pocket);flex:none}
+.dtxt{display:flex;flex-direction:column;gap:1px;min-width:0}
+.dtxt>*{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dtxt .mono{font-family:var(--f-mono);font-size:11px;color:var(--ink-2)}
+@media (max-width:480px){.dchoices{grid-template-columns:1fr}}

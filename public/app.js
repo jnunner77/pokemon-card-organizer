@@ -345,7 +345,7 @@ function renderDrawer(force){
   const c = selCard();
   if(!c){ root.innerHTML=""; root.dataset.showing=""; return; }
   if(!force && root.dataset.showing===S.sel && $("#cardForm")){ if(S.sel!=="__new") refreshParts(c); return; }
-  S.priceTouched=false; S.moveTouched=false; root.dataset.showing=S.sel;
+  S.priceTouched=false; S.moveTouched=false; root.dataset.showing=S.sel; resetLookup();
   const isNew = S.sel==="__new";
   const sets = [...new Set(S.cards.map(x=>x.set).filter(Boolean))].sort();
   const codes = [...new Set(S.cards.map(x=>x.setCode).filter(Boolean))].sort();
@@ -366,6 +366,7 @@ function renderDrawer(force){
           <div class="field full"><label for="f_set">Set</label><input id="f_set" name="set" list="dl_sets" value="${esc(c.set)}" placeholder="e.g. 30th Celebration"></div>
           <div class="field"><label for="f_setCode">Set code</label><input id="f_setCode" class="mono" name="setCode" list="dl_codes" value="${esc(c.setCode)}" placeholder="30C, MEP, SVI"></div>
           <div class="field"><label for="f_number">Number</label><input id="f_number" class="mono" name="number" value="${esc(c.number)}" placeholder="129/128"></div>
+          <div class="field full detailshint" id="detailsHint" aria-live="polite" hidden></div>
           <div class="field"><label for="f_rarity">Rarity</label><input id="f_rarity" name="rarity" list="dl_rar" value="${esc(c.rarity)}"></div>
           <div class="field"><label for="f_variant">Variant / stamp</label><input id="f_variant" name="variant" value="${esc(c.variant)}" placeholder="Reverse holo, 30th stamp…"></div>
           <div class="field"><label for="f_language">Language</label><select id="f_language" name="language">${opt(LANGS,c.language||"English")}</select></div>
@@ -570,6 +571,73 @@ function pricingSettingsHTML(){
   </div>`;
 }
 
+/* ---------- card details: set, set code, rarity and illustrator from TCGdex ---------- */
+/* Typing a name and number fills the empty fields (never what the person typed); several matches
+   are offered as pictures to choose from. The server does the same for cards added any other way. */
+const DETAIL_INPUTS = {set:"f_set", setCode:"f_setCode", rarity:"f_rarity", artist:"f_artist"};
+const DETAIL_FIELDS = Object.keys(DETAIL_INPUTS);
+let DL = {key:"", t:0, seq:0, res:[], auto:{}};
+function resetLookup(){ clearTimeout(DL.t); DL = {key:"", t:0, seq:DL.seq+1, res:[], auto:{}}; }
+const fieldVal = id => ($("#"+id)?.value || "").trim();
+/* a field counts as empty if it's blank or still holds what the lookup put there */
+const lookupOwns = f => { const v = fieldVal(DETAIL_INPUTS[f]); return !v || DL.auto[f]===v; };
+function detailsHint(html){ const h=$("#detailsHint"); if(!h) return; h.hidden = !html; h.innerHTML = html || ""; }
+function scheduleLookup(){
+  clearTimeout(DL.t);
+  if(S.me?.user?.role==="viewer") return;
+  if(!fieldVal("f_name") || !fieldVal("f_number")){ DL.key=""; detailsHint(""); return; }
+  if(!DETAIL_FIELDS.some(lookupOwns)) return;
+  DL.t = setTimeout(runLookup, 650);
+}
+async function runLookup(){
+  const name = fieldVal("f_name"), number = fieldVal("f_number");
+  if(!name || !number || !DETAIL_FIELDS.some(lookupOwns)) return;
+  const set = lookupOwns("set") ? "" : fieldVal("f_set"), setCode = lookupOwns("setCode") ? "" : fieldVal("f_setCode");
+  const key = [name, number, set, setCode].join("|").toLowerCase(); if(key===DL.key) return;
+  DL.key = key; const seq = ++DL.seq;
+  detailsHint(`<span class="hint">Looking up ${esc(name)} ${esc(number)}…</span>`);
+  try{
+    const q = new URLSearchParams({name, number}); if(set) q.set("set", set); if(setCode) q.set("setCode", setCode);
+    const r = await window.ledgerApi.call("GET", "api/cards/lookup?"+q);
+    if(seq!==DL.seq || !$("#cardForm")) return;
+    DL.res = Array.isArray(r?.matches) ? r.matches : [];
+    if(DL.res.length===1) return applyDetails(DL.res[0]);
+    if(!DL.res.length) return detailsHint(`<span class="hint">${esc(name)} ${esc(number)} isn't in the card database (TCGdex). Fill in the rest by hand; brand-new and some promo cards take a while to appear.</span>`);
+    detailsHint(`<p class="hint" style="margin:0 0 6px">${DL.res.length} cards are ${esc(name)} ${esc(number)}. Which one is yours?</p>
+      <div class="dchoices">${DL.res.map((m,i)=>`<button type="button" class="dchoice" data-dpick="${i}">${m.thumb?`<img src="${esc(m.thumb)}" alt="" loading="lazy">`:`<span class="thumb"></span>`}<span class="dtxt"><b>${esc(m.set)}</b><span class="mono">${esc([m.setCode, m.number+(m.total?`/${m.total}`:"")].filter(Boolean).join(" "))}</span><span class="hint">${esc([m.rarity, m.artist].filter(Boolean).join(" · "))}</span></span></button>`).join("")}</div>
+      <p class="hint" style="margin:6px 0 0">Or add the set size to the number (like 51/162), or type the set code.</p>`);
+  }catch(e){
+    if(seq!==DL.seq) return; DL.key = "";
+    detailsHint(`<span class="hint">${e?.code==="upstream_error" || e?.code==="unavailable" ? "The card database didn't answer. Fill in the rest by hand, or change the number to try again." : esc(e?.message || "Couldn't look the card up.")}</span>`);
+  }
+}
+function applyDetails(m){
+  const vals = {set:m.set, setCode:m.setCode, rarity:m.rarity, artist:m.artist}, filled = [];
+  for(const f of DETAIL_FIELDS){
+    const el = $("#"+DETAIL_INPUTS[f]); if(!el || !vals[f] || !lookupOwns(f)) continue;
+    el.value = vals[f]; DL.auto[f] = vals[f]; el.classList.add("autofilled"); filled.push(f);
+  }
+  if(filled.length){ S.dirty = true; const b=$("#btnSave"); if(b) b.disabled = false; }
+  const what = [m.set, m.setCode, m.rarity, m.artist].filter(Boolean).join(" · ");
+  detailsHint(`<span class="dok">${filled.length?"Filled in from TCGdex":"Matches TCGdex"}: <b>${esc(what)}</b></span>${filled.length?` <button type="button" class="btn sm ghost" data-dundo>Undo</button>`:""}`);
+}
+function undoDetails(){
+  for(const f of DETAIL_FIELDS){ const el=$("#"+DETAIL_INPUTS[f]); if(el && DL.auto[f] && el.value===DL.auto[f]){ el.value=""; el.classList.remove("autofilled"); } }
+  DL.auto = {}; detailsHint(`<span class="hint">Cleared. Type the details by hand, or change the name or number to look it up again.</span>`);
+}
+/* Settings: what new cards get, and Fill in missing details for the cards already here */
+const lookedUpThisWeek = c => c.details?.checkedAt && Date.now()-Date.parse(c.details.checkedAt) < 7*86400000;
+const wantsDetails = c => c.name && c.number && (!c.language || /^en/i.test(c.language)) && DETAIL_FIELDS.some(f=>!String(c[f]??"").trim()) && !lookedUpThisWeek(c);
+function detailsSettingsHTML(){
+  const st = S.detailsRun || {}, last = st.lastRun, n = S.cards.filter(wantsDetails).length;
+  return `<div class="sec" style="margin-top:18px;border-top:1px solid var(--line-2);padding-top:14px" id="sDetails">
+    <h3>Card details</h3>
+    <p class="hint" style="margin:0 0 8px">New cards get their set, set code, rarity and illustrator from TCGdex, a free card database, and then their price and picture, as soon as they're added. Only empty fields are filled; what you type always stays.</p>
+    ${st.running?`<p><b>Filling in now:</b> ${st.done||0} of ${st.total||0} cards…</p>`:last?`<p style="margin:0 0 6px">Last fill-in: ${last.filled||0} card${last.filled===1?"":"s"} filled${last.several?` · ${last.several} with several matches (open them to choose)`:""}${last.notFound?` · ${last.notFound} not in the database`:""}${last.error?` · ${last.error} failed`:""}</p>`:""}
+    <div class="links" style="margin-top:6px"><button class="btn sm" type="button" id="sFillDetails" ${st.running||!n?"disabled":""}>Fill in missing details${n?` (${n} card${n===1?"":"s"})`:""}</button></div>
+  </div>`;
+}
+
 /* ---------- writes ---------- */
 async function saveCard(){
   const c = selCard(); if(!c) return;
@@ -580,7 +648,7 @@ async function saveCard(){
     if(loc.binderId && cardAt(loc.binderId, loc.page, loc.slot)){ const f = firstFree(loc.binderId); loc.page=f.page; loc.slot=f.slot; }
     const id = rid();
     const ok = await guard(()=> S.db.collection("cards").doc(id).set({...data, ...loc, imageId:c.imageId||null, prices:[], createdAt:nowISO(), updatedAt:nowISO()}));
-    if(ok){ toast(`Added ${data.name}`); S.sel=id; S.draft=null; S.dirty=false; if(loc.binderId){ S.binderId=loc.binderId; S.page=loc.page; persistNav(); } render(); renderDrawer(true); }
+    if(ok){ toast(`Added ${data.name}. Looking up its price and picture…`); S.sel=id; S.draft=null; S.dirty=false; if(loc.binderId){ S.binderId=loc.binderId; S.page=loc.page; persistNav(); } render(); renderDrawer(true); }
     return;
   }
   const ok = await guard(()=> S.db.doc("cards/"+c.id).update({...data, updatedAt:nowISO()}));
@@ -864,6 +932,7 @@ function settingsModal(){
       <div id="sRestoreZone" style="margin-top:10px"></div>
     </div>
     ${pricingSettingsHTML()}
+    ${detailsSettingsHTML()}
     ${S.me?.user?`<div class="mfoot" style="justify-content:space-between;align-items:center;border-top:1px solid var(--line-2);padding-top:14px"><span class="hint">Signed in as <b>${esc(S.me.user.name)}</b> (${esc(S.me.user.username)}, ${esc(S.me.user.role)})</span><span style="display:flex;gap:8px">${S.me.user.role==="admin"?`<a class="btn sm" href="admin.html">Administration</a>`:""}${S.me.authEnabled?`<button class="btn sm" type="button" id="sSignOut">Sign out</button>`:""}</span></div>`:""}
     </div></div>`;
   $("#sSave").onclick = async () => {
@@ -1512,6 +1581,7 @@ document.addEventListener("click", e => {
   if(t.closest("#btnCsvImport")) return csvImportModal();
   if(t.closest("#btnExport")) return void exportCSV();
   if(t.closest("#btnSettings") || t.closest("#btnFirstRestore") || t.closest("#btnPriceStatus")) return settingsModal();
+  if(t.closest("#sFillDetails")){ t.closest("#sFillDetails").disabled = true; window.ledgerApi.call("POST","api/cards/fill-details").then(r=>toast(r.cards ? `Looking up ${r.cards} card${r.cards===1?"":"s"} in TCGdex. This takes about a second each.` : "Nothing to fill in."), e=>toast(e?.message||"Couldn't start it.")); return; }
   if(t.closest("#sRunPrices")){ t.closest("#sRunPrices").disabled = true; window.ledgerApi.call("POST","api/pricing/run").then(()=>toast("Updating every card's price. This takes a few minutes."), e=>toast(e?.message||"Couldn't start the update.")); return; }
   const oc = t.closest("[data-openc]"); if(oc){ closeModal(); return openCard(oc.dataset.openc); }
   if(t.closest("#btnBinderSettings")){ const b=curBinder(); if(b) binderModal(b.id); return; }
@@ -1540,6 +1610,8 @@ document.addEventListener("click", e => {
   if(t.closest("[data-pdelno]")){ S.confirm=null; refreshParts(selCard(),{price:true}); return; }
   const py = t.closest("[data-pdelyes]"); if(py) return void delPrice(py.dataset.pdelyes);
   if(t.closest("#btnPasteImg")) return void pasteFromClipboard();
+  const dp = t.closest("[data-dpick]"); if(dp){ const m = DL.res[+dp.dataset.dpick]; if(m) applyDetails(m); return; }
+  if(t.closest("[data-dundo]")) return undoDetails();
   const pr = t.closest("[data-pr]"); if(pr) return void priceAction(pr.dataset.pr, selCard());
   const cd2 = t.closest("[data-cand]"); if(cd2){ const [from, i] = cd2.dataset.cand.split(":"); const c = selCard(); const list = from==="stored" ? (c?.pricing?.candidates||[]) : (Array.isArray(S.pickRes)?S.pickRes:[]); const x = list[+i]; if(x) priceAction("link", c, {source:x.source, id:x.id, url:x.url, title:x.title, set:x.set}); return; }
   const pc2 = t.closest("[data-pic]"); if(pc2 && !pc2.disabled){ const c = selCard(); if(c && S.sel!=="__new") updateCard(c.id, {imagePref: pc2.dataset.pic}).then(ok=>{ if(ok){ refreshParts(selCard()); renderMain(); } }); return; }
@@ -1549,7 +1621,9 @@ document.addEventListener("click", e => {
   if(t.closest("#btnTakeOut")){ const c=selCard(); return void moveCard(c, null); }
 });
 document.addEventListener("input", e => {
-  if(e.target.closest("#cardForm")){ S.dirty=true; const b=$("#btnSave"); if(b) b.disabled=false; if(e.target.id==="f_name") $("#dTitle").textContent = e.target.value || "New card"; }
+  if(e.target.closest("#cardForm")){ S.dirty=true; const b=$("#btnSave"); if(b) b.disabled=false; if(e.target.id==="f_name") $("#dTitle").textContent = e.target.value || "New card";
+    if(e.target.classList.contains("autofilled")) e.target.classList.remove("autofilled");
+    if(/^f_(name|number|set|setCode)$/.test(e.target.id)) scheduleLookup(); }
   if(e.target.id==="q"){ S.q=e.target.value; clearTimeout(S._qt); S._qt=setTimeout(renderMain,120); }
   if(e.target.id==="findQ"){ FIND.q=e.target.value; findRun(); }
   if(e.target.closest("#priceSec")) S.priceTouched=true;
@@ -1811,6 +1885,7 @@ async function boot(){
   db.collection("binders").onSnapshot(s => { S.binders = s.docs.map(d=>({id:d.id, ...d.data()})); got.b=true; done(); }, onErr);
   db.collection("cards").onSnapshot(s => { S.cards = s.docs.map(d=>({id:d.id, ...d.data()})); got.c=true; if(S.sel && S.sel!=="__new" && !S.cards.some(c=>c.id===S.sel)) { S.sel=null; } done(); }, onErr);
   db.doc("settings/main").onSnapshot(s => { if(s.exists) S.settings = {...S.settings, ...s.data()}; if(S.mode==="ready") render(); }, onErr);
+  db.doc("settings/details").onSnapshot(s => { S.detailsRun = s.exists ? s.data() : {}; const sd=$("#sDetails"); if(sd) sd.outerHTML = detailsSettingsHTML(); }, onErr);
   db.doc("settings/pricing").onSnapshot(s => { S.pricing = s.exists ? s.data() : {}; if(S.mode==="ready"){ renderStats(); const sp=$("#sPricing"); if(sp) sp.outerHTML = pricingSettingsHTML(); } }, onErr);
 }
 boot();
