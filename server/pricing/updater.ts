@@ -1,6 +1,7 @@
 import type { Assets } from '../assets';
 import { MAX_IMAGE_BYTES } from '../assets';
 import type { Config } from '../config';
+import type { CardDetails } from '../details';
 import { type Logger, quietLogger } from '../log';
 import type { Doc } from '../schema';
 import type { Store } from '../store';
@@ -42,6 +43,8 @@ export interface UpdaterOptions {
   config?: Config;
   /** Consecutive failures from one site before the rest of the run stops asking it. */
   breakerAfter?: number;
+  /** Fills cards' empty set, set code, rarity and illustrator before pricing them (details.ts). */
+  details?: CardDetails;
 }
 
 type Card = Doc & CardForMatch & {
@@ -113,6 +116,7 @@ export class PriceUpdater {
   private readonly log: Logger;
   private readonly config?: Config;
   private readonly breakerAfter: number;
+  private readonly details?: CardDetails;
 
   constructor(o: UpdaterOptions) {
     this.store = o.store;
@@ -126,6 +130,7 @@ export class PriceUpdater {
     this.log = o.log ?? quietLogger();
     this.config = o.config;
     this.breakerAfter = o.breakerAfter ?? 5;
+    this.details = o.details;
   }
 
   /** Whether the daily run is on, and its hour (administrators can change both). */
@@ -209,7 +214,12 @@ export class PriceUpdater {
             if (src && tripped.has(src) && card.status !== 'sold' && card.status !== 'traded') {
               this.patchLink(id, { error: `Skipped: ${SOURCE_NAME[src]} kept failing during this update. It will be tried again next time.` });
               outcome = 'failed';
-            } else outcome = await this.updateCard(id, rate);
+            } else {
+              // Blanks first (it only asks TCGdex about cards with blanks, at most once a week each):
+              // a known set helps find the right product.
+              if (this.details) await this.details.fill(this.store, id).catch(() => {});
+              outcome = await this.updateCard(id, rate);
+            }
           } catch (err) {
             outcome = 'failed';
             this.log.error('pricing', `Price update for ${label(card)} failed: ${message(err)}`);

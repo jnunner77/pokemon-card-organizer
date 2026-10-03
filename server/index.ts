@@ -2,8 +2,10 @@ import path from 'node:path';
 import { Accounts } from './accounts';
 import { createApp } from './app';
 import { Assets } from './assets';
+import { Autofill } from './autofill';
 import { Backups } from './backups';
 import { Config } from './config';
+import { CardDetails } from './details';
 import { Logger } from './log';
 import { PriceUpdater } from './pricing/updater';
 import { Security } from './security';
@@ -31,8 +33,13 @@ else log.warn('security', 'AUTH=off: sign-in is turned off and anyone who can re
 const security = new Security({ allowlist: (env.SECURITY_ALLOWLIST ?? '').split(',').map((s) => s.trim()).filter(Boolean) }, log);
 security.start();
 
-const updater = new PriceUpdater({ store, assets, log, config, timeZone: env.TZ || 'America/Vancouver' });
+// CARD_LOOKUPS=off: no TCGdex lookups (card details) at all.
+const details = env.CARD_LOOKUPS === 'off' ? undefined : new CardDetails();
+const updater = new PriceUpdater({ store, assets, log, config, details, timeZone: env.TZ || 'America/Vancouver' });
 updater.startScheduler();
+// New cards: details, then price and picture, straight away.
+const autofill = details ? new Autofill({ store, details, updater, log }) : undefined;
+autofill?.start();
 
 const app = createApp({
   store,
@@ -43,6 +50,8 @@ const app = createApp({
   log,
   config,
   backups,
+  details,
+  autofill,
   envPassword: env.BINDER_PASSWORD,
   trustProxy: trust === undefined ? undefined : /^\d+$/.test(trust) ? Number(trust) : trust === 'true',
 });
@@ -80,6 +89,7 @@ server.maxHeadersCount = 100;
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, () => {
     updater.stopScheduler();
+    autofill?.stop();
     security.stop();
     accounts?.flush();
     server.close(() => process.exit(0));

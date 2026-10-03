@@ -39,6 +39,26 @@ from the prices logged by hand a week earlier.
 > and expect to adjust `server/pricing/sources.ts` if a site changes its pages. PriceCharting
 > sells an official API if you want to switch to it.
 
+## New cards fill themselves in
+
+Adding a card only needs its **name and number**:
+
+- As you type them in *Add card*, the empty **Set, Set code, Rarity and Illustrator** fields are
+  filled from [TCGdex](https://tcgdex.dev), a free, open card database, and marked so you can see
+  (and *Undo*) what was filled. When several cards have that name and number (a number without the
+  set size, like `51` instead of `51/162`), you pick yours from pictures. What you type is never
+  replaced.
+- As soon as the card is saved (from the form, a CSV import or the API) the server fills whatever
+  is still empty and then looks up its **price and official picture**, so the card is complete
+  within seconds instead of the next morning.
+- *Settings → Card details → Fill in missing details* does the same for cards already in the
+  ledger (illustrators, for instance), and the daily price run fills blanks too. Cards looked up
+  are asked about again after a week, in case TCGdex has added them.
+
+On a 122-card collection, Fill in missing details added 108 illustrators; the cards not found
+were from the *Trading Card Game Classic* box, a brand-new promo, and a misspelled name.
+Only English cards are looked up.
+
 ## Everything else
 
 - **Binders and pages** with 4, 9, 12 or 16 pockets per page, drawn like the real thing.
@@ -127,6 +147,7 @@ the existing free Google Cloud VM, at `binder.nunner.duckdns.org`).
 | `TZ` | `America/Vancouver` | Calendar for the price log and the daily run |
 | `PRICE_UPDATE_HOUR` | `5` | Daily update starts after this hour |
 | `PRICE_UPDATES` | `on` | `off` turns automatic prices and pictures off |
+| `CARD_LOOKUPS` | `on` | `off` turns card details lookups (TCGdex) off |
 | `TRUST_PROXY` | _(unset)_ | Set behind a reverse proxy (`1`) |
 
 ## Data
@@ -154,6 +175,8 @@ BASE_URL=http://localhost:4100/ npm run test:e2e    # browser smoke test
 
 - `server/pricing/`: `sources.ts` (PriceCharting, TCGplayer, Bank of Canada), `match.ts`
   (which product is this card), `updater.ts` (the daily run and per-card updates).
+- `server/details.ts` (card details from TCGdex), `server/autofill.ts` (new cards filling themselves
+  in, and Fill in missing details).
 - `server/`: `store.ts` (ledger file and change feed), `assets.ts` (pictures), `backup.ts`
   (full backups), `backups.ts` (copies and retention), `accounts.ts` (people, sessions, API
   tokens), `security.ts` (rate limits and blocks), `log.ts`, `checks.ts` (Overview checks),
