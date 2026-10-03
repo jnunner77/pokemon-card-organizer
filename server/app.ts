@@ -188,6 +188,36 @@ export function createApp(o: AppOptions) {
     res.status(204).end();
   });
 
+  // Sort a binder: the page puts its cards in an order (release date, price) and sends where each
+  // one goes. Saved all together, and only if it still covers every card in the binder exactly
+  // once, so nothing ends up doubled in a pocket or left behind. Undo sends the old places back.
+  const arrangeBody = z.object({
+    moves: z.array(z.object({ id: idSchema, page: z.number().int().min(1).max(100_000), slot: z.number().int().min(1).max(64) })).max(5000),
+  });
+  api.post('/binders/:id/arrange', need('editor'), json, (req, res) => {
+    const id = idSchema.safeParse(req.params.id);
+    const binder = id.success ? store.get('binders', id.data) : undefined;
+    if (!id.success || !binder) throw new HttpError(404, 'That binder no longer exists.', 'not_found');
+    const body = arrangeBody.safeParse(req.body);
+    if (!body.success) throw new HttpError(400, 'Send each card with its page and pocket.');
+    const pockets = [4, 9, 12, 16].includes(binder.pockets as number) ? (binder.pockets as number) : 9;
+    const inBinder = store.all().cards.filter((c) => (c as { binderId?: unknown }).binderId === id.data);
+    const ids = new Set(body.data.moves.map((m) => m.id));
+    const places = new Set(body.data.moves.map((m) => `${m.page}/${m.slot}`));
+    if (ids.size !== body.data.moves.length || ids.size !== inBinder.length || inBinder.some((c) => !ids.has(c.id))) {
+      throw new HttpError(409, 'The binder changed while you were sorting it. Sort it again.', 'conflict');
+    }
+    if (places.size !== ids.size) throw new HttpError(400, 'Two cards were given the same pocket.');
+    if (body.data.moves.some((m) => m.slot > pockets)) throw new HttpError(400, `This binder's pages have ${pockets} pockets.`);
+    const now = new Date().toISOString();
+    const patches = body.data.moves
+      .filter((m) => { const c = store.get('cards', m.id)!; return c.page !== m.page || c.slot !== m.slot; })
+      .map((m) => ({ id: m.id, patch: { page: m.page, slot: m.slot, updatedAt: now } }));
+    const moved = store.updateMany('cards', patches);
+    log.info('app', `${who(res)} sorted ${String(binder.name ?? 'a binder')}: ${moved} of ${ids.size} cards moved`);
+    res.json({ moved, cards: ids.size });
+  });
+
   // Live updates: every change is pushed to every open page, until the session ends.
   api.get('/events', need('viewer'), (req, res) => {
     const release = security ? security.openStream(req, res) : () => {};

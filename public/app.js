@@ -77,7 +77,12 @@ function firstFree(bid){
 
 /* ---------- toast ---------- */
 let toastT;
-function toast(msg){ const r = $("#toastRoot"); r.innerHTML = `<div class="toast" role="status">${esc(msg)}</div>`; clearTimeout(toastT); toastT = setTimeout(()=> r.innerHTML="", 2600); }
+function toast(msg, action){
+  const r = $("#toastRoot"); clearTimeout(toastT);
+  r.innerHTML = `<div class="toast" role="status">${esc(msg)}${action?`<button class="toastbtn" type="button">${esc(action.label)}</button>`:""}</div>`;
+  if(action) r.querySelector(".toastbtn").onclick = () => { clearTimeout(toastT); r.innerHTML = ""; action.run(); };
+  toastT = setTimeout(()=> r.innerHTML="", action ? 12000 : 2600);
+}
 function writeErr(e){
   const code = e && e.code;
   if(code==="quota_exceeded") return toast("The ledger is full. Delete some cards to add more.");
@@ -110,6 +115,7 @@ function renderTabs(){
   h += `<button class="tab add" type="button" id="btnNewBinder">+ New binder</button>`;
   $("#tabs").innerHTML = h;
   const b = curBinder(); $("#sheet").style.setProperty("--bc", b?.color || "#77838F"); $("#btnBinderSettings").hidden = !b;
+  $("#btnSortBinder").hidden = !b || S.me?.user?.role==="viewer" || cardsIn(b.id).length < 2;
 }
 function statsFor(list){
   const heldList = list.filter(held);
@@ -198,6 +204,7 @@ const SORTS = {
   name: c => (c.name||"").toLowerCase(),
   set: c => ((c.setCode||c.set||"")+" "+(c.number||"").padStart(8,"0")).toLowerCase(),
   loc: c => { const b = binderById(c.binderId); return b ? String(b.order??0).padStart(4,"0")+String(c.page||0).padStart(4,"0")+String(c.slot||0).padStart(3,"0") : "~"; },
+  released: c => c.released || "9999",
   status: c => c.status||"binder",
   value: c => valueOf(c) ?? -1,
   paid: c => paidOf(c) ?? -1
@@ -216,6 +223,7 @@ function renderList(m){
       ${S.pick?`<td class="tdtick"><span class="rowtick" aria-hidden="true">✓</span></td>`:""}<td>${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="" loading="lazy">`:`<span class="thumb"></span>`}</td>
       <td class="cellname"><b>${esc(c.name||"Unnamed card")}</b><span>${esc([c.rarity,c.variant].filter(Boolean).join(" · "))}</span></td>
       <td class="mono">${esc(metaLine(c))}</td>
+      <td class="mono">${esc(c.released||"—")}</td>
       <td class="mono">${esc(locShort(c))}</td>
       <td><span class="chip ${esc(c.status||"")}">${esc(st?st[1]:"In binder")}</span></td>
       <td class="r mono">${money(valueOf(c))}</td>
@@ -225,8 +233,8 @@ function renderList(m){
       <label class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" placeholder="Search name, set, number, rarity…" value="${esc(S.q)}" aria-label="Search cards"></label>
       <div class="seg" role="group" aria-label="Scope"><button type="button" data-scope="binder" aria-pressed="${S.scope!=="all"}">${S.binderId==="__loose"?"Loose":"This binder"}</button><button type="button" data-scope="all" aria-pressed="${S.scope==="all"}">All cards</button></div>
       <span class="hint">${list.length} shown${S.pick||!list.length?"":" · hold a row to quick sell or select"}</span></div>
-    <div class="tablewrap"><table><thead><tr>${S.pick?"<th></th>":""}<th></th>${th("name","Card")}${th("set","Set · No.")}${th("loc","Location")}${th("status","Status")}${th("value","Value","r")}${th("paid","Paid","r")}</tr></thead>
-    <tbody>${rows || `<tr><td colspan="${S.pick?8:7}" class="empty-state">${q?"No cards match that search.":"No cards here yet."}</td></tr>`}</tbody></table></div>`;
+    <div class="tablewrap"><table><thead><tr>${S.pick?"<th></th>":""}<th></th>${th("name","Card")}${th("set","Set · No.")}${th("released","Released")}${th("loc","Location")}${th("status","Status")}${th("value","Value","r")}${th("paid","Paid","r")}</tr></thead>
+    <tbody>${rows || `<tr><td colspan="${S.pick?9:8}" class="empty-state">${q?"No cards match that search.":"No cards here yet."}</td></tr>`}</tbody></table></div>`;
 }
 
 /* ---------- sales ---------- */
@@ -374,6 +382,7 @@ function renderDrawer(force){
           <div class="field"><label for="f_grader">Graded by</label><select id="f_grader" name="grader">${opt(GRADERS,c.grader||"Raw")}</select></div>
           <div class="field"><label for="f_grade">Grade</label><input id="f_grade" class="mono" name="grade" value="${esc(c.grade)}" placeholder="10, 9.5…"></div>
           <div class="field"><label for="f_artist">Illustrator</label><input id="f_artist" name="artist" value="${esc(c.artist)}"></div>
+          <div class="field"><label for="f_released">Released</label><input id="f_released" class="mono" value="${esc(c.released)}" readonly placeholder="${S.sel==="__new"?"Filled in after saving":"Not found yet"}" title="When the card's set came out, from TCGdex. Used to sort a binder by release date."></div>
           <div class="field"><label for="f_status">Status</label><select id="f_status" name="status">${opt(STATUSES,c.status||"binder")}</select></div>
           <div class="field full"><label for="f_notes">Notes</label><textarea id="f_notes" name="notes" placeholder="Centering, where you pulled it, trade notes…">${esc(c.notes)}</textarea></div>
         </div>
@@ -627,12 +636,14 @@ function undoDetails(){
 }
 /* Settings: what new cards get, and Fill in missing details for the cards already here */
 const lookedUpThisWeek = c => c.details?.checkedAt && Date.now()-Date.parse(c.details.checkedAt) < 7*86400000;
-const wantsDetails = c => c.name && c.number && (!c.language || /^en/i.test(c.language)) && DETAIL_FIELDS.some(f=>!String(c[f]??"").trim()) && !lookedUpThisWeek(c);
+/* cards matched before release dates were kept get theirs straight away (same rule as the server) */
+const lacksReleaseDate = c => !!c.details?.id && !("released" in c.details) && !c.released;
+const wantsDetails = c => c.name && c.number && (!c.language || /^en/i.test(c.language)) && [...DETAIL_FIELDS,"released"].some(f=>!String(c[f]??"").trim()) && (!lookedUpThisWeek(c) || lacksReleaseDate(c));
 function detailsSettingsHTML(){
   const st = S.detailsRun || {}, last = st.lastRun, n = S.cards.filter(wantsDetails).length;
   return `<div class="sec" style="margin-top:18px;border-top:1px solid var(--line-2);padding-top:14px" id="sDetails">
     <h3>Card details</h3>
-    <p class="hint" style="margin:0 0 8px">New cards get their set, set code, rarity and illustrator from TCGdex, a free card database, and then their price and picture, as soon as they're added. Only empty fields are filled; what you type always stays.</p>
+    <p class="hint" style="margin:0 0 8px">New cards get their set, set code, rarity, illustrator and release date from TCGdex, a free card database, and then their price and picture, as soon as they're added. Only empty fields are filled; what you type always stays.</p>
     ${st.running?`<p><b>Filling in now:</b> ${st.done||0} of ${st.total||0} cards…</p>`:last?`<p style="margin:0 0 6px">Last fill-in: ${last.filled||0} card${last.filled===1?"":"s"} filled${last.several?` · ${last.several} with several matches (open them to choose)`:""}${last.notFound?` · ${last.notFound} not in the database`:""}${last.error?` · ${last.error} failed`:""}</p>`:""}
     <div class="links" style="margin-top:6px"><button class="btn sm" type="button" id="sFillDetails" ${st.running||!n?"disabled":""}>Fill in missing details${n?` (${n} card${n===1?"":"s"})`:""}</button></div>
   </div>`;
@@ -917,6 +928,77 @@ function binderModal(id){
     $("#bDelZone").innerHTML = `<span class="confirm">Delete ${esc(b.name)}? <button class="btn sm danger solid" type="button" id="bDelYes">Delete</button></span>`;
     $("#bDelYes").onclick = async () => { if(await guard(()=> S.db.doc("binders/"+id).delete())){ closeModal(); S.binderId = sortedBinders().find(x=>x.id!==id)?.id || null; persistNav(); toast("Binder deleted"); render(); } };
   };
+}
+/* ---------- sort a binder ----------
+   Puts every card of a binder in order (release date or price) from page 1, pocket 1 with no
+   gaps, after a preview. The server saves all the moves together; Undo sends the old places back. */
+const BINDER_ORDERS = [
+  {k:"old", label:"Release date, oldest first"},
+  {k:"new", label:"Release date, newest first"},
+  {k:"high", label:"Price, highest first"},
+  {k:"low", label:"Price, lowest first"}
+];
+function binderOrder(list, k){
+  const cmp = (x,y) => x<y?-1:x>y?1:0;
+  const byDate = k==="old" || k==="new", dir = k==="old" || k==="low" ? 1 : -1;
+  const key = c => byDate ? (c.released || null) : valueOf(c);
+  const tie = (a,b) => (byDate ? 0 : cmp(a.released||"9999", b.released||"9999")) || cmp(SORTS.set(a), SORTS.set(b)) || cmp(SORTS.name(a), SORTS.name(b)) || cmp(SORTS.loc(a), SORTS.loc(b));
+  const known = list.filter(c=>key(c)!=null).sort((a,b)=> dir*cmp(key(a), key(b)) || tie(a,b));
+  const rest = list.filter(c=>key(c)==null).sort((a,b)=> cmp(SORTS.loc(a), SORTS.loc(b)));
+  return {order:[...known, ...rest], missing:rest.length};
+}
+function sortPlan(b, k){
+  const n = pocketsOf(b), {order, missing} = binderOrder(cardsIn(b.id), k);
+  const moves = order.map((c,i)=>({id:c.id, page:Math.floor(i/n)+1, slot:i%n+1}));
+  const moved = moves.filter((m,i)=> order[i].page!==m.page || order[i].slot!==m.slot).length;
+  return {n, order, moves, moved, missing, pages:Math.ceil(order.length/n)};
+}
+let sortK = "old";
+function sortModal(id){
+  const b = binderById(id); if(!b) return;
+  $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard narrow" role="dialog" aria-modal="true" aria-labelledby="sortTitle">
+    <h2 id="sortTitle">Sort ${esc(b.name)}</h2>
+    <p class="lead">Moves every card into the order you choose, from page 1, pocket 1 with no gaps, so you can rearrange the binder to match. Nothing moves until you press Sort; Undo puts every card back.</p>
+    <fieldset class="sortopts" id="sortOpts"><legend class="sr-only">Order</legend>${BINDER_ORDERS.map(o=>`<label><input type="radio" name="sortk" value="${o.k}" ${o.k===sortK?"checked":""}>${esc(o.label)}</label>`).join("")}</fieldset>
+    <div id="sortPrev"></div>
+    <div class="mfoot"><button class="btn" type="button" data-mclose>Cancel</button><button class="btn primary" type="button" id="sortGo">Sort binder</button></div>
+  </div></div>`;
+  const show = () => {
+    const p = sortPlan(b, sortK), byDate = sortK==="old" || sortK==="new";
+    const what = byDate ? "release date" : "price";
+    let rows = "", page = 0;
+    p.order.slice(0, 400).forEach((c,i) => {
+      const m = p.moves[i];
+      if(m.page!==page){ page = m.page; rows += `<li class="pg">Page ${page}</li>`; }
+      const k = byDate ? c.released : valueOf(c)!=null ? money(valueOf(c)) : null;
+      rows += `<li class="${k==null?"none":""}"><span class="k">#${m.slot}</span><span class="nm">${esc(c.name||"Unnamed card")} <span class="hint">${esc(metaLine(c))}</span></span><span class="k">${esc(k ?? "no "+what)}</span></li>`;
+    });
+    $("#sortPrev").innerHTML = `<p class="sortsum">${p.moved ? `<b>${p.moved} of ${p.order.length} cards move</b>, across ${p.pages} page${p.pages===1?"":"s"}.` : `<b>Already in this order.</b>`}${p.missing ? ` ${p.missing} card${p.missing===1?" has":"s have"} no ${what} and go${p.missing===1?"es":""} at the end, in their current order.${byDate?" Release dates are filled in overnight, or from Settings → Fill in missing details.":""}` : ""}</p>
+      <ol class="sortprev" aria-label="New order">${rows}</ol>`;
+    $("#sortGo").disabled = !p.moved;
+  };
+  $("#sortOpts").onchange = e => { sortK = e.target.value; show(); };
+  $("#sortGo").onclick = async () => {
+    const p = sortPlan(b, sortK), go = $("#sortGo");
+    const before = cardsIn(b.id).map(c=>({id:c.id, page:c.page, slot:c.slot}));
+    go.disabled = true;
+    try{
+      const r = await window.ledgerApi.call("POST", `api/binders/${encodeURIComponent(b.id)}/arrange`, {moves:p.moves});
+      closeModal(); S.page = 1; persistNav(); render();
+      toast(`Sorted ${b.name}: ${r.moved} card${r.moved===1?"":"s"} moved`, {label:"Undo", run:() => void undoSort(b, before, p.moves)});
+    }catch(e){ go.disabled = false; toast(e?.message || "Couldn't sort the binder. Try again."); }
+  };
+  show();
+  setTimeout(()=> $("#sortOpts input:checked")?.focus(), 30);
+}
+async function undoSort(b, before, after){
+  // Cards that had no page or pocket keep their new place.
+  const old = new Map(before.filter(m=>m.page && m.slot).map(m=>[m.id, m]));
+  const moves = after.map(m => old.get(m.id) || m);
+  try{
+    await window.ledgerApi.call("POST", `api/binders/${encodeURIComponent(b.id)}/arrange`, {moves});
+    toast(`${b.name} is back the way it was`); render();
+  }catch(e){ toast(e?.message || "Couldn't undo the sort."); }
 }
 function settingsModal(){
   const nc = S.cards.length, nb = S.binders.length;
@@ -1585,6 +1667,7 @@ document.addEventListener("click", e => {
   if(t.closest("#sRunPrices")){ t.closest("#sRunPrices").disabled = true; window.ledgerApi.call("POST","api/pricing/run").then(()=>toast("Updating every card's price. This takes a few minutes."), e=>toast(e?.message||"Couldn't start the update.")); return; }
   const oc = t.closest("[data-openc]"); if(oc){ closeModal(); return openCard(oc.dataset.openc); }
   if(t.closest("#btnBinderSettings")){ const b=curBinder(); if(b) binderModal(b.id); return; }
+  if(t.closest("#btnSortBinder")){ const b=curBinder(); if(b) sortModal(b.id); return; }
   const pc = t.closest("[data-page]"); if(pc){ S.page=+pc.dataset.page; persistNav(); renderMain(); return; }
   const stp = t.closest("[data-step]"); if(stp){ S.page+= +stp.dataset.step; persistNav(); renderMain(); return; }
   const em = t.closest("[data-empty]"); if(em){ return openNew({binderId:curBinder().id, page:S.page, slot:+em.dataset.empty}); }

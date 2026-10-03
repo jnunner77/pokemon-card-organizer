@@ -41,6 +41,7 @@ describe('looking up a card by name and number', () => {
       total: 162,
       rarity: 'Common',
       artist: 'kodama',
+      released: '2024-03-22',
       thumb: 'https://assets.tcgdex.net/en/sv/sv05/051/low.webp',
     });
   });
@@ -122,7 +123,8 @@ describe('filling in a stored card', () => {
       setCode: 'TEF',
       rarity: 'My own rarity',
       artist: 'kodama',
-      details: { source: 'tcgdex', result: 'filled', id: 'sv05-051', filled: ['set', 'setCode', 'artist'] },
+      released: '2024-03-22',
+      details: { source: 'tcgdex', result: 'filled', id: 'sv05-051', filled: ['set', 'setCode', 'artist', 'released'], released: '2024-03-22' },
     });
   });
 
@@ -140,7 +142,7 @@ describe('filling in a stored card', () => {
   it('leaves alone cards that are complete, not English, missing a name or number, or looked up this week', async () => {
     const now = new Date('2026-10-03T12:00:00Z');
     const d = new CardDetails({ fetcher: replay(), now: () => now });
-    store.set('cards', 'full', { name: 'Pikachu', number: '51/162', set: 'x', setCode: 'x', rarity: 'x', artist: 'x' });
+    store.set('cards', 'full', { name: 'Pikachu', number: '51/162', set: 'x', setCode: 'x', rarity: 'x', artist: 'x', released: '2024-03-22' });
     store.set('cards', 'ja', { name: 'Pikachu', number: '51/162', language: 'Japanese' });
     store.set('cards', 'noname', { number: '51/162' });
     store.set('cards', 'recent', { name: 'Pikachu', number: '51', details: { source: 'tcgdex', result: 'several', checkedAt: '2026-10-01T00:00:00Z' } });
@@ -148,6 +150,38 @@ describe('filling in a stored card', () => {
     for (const id of ['full', 'ja', 'noname', 'recent']) expect(await d.fill(store, id)).toBe('skipped');
     expect(await d.fill(store, 'recent', true)).toBe('several');
     expect(await d.fill(store, 'old')).toBe('filled');
+  });
+
+  it('gets the release date of a card matched before release dates were kept by its TCGdex id, straight away', async () => {
+    const now = new Date('2026-10-03T12:00:00Z');
+    const urls: string[] = [];
+    const fetcher = replay();
+    const d = new CardDetails({ fetcher: (u, i) => (urls.push(String(u)), fetcher(u, i)), now: () => now });
+    const done = { set: 'Base Set', setCode: 'BS', rarity: 'Uncommon', artist: 'Keiji Kinebuchi' };
+    // Looked up yesterday, before release dates: wanted anyway, and fetched by id, not searched.
+    store.set('cards', 'a', { name: 'Pokedex', number: '87/102', ...done, details: { source: 'tcgdex', result: 'filled', id: 'base1-87', checkedAt: '2026-10-02T00:00:00Z' } });
+    // Looked up since: has its date, or TCGdex had none for it; either way not asked again this week.
+    store.set('cards', 'b', { name: 'Pokedex', number: '87/102', ...done, released: '1999-01-09', details: { source: 'tcgdex', result: 'complete', id: 'base1-87', released: '1999-01-09', checkedAt: '2026-10-02T00:00:00Z' } });
+    store.set('cards', 'c', { name: 'Pokedex', number: '87/102', ...done, details: { source: 'tcgdex', result: 'complete', id: 'base1-87', released: null, checkedAt: '2026-10-02T00:00:00Z' } });
+    expect(d.wants(store.get('cards', 'a'))).toBe(true);
+    expect(d.wants(store.get('cards', 'b'))).toBe(false);
+    expect(d.wants(store.get('cards', 'c'))).toBe(false);
+    expect(await d.fill(store, 'a')).toBe('filled');
+    expect(store.get('cards', 'a')).toMatchObject({ ...done, released: '1999-01-09', details: { result: 'filled', id: 'base1-87', filled: ['released'], released: '1999-01-09' } });
+    expect(urls.some((u) => u.includes('/cards?'))).toBe(false);
+    expect(d.wants(store.get('cards', 'a'))).toBe(false);
+  });
+
+  it("dates a promo by the set it's filed under, when TCGdex knows that set", async () => {
+    const d = new CardDetails({ fetcher: replay() });
+    store.set('cards', 'filed', { name: 'Hisuian Zoroark V Star', number: 'SWSH298', set: 'Pokemon Crown Zenith' });
+    store.set('cards', 'bare', { name: 'Hisuian Zoroark V Star', number: 'SWSH298' });
+    store.set('cards', 'odd', { name: 'Hisuian Zoroark V Star', number: 'SWSH298', set: 'My promos' });
+    for (const id of ['filed', 'bare', 'odd']) expect(await d.fill(store, id)).toBe('filled');
+    expect(store.get('cards', 'filed')).toMatchObject({ set: 'Pokemon Crown Zenith', released: '2023-01-20', details: { released: '2023-01-20' } });
+    // Not filed anywhere, or under a set TCGdex doesn't have: the promo series' date.
+    expect(store.get('cards', 'bare')).toMatchObject({ set: 'SWSH Black Star Promos', released: '2019-11-15' });
+    expect(store.get('cards', 'odd')!.released).toBe('2019-11-15');
   });
 
   it('records a failed lookup without changing the card', async () => {
@@ -190,15 +224,17 @@ describe('new cards fill themselves in', () => {
   });
 
   it('fills in a card that a CSV row replaced (same id, different name and number)', async () => {
-    store.set('cards', 'pocket', { name: 'Bill', number: '118/130', set: 'Base Set', setCode: 'PBS', binderId: 'b', page: 1, slot: 1 });
+    // Matched once (to another card, standing in for Bill), with that card's release date.
+    store.set('cards', 'pocket', { name: 'Bill', number: '118/130', set: 'Base Set', setCode: 'PBS', binderId: 'b', page: 1, slot: 1, released: '1999-01-09', details: { source: 'tcgdex', result: 'complete', id: 'base1-87', released: '1999-01-09', checkedAt: new Date().toISOString() } });
     const { updater, updateCard } = fakeUpdater();
     const a = new Autofill({ store, details: new CardDetails({ fetcher: replay() }), updater, delayMs: 1 });
     a.start();
-    // What the CSV import writes: the whole card, under the pocket's card id.
-    store.set('cards', 'pocket', { name: 'Charizard V', number: '17/172', binderId: 'b', page: 1, slot: 1 });
+    // What the CSV import writes: the whole card, under the pocket's card id (here keeping the old
+    // match, as an edit in the drawer would).
+    store.set('cards', 'pocket', { name: 'Charizard V', number: '17/172', binderId: 'b', page: 1, slot: 1, details: { source: 'tcgdex', result: 'complete', id: 'base1-87', released: '1999-01-09', checkedAt: new Date().toISOString() } });
     await a.idle();
     expect(updateCard.mock.calls.map((c) => c[0])).toEqual(['pocket']);
-    expect(store.get('cards', 'pocket')).toMatchObject({ set: 'Brilliant Stars', setCode: 'BRS', rarity: 'Ultra Rare', artist: 'N-DESIGN Inc.' });
+    expect(store.get('cards', 'pocket')).toMatchObject({ set: 'Brilliant Stars', setCode: 'BRS', rarity: 'Ultra Rare', artist: 'N-DESIGN Inc.', released: '2022-02-25', details: { id: 'swsh9-017' } });
     a.stop();
   });
 
@@ -251,16 +287,36 @@ describe('new cards fill themselves in', () => {
     a.stop();
   });
 
+  it('backfills release dates by itself after starting, only when cards still need them', async () => {
+    const done = { set: 'Base Set', setCode: 'BS', rarity: 'Uncommon', artist: 'Keiji Kinebuchi' };
+    store.set('cards', 'a', { name: 'Pokedex', number: '87/102', ...done, details: { source: 'tcgdex', result: 'complete', id: 'base1-87', checkedAt: new Date().toISOString() } });
+    // Typed in full before details were filled in, so never looked up.
+    store.set('cards', 'b', { name: 'Charizard V', number: '17/172', set: 'Brilliant Stars', setCode: 'BRS', rarity: 'Ultra Rare', artist: 'N-DESIGN Inc.' });
+    // Looked up this week without a match: left to the weekly retry.
+    store.set('cards', 'c', { name: 'Pikachu', number: '51', details: { source: 'tcgdex', result: 'several', checkedAt: new Date().toISOString() } });
+    const a = new Autofill({ store, details: new CardDetails({ fetcher: replay() }), delayMs: 1, backfillAfterMs: 1 });
+    a.start();
+    await new Promise((r) => setTimeout(r, 20));
+    await a.filled();
+    expect(store.get('cards', 'a')).toMatchObject({ released: '1999-01-09' });
+    expect(store.get('cards', 'b')).toMatchObject({ released: '2022-02-25' });
+    expect(store.get('settings', 'details')).toMatchObject({ lastRun: { cards: 2, filled: 2 } });
+    expect(a.backfill()).toBe(0);
+    a.stop();
+  });
+
   it('fills in missing details for the cards already there, with progress in settings/details', async () => {
     store.set('cards', 'a', { name: 'Pikachu', number: '51/162' });
     store.set('cards', 'b', { name: 'Pikachu', number: '51' });
     store.set('cards', 'c', { name: 'Charizard V', number: '17/172', set: 'Brilliant Stars', setCode: 'BRS', rarity: 'Ultra Rare', artist: 'N-DESIGN Inc.' });
     const a = new Autofill({ store, details: new CardDetails({ fetcher: replay() }), delayMs: 1 });
-    expect(a.missing().sort()).toEqual(['a', 'b']);
-    expect(a.fillAll()).toBe(2);
+    // c has everything but its release date.
+    expect(a.missing().sort()).toEqual(['a', 'b', 'c']);
+    expect(a.fillAll()).toBe(3);
     await a.filled();
-    expect(store.get('settings', 'details')).toMatchObject({ running: false, done: 2, total: 2, lastRun: { cards: 2, filled: 1, several: 1 } });
-    expect(store.get('cards', 'a')).toMatchObject({ artist: 'kodama' });
+    expect(store.get('settings', 'details')).toMatchObject({ running: false, done: 3, total: 3, lastRun: { cards: 3, filled: 2, several: 1 } });
+    expect(store.get('cards', 'a')).toMatchObject({ artist: 'kodama', released: '2024-03-22' });
+    expect(store.get('cards', 'c')).toMatchObject({ released: '2022-02-25', details: { filled: ['released'] } });
     expect(a.missing()).toEqual([]); // b was looked up this week
     expect(a.missing(true)).toEqual(['b']);
   });

@@ -97,6 +97,56 @@ describe('documents', () => {
   });
 });
 
+describe('sorting a binder', () => {
+  const setUp = () => {
+    store.set('binders', 'b1', { name: 'Trainers', pockets: 4, order: 1 });
+    store.set('binders', 'b2', { name: 'Other', pockets: 9, order: 2 });
+    store.set('cards', 'x', card({ page: 1, slot: 1 }));
+    store.set('cards', 'y', card({ page: 1, slot: 3 }));
+    store.set('cards', 'z', card({ page: 2, slot: 1 }));
+    store.set('cards', 'elsewhere', card({ binderId: 'b2', page: 1, slot: 1 }));
+  };
+  const place = (id: string) => ({ page: store.get('cards', id)!.page, slot: store.get('cards', id)!.slot });
+
+  it('moves every card in the binder at once, and tells open pages', async () => {
+    setUp();
+    const seen: string[] = [];
+    store.subscribe((e) => e.type === 'change' && seen.push(e.change.id));
+    const r = await request(app)
+      .post('/api/binders/b1/arrange')
+      .send({ moves: [{ id: 'z', page: 1, slot: 1 }, { id: 'x', page: 1, slot: 2 }, { id: 'y', page: 1, slot: 3 }] })
+      .expect(200);
+    expect(r.body).toEqual({ moved: 2, cards: 3 });
+    expect([place('z'), place('x'), place('y')]).toEqual([{ page: 1, slot: 1 }, { page: 1, slot: 2 }, { page: 1, slot: 3 }]);
+    expect(seen.sort()).toEqual(['x', 'z']); // y didn't move
+    expect(place('elsewhere')).toEqual({ page: 1, slot: 1 });
+    expect(JSON.parse(fs.readFileSync(path.join(dir, 'db.json'), 'utf8')).cards.z).toMatchObject({ page: 1, slot: 1 });
+  });
+
+  it('moves nothing unless the moves cover each card in the binder once, in pockets that exist', async () => {
+    setUp();
+    const before = ['x', 'y', 'z'].map(place);
+    const tryMoves = (moves: unknown[]) => request(app).post('/api/binders/b1/arrange').send({ moves });
+    // A card is missing (added meanwhile), one is from another binder, or one is twice.
+    await tryMoves([{ id: 'x', page: 1, slot: 1 }, { id: 'y', page: 1, slot: 2 }]).expect(409);
+    await tryMoves([{ id: 'x', page: 1, slot: 1 }, { id: 'y', page: 1, slot: 2 }, { id: 'elsewhere', page: 1, slot: 3 }]).expect(409);
+    await tryMoves([{ id: 'x', page: 1, slot: 1 }, { id: 'x', page: 1, slot: 2 }, { id: 'y', page: 1, slot: 3 }, { id: 'z', page: 1, slot: 4 }]).expect(409);
+    // Two cards in one pocket, or a pocket past the page's 4.
+    await tryMoves([{ id: 'x', page: 1, slot: 1 }, { id: 'y', page: 1, slot: 1 }, { id: 'z', page: 1, slot: 2 }]).expect(400);
+    await tryMoves([{ id: 'x', page: 1, slot: 1 }, { id: 'y', page: 1, slot: 2 }, { id: 'z', page: 1, slot: 5 }]).expect(400);
+    await tryMoves([{ id: 'x', page: 0, slot: 1 }, { id: 'y', page: 1, slot: 2 }, { id: 'z', page: 1, slot: 3 }]).expect(400);
+    await request(app).post('/api/binders/nope/arrange').send({ moves: [] }).expect(404);
+    expect(['x', 'y', 'z'].map(place)).toEqual(before);
+  });
+
+  it('saves none of several changes when one of them is invalid', () => {
+    setUp();
+    expect(() => store.updateMany('cards', [{ id: 'x', patch: { page: 5 } }, { id: 'y', patch: { slot: 'nine' } }])).toThrow();
+    expect(() => store.updateMany('cards', [{ id: 'x', patch: { page: 5 } }, { id: 'gone', patch: { page: 1 } }])).toThrow();
+    expect(place('x')).toEqual({ page: 1, slot: 1 });
+  });
+});
+
 describe('photos', () => {
   it('stores, serves and deletes a photo', async () => {
     const up = await request(app).post('/api/assets').set('Content-Type', 'image/jpeg').send(JPEG).expect(201);

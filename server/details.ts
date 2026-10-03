@@ -1,5 +1,6 @@
 // Card details from TCGdex (https://tcgdex.dev), a free, open database of Pokémon cards: given a
-// card's name and number, its set, official set code, rarity and illustrator. Used to fill in
+// card's name and number, its set, official set code, rarity, illustrator and the set's release
+// date (for sorting a binder by release). Used to fill in
 // what a person didn't type when adding a card, and the blanks on cards already in the ledger.
 // Only empty fields are ever filled: what the person typed always wins.
 
@@ -10,7 +11,7 @@ import type { Store } from './store';
 const API = 'https://api.tcgdex.net/v2/en';
 
 /** The card fields this fills when they're empty. */
-export const DETAIL_FIELDS = ['set', 'setCode', 'rarity', 'artist'] as const;
+export const DETAIL_FIELDS = ['set', 'setCode', 'rarity', 'artist', 'released'] as const;
 export type DetailField = (typeof DETAIL_FIELDS)[number];
 
 export interface DetailsMatch {
@@ -25,6 +26,8 @@ export interface DetailsMatch {
   total: number | null;
   rarity: string | null;
   artist: string | null;
+  /** When the card's set came out, YYYY-MM-DD. */
+  released: string | null;
   /** Small picture for choosing between matches. */
   thumb: string | null;
 }
@@ -36,6 +39,8 @@ export interface DetailsStatus {
   id?: string | null;
   filled?: DetailField[] | null;
   error?: string | null;
+  /** The set's release date found with the match (absent on lookups from before release dates). */
+  released?: string | null;
   checkedAt: string;
 }
 
@@ -128,7 +133,14 @@ interface SetInfo {
   name: string;
   abbreviation?: { official?: string };
   tcgOnline?: string;
+  releaseDate?: string;
 }
+
+/** "2026-03-27" or "1999/01/09" → "1999-01-09"; anything else → null. */
+const isoDate = (s: unknown) => {
+  const m = /^(\d{4})[-/](\d{2})[-/](\d{2})/.exec(String(s ?? '').trim());
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+};
 
 export interface CardDetailsOptions {
   fetcher?: Fetcher;
@@ -195,13 +207,29 @@ export class CardDetails {
       total: total ? total : null,
       rarity: mapRarity(c.rarity),
       artist: c.illustrator?.trim() || null,
+      released: isoDate(s?.releaseDate),
       thumb: c.image ? `${c.image}/low.webp` : null,
     };
   }
 
+  /**
+   * When a card came out. A promo set's date is when that promo series began (SWSH Black Star
+   * Promos: 2019), so a promo filed under a set by name ("Crown Zenith") takes that set's date.
+   */
+  private async releasedFor(m: DetailsMatch, filedUnder: unknown): Promise<string | null> {
+    if (!/promo/i.test(m.set) || isBlank(filedUnder)) return m.released;
+    const name = String(filedUnder).replace(/^\s*pok[eé]mon\s+/i, '').trim();
+    if (!name || norm(name) === norm(m.set)) return m.released;
+    const sets = await this.json<{ id: string; name: string }[]>(`/sets?name=${encodeURIComponent(name)}`).catch(() => []);
+    const hit = (Array.isArray(sets) ? sets : []).find((x) => norm(x.name) === norm(name));
+    if (!hit) return m.released;
+    const info = await this.json<SetInfo>(`/sets/${encodeURIComponent(hit.id)}`).catch(() => null);
+    return isoDate(info?.releaseDate) ?? m.released;
+  }
+
   /** The fields of `card` that are empty and that `m` knows. */
   static patchFor(card: Doc, m: DetailsMatch): { patch: Doc; filled: DetailField[] } {
-    const values: Record<DetailField, string | null> = { set: m.set, setCode: m.setCode, rarity: m.rarity, artist: m.artist };
+    const values: Record<DetailField, string | null> = { set: m.set, setCode: m.setCode, rarity: m.rarity, artist: m.artist, released: m.released };
     const patch: Doc = {};
     const filled: DetailField[] = [];
     for (const f of DETAIL_FIELDS) {
@@ -213,18 +241,29 @@ export class CardDetails {
     return { patch, filled };
   }
 
-  /** Whether a card has blanks this could fill and hasn't been looked up recently. */
+  /**
+   * Whether a card has blanks this could fill and hasn't been looked up recently. A card matched
+   * before release dates were kept is wanted straight away: its release date is one quick fetch.
+   */
   wants(card: Doc | undefined, force = false): boolean {
     if (!card || isBlank(card.name) || isBlank(card.number) || !englishOrUnset(card.language)) return false;
     if (!DETAIL_FIELDS.some((f) => isBlank(card[f]))) return false;
     const last = card.details as DetailsStatus | undefined;
-    if (force || !last?.checkedAt) return true;
+    if (force || !last?.checkedAt || CardDetails.lacksReleaseDate(card)) return true;
     return this.now().getTime() - Date.parse(last.checkedAt) > RECHECK_MS;
+  }
+
+  /** A card matched to one TCGdex card before release dates were kept, still without one. */
+  static lacksReleaseDate(card: Doc): boolean {
+    const last = card.details as DetailsStatus | null | undefined;
+    return !!last?.id && !('released' in last) && isBlank(card.released);
   }
 
   /**
    * Fill a stored card's empty details when exactly one card matches, and record what happened
-   * on the card. Re-reads the card before writing so nothing typed meanwhile is lost.
+   * on the card. A card already matched is fetched by its TCGdex id instead of searched again
+   * (a card that becomes a different one has its match cleared first, see autofill.ts).
+   * Re-reads the card before writing so nothing typed meanwhile is lost.
    */
   async fill(store: Store, id: string, force = false): Promise<DetailsStatus['result'] | 'skipped'> {
     const card = store.get('cards', id);
@@ -233,13 +272,17 @@ export class CardDetails {
     let status: DetailsStatus;
     let patch: Doc = {};
     try {
-      const found = await this.lookup(String(card!.name), String(card!.number), { set: card!.set as string, setCode: card!.setCode as string });
+      const known = (card!.details as DetailsStatus | null | undefined)?.id;
+      const found = known
+        ? [await this.match(known)]
+        : await this.lookup(String(card!.name), String(card!.number), { set: card!.set as string, setCode: card!.setCode as string });
       if (found.length === 1) {
+        const m = { ...found[0], released: await this.releasedFor(found[0], store.get('cards', id)?.set) };
         const fresh = store.get('cards', id);
         if (!fresh) return 'skipped';
-        const p = CardDetails.patchFor(fresh, found[0]);
+        const p = CardDetails.patchFor(fresh, m);
         patch = p.patch;
-        status = { source: 'tcgdex', result: p.filled.length ? 'filled' : 'complete', id: found[0].id, filled: p.filled, checkedAt };
+        status = { source: 'tcgdex', result: p.filled.length ? 'filled' : 'complete', id: m.id, filled: p.filled, released: m.released, checkedAt };
       } else status = { source: 'tcgdex', result: found.length ? 'several' : 'notFound', checkedAt };
     } catch (err) {
       status = { source: 'tcgdex', result: 'error', error: err instanceof SourceError || err instanceof Error ? err.message.slice(0, 300) : String(err), checkedAt };

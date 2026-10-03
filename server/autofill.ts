@@ -5,9 +5,10 @@
 // a time with a pause between them, so a big import doesn't hammer the sites.
 //
 // Also "Fill in missing details" for the cards already in the ledger, with its progress in
-// settings/details.
+// settings/details. It runs by itself shortly after the server starts when cards still need
+// their release date (a one-off backfill after the update that added them).
 
-import type { CardDetails, DetailsStatus } from './details';
+import { CardDetails, type DetailsStatus } from './details';
 import { type Logger, quietLogger } from './log';
 import type { PriceUpdater } from './pricing/updater';
 import type { Doc } from './schema';
@@ -21,6 +22,8 @@ export interface AutofillOptions {
   log?: Logger;
   /** Pause between cards. */
   delayMs?: number;
+  /** How long after start() to check for cards needing a release date (null: don't). */
+  backfillAfterMs?: number | null;
 }
 
 type FillRun = { running: boolean; done: number; total: number; startedAt?: string; lastRun?: Doc };
@@ -39,6 +42,8 @@ export class Autofill {
   private working: Promise<void> | null = null;
   private filling: Promise<void> | null = null;
   private unsubscribe: (() => void) | null = null;
+  private readonly backfillAfterMs: number | null;
+  private backfillTimer: NodeJS.Timeout | null = null;
 
   constructor(o: AutofillOptions) {
     this.store = o.store;
@@ -46,6 +51,7 @@ export class Autofill {
     this.updater = o.updater;
     this.log = o.log ?? quietLogger();
     this.delayMs = o.delayMs ?? 1500;
+    this.backfillAfterMs = o.backfillAfterMs === undefined ? 60_000 : o.backfillAfterMs;
   }
 
   /**
@@ -73,11 +79,29 @@ export class Autofill {
       if (before !== undefined) this.changed.add(id);
       this.enqueue(id);
     });
+    if (this.backfillAfterMs != null) {
+      this.backfillTimer = setTimeout(() => this.backfill(), this.backfillAfterMs);
+      this.backfillTimer.unref?.();
+    }
   }
 
   stop() {
     this.unsubscribe?.();
     this.unsubscribe = null;
+    if (this.backfillTimer) clearTimeout(this.backfillTimer);
+    this.backfillTimer = null;
+  }
+
+  /**
+   * Release dates for the cards matched before they were kept, and for cards never looked up
+   * (complete before details were filled in). Returns how many cards it looks at.
+   */
+  backfill(): number {
+    const cards = this.store.all().cards;
+    const need = cards.filter((c) => this.details.wants(c) && (CardDetails.lacksReleaseDate(c) || !((c as Doc).details as DetailsStatus | null | undefined)?.checkedAt)).length;
+    if (!need || this.filling) return 0;
+    this.log.info('pricing', `${need} cards need their release date`);
+    return this.fillAll(false);
   }
 
   /** Resolves when every queued card has been handled (for tests and shutdown). */
@@ -112,10 +136,13 @@ export class Autofill {
     const changed = this.changed.delete(id);
     if (!card) return;
     const label = [card.name || 'Unnamed card', card.setCode || card.set, card.number].filter(Boolean).join(' ');
-    // A card that became a different one: an automatic match was for the old card (one the
-    // person chose is kept), and a lookup from this week was for it too.
-    const link = card.pricing as { linkedBy?: string } | null | undefined;
-    if (changed && link && link.linkedBy !== 'user') this.store.update('cards', id, { pricing: null, officialImageId: null });
+    // A card that became a different one: its TCGdex match and release date were for the old
+    // card, and so was an automatic price match (one the person chose is kept).
+    if (changed) {
+      const link = card.pricing as { linkedBy?: string } | null | undefined;
+      const auto = link && link.linkedBy !== 'user';
+      this.store.update('cards', id, { details: null, released: null, ...(auto ? { pricing: null, officialImageId: null } : {}) });
+    }
     const result = await this.details.fill(this.store, id, changed);
     if (result === 'filled') {
       const d = this.store.get('cards', id)?.details as DetailsStatus | undefined;

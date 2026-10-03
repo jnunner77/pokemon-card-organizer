@@ -87,9 +87,11 @@ const card = z.looseObject({
   slot: count(64).nullish(),
   sale: sale.nullish(),
   pricing: pricingLink.nullish(),
-  /** The last TCGdex lookup of the card's set, set code, rarity and illustrator (details.ts). */
+  /** When the card's set came out, YYYY-MM-DD, from TCGdex (details.ts). */
+  released: optText(10),
+  /** The last TCGdex lookup of the card's set, set code, rarity, illustrator and release date (details.ts). */
   details: z
-    .looseObject({ source: text(20), result: text(20), id: optText(100), filled: z.array(text(20)).max(8).nullish(), error: optText(300), checkedAt: optText(40) })
+    .looseObject({ source: text(20), result: text(20), id: optText(100), filled: z.array(text(20)).max(8).nullish(), released: optText(10), error: optText(300), checkedAt: optText(40) })
     .nullish(),
   /** High-resolution card image downloaded from the price site. */
   officialImageId: optText(64),

@@ -68,6 +68,24 @@ export class Store {
     return next;
   }
 
+  /**
+   * Merge fields into several documents as one change: every result is checked first, so either
+   * all of them are saved or none is (a binder sorted halfway would be worse than not at all).
+   */
+  updateMany(collection: Collection, patches: { id: string; patch: Doc }[]): number {
+    const next = patches.map(({ id, patch }) => {
+      const cur = this.data[collection][id];
+      if (!cur) throw new NotFound(`No ${collection.replace(/s$/, '')} with id ${id}`);
+      return { id, doc: validateDoc(collection, { ...cur, ...patch }) };
+    });
+    if (!next.length) return 0;
+    for (const { id, doc } of next) this.data[collection][id] = doc;
+    this.dailyCopy();
+    this.persist();
+    for (const { id, doc } of next) this.emit({ type: 'change', change: { collection, id, doc } });
+    return next.length;
+  }
+
   delete(collection: Collection, id: string) {
     if (!this.data[collection][id]) return;
     this.commit({ collection, id, doc: null });

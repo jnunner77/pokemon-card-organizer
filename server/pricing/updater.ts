@@ -43,7 +43,7 @@ export interface UpdaterOptions {
   config?: Config;
   /** Consecutive failures from one site before the rest of the run stops asking it. */
   breakerAfter?: number;
-  /** Fills cards' empty set, set code, rarity and illustrator before pricing them (details.ts). */
+  /** Fills cards' empty set, set code, rarity, illustrator and release date before pricing them (details.ts). */
   details?: CardDetails;
 }
 
@@ -215,8 +215,8 @@ export class PriceUpdater {
               this.patchLink(id, { error: `Skipped: ${SOURCE_NAME[src]} kept failing during this update. It will be tried again next time.` });
               outcome = 'failed';
             } else {
-              // Blanks first (it only asks TCGdex about cards with blanks, at most once a week each):
-              // a known set helps find the right product.
+              // Blanks first, release date included (it only asks TCGdex about cards with blanks, at
+              // most once a week each): a known set helps find the right product.
               if (this.details) await this.details.fill(this.store, id).catch(() => {});
               outcome = await this.updateCard(id, rate);
             }
