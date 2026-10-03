@@ -1,8 +1,8 @@
 // Browser smoke test. Start the app on an empty data directory first:
 //   DATA_DIR=$(mktemp -d) AUTH=off PRICE_UPDATES=off npm start
 //   BASE_URL=http://localhost:4100/ npm run test:e2e
-// It creates a binder and cards, prices, moves and sells one, checks live updates between
-// two tabs, a backup download, and the phone layout.
+// It creates a binder and cards, prices, moves and sells one, finds it with Find, checks live
+// updates between two tabs, a backup download, and the phone layout.
 import { chromium } from 'playwright';
 
 const BASE = process.env.BASE_URL || 'http://localhost:4100/';
@@ -66,6 +66,19 @@ try {
   // Undo puts it back in the binder.
   await page.getByRole('button', { name: 'Undo' }).click();
   await page.getByText(/back in Trade binder/).waitFor();
+
+  // Find it by set code and number: Show in binder highlights its pocket; Full screen opens the viewer.
+  await page.getByRole('tab', { name: /Sales/ }).click();
+  await page.keyboard.press('/');
+  await page.locator('#findQ').fill('obf 125');
+  await page.locator('.find-item').filter({ hasText: 'Charizard ex' }).waitFor();
+  await page.getByRole('button', { name: 'Show in binder', exact: true }).click();
+  await page.locator('.pocket.found').filter({ hasText: 'Charizard ex' }).waitFor();
+  await page.getByRole('button', { name: /Find a card/ }).click();
+  await page.locator('#findQ').fill('charizard');
+  await page.getByRole('button', { name: 'Full screen', exact: true }).click();
+  await page.locator('#lbCap').getByText('Charizard ex').waitFor();
+  await page.keyboard.press('Escape');
 
   // Full backup downloads with the card and photo in it.
   await page.getByRole('button', { name: 'Settings' }).click();

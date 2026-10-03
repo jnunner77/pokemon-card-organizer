@@ -13,6 +13,7 @@
 <link rel="stylesheet" href="fonts/jetbrains-mono/latin-600.css">
 <link rel="stylesheet" href="styles.css">
 <script src="runtime.js" defer></script>
+<script src="search.js" defer></script>
 <script src="app.js" defer></script>
 </head>
 <body>
@@ -25,6 +26,7 @@
       </div>
     </div>
     <div class="actions">
+      <button class="btn find-btn" id="btnFind" type="button" aria-keyshortcuts="/" title="Find a card by name, set, set code or number (press /)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Find a card<kbd>/</kbd></button>
       <button class="btn" id="btnImport" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h3l2-3h6l2 3h3v13H4z"/><circle cx="12" cy="13" r="4"/></svg>Import page photo</button>
       <button class="btn" id="btnCsvImport" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15V3m0 0-4 4m4-4 4 4M4 17v3h16v-3"/></svg>Import CSV</button>
       <button class="btn" id="btnExport" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v3h16v-3"/></svg>Export CSV</button>
@@ -51,6 +53,7 @@
 </div>
 <div id="drawerRoot"></div>
 <div id="modalRoot"></div>
+<div id="findRoot"></div>
 <div id="lbRoot"></div>
 <div id="toastRoot"></div>
 </body>
