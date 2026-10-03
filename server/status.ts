@@ -35,7 +35,7 @@ interface CardLike {
   setCode?: unknown;
   number?: unknown;
   status?: unknown;
-  pricing?: { source?: unknown; error?: unknown; candidates?: unknown } | null;
+  pricing?: { source?: unknown; id?: unknown; error?: unknown; candidates?: unknown } | null;
   details?: Partial<DetailsStatus> | null;
   checksIgnored?: unknown;
 }
@@ -43,6 +43,9 @@ interface CardLike {
 const norm = (s: unknown) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
 /** The card as named and numbered; Ignore in Cards to check holds until either changes. */
 export const checkIdentity = (c: CardLike) => `${String(c.name ?? '').trim().toLowerCase()}|${String(c.number ?? '').replace(/\s+/g, '').toLowerCase()}`;
+
+/** The card is linked to a product on a price site, which then fills its set and release date. */
+export const pricedFromProduct = (c: CardLike) => (c.pricing?.source === 'pricecharting' || c.pricing?.source === 'tcgplayer') && !!c.pricing.id;
 
 /**
  * What's wrong with a card's details, as found by its last lookup (details.ts), or null. The
@@ -54,7 +57,8 @@ export function detailsProblem(c: CardLike): string | null {
   if (d.filedUnder && norm(c.set) === norm(d.filedUnder.as)) return `filed under ${d.filedUnder.name}, but it's from ${d.set}.`;
   if (d.result === 'notFound' && d.suggest?.length) return `not in the card database. Did you mean ${d.suggest[0].name}?`;
   if (d.result === 'several') return 'several cards match. Choose yours.';
-  if (d.result === 'notFound') return "not in the card database (TCGdex). Check its name and number, or ignore it.";
+  // A price site that matched it (for certain, or as the person chose) confirms its name and number.
+  if (d.result === 'notFound' && !pricedFromProduct(c)) return "not in the card database (TCGdex). Check its name and number, or ignore it.";
   return null;
 }
 

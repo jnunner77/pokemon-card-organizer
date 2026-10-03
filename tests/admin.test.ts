@@ -338,6 +338,8 @@ describe('status for the nightly job', () => {
       { name: 'Mr. Mime', number: '13/34', setCode: 'CLB', details: { result: 'notFound' as const, v, checkedAt: at } },
       { name: 'Lugia EX', number: '17/34', setCode: 'CLV', checksIgnored: 'lugia ex|17/34', details: { result: 'notFound' as const, v, checkedAt: at } },
       { name: 'Old', number: '1/2', details: { result: 'notFound' as const, checkedAt: at } },
+      // Not in TCGdex, but a price site matched it: its name and number are confirmed.
+      { name: 'Nidorina', number: '101', setCode: 'MEP', pricing: { source: 'pricecharting', id: '/game/pokemon-promo/nidorina-101' }, details: { result: 'notFound' as const, v, checkedAt: at } },
     ];
     expect(cardsNeedingAttention(cards)).toEqual([
       "Bill PBS 118/130: filed under Base Set, but it's from Base Set 2. Open Cards to check in the binder.",

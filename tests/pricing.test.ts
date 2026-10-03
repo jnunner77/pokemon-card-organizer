@@ -5,8 +5,8 @@ import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../server/app';
 import { Assets } from '../server/assets';
-import { chooseMatch, searchQuery } from '../server/pricing/match';
-import { type Candidate, type Fetcher, retryPolicy, parsePriceChartingProduct, parsePriceChartingSearch, parseTcgplayerSearch, pickTcgPrice } from '../server/pricing/sources';
+import { chooseMatch, detailsFromProduct, searchQuery } from '../server/pricing/match';
+import { type Candidate, type Fetcher, retryPolicy, parsePriceChartingProduct, parsePriceChartingSearch, parseTcgplayerDetails, parseTcgplayerSearch, pickTcgPrice, releaseDate } from '../server/pricing/sources';
 import { PriceUpdater } from '../server/pricing/updater';
 import { Store } from '../server/store';
 
@@ -65,6 +65,13 @@ describe('reading the price sites', () => {
     expect(p.image).toBe('https://storage.googleapis.com/images.pricecharting.com/asqso2to674mken7/1600.jpg');
   });
 
+  it("reads a product's set, release date and rarity", () => {
+    expect(parsePriceChartingProduct(fixture('pricecharting-product.html'), '/game/pokemon-30th-celebration/lapras-131').info).toEqual({ set: 'Pokemon 30th Celebration', released: '2026-09-16', rarity: null });
+    expect(parseTcgplayerDetails({ productName: 'Mr. Mime', setName: 'Trading Card Game Classic', rarityName: 'Classic Collection', customAttributes: { releaseDate: '2023-11-17T00:00:00Z', number: '013/034' } })).toEqual({ set: 'Trading Card Game Classic', released: '2023-11-17', rarity: 'Classic Collection' });
+    expect(parseTcgplayerDetails({ results: [] })).toBeNull();
+    expect([releaseDate('December 1, 2023'), releaseDate('May 9, 1999'), releaseDate('Smarch 1, 2020'), releaseDate('')]).toEqual(['2023-12-01', '1999-05-09', null, null]);
+  });
+
   it('reads PriceCharting search results, variants included', () => {
     const rows = parsePriceChartingSearch(fixture('pricecharting-search.html'));
     expect(rows.map((r) => [r.title, r.set, r.number, r.usd])).toEqual([
@@ -114,6 +121,19 @@ describe('matching a card to a product', () => {
     expect(chooseMatch({ name: 'Bill', set: 'Pokemon Base Set', number: '118/130' }, [cand('Bill', 'Pokemon Base Set 2', '118')]).match).toBeNull();
     // A different Pokémon with the same number is not a typo.
     expect(chooseMatch({ name: 'Mew', set: 'Paldean Fates', number: '232/91' }, [cand('Mewtwo', 'Pokemon Paldean Fates', '232')]).match).toBeNull();
+  });
+
+  it("fills a card's blanks from its product, and follows a product the person chose from another set", () => {
+    const info = { set: 'Pokemon TCG Classic: Blastoise Deck', released: '2023-12-01', rarity: 'Classic Collection' };
+    expect(detailsFromProduct({ name: 'Mr. Mime', number: '013/034' }, info, true).patch).toEqual({ set: 'Pokemon TCG Classic: Blastoise Deck', released: '2023-12-01', rarity: 'Classic Collection' });
+    // The person's own label for the same set, and their own rarity and date, stay.
+    expect(detailsFromProduct({ set: 'Classic: Blastoise', rarity: 'Mine', released: '2023-11-17' }, info, true).filled).toEqual([]);
+    // A product the person chose from another set wins; an automatic match only fills blanks.
+    expect(detailsFromProduct({ set: 'Base Set', released: '1999-01-09', rarity: 'Rare' }, info, true).patch).toEqual({ set: 'Pokemon TCG Classic: Blastoise Deck' });
+    expect(detailsFromProduct({ set: 'Base Set', released: '1999-01-09', rarity: 'Rare' }, info, false).filled).toEqual([]);
+    // A promo label stays with any promo product.
+    expect(detailsFromProduct({ set: 'Mega Evolution Promos', setCode: 'MEP', number: '101' }, { set: 'Pokemon Promo', released: '2026-09-16', rarity: null }, true).patch).toEqual({ released: '2026-09-16' });
+    expect(detailsFromProduct({}, { set: null, released: null, rarity: 'Rare Holo' }, false).patch).toEqual({ rarity: 'Holo Rare' });
   });
 
   it('leaves the choice to the person when it isn’t certain', () => {
@@ -203,6 +223,28 @@ describe('the daily update', () => {
     expect((c.prices as { where: string; amount: number }[]).at(-1)).toMatchObject({ where: 'TCGplayer', amount: 11.01 });
     expect(c.officialImageId).not.toBe(firstImage);
     expect(assets.find(firstImage)).toBeNull();
+  });
+
+  it("fills a card's details from its product during the update", async () => {
+    store.set('cards', 'blank', card({ set: '', setCode: '' }));
+    store.set('cards', 'auto', card());
+    store.set('cards', 'wrong', card({ set: 'Some Other Set', released: '2001-01-01' }));
+    const u = updater(fakeNet().fetcher);
+    const pc = { source: 'pricecharting' as const, id: '/game/pokemon-30th-celebration/lapras-131', url: 'https://www.pricecharting.com/game/pokemon-30th-celebration/lapras-131', title: 'Lapras', set: 'Pokemon 30th Celebration' };
+    await u.link('blank', pc);
+    await u.updateCard('auto');
+    await u.link('wrong', pc);
+    expect(store.get('cards', 'blank')).toMatchObject({ set: 'Pokemon 30th Celebration', released: '2026-09-16' });
+    expect(store.get('cards', 'auto')).toMatchObject({ set: '30th Celebration', released: '2026-09-16', pricing: { linkedBy: 'auto' } });
+    expect(store.get('cards', 'wrong')).toMatchObject({ set: 'Pokemon 30th Celebration', released: '2001-01-01' });
+    // TCGplayer's product details give the rarity too; without them the price still updates.
+    store.set('cards', 'tcg', card({ set: '', rarity: '' }));
+    const details = { productName: 'Lapras', setName: 'ME: 30th Celebration', rarityName: 'Illustration Rare', customAttributes: { releaseDate: '2026-09-16T00:00:00Z' } };
+    const tg = { source: 'tcgplayer' as const, id: '696683', url: 'https://www.tcgplayer.com/product/696683', title: 'Lapras', set: 'ME: 30th Celebration' };
+    await updater(fakeNet({ '/v1/product/696683/details': () => Response.json(details) }).fetcher).link('tcg', tg);
+    expect(store.get('cards', 'tcg')).toMatchObject({ set: 'ME: 30th Celebration', rarity: 'Illustration Rare', released: '2026-09-16' });
+    store.set('cards', 'tcg2', card({ set: '' }));
+    expect(await updater(fakeNet({ '/v1/product/696683/details': () => new Response('down', { status: 503 }) }).fetcher).link('tcg2', tg)).toBe('updated');
   });
 
   it('runs once a day after the set hour, catching up after downtime', () => {

@@ -5,7 +5,7 @@ import type { CardDetails } from '../details';
 import { type Logger, quietLogger } from '../log';
 import type { Doc } from '../schema';
 import type { Store } from '../store';
-import { chooseMatch, searchQuery, type CardForMatch } from './match';
+import { chooseMatch, detailsFromProduct, searchQuery, type CardForMatch } from './match';
 import {
   type Candidate,
   type Fetcher,
@@ -335,6 +335,16 @@ export class PriceUpdater {
       updatedAt: checkedAt,
     };
     if (image) patch.officialImageId = image.id;
+    // The product's set, release date and rarity, for cards that lack them (or that the person
+    // matched to a product from another set).
+    if (quote.info) {
+      const d = detailsFromProduct(fresh, quote.info, link.linkedBy === 'user');
+      if (d.filled.length) {
+        Object.assign(patch, d.patch);
+        const was = d.patch.set && !String(fresh.set ?? '').trim() ? '' : d.patch.set ? ` (was ${fresh.set})` : '';
+        this.log.info('pricing', `${label(fresh)}: ${d.filled.map((f) => `${f} ${d.patch[f]}`).join(', ')}${was} from ${SOURCE_NAME[link.source]}`);
+      }
+    }
     this.store.update('cards', id, patch);
     if (image && oldImage && oldImage !== image.id && !this.store.referencedImages().has(oldImage)) this.assets.remove(oldImage);
     return quote.usd == null ? 'noPrice' : 'updated';
