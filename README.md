@@ -59,6 +59,23 @@ On a 122-card collection, Fill in missing details added 108 illustrators; the ca
 were from the *Trading Card Game Classic* box, a brand-new promo, and a misspelled name.
 Only English cards are looked up.
 
+## Sort a binder by release date or price
+
+*Sort* (next to *Rename / edit binder*) puts every card of the binder in order, from page 1,
+pocket 1 with no gaps, so you can rearrange the real binder to match:
+
+- **Release date**, oldest or newest first. Each card gets its set's release date from TCGdex
+  along with its other details (shown read-only as *Released* in the card drawer, and as a sortable
+  column in the List view). A promo filed under a set by name, like *Crown Zenith*, takes that
+  set's date rather than the start of its promo series. The update that added release dates
+  backfills them by itself a minute after the server starts; the daily run and *Fill in missing
+  details* fill any still missing.
+- **Price**, highest or lowest first, by each card's current value.
+
+A preview shows the new order page by page before anything moves. Cards with no release date
+or price go at the end in their current order. All the moves are saved together, and *Undo* in
+the message afterwards puts every card back.
+
 ## Everything else
 
 - **Binders and pages** with 4, 9, 12 or 16 pockets per page, drawn like the real thing.
