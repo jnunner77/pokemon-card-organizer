@@ -123,6 +123,11 @@ binder as it is; *Add a page* adds empty pockets at the end. Leaving with unsave
 first, and if the binder changed meanwhile (a card added in another tab), nothing moves. Tapping
 one row and then another swaps them in the list.
 
+**Type to place** is the quick way through a whole binder: it shows the next pocket (Page 1 · #1
+first); type part of the card's name, number or set, pick the match (Enter or a tap) and it goes in
+that pocket, ready for the next one. *Skip pocket* leaves a gap, *Undo last* takes the last one
+back, and cards not placed yet follow. *Save* stores it all at once.
+
 **Quick swap:** *Swap with…* in a card's drawer (under Location), then tap another card or an
 empty pocket, on any page or in any binder, and they trade places straight away, with *Undo*.
 With exactly two cards selected (press and hold), *Swap* does the same. *Escape* or *Cancel* stops.
