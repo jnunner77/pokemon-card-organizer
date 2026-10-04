@@ -164,6 +164,18 @@ describe('sorting a binder', () => {
   });
 });
 
+describe("a card's owner", () => {
+  it('keeps Megan, Justin, Both or blank, and refuses anything else', async () => {
+    for (const owner of ['Megan', 'Justin', 'Both', '']) {
+      await request(app).put('/api/docs/cards/c1').send(card({ owner })).expect(200);
+      expect(store.get('cards', 'c1')!.owner).toBe(owner);
+    }
+    await request(app).put('/api/docs/cards/c1').send(card({ owner: 'Someone' })).expect(400);
+    await request(app).patch('/api/docs/cards/c1').send({ owner: 'megan' }).expect(400);
+    expect(store.get('cards', 'c1')!.owner).toBe('');
+  });
+});
+
 describe('moving cards to another binder', () => {
   const setUp = () => {
     store.set('binders', 'b1', { name: 'Trainers', pockets: 4, order: 1 });

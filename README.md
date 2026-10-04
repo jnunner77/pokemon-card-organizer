@@ -101,6 +101,11 @@ profit and CSV export. The card drawer shows both ("Lightly Played 85% of $10.00
 Prices you log yourself are what that copy is worth and stay as entered, and a graded card's grade
 sets its price, so neither is adjusted (`public/condition.js`).
 
+## Owner
+
+Each card's details have an **Owner**: Megan, Justin or Both (blank until you set it). It's saved
+with *Save changes*, copied by *Duplicate*, and has its own *Owner* column in CSV import and export.
+
 ## Placeholders
 
 A **placeholder** holds a pocket for a card you don't have yet: it sits in its pocket (dimmed, with a
