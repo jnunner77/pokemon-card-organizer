@@ -56,6 +56,8 @@ const UA = 'Mozilla/5.0 (compatible; PokemonBinderLedger/1.0; personal collectio
 const TIMEOUT_MS = 20_000;
 
 export class SourceError extends Error {}
+/** The product address no longer leads to a product: PriceCharting sends its search page instead. */
+export class ProductGone extends SourceError {}
 
 /**
  * How often a busy or unreachable site is retried: after baseMs, then twice as long each time
@@ -130,6 +132,18 @@ export function parsePriceChartingProduct(html: string, path: string): Candidate
   return { source: 'pricecharting', id: path, url: PC + path, title: name, set, number, usd, thumb: pcImage(img, 240), image: pcImage(img, 1600), info: { set: set || null, released, rarity: null } };
 }
 
+/**
+ * A product path as written in PriceCharting's pages, HTML entities and all, as a path to fetch:
+ * "/game/pokemon-scarlet-&amp;-violet-151/lapras-131" → "/game/pokemon-scarlet-&-violet-151/lapras-131".
+ * Links stored before this was done are mended the same way (updater.ts).
+ */
+export const pcPath = (p: string) =>
+  p
+    .replace(/&amp;/g, '&')
+    .replace(/&#39;|&#x27;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&#43;/g, '+');
+
 export function parsePriceChartingSearch(html: string): Candidate[] {
   const out: Candidate[] = [];
   for (const m of html.matchAll(/<tr id="product-\d+"[\s\S]*?<\/tr>/g)) {
@@ -138,9 +152,10 @@ export function parsePriceChartingSearch(html: string): Candidate[] {
     if (!link) continue;
     const set = decode(row.match(/<td class="console[^"]*">\s*<a[^>]*>([\s\S]*?)<\/a>/)?.[1] ?? '');
     const { name, number } = splitTitle(decode(link[2]));
+    const path = pcPath(link[1]);
     const usd = money(row.match(/<td class="price numeric used_price">([\s\S]*?)<\/td>/)?.[1]);
     const thumb = pcImage(row.match(/<img class="photo"[^>]*src="([^"]+)"/)?.[1], 240);
-    out.push({ source: 'pricecharting', id: link[1], url: PC + link[1], title: name, set, number, usd, thumb });
+    out.push({ source: 'pricecharting', id: path, url: PC + path, title: name, set, number, usd, thumb });
   }
   return out;
 }
@@ -154,9 +169,14 @@ export async function searchPriceCharting(fetcher: Fetcher, query: string): Prom
   return parsePriceChartingSearch(html);
 }
 
-export async function quotePriceCharting(fetcher: Fetcher, path: string): Promise<Quote> {
+export async function quotePriceCharting(fetcher: Fetcher, stored: string): Promise<Quote> {
+  const path = pcPath(stored);
   if (!/^\/game\/[^/?#\s]+\/[^/?#\s]+$/.test(path)) throw new SourceError(`Not a PriceCharting product path: ${path}`);
   const res = await get(fetcher, PC + path);
+  // A product address PriceCharting doesn't have (renamed, merged) lands on its search page.
+  if (res.url && !new URL(res.url).pathname.startsWith('/game/')) {
+    throw new ProductGone(`PriceCharting no longer has a product at ${path} (it may have been renamed).`);
+  }
   const p = parsePriceChartingProduct(await res.text(), path);
   return { usd: p.usd, image: p.image, info: p.info };
 }
