@@ -144,13 +144,15 @@ function renderStats(){
     ${pricingStat()}`;
   $("#vPages").setAttribute("aria-pressed", S.view==="pages");
   $("#vList").setAttribute("aria-pressed", S.view==="list");
+  $("#vArrange").setAttribute("aria-pressed", S.view==="arrange");
+  $("#vArrange").hidden = S.me?.user?.role==="viewer";
 }
 function pickBar(){
   if(!S.pick) return "";
   const n = S.pick.size, allOn = S.shown.length && S.shown.every(id=>S.pick.has(id));
   const right = S.pickConfirm
     ? `<span class="confirm">Delete ${n} card${n===1?"":"s"} and their price history? <button class="btn sm danger solid" type="button" id="pickDelYes">Delete ${n}</button><button class="btn sm" type="button" id="pickDelNo">Keep</button></span>`
-    : `<button class="btn sm" type="button" id="pickAll">${allOn?"Clear all":"Select all"}</button><button class="btn sm" type="button" id="pickCancel">Cancel</button><button class="btn sm primary" type="button" id="pickSell" ${nSellable()?"":"disabled"}>Quick sell${nSellable()?` ${nSellable()}`:""}</button><button class="btn sm" type="button" id="pickPh" ${n?"":"disabled"} title="${pickAllPh()?"You have these cards now: count them in your totals":"Hold these pockets for cards you don't have yet: not counted in your totals"}">${pickAllPh()?"Owned":"Placeholder"}${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickDup" ${n?"":"disabled"}>Duplicate${n?` ${n}`:""}</button><button class="btn sm danger solid" type="button" id="pickDel" ${n?"":"disabled"}>Delete${n?` ${n}`:""}</button>`;
+    : `<button class="btn sm" type="button" id="pickAll">${allOn?"Clear all":"Select all"}</button><button class="btn sm" type="button" id="pickCancel">Cancel</button><button class="btn sm primary" type="button" id="pickSell" ${nSellable()?"":"disabled"}>Quick sell${nSellable()?` ${nSellable()}`:""}</button>${n===2?`<button class="btn sm" type="button" id="pickSwap" title="The two selected cards trade places">Swap</button>`:""}<button class="btn sm" type="button" id="pickPh" ${n?"":"disabled"} title="${pickAllPh()?"You have these cards now: count them in your totals":"Hold these pockets for cards you don't have yet: not counted in your totals"}">${pickAllPh()?"Owned":"Placeholder"}${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickDup" ${n?"":"disabled"}>Duplicate${n?` ${n}`:""}</button><button class="btn sm danger solid" type="button" id="pickDel" ${n?"":"disabled"}>Delete${n?` ${n}`:""}</button>`;
   return `<div class="pickbar" role="toolbar" aria-label="Selection"><span class="cnt">${n} selected</span>${right}</div>`;
 }
 const nSellable = () => S.pick ? [...S.pick].filter(id => { const c = S.cards.find(x=>x.id===id); return c && owned(c); }).length : 0;
@@ -172,6 +174,7 @@ function renderMain(){
   renderMainInner();
   $("#main").classList.toggle("picking", !!S.pick);
   if(S.pick) $("#main").insertAdjacentHTML("afterbegin", pickBar());
+  else if(S.swap) $("#main").insertAdjacentHTML("afterbegin", swapBar());
   updatePhotosBtn();
   if(keep!=null){ const q=$("#q"); if(q){ q.focus(); try{ q.setSelectionRange(keep,keep); }catch(_){} } }
 }
@@ -182,6 +185,7 @@ function renderMainInner(){
   if(S.view==="list") return renderList(m);
   const b = curBinder();
   if(S.binderId==="__loose"){ S.view="list"; return renderList(m); }
+  if(S.view==="arrange" && b) return renderArrange(m, b);
   if(!b){ m.innerHTML = `<div class="empty-state"><p>No binders yet.</p><p style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center"><button class="btn primary" type="button" id="btnFirstBinder">Create your first binder</button>${S.cards.length || (S.me?.user && S.me.user.role!=="admin")?"":`<button class="btn" type="button" id="btnFirstRestore">Restore from a backup</button>`}</p></div>`; return; }
   const n = pocketsOf(b), cols = POCKETS[n].cols, mp = maxPage(b.id);
   S.page = Math.min(Math.max(1, S.page|0), mp+1);
@@ -193,7 +197,7 @@ function renderMainInner(){
     const inner = shown(c)
       ? `<img src="${imgURL(shown(c))}" alt="${esc(c.name||"Card")}" loading="lazy"><span class="cap"><span class="n">${esc(c.name||"Unnamed card")}</span><span class="m">${esc(metaLine(c))}</span></span>`
       : `<span class="face"><span class="n">${esc(c.name||"Unnamed card")}</span><span class="m">${esc(metaLine(c)||"No set yet")}</span><span class="np">No photo</span></span>`;
-    cells += `<button class="pocket${S.sel===c.id?" sel":""}${held(c)?"":" dim"}${c.placeholder&&held(c)?" ph":""}${S.pick?.has(c.id)?" picked":""}${isFound(c.id)?" found":""}" type="button" data-card="${esc(c.id)}" aria-label="${esc((c.name||"Unnamed card")+(c.placeholder&&held(c)?" (placeholder)":"")+", pocket "+s+(cardChecks(c).length?", needs checking":""))}"${S.pick?` aria-pressed="${S.pick.has(c.id)}"`:""}><span class="slotno">${s}</span>${cardChecks(c).length?`<span class="chkmark" title="${esc(cardChecks(c)[0].title)}" aria-hidden="true">!</span>`:""}<span class="tick" aria-hidden="true">✓</span>${inner}${v!=null?`<span class="price">${esc(money(v).replace(".00",""))}</span>`:""}${flag}</button>`;
+    cells += `<button class="pocket${S.sel===c.id?" sel":""}${S.swap?.id===c.id?" swapsrc":""}${held(c)?"":" dim"}${c.placeholder&&held(c)?" ph":""}${S.pick?.has(c.id)?" picked":""}${isFound(c.id)?" found":""}" type="button" data-card="${esc(c.id)}" aria-label="${esc((c.name||"Unnamed card")+(c.placeholder&&held(c)?" (placeholder)":"")+", pocket "+s+(cardChecks(c).length?", needs checking":""))}"${S.pick?` aria-pressed="${S.pick.has(c.id)}"`:""}><span class="slotno">${s}</span>${cardChecks(c).length?`<span class="chkmark" title="${esc(cardChecks(c)[0].title)}" aria-hidden="true">!</span>`:""}<span class="tick" aria-hidden="true">✓</span>${inner}${v!=null?`<span class="price">${esc(money(v).replace(".00",""))}</span>`:""}${flag}</button>`;
   }
   const pageCards = cardsIn(b.id).filter(c=>c.page===S.page);
   const pst = statsFor(pageCards);
@@ -538,7 +542,7 @@ function moveSection(c){
       <div class="field"><label for="m_page">Page</label><input id="m_page" class="mono" type="number" min="1" inputmode="numeric" value="${esc(c.page||1)}" ${bid?"":"disabled"}></div>
       <div class="field"><label for="m_slot">Pocket</label><select id="m_slot" class="mono" ${bid?"":"disabled"}>${Array.from({length:n},(_,i)=>`<option value="${i+1}" ${c.slot===i+1?"selected":""}>${i+1}</option>`).join("")}</select></div>
       <div class="note" id="moveNote"></div>
-      <div class="btns"><button class="btn" type="button" id="btnMove">Move card</button><button class="btn ghost sm" type="button" id="btnFree">Next empty pocket</button>${bid?`<button class="btn ghost sm" type="button" id="btnTakeOut">Take out of binder</button>`:""}</div>
+      <div class="btns"><button class="btn" type="button" id="btnMove">Move card</button><button class="btn ghost sm" type="button" id="btnFree">Next empty pocket</button><button class="btn ghost sm" type="button" id="btnSwap" title="Then tap the card or empty pocket to trade places with">Swap with…</button>${bid?`<button class="btn ghost sm" type="button" id="btnTakeOut">Take out of binder</button>`:""}</div>
     </div></div>`;
 }
 function priceRowView(p){
@@ -1110,6 +1114,149 @@ async function checkAction(e){
   for(const x of cardChecks(c)) if(kind==="ignore" ? x.k!=="price" : x.k===k) CHK.done.add(c.id+"|"+x.k);
   toast(msg); renderChecks(); renderStats();
 }
+
+/* ---------- quick swap ----------
+   Swap with… in a card's drawer (or Swap with two cards selected): the next card or empty pocket
+   tapped, on any page or binder, trades places with it straight away. */
+function swapBar(){
+  const c = S.cards.find(x=>x.id===S.swap?.id); if(!c){ S.swap = null; return ""; }
+  return `<div class="pickbar swapbar" role="status"><span>Swap <b>${esc(c.name||"Unnamed card")}</b> <span class="hint">(${esc(locShort(c))})</span>: tap the card or empty pocket to trade places with. Other pages and binders work too.</span><button class="btn sm" type="button" id="swapCancel">Cancel</button></div>`;
+}
+/* a goes to toA, b (if any) to toB; b moves first so a never lands on top of it for long */
+async function swapPlaces(a, toA, b, toB){
+  if(b && !(await updateCard(b.id, toB))) return false;
+  if(!(await updateCard(a.id, toA))){ if(b) await updateCard(b.id, toA); return false; }
+  Object.assign(a, toA); if(b) Object.assign(b, toB);
+  render(); return true;
+}
+async function swapWith(target){
+  const a = S.cards.find(c=>c.id===S.swap?.id); S.swap = null;
+  if(!a) return renderMain();
+  if(target.id===a.id){ renderMain(); return toast("That's the same card. Swap with… again to pick another."); }
+  const loc = c => ({binderId:c.binderId||null, page:c.page||null, slot:c.slot||null});
+  const b = target.id ? S.cards.find(c=>c.id===target.id) : null;
+  const locA = loc(a), locB = b ? loc(b) : {binderId:target.binderId, page:target.page, slot:target.slot};
+  if(!(await swapPlaces(a, locB, b, locA))) return renderMain();
+  const name = c => c.name || "Unnamed card";
+  toast(b ? `Swapped ${name(a)} and ${name(b)}` : `Moved ${name(a)} to ${locText(locB)}`, {label:"Undo", run:() => void swapPlaces(a, locA, b, locB).then(ok => ok && toast(b ? "Swapped back" : "Moved back"))});
+}
+
+/* ---------- arrange a binder ----------
+   Every pocket of a binder in order, page by page, empty pockets too. Drag a card (or an empty
+   pocket) by its handle, or move it one place with ↑ ↓, until the list matches the real binder;
+   Save puts every card in its new page and pocket at once (POST /api/binders/:id/arrange). */
+let ARR = null; // {bid, n, rows:[cardId|null], orig:[...]}
+function arrangeFromData(b){
+  const n = pocketsOf(b), mp = maxPage(b.id), rows = [];
+  for(let p=1;p<=mp;p++) for(let s=1;s<=n;s++) rows.push(cardAt(b.id,p,s)?.id || null);
+  // cards with no pocket, or in a pocket past the page size, go at the end
+  for(const c of cardsIn(b.id)) if(!rows.includes(c.id)) rows.push(c.id);
+  while(rows.length % n) rows.push(null);
+  return {bid:b.id, n, rows, orig:rows.slice()};
+}
+const arrDirty = () => !!ARR && ARR.rows.join() !== ARR.orig.join();
+const arrMoved = () => !ARR ? 0 : ARR.rows.filter((id,i) => id && ARR.orig.indexOf(id)!==i).length;
+const arrPlace = (i, n) => ({page:Math.floor(i/n)+1, slot:i%n+1});
+function renderArrange(m, b){
+  if(ADRAG) return; // a live update mid-drag waits for the drop
+  const fresh = arrangeFromData(b);
+  if(!ARR || ARR.bid!==b.id || ARR.n!==fresh.n || (!arrDirty() && ARR.orig.join()!==fresh.rows.join())) ARR = fresh;
+  const viewer = S.me?.user?.role==="viewer";
+  m.innerHTML = `<div class="arrview">
+    <div class="arrbar">
+      <p class="hint">${viewer ? "You have view-only access, so the order can't be saved." : `Drag a card by <span class="arrgrip" aria-hidden="true">⠿</span> (or use ↑ ↓) to where it is in your binder, or tap two cards to swap them. Empty pockets move too. Nothing is saved until you press Save.`}</p>
+      <div class="arracts"><button class="btn sm" type="button" id="arrAddPage">Add a page</button><button class="btn sm" type="button" id="arrReset">Reset</button><button class="btn sm primary" type="button" id="arrSave">Save</button></div>
+    </div>
+    <ol class="arrlist" id="arrList" aria-label="Pockets of ${esc(b.name)} in order"></ol>
+  </div>`;
+  renderArrList();
+}
+function renderArrList(focus){
+  const list = $("#arrList"); if(!list || !ARR) return;
+  const n = ARR.n; let h = "";
+  ARR.rows.forEach((id,i) => {
+    const {page, slot} = arrPlace(i, n);
+    if(slot===1) h += `<li class="arrpage" aria-hidden="true">Page ${page}</li>`;
+    const c = id ? S.cards.find(x=>x.id===id) : null, was = id ? ARR.orig.indexOf(id) : -1;
+    const moved = id && was!==i, from = moved ? arrPlace(was, n) : null;
+    h += `<li class="arrrow${id?"":" empty"}${moved?" moved":""}${ARR.sel===i?" selected":""}${c?.placeholder?" ph":""}" data-i="${i}" data-arr="${esc(id||"")}">
+      <span class="arrpos mono">#${slot}</span>
+      ${c ? (shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="" loading="lazy">`:`<span class="thumb"></span>`) : `<span class="thumb emptythumb"></span>`}
+      <span class="arrname">${c ? `<b>${esc(c.name||"Unnamed card")}</b><span class="hint">${esc(metaLine(c))}${c.placeholder?" · placeholder":""}${moved?` · was p${from.page} #${from.slot}`:""}</span>` : `<span class="hint">Empty pocket</span>`}</span>
+      <button class="btn sm ghost arrbtn" type="button" data-arrmove="-1" aria-label="Move ${esc(c?.name||"empty pocket")} up" ${i===0?"disabled":""}><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 15 6-6 6 6"/></svg></button>
+      <button class="btn sm ghost arrbtn" type="button" data-arrmove="1" aria-label="Move ${esc(c?.name||"empty pocket")} down" ${i===ARR.rows.length-1?"disabled":""}><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+      <span class="arrhandle" aria-hidden="true" title="Drag">⠿</span></li>`;
+  });
+  list.innerHTML = h;
+  const moved = arrMoved(), dirty = arrDirty(), viewer = S.me?.user?.role==="viewer";
+  const save = $("#arrSave"); save.disabled = !dirty || viewer; save.textContent = dirty ? `Save${moved?` · ${moved} card${moved===1?"":"s"} move`:""}` : "Save";
+  $("#arrReset").disabled = !dirty;
+  if(focus!=null) list.querySelector(`.arrrow[data-i="${focus.i}"] [data-arrmove="${focus.d}"]`)?.focus();
+}
+/* tap one row, then another: they trade places (tap the same row again to let go) */
+function arrTap(i){
+  if(!ARR) return;
+  if(ARR.sel==null){ ARR.sel = i; return renderArrList(); }
+  const j = ARR.sel; ARR.sel = null;
+  if(j!==i) [ARR.rows[i], ARR.rows[j]] = [ARR.rows[j], ARR.rows[i]];
+  renderArrList();
+}
+function arrMove(i, d){
+  ARR.sel = null;
+  const j = i + d; if(!ARR || j<0 || j>=ARR.rows.length) return;
+  [ARR.rows[i], ARR.rows[j]] = [ARR.rows[j], ARR.rows[i]];
+  renderArrList({i:j, d});
+}
+async function arrSave(){
+  if(!arrDirty()) return;
+  const b = binderById(ARR.bid); if(!b) return;
+  const save = $("#arrSave"); save.disabled = true;
+  const before = cardsIn(b.id).map(c=>({id:c.id, page:c.page, slot:c.slot}));
+  const moves = ARR.rows.map((id,i) => id && {id, ...arrPlace(i, ARR.n)}).filter(Boolean);
+  try{
+    const r = await window.ledgerApi.call("POST", `api/binders/${encodeURIComponent(b.id)}/arrange`, {moves});
+    arrApply(moves); ARR.orig = ARR.rows.slice(); renderArrList();
+    toast(`Saved ${b.name}: ${r.moved} card${r.moved===1?"":"s"} moved`, {label:"Undo", run:() => void arrUndo(b, before, moves)});
+  }catch(e){ save.disabled = false; toast(e?.code==="conflict" ? "The binder changed meanwhile (a card was added, moved or removed), so nothing moved. Tap Reset to start from how it is now." : e?.message || "Couldn't save the new order. Try again."); }
+}
+/* the new places, seen at once (before the live update arrives) */
+function arrApply(moves){ for(const m of moves){ const c = S.cards.find(x=>x.id===m.id); if(c){ c.page = m.page; c.slot = m.slot; } } }
+async function arrUndo(b, before, after){
+  const old = new Map(before.filter(m=>m.page && m.slot).map(m=>[m.id, m]));
+  const moves = after.map(m => old.get(m.id) || m);
+  try{
+    await window.ledgerApi.call("POST", `api/binders/${encodeURIComponent(b.id)}/arrange`, {moves});
+    arrApply(moves); ARR = null; toast(`${b.name} is back the way it was`); render();
+  }catch(e){ toast(e?.message || "Couldn't undo it."); }
+}
+/* drag by the handle, with a mouse or a finger: the row moves through the list as the pointer does */
+let ADRAG = null;
+document.addEventListener("pointerdown", e => {
+  const hd = e.target.closest("#arrList .arrhandle"); if(!hd || e.button>0) return;
+  e.preventDefault();
+  const li = hd.closest(".arrrow"); li.classList.add("dragging");
+  ADRAG = {li, list:$("#arrList"), id:e.pointerId, y:e.clientY};
+  try{ hd.setPointerCapture(e.pointerId); }catch(_){}
+});
+document.addEventListener("pointermove", e => {
+  if(!ADRAG || e.pointerId!==ADRAG.id) return;
+  e.preventDefault();
+  const {li, list} = ADRAG, y = e.clientY;
+  const rows = [...list.querySelectorAll(".arrrow:not(.dragging)")];
+  const next = rows.find(r => { const rc = r.getBoundingClientRect(); return y < rc.top + rc.height/2; });
+  if(next){ if(li.nextElementSibling!==next) list.insertBefore(li, next); }
+  else if(rows.length && rows.at(-1).nextElementSibling!==li) rows.at(-1).after(li);
+  if(y < 70) scrollBy(0, -14); else if(y > innerHeight-70) scrollBy(0, 14);
+});
+const arrDrop = e => {
+  if(!ADRAG || e.pointerId!==ADRAG.id) return;
+  const {list} = ADRAG; ADRAG = null;
+  ARR.rows = [...list.querySelectorAll(".arrrow")].map(r => r.dataset.arr || null); ARR.sel = null;
+  renderArrList();
+};
+document.addEventListener("pointerup", arrDrop);
+document.addEventListener("pointercancel", arrDrop);
+addEventListener("beforeunload", e => { if(S.view==="arrange" && arrDirty()){ e.preventDefault(); e.returnValue = ""; } });
 
 /* ---------- sort a binder ----------
    Puts every card of a binder in order (release date or price) from page 1, pocket 1 with no
@@ -1832,15 +1979,32 @@ document.addEventListener("click", e => {
     if(t.closest("#pickDelYes")) return void deletePicked();
     if(t.closest("#pickDup")) return void duplicatePicked();
     if(t.closest("#pickPh")) return void placeholderPicked();
+    if(t.closest("#pickSwap")){ const [a, b] = [...S.pick]; endPick(); S.swap = {id:a}; return void swapWith({id:b}); }
     if(t.closest("#pickSell")) return quickSellModal([...S.pick]);
     const pcd = t.closest("#main [data-card]");
     if(pcd){ const id=pcd.dataset.card; S.pick.has(id)?S.pick.delete(id):S.pick.add(id); S.pickConfirm=false; if(!S.pick.size) return endPick(); return renderMain(); }
     if(t.closest("#main [data-empty]")) return;
     if(t.closest("[data-binder],#btnAdd,#btnImport")){ S.pick=null; S.pickConfirm=false; }
   }
+  if(S.swap){
+    if(t.closest("#swapCancel")){ S.swap = null; return renderMain(); }
+    const sc = t.closest("#main [data-card]"), se = t.closest("#main [data-empty]");
+    if(sc || se){ e.preventDefault(); return void swapWith(sc ? {id:sc.dataset.card} : {binderId:curBinder().id, page:S.page, slot:+se.dataset.empty}); }
+  }
+  if(t.closest("#btnSwap")){ const c = selCard(); if(c){ S.swap = {id:c.id}; closeDrawer(); renderMain(); } return; }
+  const ar = t.closest("#arrList .arrrow"); if(ar && !t.closest("button,.arrhandle")) return arrTap(+ar.dataset.i);
+  if(t.closest("#vPages,#vList,#vArrange,[data-binder],#btnAdd,#btnFind") && S.view==="arrange" && arrDirty() && !t.closest("#vArrange")){
+    if(!confirm("Leave without saving the new order?")) return;
+    ARR = null;
+  }
   const tab = t.closest("[data-binder]");
   if(tab){ const id = tab.dataset.binder; if(S.binderId===id && id!=="__loose" && id!=="__sales"){ binderModal(id); return; } S.binderId=id; S.page=1; if(id==="__loose") S.view="list"; persistNav(); render(); return; }
   if(t.closest("#btnNewBinder") || t.closest("#btnFirstBinder")) return void newBinder();
+  if(t.closest("#vArrange")){ if(S.binderId==="__loose" || S.binderId==="__sales") S.binderId = sortedBinders()[0]?.id || null; S.view="arrange"; ARR = null; persistNav(); render(); return; }
+  const am = t.closest("[data-arrmove]"); if(am){ const i = +am.closest(".arrrow").dataset.i; return arrMove(i, +am.dataset.arrmove); }
+  if(t.closest("#arrSave")) return void arrSave();
+  if(t.closest("#arrReset")){ const b = curBinder(); if(b){ ARR = arrangeFromData(b); renderArrList(); } return; }
+  if(t.closest("#arrAddPage")){ if(ARR){ ARR.rows.push(...Array(ARR.n).fill(null)); renderArrList(); $("#arrList")?.lastElementChild?.scrollIntoView({block:"center"}); } return; }
   if(t.closest("#vPages")){ if(S.binderId==="__loose" || S.binderId==="__sales") S.binderId = sortedBinders()[0]?.id || null; S.view="pages"; persistNav(); render(); return; }
   if(t.closest("#vList")){ if(S.binderId==="__sales") S.binderId = sortedBinders()[0]?.id || "__loose"; S.view="list"; persistNav(); render(); return; }
   if(t.closest("#btnPhotos")) return openViewer();
@@ -1928,7 +2092,7 @@ document.addEventListener("keydown", e => {
   if(FIND.open) return findKey(e);
   if(!LB.open && !$("#modalRoot").innerHTML && !isTyping(e.target) && !e.altKey && ((e.key==="/" && !e.ctrlKey && !e.metaKey) || ((e.key==="k" || e.key==="K") && (e.ctrlKey || e.metaKey)))){ e.preventDefault(); return openFind(); }
   if(LB.open){ if(e.key==="Escape"){ e.preventDefault(); closeViewer(); } else if(e.key==="ArrowLeft"||e.key==="ArrowRight"){ e.preventDefault(); lbGo(LB.i+(e.key==="ArrowLeft"?-1:1)); } else if(e.key==="Home"||e.key==="End"){ e.preventDefault(); lbGo(e.key==="Home"?0:LB.list.length-1); } return; }
-  if(e.key==="Escape"){ if($("#modalRoot").innerHTML){ if(!CI?.busy || !$("#ci_card")) closeModal(); } else if(S.sel) closeDrawer(); else if(S.pick) endPick(); } });
+  if(e.key==="Escape"){ if($("#modalRoot").innerHTML){ if(!CI?.busy || !$("#ci_card")) closeModal(); } else if(S.sel) closeDrawer(); else if(S.pick) endPick(); else if(S.swap){ S.swap = null; renderMain(); } } });
 function updateMoveNote(){
   const n=$("#moveNote"); if(!n) return; const c=selCard(); const bid=$("#m_binder").value;
   if(!bid){ n.textContent="The card stays in your ledger under “Not in a binder”."; return; }

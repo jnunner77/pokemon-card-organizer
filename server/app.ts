@@ -205,7 +205,7 @@ export function createApp(o: AppOptions) {
     const ids = new Set(body.data.moves.map((m) => m.id));
     const places = new Set(body.data.moves.map((m) => `${m.page}/${m.slot}`));
     if (ids.size !== body.data.moves.length || ids.size !== inBinder.length || inBinder.some((c) => !ids.has(c.id))) {
-      throw new HttpError(409, 'The binder changed while you were sorting it. Sort it again.', 'conflict');
+      throw new HttpError(409, 'The binder changed meanwhile (a card was added, moved or removed), so nothing moved. Try again.', 'conflict');
     }
     if (places.size !== ids.size) throw new HttpError(400, 'Two cards were given the same pocket.');
     if (body.data.moves.some((m) => m.slot > pockets)) throw new HttpError(400, `This binder's pages have ${pockets} pockets.`);
