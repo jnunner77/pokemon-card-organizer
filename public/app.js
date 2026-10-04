@@ -1166,12 +1166,13 @@ function renderArrange(m, b){
   const viewer = S.me?.user?.role==="viewer";
   m.innerHTML = `<div class="arrview">
     <div class="arrbar">
-      <p class="hint">${viewer ? "You have view-only access, so the order can't be saved." : `Drag a card by <span class="arrgrip" aria-hidden="true">⠿</span> (or use ↑ ↓) to where it is in your binder, or tap two cards to swap them. Empty pockets move too. Nothing is saved until you press Save.`}</p>
-      <div class="arracts"><button class="btn sm" type="button" id="arrAddPage">Add a page</button><button class="btn sm" type="button" id="arrReset">Reset</button><button class="btn sm primary" type="button" id="arrSave">Save</button></div>
+      <p class="hint">${viewer ? "You have view-only access, so the order can't be saved." : `<b>Type to place</b>: type each card's name in the order it sits in your binder. Or drag a card by <span class="arrgrip" aria-hidden="true">⠿</span> (or use ↑ ↓), or tap two cards to swap them. Empty pockets move too. Nothing is saved until you press Save.`}</p>
+      <div class="arracts"><button class="btn sm primary" type="button" id="arrType" title="Type each card's name in pocket order">Type to place</button><button class="btn sm" type="button" id="arrAddPage">Add a page</button><button class="btn sm" type="button" id="arrReset">Reset</button><button class="btn sm primary" type="button" id="arrSave">Save</button></div>
     </div>
+    <div id="arrPlace"></div>
     <ol class="arrlist" id="arrList" aria-label="Pockets of ${esc(b.name)} in order"></ol>
   </div>`;
-  renderArrList();
+  renderArrList(); renderPlace();
 }
 function renderArrList(focus){
   const list = $("#arrList"); if(!list || !ARR) return;
@@ -1198,13 +1199,14 @@ function renderArrList(focus){
 /* tap one row, then another: they trade places (tap the same row again to let go) */
 function arrTap(i){
   if(!ARR) return;
+  if(ARR.place) placeStop();
   if(ARR.sel==null){ ARR.sel = i; return renderArrList(); }
   const j = ARR.sel; ARR.sel = null;
   if(j!==i) [ARR.rows[i], ARR.rows[j]] = [ARR.rows[j], ARR.rows[i]];
   renderArrList();
 }
 function arrMove(i, d){
-  ARR.sel = null;
+  ARR.sel = null; if(ARR.place) placeStop();
   const j = i + d; if(!ARR || j<0 || j>=ARR.rows.length) return;
   [ARR.rows[i], ARR.rows[j]] = [ARR.rows[j], ARR.rows[i]];
   renderArrList({i:j, d});
@@ -1231,6 +1233,72 @@ async function arrUndo(b, before, after){
     arrApply(moves); ARR = null; toast(`${b.name} is back the way it was`); render();
   }catch(e){ toast(e?.message || "Couldn't undo it."); }
 }
+/* Type to place: go through the real binder pocket by pocket, typing each card's name (or number,
+   or set) and picking the match; it goes in the next pocket. Cards not placed yet follow. */
+function placeStart(){ if(!ARR) return; ARR.sel = null; ARR.place = {seq:[], base:ARR.rows.slice(), q:"", hi:0, last:""}; renderPlace(); }
+function placeStop(){ if(ARR) ARR.place = null; renderPlace(); }
+function placeRows(){
+  const P = ARR.place, placed = new Set(P.seq.filter(Boolean));
+  const rows = [...P.seq, ...P.base.filter(id => id && !placed.has(id))];
+  while(rows.length < ARR.n || rows.length % ARR.n) rows.push(null);
+  return rows;
+}
+const placeLeft = () => { const P = ARR.place, placed = new Set(P.seq.filter(Boolean)); return P.base.filter(id => id && !placed.has(id)); };
+function placeMatches(){
+  const q = ARR.place.q.trim(); if(!q) return [];
+  const cards = placeLeft().map(id => S.cards.find(c => c.id===id)).filter(Boolean);
+  return window.BinderSearch.search(cards, q, {limit:8, order:SORTS.loc}).map(r => r.card);
+}
+function renderPlace(){
+  const box = $("#arrPlace"); if(!box) return;
+  if(!ARR?.place){ box.innerHTML = ""; const t = $("#arrType"); if(t) t.hidden = false; return; }
+  const t = $("#arrType"); if(t) t.hidden = true;
+  if(!$("#arrQ")){
+    box.innerHTML = `<div class="placebox">
+      <div class="placehead"><span id="placeNext"></span><span class="hint" id="placeCount"></span></div>
+      <input id="arrQ" type="search" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Type the card's name, number or set…">
+      <div class="placeres" id="arrRes" role="listbox" aria-label="Matching cards"></div>
+      <div class="placeacts"><button class="btn sm" type="button" id="arrSkip">Skip pocket</button><button class="btn sm" type="button" id="arrUndoLast">Undo last</button><button class="btn sm ghost" type="button" id="arrPlaceDone">Done</button><span class="hint" id="placeLast" aria-live="polite"></span></div>
+    </div>`;
+  }
+  const P = ARR.place, next = arrPlace(P.seq.length, ARR.n), q = $("#arrQ");
+  $("#placeNext").innerHTML = `Next pocket <b>Page ${next.page} · #${next.slot}</b>`;
+  $("#placeCount").textContent = `${P.seq.filter(Boolean).length} placed · ${placeLeft().length} to go`;
+  q.setAttribute("aria-label", `Card for page ${next.page}, pocket ${next.slot}`);
+  if(q.value !== P.q) q.value = P.q;
+  $("#arrUndoLast").disabled = !P.seq.length;
+  $("#placeLast").textContent = P.last;
+  renderPlaceRes();
+  if(document.activeElement !== q) q.focus({preventScroll:true});
+}
+function renderPlaceRes(){
+  const box = $("#arrRes"); if(!box || !ARR?.place) return;
+  const P = ARR.place, m = placeMatches(); P.hi = Math.min(P.hi, Math.max(0, m.length-1));
+  if(!P.q.trim()){ box.innerHTML = placeLeft().length ? "" : `<p class="hint">Every card is placed. Press Save.</p>`; return; }
+  if(!m.length){ box.innerHTML = `<p class="hint">No card left in this binder matches “${esc(P.q.trim())}”.</p>`; return; }
+  box.innerHTML = m.map((c,k) => `<button type="button" class="placeopt${k===P.hi?" hi":""}" role="option" aria-selected="${k===P.hi}" data-place="${esc(c.id)}">${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="" loading="lazy">`:`<span class="thumb"></span>`}<span class="arrname"><b>${esc(c.name||"Unnamed card")}</b><span class="hint">${esc(metaLine(c))} · now p${c.page||"?"} #${c.slot||"?"}</span></span></button>`).join("");
+}
+function placeCard(id){
+  const P = ARR.place; if(!P) return;
+  const c = id ? S.cards.find(x => x.id===id) : null, at = arrPlace(P.seq.length, ARR.n);
+  P.seq.push(id || null); P.q = ""; P.hi = 0;
+  P.last = c ? `${c.name||"Card"} → p${at.page} #${at.slot}` : `p${at.page} #${at.slot} left empty`;
+  ARR.rows = placeRows(); renderArrList(); renderPlace();
+}
+function placeUndo(){
+  const P = ARR.place; if(!P || !P.seq.length) return;
+  const id = P.seq.pop(), c = id ? S.cards.find(x => x.id===id) : null;
+  P.last = `Took back ${c ? c.name||"the card" : "the empty pocket"}`; P.q = ""; P.hi = 0;
+  ARR.rows = placeRows(); renderArrList(); renderPlace();
+}
+document.addEventListener("keydown", e => {
+  if(e.target.id!=="arrQ" || !ARR?.place) return;
+  const m = placeMatches(), P = ARR.place;
+  if(e.key==="ArrowDown" || e.key==="ArrowUp"){ e.preventDefault(); if(m.length){ P.hi = (P.hi + (e.key==="ArrowDown"?1:-1) + m.length) % m.length; renderPlaceRes(); } }
+  else if(e.key==="Enter"){ e.preventDefault(); if(m[P.hi]) placeCard(m[P.hi].id); }
+  else if(e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); if(P.q){ P.q = ""; renderPlace(); } else placeStop(); }
+}, true);
+
 /* drag by the handle, with a mouse or a finger: the row moves through the list as the pointer does */
 let ADRAG = null;
 document.addEventListener("pointerdown", e => {
@@ -1253,7 +1321,7 @@ document.addEventListener("pointermove", e => {
 const arrDrop = e => {
   if(!ADRAG || e.pointerId!==ADRAG.id) return;
   const {list} = ADRAG; ADRAG = null;
-  ARR.rows = [...list.querySelectorAll(".arrrow")].map(r => r.dataset.arr || null); ARR.sel = null;
+  ARR.rows = [...list.querySelectorAll(".arrrow")].map(r => r.dataset.arr || null); ARR.sel = null; if(ARR.place) placeStop();
   renderArrList();
 };
 document.addEventListener("pointerup", arrDrop);
@@ -2004,9 +2072,14 @@ document.addEventListener("click", e => {
   if(t.closest("#btnNewBinder") || t.closest("#btnFirstBinder")) return void newBinder();
   if(t.closest("#vArrange")){ if(S.binderId==="__loose" || S.binderId==="__sales") S.binderId = sortedBinders()[0]?.id || null; S.view="arrange"; ARR = null; persistNav(); render(); return; }
   const am = t.closest("[data-arrmove]"); if(am){ const i = +am.closest(".arrrow").dataset.i; return arrMove(i, +am.dataset.arrmove); }
-  if(t.closest("#arrSave")) return void arrSave();
-  if(t.closest("#arrReset")){ const b = curBinder(); if(b){ ARR = arrangeFromData(b); renderArrList(); } return; }
-  if(t.closest("#arrAddPage")){ if(ARR){ ARR.rows.push(...Array(ARR.n).fill(null)); renderArrList(); $("#arrList")?.lastElementChild?.scrollIntoView({block:"center"}); } return; }
+  if(t.closest("#arrSave")){ if(ARR?.place) ARR.place = null; renderPlace(); return void arrSave(); }
+  if(t.closest("#arrType")) return placeStart();
+  if(t.closest("#arrSkip")) return placeCard(null);
+  if(t.closest("#arrUndoLast")) return placeUndo();
+  if(t.closest("#arrPlaceDone")) return placeStop();
+  const po = t.closest("[data-place]"); if(po) return placeCard(po.dataset.place);
+  if(t.closest("#arrReset")){ const b = curBinder(); if(b){ ARR = arrangeFromData(b); renderArrList(); renderPlace(); } return; }
+  if(t.closest("#arrAddPage")){ if(ARR){ if(ARR.place) placeStop(); ARR.rows.push(...Array(ARR.n).fill(null)); renderArrList(); $("#arrList")?.lastElementChild?.scrollIntoView({block:"center"}); } return; }
   if(t.closest("#vPages")){ if(S.binderId==="__loose" || S.binderId==="__sales") S.binderId = sortedBinders()[0]?.id || null; S.view="pages"; persistNav(); render(); return; }
   if(t.closest("#vList")){ if(S.binderId==="__sales") S.binderId = sortedBinders()[0]?.id || "__loose"; S.view="list"; persistNav(); render(); return; }
   if(t.closest("#btnPhotos")) return openViewer();
@@ -2065,6 +2138,7 @@ document.addEventListener("input", e => {
     if(/^f_(name|number|set|setCode)$/.test(e.target.id)) scheduleLookup(); }
   if(e.target.id==="q"){ S.q=e.target.value; clearTimeout(S._qt); S._qt=setTimeout(renderMain,120); }
   if(e.target.id==="findQ"){ FIND.q=e.target.value; findRun(); }
+  if(e.target.id==="arrQ" && ARR?.place){ ARR.place.q = e.target.value; ARR.place.hi = 0; renderPlaceRes(); }
   if(e.target.closest("#priceSec")) S.priceTouched=true;
   if(e.target.closest("#moveSec")){ S.moveTouched=true; updateMoveNote(); }
 });
