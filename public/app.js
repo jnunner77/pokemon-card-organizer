@@ -37,6 +37,8 @@ const valueOf = c => { const p = latestOf(c, ["comp","market"]); return p ? toCA
 const paidOf = c => { const p = latestOf(c, ["paid"]); return p ? toCAD(p) : null; };
 const soldOf = c => { const p = latestOf(c, ["mysale"]); return p ? toCAD(p) : null; };
 const held = c => !["sold","traded"].includes(c.status);
+/* a placeholder holds its pocket for a card not owned yet: priced, but not counted or sold */
+const owned = c => held(c) && !c.placeholder;
 /* sale record: quick sells store a snapshot; cards sold through the price log are worked out on the fly. Paid beats market as the cost basis. */
 function costBasis(c){ const pd = paidOf(c); if(pd!=null) return {cost:pd, basis:"paid"}; const v = valueOf(c); if(v!=null) return {cost:v, basis:"market"}; return {cost:null, basis:"none"}; }
 function saleInfo(c){
@@ -118,12 +120,12 @@ function renderTabs(){
   $("#btnSortBinder").hidden = !b || S.me?.user?.role==="viewer" || cardsIn(b.id).length < 2;
 }
 function statsFor(list){
-  const heldList = list.filter(held);
+  const heldList = list.filter(owned), ph = list.filter(c => held(c) && c.placeholder).length;
   const val = heldList.reduce((s,c)=> s + (valueOf(c)||0), 0);
   const priced = heldList.filter(c => valueOf(c)!=null).length;
   const paid = list.reduce((s,c)=> s + (paidOf(c)||0), 0);
   const sold = list.reduce((s,c)=> s + (soldOf(c)||0), 0);
-  return {n:list.length, held:heldList.length, val, priced, paid, sold};
+  return {n:list.length, held:heldList.length, val, priced, paid, sold, ph};
 }
 function renderStats(){
   const b = curBinder();
@@ -133,7 +135,7 @@ function renderStats(){
   const tot = salesTotals();
   $("#stats").innerHTML = `
     <div class="stat"><span class="k">${label}</span><span class="v">${st.n} <small>cards${b?` · ${maxPage(b.id)} pg`:""}</small></span></div>
-    <div class="stat"><span class="k">Est. value held</span><span class="v">${money(st.val)} <small>${st.priced}/${st.held} priced</small></span></div>
+    <div class="stat"><span class="k">Est. value held</span><span class="v">${money(st.val)} <small>${st.priced}/${st.held} priced${st.ph?` · ${st.ph} placeholder${st.ph===1?"":"s"} not counted`:""}</small></span></div>
     <div class="stat"><span class="k">Paid</span><span class="v">${money(st.paid)}</span></div>
     <div class="stat"><span class="k">Sold for</span><span class="v">${money(st.sold)}</span></div>
     ${checkCount()?`<button class="stat chkstat" type="button" id="btnChecks" title="Cards whose details or price need you"><span class="k">To check</span><span class="v">${checkCount()} <small>card${checkCount()===1?"":"s"}</small></span></button>`:""}
@@ -148,10 +150,20 @@ function pickBar(){
   const n = S.pick.size, allOn = S.shown.length && S.shown.every(id=>S.pick.has(id));
   const right = S.pickConfirm
     ? `<span class="confirm">Delete ${n} card${n===1?"":"s"} and their price history? <button class="btn sm danger solid" type="button" id="pickDelYes">Delete ${n}</button><button class="btn sm" type="button" id="pickDelNo">Keep</button></span>`
-    : `<button class="btn sm" type="button" id="pickAll">${allOn?"Clear all":"Select all"}</button><button class="btn sm" type="button" id="pickCancel">Cancel</button><button class="btn sm primary" type="button" id="pickSell" ${nSellable()?"":"disabled"}>Quick sell${nSellable()?` ${nSellable()}`:""}</button><button class="btn sm" type="button" id="pickDup" ${n?"":"disabled"}>Duplicate${n?` ${n}`:""}</button><button class="btn sm danger solid" type="button" id="pickDel" ${n?"":"disabled"}>Delete${n?` ${n}`:""}</button>`;
+    : `<button class="btn sm" type="button" id="pickAll">${allOn?"Clear all":"Select all"}</button><button class="btn sm" type="button" id="pickCancel">Cancel</button><button class="btn sm primary" type="button" id="pickSell" ${nSellable()?"":"disabled"}>Quick sell${nSellable()?` ${nSellable()}`:""}</button><button class="btn sm" type="button" id="pickPh" ${n?"":"disabled"} title="${pickAllPh()?"You have these cards now: count them in your totals":"Hold these pockets for cards you don't have yet: not counted in your totals"}">${pickAllPh()?"Owned":"Placeholder"}${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickDup" ${n?"":"disabled"}>Duplicate${n?` ${n}`:""}</button><button class="btn sm danger solid" type="button" id="pickDel" ${n?"":"disabled"}>Delete${n?` ${n}`:""}</button>`;
   return `<div class="pickbar" role="toolbar" aria-label="Selection"><span class="cnt">${n} selected</span>${right}</div>`;
 }
-const nSellable = () => S.pick ? [...S.pick].filter(id => { const c = S.cards.find(x=>x.id===id); return c && held(c); }).length : 0;
+const nSellable = () => S.pick ? [...S.pick].filter(id => { const c = S.cards.find(x=>x.id===id); return c && owned(c); }).length : 0;
+/* the selection's placeholder button: mark them all, or all owned when every one is a placeholder */
+const pickedCards = () => S.pick ? [...S.pick].map(id=>S.cards.find(c=>c.id===id)).filter(Boolean) : [];
+const pickAllPh = () => { const l = pickedCards(); return l.length>0 && l.every(c=>c.placeholder); };
+async function placeholderPicked(){
+  const l = pickedCards(), on = !pickAllPh(); if(!l.length) return;
+  const res = await Promise.allSettled(l.map(c => S.db.doc("cards/"+c.id).update({placeholder:on, updatedAt:nowISO()})));
+  const ok = res.filter(r=>r.status==="fulfilled").length;
+  toast(ok===l.length ? (on ? `${ok} card${ok===1?" is a placeholder":"s are placeholders"}: not counted in your totals` : `${ok} card${ok===1?"":"s"} counted in your totals now`) : `${ok} of ${l.length} saved. Try the rest again.`);
+  endPick();
+}
 function startPick(id){ S.pick = new Set(id?[id]:[]); S.pickConfirm=false; try{ navigator.vibrate?.(15); }catch(_){} if(S.sel) closeDrawer(); else renderMain(); }
 function endPick(){ S.pick=null; S.pickConfirm=false; renderMain(); }
 function renderMain(){
@@ -177,11 +189,11 @@ function renderMainInner(){
   for(let s=1;s<=n;s++){
     const c = cardAt(b.id, S.page, s);
     if(!c){ cells += `<button class="pocket empty" type="button" data-empty="${s}" aria-label="Empty pocket ${s}, add a card"><span class="slotno">${s}</span><span class="plus">+</span><span>Add card</span></button>`; continue; }
-    const v = valueOf(c), flag = c.status && c.status!=="binder" ? `<span class="flag ${esc(c.status)}">${esc((STATUSES.find(x=>x[0]===c.status)||[,""])[1].replace("Listed for sale","Listed").replace("Out for grading","Grading"))}</span>` : "";
+    const v = valueOf(c), flag = c.placeholder && held(c) ? `<span class="flag placeholder">Placeholder</span>` : c.status && c.status!=="binder" ? `<span class="flag ${esc(c.status)}">${esc((STATUSES.find(x=>x[0]===c.status)||[,""])[1].replace("Listed for sale","Listed").replace("Out for grading","Grading"))}</span>` : "";
     const inner = shown(c)
       ? `<img src="${imgURL(shown(c))}" alt="${esc(c.name||"Card")}" loading="lazy"><span class="cap"><span class="n">${esc(c.name||"Unnamed card")}</span><span class="m">${esc(metaLine(c))}</span></span>`
       : `<span class="face"><span class="n">${esc(c.name||"Unnamed card")}</span><span class="m">${esc(metaLine(c)||"No set yet")}</span><span class="np">No photo</span></span>`;
-    cells += `<button class="pocket${S.sel===c.id?" sel":""}${held(c)?"":" dim"}${S.pick?.has(c.id)?" picked":""}${isFound(c.id)?" found":""}" type="button" data-card="${esc(c.id)}" aria-label="${esc((c.name||"Unnamed card")+", pocket "+s+(cardChecks(c).length?", needs checking":""))}"${S.pick?` aria-pressed="${S.pick.has(c.id)}"`:""}><span class="slotno">${s}</span>${cardChecks(c).length?`<span class="chkmark" title="${esc(cardChecks(c)[0].title)}" aria-hidden="true">!</span>`:""}<span class="tick" aria-hidden="true">✓</span>${inner}${v!=null?`<span class="price">${esc(money(v).replace(".00",""))}</span>`:""}${flag}</button>`;
+    cells += `<button class="pocket${S.sel===c.id?" sel":""}${held(c)?"":" dim"}${c.placeholder&&held(c)?" ph":""}${S.pick?.has(c.id)?" picked":""}${isFound(c.id)?" found":""}" type="button" data-card="${esc(c.id)}" aria-label="${esc((c.name||"Unnamed card")+(c.placeholder&&held(c)?" (placeholder)":"")+", pocket "+s+(cardChecks(c).length?", needs checking":""))}"${S.pick?` aria-pressed="${S.pick.has(c.id)}"`:""}><span class="slotno">${s}</span>${cardChecks(c).length?`<span class="chkmark" title="${esc(cardChecks(c)[0].title)}" aria-hidden="true">!</span>`:""}<span class="tick" aria-hidden="true">✓</span>${inner}${v!=null?`<span class="price">${esc(money(v).replace(".00",""))}</span>`:""}${flag}</button>`;
   }
   const pageCards = cardsIn(b.id).filter(c=>c.page===S.page);
   const pst = statsFor(pageCards);
@@ -197,7 +209,7 @@ function renderMainInner(){
       <div class="pageinfo">
         <span><b>${pageCards.length}</b> of ${n} pockets filled</span>
         <span>Page value <b>${money(pst.val)}</b></span>
-        <span class="hint">${n}-pocket pages. Tap a card to price it or move it. Tap an empty pocket to add one. Tap Photos to flip through every picture full screen. Swipe left or right on the page to flip pages. Press and hold a card to quick sell it, or to select several to sell, duplicate or delete.</span>
+        <span class="hint">${n}-pocket pages. Tap a card to price it or move it. Tap an empty pocket to add one. Tap Photos to flip through every picture full screen. Swipe left or right on the page to flip pages. Press and hold a card to quick sell it, or to select several to sell, mark as placeholders, duplicate or delete.</span>
       </div>
     </aside></div>`;
 }
@@ -226,7 +238,7 @@ function renderList(m){
       <td class="mono">${esc(metaLine(c))}</td>
       <td class="mono">${esc(c.released||"—")}</td>
       <td class="mono">${esc(locShort(c))}</td>
-      <td><span class="chip ${esc(c.status||"")}">${esc(st?st[1]:"In binder")}</span></td>
+      <td><span class="chip ${esc(c.status||"")}">${esc(st?st[1]:"In binder")}</span>${c.placeholder&&held(c)?` <span class="chip placeholder">Placeholder</span>`:""}</td>
       <td class="r mono">${money(valueOf(c))}</td>
       <td class="r mono">${money(paidOf(c))}</td></tr>`;
   }).join("");
@@ -264,7 +276,7 @@ function renderSales(m){
 }
 function quickSellModal(ids){
   if(!S.db) return toast("Saving isn't available in this view.");
-  const list = ids.map(id=>S.cards.find(c=>c.id===id)).filter(c=>c && held(c));
+  const list = ids.map(id=>S.cards.find(c=>c.id===id)).filter(c=>c && owned(c));
   if(!list.length) return toast("Those cards are already sold.");
   const rows = list.map(c => { const cb = costBasis(c), v = valueOf(c);
     const basis = cb.basis==="paid" ? `Paid ${money(cb.cost)}${v!=null?` · market ${money(v)}`:""}` : cb.basis==="market" ? `No paid price · market ${money(cb.cost)}` : "No paid or market price, so profit isn't tracked";
@@ -311,7 +323,7 @@ async function doQuickSell(card){
   const jobs = [];
   card.querySelectorAll("[data-qs]").forEach(r => {
     const a = parseFloat(r.querySelector("[data-qsamt]").value); if(isNaN(a) || a<0) return;
-    const c = S.cards.find(x=>x.id===r.dataset.qs); if(!c || !held(c)) return;
+    const c = S.cards.find(x=>x.id===r.dataset.qs); if(!c || !owned(c)) return;
     const amount = Math.round(a*100)/100, soldCAD = Math.round(toCAD({amount, currency:cur})*100)/100, cb = costBasis(c);
     const pid = rid(), at = nowISO();
     const price = {id:pid, at, type:"mysale", amount, currency:cur, date, where, note:"Quick sell"};
@@ -385,6 +397,7 @@ function renderDrawer(force){
           <div class="field"><label for="f_artist">Illustrator</label><input id="f_artist" name="artist" value="${esc(c.artist)}"></div>
           <div class="field"><label for="f_released">Released</label><input id="f_released" class="mono" value="${esc(c.released)}" readonly placeholder="${S.sel==="__new"?"Filled in after saving":"Not found yet"}" title="When the card's set came out, from TCGdex. Used to sort a binder by release date."></div>
           <div class="field"><label for="f_status">Status</label><select id="f_status" name="status">${opt(STATUSES,c.status||"binder")}</select></div>
+          <div class="field full"><label class="phswitch"><input type="checkbox" id="f_placeholder" role="switch" ${c.placeholder?"checked":""}><span><b>Placeholder</b> <span class="hint">Holds this pocket for a card you don't have yet. Its price is tracked but not counted in your totals.${isNew?"":" Saves straight away."}</span></span></label></div>
           <div class="field full"><label for="f_notes">Notes</label><textarea id="f_notes" name="notes" placeholder="Centering, where you pulled it, trade notes…">${esc(c.notes)}</textarea></div>
         </div>
         <datalist id="dl_sets">${sets.map(s=>`<option value="${esc(s)}">`).join("")}</datalist>
@@ -392,7 +405,7 @@ function renderDrawer(force){
         <datalist id="dl_rar">${RARITIES.map(s=>`<option value="${esc(s)}">`).join("")}</datalist>
         <div class="formfoot">
           <button class="btn primary" type="submit" id="btnSave" ${S.dirty?"":"disabled"}>${isNew?"Add card":"Save changes"}</button>
-          ${isNew?"":`<span style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">${held(c)?`<button class="btn sm primary" type="button" id="btnQuickSell">Quick sell</button>`:""}<button class="btn sm" type="button" id="btnDup" title="Make another copy of this card">Duplicate</button><span id="delZone">${delZone()}</span></span>`}
+          ${isNew?"":`<span style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">${held(c)?`<button class="btn sm primary" type="button" id="btnQuickSell" ${c.placeholder?"hidden":""}>Quick sell</button>`:""}<button class="btn sm" type="button" id="btnDup" title="Make another copy of this card">Duplicate</button><span id="delZone">${delZone()}</span></span>`}
         </div>
       </form>
       ${isNew?"":moveSection(c)}
@@ -660,7 +673,7 @@ async function saveCard(){
     const loc = {binderId:c.binderId||null, page:c.binderId?c.page:null, slot:c.binderId?c.slot:null};
     if(loc.binderId && cardAt(loc.binderId, loc.page, loc.slot)){ const f = firstFree(loc.binderId); loc.page=f.page; loc.slot=f.slot; }
     const id = rid();
-    const ok = await guard(()=> S.db.collection("cards").doc(id).set({...data, ...loc, imageId:c.imageId||null, prices:[], createdAt:nowISO(), updatedAt:nowISO()}));
+    const ok = await guard(()=> S.db.collection("cards").doc(id).set({...data, ...loc, placeholder:!!$("#f_placeholder")?.checked, imageId:c.imageId||null, prices:[], createdAt:nowISO(), updatedAt:nowISO()}));
     if(ok){ toast(`Added ${data.name}. Looking up its price and picture…`); S.sel=id; S.draft=null; S.dirty=false; if(loc.binderId){ S.binderId=loc.binderId; S.page=loc.page; persistNav(); } render(); renderDrawer(true); }
     return;
   }
@@ -1249,11 +1262,11 @@ function importModal(){
 
 /* ---------- CSV ---------- */
 async function exportCSV(){
-  const cols = ["Binder","Page","Pocket","Name","Set","Set code","Number","Rarity","Variant","Language","Condition","Graded by","Grade","Illustrator","Status","Value (CAD)","Value basis","Paid (CAD)","Sold for (CAD)","Price entries","Notes"];
+  const cols = ["Binder","Page","Pocket","Name","Set","Set code","Number","Rarity","Variant","Language","Condition","Graded by","Grade","Illustrator","Status","Placeholder","Value (CAD)","Value basis","Paid (CAD)","Sold for (CAD)","Price entries","Notes"];
   const q = v => { const s = String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s; };
   const rows = S.cards.slice().sort((a,b)=> SORTS.loc(a)<SORTS.loc(b)?-1:1).map(c => {
     const lp = latestOf(c,["comp","market"]);
-    return [binderById(c.binderId)?.name||"", c.page||"", c.slot||"", c.name, c.set, c.setCode, c.number, c.rarity, c.variant, c.language, c.condition, c.grader, c.grade, c.artist, (STATUSES.find(s=>s[0]===(c.status||"binder"))||[,""])[1], valueOf(c)?.toFixed(2)??"", lp?`${lp.type} ${lp.date} ${lp.where||""}`.trim():"", paidOf(c)?.toFixed(2)??"", soldOf(c)?.toFixed(2)??"", prices(c).map(p=>`${p.date} ${p.type} ${p.amount} ${p.currency}${p.where?" @"+p.where:""}`).join(" | "), c.notes].map(q).join(",");
+    return [binderById(c.binderId)?.name||"", c.page||"", c.slot||"", c.name, c.set, c.setCode, c.number, c.rarity, c.variant, c.language, c.condition, c.grader, c.grade, c.artist, (STATUSES.find(s=>s[0]===(c.status||"binder"))||[,""])[1], c.placeholder?"yes":"", valueOf(c)?.toFixed(2)??"", lp?`${lp.type} ${lp.date} ${lp.where||""}`.trim():"", paidOf(c)?.toFixed(2)??"", soldOf(c)?.toFixed(2)??"", prices(c).map(p=>`${p.date} ${p.type} ${p.amount} ${p.currency}${p.where?" @"+p.where:""}`).join(" | "), c.notes].map(q).join(",");
   });
   const csv = [cols.join(","), ...rows].join("\n");
   if(!S.downloads) return toast("Downloads aren't available in this view.");
@@ -1278,6 +1291,7 @@ const CI_COLS = [
   {k:"grader", h:"Graded by", a:["grader","gradingcompany","company"], d:GRADERS.join(", ")+". Blank means Raw."},
   {k:"grade", h:"Grade", a:["score"], d:"Number from 1 to 10, halves allowed (9.5). Only for graded cards."},
   {k:"artist", h:"Illustrator", a:["artist","illustratedby"], d:"The card's illustrator."},
+  {k:"placeholder", h:"Placeholder", a:["proxy","wanted","needed","notowned"], d:"yes holds the pocket for a card you don't have yet: its price is tracked but not counted in your totals. Blank or no means you have it."},
   {k:"status", h:"Status", a:["state"], d:STATUSES.map(s=>s[1]).join(", ")+". Blank means In binder. Short forms like listed, grading and sold work."},
   {k:"paid", h:"Paid", a:["paidcad","pricepaid","cost","boughtfor"], d:"What you paid, e.g. 12.50. Logged as an “I paid” price entry."},
   {k:"paidDate", h:"Paid date", a:["datepaid","boughton","purchasedate"], d:"YYYY-MM-DD. Blank means today."},
@@ -1375,6 +1389,9 @@ function ciValidate(P, o){
     d.language = en("language", LANG_SYN, "English", "Language", LANGS.join(", "));
     d.condition = en("condition", COND_SYN, "Near Mint", "Condition", "Near Mint, Lightly Played, Moderately Played, Heavily Played or Damaged");
     d.grader = en("grader", GRADER_SYN, "Raw", "Graded by", GRADERS.join(", "));
+    const phRaw = cell("placeholder");
+    d.placeholder = /^(y|yes|true|1|x|✓)$/i.test(phRaw);
+    if(phRaw && !d.placeholder && !/^(n|no|false|0)$/i.test(phRaw)) E(`Placeholder “${phRaw}” should be yes or no.`);
     const stRaw = cell("status");
     d.status = en("status", STATUS_SYN, "binder", "Status", STATUSES.map(s=>s[1]).join(", "));
     const g = cell("grade"); d.grade = "";
@@ -1738,6 +1755,7 @@ document.addEventListener("click", e => {
     if(t.closest("#pickDelNo")){ S.pickConfirm=false; return renderMain(); }
     if(t.closest("#pickDelYes")) return void deletePicked();
     if(t.closest("#pickDup")) return void duplicatePicked();
+    if(t.closest("#pickPh")) return void placeholderPicked();
     if(t.closest("#pickSell")) return quickSellModal([...S.pick]);
     const pcd = t.closest("#main [data-card]");
     if(pcd){ const id=pcd.dataset.card; S.pick.has(id)?S.pick.delete(id):S.pick.add(id); S.pickConfirm=false; if(!S.pick.size) return endPick(); return renderMain(); }
@@ -1798,6 +1816,7 @@ document.addEventListener("click", e => {
   if(t.closest("#btnTakeOut")){ const c=selCard(); return void moveCard(c, null); }
 });
 document.addEventListener("input", e => {
+  if(e.target.id==="f_placeholder" && S.sel!=="__new") return;
   if(e.target.closest("#cardForm")){ S.dirty=true; const b=$("#btnSave"); if(b) b.disabled=false; if(e.target.id==="f_name") $("#dTitle").textContent = e.target.value || "New card";
     if(e.target.classList.contains("autofilled")) e.target.classList.remove("autofilled");
     if(/^f_(name|number|set|setCode)$/.test(e.target.id)) scheduleLookup(); }
@@ -1806,9 +1825,17 @@ document.addEventListener("input", e => {
   if(e.target.closest("#priceSec")) S.priceTouched=true;
   if(e.target.closest("#moveSec")){ S.moveTouched=true; updateMoveNote(); }
 });
+/* the drawer's Placeholder switch on a saved card: saves at once, without touching the form */
+async function switchPlaceholder(box){
+  const c = selCard(), on = box.checked; if(!c) return;
+  if(!(await updateCard(c.id, {placeholder:on}))){ box.checked = !on; return; }
+  const qs = $("#btnQuickSell"); if(qs) qs.hidden = on;
+  toast(on ? `${c.name||"Card"} is a placeholder: not counted in your totals` : `${c.name||"Card"} is counted in your totals now`);
+}
 document.addEventListener("change", e => {
   if(e.target.closest("#priceSec")) S.priceTouched=true;
   if(e.target.closest("#moveSec")) S.moveTouched=true;
+  if(e.target.id==="f_placeholder" && S.sel!=="__new") return void switchPlaceholder(e.target);
   if(e.target.closest("#cardForm")){ S.dirty=true; const b=$("#btnSave"); if(b) b.disabled=false; }
   if(e.target.matches && e.target.matches("input[data-photo]")){ const f=e.target.files && e.target.files[0]; if(f){ takePhotoFile(f); try{ e.target.value=""; }catch(_){} } }
   if(e.target.id==="m_binder"){ const bid=e.target.value; const b=binderById(bid); $("#m_page").disabled=!bid; $("#m_slot").disabled=!bid;

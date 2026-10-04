@@ -91,6 +91,18 @@ has filled what it knows (so Classic box cards and new promos get a set and a re
 When you chose the product yourself and the card is filed under a different set, the card takes
 the product's set: you said that product is your card.
 
+## Placeholders
+
+A **placeholder** holds a pocket for a card you don't have yet: it sits in its pocket (dimmed, with a
+dashed outline and a *Placeholder* label), keeps getting its daily price so you know what it costs,
+but its value isn't counted in any total and it can't be quick sold. The summary bar says how many
+placeholders aren't counted.
+
+- **Card details:** the *Placeholder* switch saves straight away; tick it when adding a card too.
+- **Press and hold** a card (select mode): *Placeholder* marks the selected cards, and *Owned*
+  switches them back when they all are placeholders.
+- **CSV:** a *Placeholder* column (yes/no) on import and export.
+
 ## Sort a binder by release date or price
 
 *Sort* (next to *Rename / edit binder*) puts every card of the binder in order, from page 1,
