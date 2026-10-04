@@ -103,6 +103,15 @@ placeholders aren't counted.
   switches them back when they all are placeholders.
 - **CSV:** a *Placeholder* column (yes/no) on import and export.
 
+## Arrange a binder by hand
+
+*Arrange* (next to *Pages* and *List*) lists every pocket of the binder in order, page by page,
+empty pockets included. Drag a card by its handle (mouse or finger), or move it one place with
+↑ ↓, until the list matches where the cards really are; moved cards show where they were. *Save*
+puts every card in its new page and pocket at once, with *Undo*; *Reset* starts again from the
+binder as it is; *Add a page* adds empty pockets at the end. Leaving with unsaved changes asks
+first, and if the binder changed meanwhile (a card added in another tab), nothing moves.
+
 ## Sort a binder by release date or price
 
 *Sort* (next to *Rename / edit binder*) puts every card of the binder in order, from page 1,
