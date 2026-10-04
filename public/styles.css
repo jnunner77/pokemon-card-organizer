@@ -289,6 +289,10 @@ tbody tr.sel{background:var(--accent-soft)}
 .arrhandle{display:grid;place-items:center;width:40px;height:40px;font-size:20px;color:var(--ink-2);cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;border-radius:6px}
 .arrhandle:active{cursor:grabbing;background:var(--surface-2)}
 @media (max-width:480px){.arrview{padding:8px 8px 20px}.arrrow{grid-template-columns:26px 30px minmax(0,1fr) auto auto 36px;gap:5px}.arrrow .thumb{width:30px;height:42px}.arrbtn{min-width:30px}}
+.pocket.swapsrc{outline:3px solid #E8A317;outline-offset:2px}
+.swapbar{background:var(--warn-soft)}
+.arrrow.selected{border-color:var(--ink);box-shadow:0 0 0 2px #E8A317}
+.arrrow{cursor:pointer}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 .toastbtn{margin-left:10px;border:1px solid currentColor;background:transparent;color:inherit;font:inherit;border-radius:6px;padding:3px 10px;cursor:pointer}
 .sortopts{display:grid;gap:6px;margin:0 0 12px;border:0;padding:0}
