@@ -9,10 +9,12 @@ import { chooseMatch, detailsFromProduct, searchQuery, type CardForMatch } from 
 import {
   type Candidate,
   type Fetcher,
+  ProductGone,
   type Quote,
   type Source,
   SourceError,
   get,
+  pcPath,
   quotePriceCharting,
   quoteTcgplayer,
   searchPriceCharting,
@@ -269,7 +271,7 @@ export class PriceUpdater {
   // ---- one card ----------------------------------------------------------------------
 
   /** Find the card's product if needed, then log today's price and refresh its image. */
-  async updateCard(id: string, rate?: number): Promise<CardOutcome> {
+  async updateCard(id: string, rate?: number, rematched = false): Promise<CardOutcome> {
     let card = this.store.get('cards', id) as Card | undefined;
     if (!card) return 'skipped';
     if (card.pricing?.source === 'off') return 'off';
@@ -292,12 +294,24 @@ export class PriceUpdater {
       this.patchLink(id, { source: m.source, id: m.id, url: m.url, title: m.title, set: m.set, linkedBy: 'auto', linkedAt: checkedAt, candidates: null, error: null }, true);
       card = this.store.get('cards', id) as Card;
     }
+    // Links saved from PriceCharting's search before its "&amp;" was decoded ("Scarlet &amp; Violet").
+    if (card.pricing?.source === 'pricecharting' && pcPath(card.pricing.id!) !== card.pricing.id) {
+      const path = pcPath(card.pricing.id!);
+      this.patchLink(id, { id: path, url: `https://www.pricecharting.com${path}` });
+      card = this.store.get('cards', id) as Card;
+    }
     const link = card.pricing as Link & { source: Source; id: string };
 
     let quote: Quote;
     try {
       quote = link.source === 'pricecharting' ? await quotePriceCharting(this.fetcher, link.id) : await quoteTcgplayer(this.fetcher, link.id, foilWanted(card), !foilWanted(card) && /^(common|uncommon)$/i.test(String(card.rarity ?? '')));
     } catch (err) {
+      // The product moved (renamed or merged on the site): match the card again, once.
+      if (err instanceof ProductGone && !rematched) {
+        this.log.warn('pricing', `${label(card)}: ${err.message} Matching it again.`);
+        this.patchLink(id, { source: 'none', id: null, url: null, title: null, set: null, linkedBy: null, candidates: null, error: null }, true);
+        return this.updateCard(id, rate, true);
+      }
       this.patchLink(id, { error: message(err), checkedAt });
       return 'failed';
     }

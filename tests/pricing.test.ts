@@ -72,6 +72,12 @@ describe('reading the price sites', () => {
     expect([releaseDate('December 1, 2023'), releaseDate('May 9, 1999'), releaseDate('Smarch 1, 2020'), releaseDate('')]).toEqual(['2023-12-01', '1999-05-09', null, null]);
   });
 
+  it('decodes the HTML entities in product links from PriceCharting search ("Scarlet &amp; Violet")', () => {
+    const row = `<table><tr id="product-1"><td class="title"> <a href="https://www.pricecharting.com/game/pokemon-scarlet-&amp;-violet-151/lapras-131">Lapras #131</a></td><td class="console"> <a href="#">Pokemon Scarlet &amp; Violet 151</a></td><td class="price numeric used_price">$1.00</td></tr></table>`;
+    const [c] = parsePriceChartingSearch(row);
+    expect(c).toMatchObject({ id: '/game/pokemon-scarlet-&-violet-151/lapras-131', url: 'https://www.pricecharting.com/game/pokemon-scarlet-&-violet-151/lapras-131', set: 'Pokemon Scarlet & Violet 151' });
+  });
+
   it('reads PriceCharting search results, variants included', () => {
     const rows = parsePriceChartingSearch(fixture('pricecharting-search.html'));
     expect(rows.map((r) => [r.title, r.set, r.number, r.usd])).toEqual([
@@ -245,6 +251,29 @@ describe('the daily update', () => {
     expect(store.get('cards', 'tcg')).toMatchObject({ set: 'ME: 30th Celebration', rarity: 'Illustration Rare', released: '2026-09-16' });
     store.set('cards', 'tcg2', card({ set: '' }));
     expect(await updater(fakeNet({ '/v1/product/696683/details': () => new Response('down', { status: 503 }) }).fetcher).link('tcg2', tg)).toBe('updated');
+  });
+
+  it('mends a link saved with "&amp;" in its address, and prices it', async () => {
+    store.set('cards', 'sv', card({ pricing: { source: 'pricecharting', id: '/game/pokemon-scarlet-&amp;-violet-151/lapras-131', linkedBy: 'auto' } }));
+    const net = fakeNet();
+    expect(await updater(net.fetcher).updateCard('sv')).toBe('updated');
+    expect(net.calls).toContain('https://www.pricecharting.com/game/pokemon-scarlet-&-violet-151/lapras-131');
+    expect(net.calls.some((u) => u.includes('&amp;'))).toBe(false);
+    expect(store.get('cards', 'sv')!.pricing).toMatchObject({ id: '/game/pokemon-scarlet-&-violet-151/lapras-131', url: 'https://www.pricecharting.com/game/pokemon-scarlet-&-violet-151/lapras-131', error: null });
+  });
+
+  it('matches a card again when its product address lands on the search page (renamed or merged)', async () => {
+    const gone = '/game/pokemon-old-name/lapras-131';
+    const searchPage = () => { const r = new Response('<html><table></table></html>', { headers: { 'Content-Type': 'text/html' } }); Object.defineProperty(r, 'url', { value: 'https://www.pricecharting.com/search-products?type=prices&q=lapras+131' }); return r; };
+    for (const linkedBy of ['auto', 'user']) {
+      store.set('cards', linkedBy, card({ pricing: { source: 'pricecharting', id: gone, linkedBy } }));
+      expect(await updater(fakeNet({ [gone]: searchPage }).fetcher).updateCard(linkedBy)).toBe('updated');
+      expect(store.get('cards', linkedBy)!.pricing).toMatchObject({ id: '/game/pokemon-30th-celebration/lapras-131', linkedBy: 'auto', error: null });
+    }
+    // Still gone and nothing certain found: the person chooses, and it isn't counted as a site failure.
+    store.set('cards', 'odd', card({ name: 'Mystery', number: '999/1', pricing: { source: 'pricecharting', id: gone, linkedBy: 'user' } }));
+    expect(await updater(fakeNet({ [gone]: searchPage }).fetcher).updateCard('odd')).toBe('needsMatch');
+    expect(store.get('cards', 'odd')!.pricing).toMatchObject({ source: 'none', error: null });
   });
 
   it('runs once a day after the set hour, catching up after downtime', () => {
