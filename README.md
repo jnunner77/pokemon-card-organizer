@@ -91,6 +91,16 @@ has filled what it knows (so Classic box cards and new promos get a set and a re
 When you chose the product yourself and the card is filed under a different set, the card takes
 the product's set: you said that product is your card.
 
+## Condition and value
+
+Automatic prices are near-mint market prices. A raw card's value is that price times its
+condition's share, the upper end of the usual ranges: **Near Mint 100%, Lightly Played 85%,
+Moderately Played 60%, Heavily Played 35%, Damaged 15%** (a blank condition counts as Near Mint).
+It's the value everywhere: pocket prices, the List view, totals, sorting by price, quick-sell
+profit and CSV export. The card drawer shows both ("Lightly Played 85% of $10.00 near mint").
+Prices you log yourself are what that copy is worth and stay as entered, and a graded card's grade
+sets its price, so neither is adjusted (`public/condition.js`).
+
 ## Placeholders
 
 A **placeholder** holds a pocket for a card you don't have yet: it sits in its pocket (dimmed, with a

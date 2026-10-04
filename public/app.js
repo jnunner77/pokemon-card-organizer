@@ -33,7 +33,8 @@ const toCAD = p => p.currency === "USD" ? p.amount * (Number(S.settings.usdToCad
 const byDateDesc = (a,b) => (b.date||"").localeCompare(a.date||"") || (b.at||"").localeCompare(a.at||"");
 const prices = c => Array.isArray(c.prices) ? c.prices.slice().sort(byDateDesc) : [];
 const latestOf = (c, types) => prices(c).find(p => types.includes(p.type) && typeof p.amount === "number");
-const valueOf = c => { const p = latestOf(c, ["comp","market"]); return p ? toCAD(p) : null; };
+/* a card's value: its latest market price or sold comp; automatic (near-mint) prices adjusted for its condition (condition.js) */
+const valueOf = c => { const p = latestOf(c, ["comp","market"]); return p ? toCAD({...p, amount:window.BinderCondition.adjust(c, p)}) : null; };
 const paidOf = c => { const p = latestOf(c, ["paid"]); return p ? toCAD(p) : null; };
 const soldOf = c => { const p = latestOf(c, ["mysale"]); return p ? toCAD(p) : null; };
 const held = c => !["sold","traded"].includes(c.status);
@@ -526,7 +527,8 @@ function lookupLinks(c){
 function renderPriceSummary(c){
   const box = $("#valueBox"); if(!box) return;
   const v = valueOf(c), lp = latestOf(c,["comp","market"]), pd = paidOf(c), sd = soldOf(c);
-  const basis = lp ? `${(PTYPES.find(t=>t[0]===lp.type)||[,""])[1]} · ${lp.date||""}${lp.where?` · ${lp.where}`:""}` : "Log a sold comp or market price below";
+  const f = window.BinderCondition.factor(c), cond = lp?.auto && f!==1 ? ` · ${c.condition} ${Math.round(f*100)}% of ${money(toCAD(lp))} near mint` : "";
+  const basis = lp ? `${(PTYPES.find(t=>t[0]===lp.type)||[,""])[1]} · ${lp.date||""}${lp.where?` · ${lp.where}`:""}${cond}` : "Log a sold comp or market price below";
   const si = saleInfo(c);
   const gain = si ? si.profit : (v != null && pd != null ? v - pd : null);
   box.innerHTML = `<span class="stat"><span class="k">Current value</span></span><span class="big">${money(v)}</span><span class="sub">${esc(basis)}</span>
@@ -614,7 +616,7 @@ function autoInfo(c){
   const p = c.pricing || null, daily = dailyPrices(c), last = daily[daily.length-1];
   const busy = S.priceBusy===c.id ? `<p class="hint">Working…</p>` : "";
   if(isLinked(p)) return `<p class="autoline"><a href="${esc(p.url||"#")}" target="_blank" rel="noopener">${esc(SRC[p.source])}: ${esc(p.title||"")}${p.set?` · ${esc(p.set)}`:""}</a> <span class="chip">${p.linkedBy==="user"?"you chose this":"matched automatically"}</span></p>
-    ${last?`<p class="hint" style="margin:4px 0 0">Latest ${esc(money(last.amount))} on ${esc(last.date)}${last.usd!=null?` (US$${Number(last.usd).toFixed(2)})`:""}. Updated every day; the last 30 days are kept.</p>`:`<p class="hint" style="margin:4px 0 0">No price yet.</p>`}
+    ${last?`<p class="hint" style="margin:4px 0 0">Latest ${esc(money(last.amount))} near mint on ${esc(last.date)}${last.usd!=null?` (US$${Number(last.usd).toFixed(2)})`:""}${window.BinderCondition.factor(c)!==1?`, so ${esc(money(window.BinderCondition.adjust(c, last)))} for this ${esc(c.condition)} copy (${Math.round(window.BinderCondition.factor(c)*100)}%)`:""}. Updated every day; the last 30 days are kept.</p>`:`<p class="hint" style="margin:4px 0 0">No price yet.</p>`}
     ${p.error?`<p class="autoerr">${esc(p.error)}</p>`:""}${sparkline(daily)}${busy}
     <div class="links"><button class="btn sm" type="button" data-pr="refresh">Update now</button><button class="btn sm" type="button" data-pr="pick">Change match</button><button class="btn sm ghost" type="button" data-pr="off">Turn off</button></div>`;
   if(p && p.source==="off") return `<p class="hint" style="margin:0">Automatic pricing is off for this card, so its value comes from the prices you log.</p>${busy}<div class="links"><button class="btn sm" type="button" data-pr="auto">Turn it back on</button></div>`;
