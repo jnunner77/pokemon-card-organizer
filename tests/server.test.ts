@@ -164,6 +164,42 @@ describe('sorting a binder', () => {
   });
 });
 
+describe('moving cards to another binder', () => {
+  const setUp = () => {
+    store.set('binders', 'b1', { name: 'Trainers', pockets: 4, order: 1 });
+    store.set('binders', 'b2', { name: 'Other', pockets: 9, order: 2 });
+    store.set('cards', 'x', card({ page: 1, slot: 1 }));
+    store.set('cards', 'y', card({ page: 1, slot: 2 }));
+    store.set('cards', 'z', card({ binderId: 'b2', page: 1, slot: 1 }));
+  };
+  const at = (id: string) => { const c = store.get('cards', id)!; return { binderId: c.binderId, page: c.page, slot: c.slot }; };
+  const place = (moves: unknown[]) => request(app).post('/api/cards/place').send({ moves });
+
+  it('moves cards to their new binder and pockets at once, leaving the old pockets empty', async () => {
+    setUp();
+    // x goes in front of z, which shifts along to pocket 2.
+    const r = await place([{ id: 'x', binderId: 'b2', page: 1, slot: 1 }, { id: 'z', binderId: 'b2', page: 1, slot: 2 }]).expect(200);
+    expect(r.body).toEqual({ moved: 2 });
+    expect([at('x'), at('y'), at('z')]).toEqual([{ binderId: 'b2', page: 1, slot: 1 }, { binderId: 'b1', page: 1, slot: 2 }, { binderId: 'b2', page: 1, slot: 2 }]);
+    // Undo: the old places back; out of a binder works too.
+    await place([{ id: 'x', binderId: 'b1', page: 1, slot: 1 }, { id: 'z', binderId: 'b2', page: 1, slot: 1 }]).expect(200);
+    await place([{ id: 'y', binderId: null, page: null, slot: null }]).expect(200);
+    expect([at('x'), at('y'), at('z')]).toEqual([{ binderId: 'b1', page: 1, slot: 1 }, { binderId: null, page: null, slot: null }, { binderId: 'b2', page: 1, slot: 1 }]);
+  });
+
+  it('moves nothing when a pocket is taken, the binder or a card is gone, or the pocket is past the page', async () => {
+    setUp();
+    await place([{ id: 'x', binderId: 'b2', page: 1, slot: 1 }]).expect(409); // z is there
+    await place([{ id: 'x', binderId: 'b2', page: 2, slot: 1 }, { id: 'y', binderId: 'b2', page: 2, slot: 1 }]).expect(409);
+    await place([{ id: 'x', binderId: 'nope', page: 1, slot: 1 }]).expect(409);
+    await place([{ id: 'gone', binderId: 'b2', page: 1, slot: 5 }]).expect(409);
+    await place([{ id: 'x', binderId: 'b1', page: 1, slot: 5 }]).expect(400); // 4-pocket pages
+    await place([{ id: 'x', binderId: 'b2', page: 1, slot: 5 }, { id: 'x', binderId: 'b2', page: 1, slot: 6 }]).expect(400);
+    await place([]).expect(400);
+    expect([at('x'), at('y'), at('z')]).toEqual([{ binderId: 'b1', page: 1, slot: 1 }, { binderId: 'b1', page: 1, slot: 2 }, { binderId: 'b2', page: 1, slot: 1 }]);
+  });
+});
+
 describe('photos', () => {
   it('stores, serves and deletes a photo', async () => {
     const up = await request(app).post('/api/assets').set('Content-Type', 'image/jpeg').send(JPEG).expect(201);
