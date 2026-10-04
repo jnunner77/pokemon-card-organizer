@@ -135,6 +135,10 @@ the message afterwards puts every card back.
   and slice it into one photo per pocket. Flip through pictures full screen.
 - **Quick sell** one or many cards (press and hold to select), with profit against what you
   paid (or the market price). A **Sales** tab totals it, and a sale can be undone.
+  Several cards sold together for one price (3 cards for $18) are a **bundle**: choose *One price
+  for all*, enter the total, and it's split across the cards by market value, evenly or by hand
+  (to the cent; Sell waits until the shares add up). Each card gets its own sale price and profit,
+  and the Sales tab keeps the bundle together under one row, whose *Undo* puts every card back.
 - **CSV import and export**, with a template, per-row checks and a "rows to fix" file.
 - **Full backups** with photos: *Settings → Download full backup* / *Restore from backup*.
   The server also keeps the ledger as it was at the start of each of the last 14 days.

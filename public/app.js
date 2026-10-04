@@ -255,15 +255,33 @@ function renderSales(m){
   S.shown = [];
   const l = salesList(), t = salesTotals();
   if(!l.length){ m.innerHTML = `<div class="empty-state"><p>No sales yet.</p><p class="hint">Press and hold a card in a binder, then tap Quick sell.</p></div>`; return; }
-  const rows = l.map(({c,s}) => `<tr data-sale="${esc(c.id)}"${isFound(c.id)?` class="found"`:""}>
-      <td class="mono">${esc(s.date||"—")}</td>
+  // A bundle's cards go together, under one row for the bundle, where its first card falls.
+  const groups = []; const byBundle = new Map();
+  for(const x of l){ const b = x.s.bundle?.id; if(!b){ groups.push(x); continue; } if(!byBundle.has(b)){ const g = {bundle:x.s.bundle, items:[]}; byBundle.set(b, g); groups.push(g); } byBundle.get(b).items.push(x); }
+  const saleRow = ({c,s}, inBundle) => `<tr data-sale="${esc(c.id)}" class="${isFound(c.id)?"found":""}${inBundle?" inbundle":""}">
+      <td class="mono">${inBundle?"":esc(s.date||"—")}</td>
       <td class="hide-sm">${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="" loading="lazy">`:`<span class="thumb"></span>`}</td>
       <td class="cellname"><b>${esc(c.name||"Unnamed card")}</b><span>${esc([metaLine(c), s.where].filter(Boolean).join(" · "))}</span></td>
       <td class="r mono">${money(s.soldCAD)}${s.currency==="USD"?`<br><small class="hint">${money(s.amount,"USD")}</small>`:""}</td>
       <td class="hide-sm"><span class="chip ${s.basis==="paid"?"paid":s.basis==="market"?"market":""}">${esc(BASIS_LABEL[s.basis]||"no cost")}</span></td>
       <td class="r mono hide-sm">${money(s.cost)}</td>
       <td class="r mono ${s.profit==null?"":s.profit>=0?"pos":"neg"}">${signed(s.profit)}<small class="show-sm hint">${esc(BASIS_LABEL[s.basis]||"")}</small></td>
-      <td class="r">${s.quick?`<button class="btn sm ghost" type="button" data-unsell="${esc(c.id)}" title="Put the card back where it was">Undo</button>`:""}</td></tr>`).join("");
+      <td class="r">${s.quick&&!inBundle?`<button class="btn sm ghost" type="button" data-unsell="${esc(c.id)}" title="Put the card back where it was">Undo</button>`:""}</td></tr>`;
+  const bundleRow = g => {
+    const s0 = g.items[0].s, rev = g.items.reduce((a,x)=>a+x.s.soldCAD,0), cost = g.items.reduce((a,x)=>a+(x.s.cost??0),0);
+    const profs = g.items.filter(x=>x.s.profit!=null), prof = profs.reduce((a,x)=>a+x.s.profit,0);
+    const how = {value:"split by market value", even:"split evenly", manual:"split by hand"}[g.bundle.split] || "";
+    return `<tr class="bundlerow" data-bundle="${esc(g.bundle.id)}">
+      <td class="mono">${esc(s0.date||"—")}</td>
+      <td class="hide-sm"><span class="bundleicon" aria-hidden="true">${g.items.length}</span></td>
+      <td class="cellname"><b>Bundle of ${g.items.length} cards</b><span>${esc([`${money(g.bundle.total, g.bundle.currency||"CAD")} together`, how, s0.where].filter(Boolean).join(" · "))}</span></td>
+      <td class="r mono">${money(rev)}</td>
+      <td class="hide-sm"></td>
+      <td class="r mono hide-sm">${money(cost)}</td>
+      <td class="r mono ${!profs.length?"":prof>=0?"pos":"neg"}">${profs.length?signed(prof):"—"}</td>
+      <td class="r"><button class="btn sm ghost" type="button" data-unbundle="${esc(g.bundle.id)}" title="Put all ${g.items.length} cards back where they were">Undo</button></td></tr>`;
+  };
+  const rows = groups.map(g => g.bundle ? bundleRow(g) + g.items.map(x=>saleRow(x, true)).join("") : saleRow(g, false)).join("");
   m.innerHTML = `<div class="salesum">
       <div class="stat"><span class="k">Cards sold</span><span class="v">${t.n}</span></div>
       <div class="stat"><span class="k">Sold for</span><span class="v">${money(t.rev)}</span></div>
@@ -274,10 +292,13 @@ function renderSales(m){
     <p class="hint" style="margin:10px 16px 0">Profit is sale price minus what you paid. If there's no paid price, it's measured against the market price at the time of sale.</p>
     <div class="tablewrap"><table class="salestbl"><thead><tr><th>Date</th><th class="hide-sm"></th><th>Card</th><th class="r">Sold for</th><th class="hide-sm">Basis</th><th class="r hide-sm">Cost</th><th class="r">Profit</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
+/* Quick sell: one card, or several, each at its own price or together for one price (a bundle)
+   split across them by market value, evenly or by hand (public/sales.js). */
 function quickSellModal(ids){
   if(!S.db) return toast("Saving isn't available in this view.");
   const list = ids.map(id=>S.cards.find(c=>c.id===id)).filter(c=>c && owned(c));
   if(!list.length) return toast("Those cards are already sold.");
+  const many = list.length > 1;
   const rows = list.map(c => { const cb = costBasis(c), v = valueOf(c);
     const basis = cb.basis==="paid" ? `Paid ${money(cb.cost)}${v!=null?` · market ${money(v)}`:""}` : cb.basis==="market" ? `No paid price · market ${money(cb.cost)}` : "No paid or market price, so profit isn't tracked";
     return `<div class="qs-row" data-qs="${esc(c.id)}">
@@ -286,8 +307,13 @@ function quickSellModal(ids){
       <div><input type="number" step="0.01" min="0" inputmode="decimal" placeholder="${v!=null?esc(v.toFixed(2)):"0.00"}" aria-label="Sale price for ${esc(c.name||"card")}" data-qsamt><div class="pl" data-qspl></div></div>
     </div>`; }).join("");
   $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard narrow" id="qs_card" role="dialog" aria-modal="true" aria-label="Quick sell" style="width:min(560px,100%)">
-    <h2>Quick sell${list.length>1?` ${list.length} cards`:""}</h2>
-    <p class="lead">Enter what ${list.length>1?"each one":"it"} sold for. ${list.length>1?"They come":"It comes"} out of the binder, get${list.length>1?"":"s"} marked sold, and the profit goes on the Sales tab.</p>
+    <h2>Quick sell${many?` ${list.length} cards`:""}</h2>
+    <p class="lead" id="qs_lead"></p>
+    ${many?`<div class="seg qs-mode" role="group" aria-label="How they sold"><button type="button" data-qsmode="each" aria-pressed="true">Price each card</button><button type="button" data-qsmode="bundle" aria-pressed="false">One price for all</button></div>
+    <div class="qs-bundle" id="qs_bundle" hidden>
+      <div class="field"><label for="qs_btotal">Sold together for</label><input id="qs_btotal" type="number" step="0.01" min="0" inputmode="decimal" placeholder="0.00"></div>
+      <div class="field"><label for="qs_split">Split it</label><select id="qs_split"><option value="value">By market value</option><option value="even">Evenly</option><option value="manual">By hand</option></select></div>
+    </div>`:""}
     <div class="qs-list">${rows}</div>
     <div class="qs-opts">
       <div class="field"><label for="qs_cur">Currency</label><select id="qs_cur">${opt(["CAD","USD"],"CAD")}</select></div>
@@ -297,9 +323,28 @@ function quickSellModal(ids){
     <div class="qs-total" id="qs_total"></div>
     <div class="mfoot"><button class="btn" type="button" data-mclose>Cancel</button><button class="btn primary" type="button" id="qs_go" disabled>Sell</button></div>
   </div></div>`;
-  const card = $("#qs_card");
+  const card = $("#qs_card"), qs = {mode:"each"};
+  const inputs = () => [...card.querySelectorAll("[data-qsamt]")];
+  const bundleTotal = () => { const v = parseFloat($("#qs_btotal")?.value); return isNaN(v) || v < 0 ? null : v; };
+  /* bundle: the shares from the total and the chosen split (not "by hand", which the person types) */
+  const fillShares = () => {
+    const t = bundleTotal(), how = $("#qs_split").value; if(how==="manual") return;
+    const shares = t==null ? list.map(()=>null) : window.BinderSales.split(t, list.map(c=>valueOf(c)), how);
+    inputs().forEach((el,i) => { el.value = shares[i]==null ? "" : shares[i].toFixed(2); });
+  };
+  const setMode = mode => {
+    qs.mode = mode;
+    card.querySelectorAll("[data-qsmode]").forEach(b => b.setAttribute("aria-pressed", b.dataset.qsmode===mode));
+    $("#qs_bundle").hidden = mode!=="bundle";
+    inputs().forEach(el => el.setAttribute("aria-label", el.getAttribute("aria-label").replace(/^(Sale price|Share of the bundle)/, mode==="bundle" ? "Share of the bundle" : "Sale price")));
+    if(mode==="bundle"){ if(bundleTotal()==null){ const sum = inputs().reduce((a,el)=>a+(parseFloat(el.value)||0),0); if(sum>0) $("#qs_btotal").value = sum.toFixed(2); } fillShares(); setTimeout(()=>$("#qs_btotal").focus(), 0); }
+    read();
+  };
   const read = () => {
-    const cur = $("#qs_cur").value; let n=0, rev=0, prof=0, anyProf=false, missing=0;
+    const cur = $("#qs_cur").value, bundle = qs.mode==="bundle"; let n=0, rev=0, prof=0, anyProf=false, missing=0;
+    $("#qs_lead").textContent = bundle
+      ? `Enter what the ${list.length} cards sold for together. It's split across them so each gets its own sale price and profit, and they stay together as one bundle on the Sales tab.`
+      : `Enter what ${many?"each one":"it"} sold for. ${many?"They come":"It comes"} out of the binder, get${many?"":"s"} marked sold, and the profit goes on the Sales tab.`;
     card.querySelectorAll("[data-qs]").forEach(r => {
       const c = S.cards.find(x=>x.id===r.dataset.qs); const raw = r.querySelector("[data-qsamt]").value.trim(); const pl = r.querySelector("[data-qspl]");
       const a = parseFloat(raw);
@@ -309,44 +354,75 @@ function quickSellModal(ids){
       if(cb.cost!=null){ const p = cad - cb.cost; prof += p; anyProf = true; pl.textContent = `${signed(p)} ${BASIS_LABEL[cb.basis]}`; pl.className = "pl " + (p>=0?"pos":"neg"); }
       else { pl.textContent = "no cost basis"; pl.className = "pl hint"; }
     });
-    $("#qs_total").innerHTML = n ? `<span>Sale total <b>${money(rev)}</b></span>${anyProf?`<span>Profit <b class="${prof>=0?"pos":"neg"}">${signed(prof)}</b></span>`:""}${missing&&list.length>1?`<span class="hint">${missing} without a price won't be sold</span>`:""}` : "";
-    const go = $("#qs_go"); go.disabled = !n; go.textContent = n ? `Sell ${n>1?n+" cards":""}`.trim() : "Sell";
+    const go = $("#qs_go");
+    if(bundle){
+      const t = bundleTotal(), left = t==null ? null : window.BinderSales.remaining(t, inputs().map(el=>parseFloat(el.value)||0));
+      const ok = t!=null && !missing && left===0;
+      $("#qs_total").innerHTML = t==null ? `<span class="hint">Enter the total to split it.</span>`
+        : `<span>Bundle <b>${money(toCAD({amount:t, currency:cur}))}</b> for ${list.length} cards</span>${anyProf?`<span>Profit <b class="${prof>=0?"pos":"neg"}">${signed(prof)}</b></span>`:""}${missing?`<span class="warn-text">Give every card a share (0 is fine)</span>`:left!==0?`<span class="warn-text">${left>0?`${money(left,cur)} left to place`:`${money(-left,cur)} too much`}: the shares have to add up to the total</span>`:""}`;
+      go.disabled = !ok; go.textContent = `Sell bundle of ${list.length}`;
+      return;
+    }
+    $("#qs_total").innerHTML = n ? `<span>Sale total <b>${money(rev)}</b></span>${anyProf?`<span>Profit <b class="${prof>=0?"pos":"neg"}">${signed(prof)}</b></span>`:""}${missing&&many?`<span class="hint">${missing} without a price won't be sold</span>`:""}` : "";
+    go.disabled = !n; go.textContent = n ? `Sell ${n>1?n+" cards":""}`.trim() : "Sell";
   };
-  card.addEventListener("input", read); card.addEventListener("change", read);
-  card.addEventListener("keydown", e => { if(e.key==="Enter" && e.target.matches("[data-qsamt]")){ e.preventDefault(); const ins=[...card.querySelectorAll("[data-qsamt]")]; const i=ins.indexOf(e.target); if(i<ins.length-1) ins[i+1].focus(); else $("#qs_go").click(); } });
-  $("#qs_go").onclick = () => void doQuickSell(card);
+  card.addEventListener("click", e => { const b = e.target.closest("[data-qsmode]"); if(b) setMode(b.dataset.qsmode); });
+  card.addEventListener("input", e => {
+    if(qs.mode==="bundle"){
+      if(e.target.id==="qs_btotal") fillShares();
+      else if(e.target.matches("[data-qsamt]")) $("#qs_split").value = "manual"; // a share typed by hand
+    }
+    read();
+  });
+  card.addEventListener("change", e => { if(e.target.id==="qs_split") fillShares(); read(); });
+  card.addEventListener("keydown", e => { if(e.key==="Enter" && e.target.matches("[data-qsamt],#qs_btotal")){ e.preventDefault(); const ins=inputs(); const i=ins.indexOf(e.target); if(i>=0 && i<ins.length-1) ins[i+1].focus(); else $("#qs_go").click(); } });
+  $("#qs_go").onclick = () => void doQuickSell(card, qs.mode==="bundle" ? {total:bundleTotal(), split:$("#qs_split").value} : null);
   read(); setTimeout(()=> card.querySelector("[data-qsamt]")?.focus(), 30);
 }
-async function doQuickSell(card){
+async function doQuickSell(card, bundleOpts){
   const go = $("#qs_go"); if(go.disabled) return; go.disabled = true;
   const cur = $("#qs_cur").value, date = $("#qs_date").value || today(), where = $("#qs_where").value.trim();
+  const rowsIn = [...card.querySelectorAll("[data-qs]")];
+  const bundle = bundleOpts ? {id:rid(), total:Math.round(bundleOpts.total*100)/100, currency:cur, count:rowsIn.length, split:bundleOpts.split} : null;
   const jobs = [];
-  card.querySelectorAll("[data-qs]").forEach(r => {
+  rowsIn.forEach(r => {
     const a = parseFloat(r.querySelector("[data-qsamt]").value); if(isNaN(a) || a<0) return;
     const c = S.cards.find(x=>x.id===r.dataset.qs); if(!c || !owned(c)) return;
     const amount = Math.round(a*100)/100, soldCAD = Math.round(toCAD({amount, currency:cur})*100)/100, cb = costBasis(c);
     const pid = rid(), at = nowISO();
-    const price = {id:pid, at, type:"mysale", amount, currency:cur, date, where, note:"Quick sell"};
-    const sale = {amount, currency:cur, soldCAD, cost: cb.cost!=null ? Math.round(cb.cost*100)/100 : null, basis:cb.basis, profit: cb.cost!=null ? Math.round((soldCAD-cb.cost)*100)/100 : null, date, where, at, priceId:pid, from:{binderId:c.binderId||null, page:c.page||null, slot:c.slot||null}};
+    const note = bundle ? `Bundle of ${bundle.count} · ${money(bundle.total, cur)} together` : "Quick sell";
+    const price = {id:pid, at, type:"mysale", amount, currency:cur, date, where, note};
+    const sale = {amount, currency:cur, soldCAD, cost: cb.cost!=null ? Math.round(cb.cost*100)/100 : null, basis:cb.basis, profit: cb.cost!=null ? Math.round((soldCAD-cb.cost)*100)/100 : null, date, where, at, priceId:pid, from:{binderId:c.binderId||null, page:c.page||null, slot:c.slot||null}, ...(bundle?{bundle}:{})};
     jobs.push({c, sale, patch:{prices:[...(c.prices||[]), price], status:"sold", binderId:null, page:null, slot:null, sale, updatedAt:nowISO()}});
   });
-  if(!jobs.length){ go.disabled=false; return; }
+  if(!jobs.length || (bundle && jobs.length!==rowsIn.length)){ go.disabled=false; return; }
   const res = await Promise.allSettled(jobs.map(j => S.db.doc("cards/"+j.c.id).update(j.patch)));
   const ok = jobs.filter((_,i)=>res[i].status==="fulfilled"), failed = jobs.length-ok.length;
   if(failed){ const err = res.find(r=>r.status==="rejected")?.reason; console.error(err); if(!ok.length){ go.disabled=false; writeErr(err); return; } }
   closeModal(); if(S.pick) endPick(); if(ok.some(j=>j.c.id===S.sel)) closeDrawer();
   const prof = ok.reduce((t,j)=>t+(j.sale.profit??0),0), anyProf = ok.some(j=>j.sale.profit!=null);
-  const what = ok.length===1 ? `Sold ${ok[0].c.name||"card"} for ${money(ok[0].sale.soldCAD)}` : `Sold ${ok.length} cards`;
+  const what = bundle ? `Sold ${ok.length} cards together for ${money(toCAD({amount:bundle.total, currency:cur}))}` : ok.length===1 ? `Sold ${ok[0].c.name||"card"} for ${money(ok[0].sale.soldCAD)}` : `Sold ${ok.length} cards`;
   toast(`${what}${anyProf?` · profit ${signed(prof)}`:""}${failed?`. ${failed} didn't save.`:""}`);
   render();
 }
-async function undoSale(id){
-  const c = S.cards.find(x=>x.id===id); if(!c || !c.sale) return;
+/* a bundle's cards all go back, one after another so each finds its old pocket or the next free one */
+async function undoBundle(bid){
+  const ids = S.cards.filter(c => c.sale?.bundle?.id===bid).map(c=>c.id);
+  let ok = 0;
+  for(const id of ids) if(await undoSale(id, true)) ok++;
+  toast(ok===ids.length ? `The ${ok} cards from the bundle are back` : `${ok} of ${ids.length} cards are back. Try Undo again for the rest.`);
+}
+async function undoSale(id, quiet){
+  const c = S.cards.find(x=>x.id===id); if(!c || !c.sale) return false;
   const f = c.sale.from || {};
   let loc = {binderId:null, page:null, slot:null};
   if(f.binderId && binderById(f.binderId)){ loc = f.page && f.slot && !cardAt(f.binderId, f.page, f.slot) ? {binderId:f.binderId, page:f.page, slot:f.slot} : {binderId:f.binderId, ...firstFree(f.binderId)}; }
   const prices = (c.prices||[]).filter(p => p.id !== c.sale.priceId);
-  if(await updateCard(id, {...loc, prices, status:"binder", sale:null})) toast(loc.binderId ? `${c.name||"Card"} is back in ${locText(loc)}` : `${c.name||"Card"} is back under Not in a binder`);
+  if(!(await updateCard(id, {...loc, prices, status:"binder", sale:null}))) return false;
+  // Seen at once by the next card of a bundle, before the live update arrives.
+  Object.assign(c, loc, {prices, status:"binder", sale:null});
+  if(!quiet) toast(loc.binderId ? `${c.name||"Card"} is back in ${locText(loc)}` : `${c.name||"Card"} is back under Not in a binder`);
+  return true;
 }
 
 /* ---------- drawer ---------- */
@@ -1786,6 +1862,7 @@ document.addEventListener("click", e => {
   const sc = t.closest("[data-sort]"); if(sc){ const k=sc.dataset.sort; S.sort = {k, d: S.sort.k===k ? -S.sort.d : (k==="value"||k==="paid"?-1:1)}; persistNav(); renderMain(); return; }
   const scp = t.closest("[data-scope]"); if(scp){ S.scope=scp.dataset.scope; persistNav(); renderMain(); return; }
   const us = t.closest("[data-unsell]"); if(us) return void undoSale(us.dataset.unsell);
+  const ub = t.closest("[data-unbundle]"); if(ub) return void undoBundle(ub.dataset.unbundle);
   const sr = t.closest("[data-sale]"); if(sr){ return openCard(sr.dataset.sale); }
   const cd = t.closest("[data-card]"); if(cd && !t.closest(".drawer")){ return openCard(cd.dataset.card); }
   if(t.closest("[data-close]")){ return closeDrawer(); }

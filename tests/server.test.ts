@@ -70,6 +70,15 @@ describe('documents', () => {
     expect(store.get('cards', 'c1')).toMatchObject({ placeholder: false });
   });
 
+  it('keeps a bundle sale on each of its cards, and rejects a bad one', async () => {
+    const bundle = { id: 'b1', total: 18, currency: 'CAD', count: 3, split: 'value' };
+    const sale = { amount: 6, currency: 'CAD', soldCAD: 6, date: '2026-10-04', bundle };
+    await request(app).put('/api/docs/cards/c1').send(card({ status: 'sold', sale })).expect(200);
+    expect(store.get('cards', 'c1')).toMatchObject({ sale: { bundle } });
+    await request(app).put('/api/docs/cards/c2').send(card({ sale: { ...sale, bundle: { ...bundle, count: 0 } } })).expect(400);
+    await request(app).put('/api/docs/cards/c2').send(card({ sale: { ...sale, bundle: { ...bundle, total: -1 } } })).expect(400);
+  });
+
   it('keeps fields it does not know about', async () => {
     await request(app).put('/api/docs/cards/c1').send(card({ futureField: { a: 1 } })).expect(200);
     expect(store.get('cards', 'c1')?.futureField).toEqual({ a: 1 });

@@ -63,6 +63,10 @@ const sale = z.looseObject({
   where: optText(500),
   at: optText(40),
   priceId: optText(64),
+  /** Sold together with other cards for one price, split across them (public/sales.js). */
+  bundle: z
+    .looseObject({ id: text(64), total: z.number().finite().min(0), currency: optText(8), count: z.number().int().min(1).max(500), split: optText(20) })
+    .nullish(),
 });
 
 const card = z.looseObject({
