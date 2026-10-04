@@ -14,6 +14,8 @@ const PTYPES = [["market","Market price"],["comp","Sold comp"],["paid","I paid"]
 const RARITIES = ["Common","Uncommon","Rare","Holo Rare","Double Rare","Ultra Rare","Illustration Rare","Special Illustration Rare","Hyper Rare","Mega Hyper Rare","ACE SPEC Rare","Shiny Rare","Secret Rare","Promo","Other"];
 const CONDITIONS = ["Near Mint","Lightly Played","Moderately Played","Heavily Played","Damaged"];
 const GRADERS = ["Raw","PSA","CGC","BGS","TAG","ACE"];
+/* who the card belongs to; blank until someone sets it */
+const OWNERS = [["","Not set"],["Megan","Megan"],["Justin","Justin"],["Both","Both"]];
 const LANGS = ["English","Japanese","Korean","Chinese (Traditional)","Chinese (Simplified)","Other"];
 
 const S = {
@@ -478,6 +480,7 @@ function renderDrawer(force){
           <div class="field"><label for="f_artist">Illustrator</label><input id="f_artist" name="artist" value="${esc(c.artist)}"></div>
           <div class="field"><label for="f_released">Released</label><input id="f_released" class="mono" value="${esc(c.released)}" readonly placeholder="${S.sel==="__new"?"Filled in after saving":"Not found yet"}" title="When the card's set came out, from TCGdex. Used to sort a binder by release date."></div>
           <div class="field"><label for="f_status">Status</label><select id="f_status" name="status">${opt(STATUSES,c.status||"binder")}</select></div>
+          <div class="field"><label for="f_owner">Owner</label><select id="f_owner" name="owner">${opt(OWNERS,c.owner||"")}</select></div>
           <div class="field full"><label class="phswitch"><input type="checkbox" id="f_placeholder" role="switch" ${c.placeholder?"checked":""}><span><b>Placeholder</b> <span class="hint">Holds this pocket for a card you don't have yet. Its price is tracked but not counted in your totals.${isNew?"":" Saves straight away."}</span></span></label></div>
           <div class="field full"><label for="f_notes">Notes</label><textarea id="f_notes" name="notes" placeholder="Centering, where you pulled it, trade notes…">${esc(c.notes)}</textarea></div>
         </div>
@@ -588,7 +591,7 @@ function readPriceFields(pre){
 }
 function readForm(){
   const f = $("#cardForm"); const o = {};
-  ["name","set","setCode","number","rarity","variant","language","condition","grader","grade","artist","status","notes"].forEach(k => { o[k] = (f.elements[k].value||"").trim(); });
+  ["name","set","setCode","number","rarity","variant","language","condition","grader","grade","artist","status","owner","notes"].forEach(k => { o[k] = (f.elements[k].value||"").trim(); });
   return o;
 }
 
@@ -1626,11 +1629,11 @@ function importModal(){
 
 /* ---------- CSV ---------- */
 async function exportCSV(){
-  const cols = ["Binder","Page","Pocket","Name","Set","Set code","Number","Rarity","Variant","Language","Condition","Graded by","Grade","Illustrator","Status","Placeholder","Value (CAD)","Value basis","Paid (CAD)","Sold for (CAD)","Price entries","Notes"];
+  const cols = ["Binder","Page","Pocket","Name","Set","Set code","Number","Rarity","Variant","Language","Condition","Graded by","Grade","Illustrator","Status","Owner","Placeholder","Value (CAD)","Value basis","Paid (CAD)","Sold for (CAD)","Price entries","Notes"];
   const q = v => { const s = String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s; };
   const rows = S.cards.slice().sort((a,b)=> SORTS.loc(a)<SORTS.loc(b)?-1:1).map(c => {
     const lp = latestOf(c,["comp","market"]);
-    return [binderById(c.binderId)?.name||"", c.page||"", c.slot||"", c.name, c.set, c.setCode, c.number, c.rarity, c.variant, c.language, c.condition, c.grader, c.grade, c.artist, (STATUSES.find(s=>s[0]===(c.status||"binder"))||[,""])[1], c.placeholder?"yes":"", valueOf(c)?.toFixed(2)??"", lp?`${lp.type} ${lp.date} ${lp.where||""}`.trim():"", paidOf(c)?.toFixed(2)??"", soldOf(c)?.toFixed(2)??"", prices(c).map(p=>`${p.date} ${p.type} ${p.amount} ${p.currency}${p.where?" @"+p.where:""}`).join(" | "), c.notes].map(q).join(",");
+    return [binderById(c.binderId)?.name||"", c.page||"", c.slot||"", c.name, c.set, c.setCode, c.number, c.rarity, c.variant, c.language, c.condition, c.grader, c.grade, c.artist, (STATUSES.find(s=>s[0]===(c.status||"binder"))||[,""])[1], c.owner||"", c.placeholder?"yes":"", valueOf(c)?.toFixed(2)??"", lp?`${lp.type} ${lp.date} ${lp.where||""}`.trim():"", paidOf(c)?.toFixed(2)??"", soldOf(c)?.toFixed(2)??"", prices(c).map(p=>`${p.date} ${p.type} ${p.amount} ${p.currency}${p.where?" @"+p.where:""}`).join(" | "), c.notes].map(q).join(",");
   });
   const csv = [cols.join(","), ...rows].join("\n");
   if(!S.downloads) return toast("Downloads aren't available in this view.");
@@ -1656,6 +1659,7 @@ const CI_COLS = [
   {k:"grade", h:"Grade", a:["score"], d:"Number from 1 to 10, halves allowed (9.5). Only for graded cards."},
   {k:"artist", h:"Illustrator", a:["artist","illustratedby"], d:"The card's illustrator."},
   {k:"placeholder", h:"Placeholder", a:["proxy","wanted","needed","notowned"], d:"yes holds the pocket for a card you don't have yet: its price is tracked but not counted in your totals. Blank or no means you have it."},
+  {k:"owner", h:"Owner", a:["ownedby","whose","belongsto"], d:"Megan, Justin or Both. Blank means not set."},
   {k:"status", h:"Status", a:["state"], d:STATUSES.map(s=>s[1]).join(", ")+". Blank means In binder. Short forms like listed, grading and sold work."},
   {k:"paid", h:"Paid", a:["paidcad","pricepaid","cost","boughtfor"], d:"What you paid, e.g. 12.50. Logged as an “I paid” price entry."},
   {k:"paidDate", h:"Paid date", a:["datepaid","boughton","purchasedate"], d:"YYYY-MM-DD. Blank means today."},
@@ -1676,6 +1680,7 @@ const syn = pairs => { const m={}; for(const [v,keys] of pairs) for(const k of k
 const LANG_SYN = syn([["English",["English","en","eng"]],["Japanese",["Japanese","jp","ja","jpn","jap"]],["Korean",["Korean","kr","ko","kor"]],["Chinese (Traditional)",["Chinese (Traditional)","Traditional Chinese","tc","zh-tw","cht"]],["Chinese (Simplified)",["Chinese (Simplified)","Simplified Chinese","sc","zh-cn","chs"]],["Other",["Other"]]]);
 const COND_SYN = syn([["Near Mint",["Near Mint","nm","mint","nm/m","nm-mt"]],["Lightly Played",["Lightly Played","lp","light play","excellent"]],["Moderately Played",["Moderately Played","mp","played"]],["Heavily Played",["Heavily Played","hp"]],["Damaged",["Damaged","dmg","dm","poor"]]]);
 const GRADER_SYN = syn([["Raw",["Raw","ungraded","none","n/a"]],["PSA",["PSA"]],["CGC",["CGC"]],["BGS",["BGS","Beckett"]],["TAG",["TAG"]],["ACE",["ACE"]]]);
+const OWNER_SYN = syn([["Megan",["Megan","m"]],["Justin",["Justin","j"]],["Both",["Both","shared","Megan and Justin","Justin and Megan","Megan & Justin","Justin & Megan"]]]);
 const STATUS_SYN = syn([["binder",["In binder","binder","held","owned","collection"]],["listed",["Listed for sale","listed","for sale","selling"]],["grading",["Out for grading","grading","at grading","submitted"]],["sold",["Sold"]],["traded",["Traded","trade","traded away"]]]);
 const VTYPE_SYN = syn([["market",["Market price","market","mkt"]],["comp",["Sold comp","comp","sold","last sold"]]]);
 const CUR_SYN = syn([["CAD",["CAD","ca","cdn","c"]],["USD",["USD","us","u"]]]);
@@ -1753,6 +1758,7 @@ function ciValidate(P, o){
     d.language = en("language", LANG_SYN, "English", "Language", LANGS.join(", "));
     d.condition = en("condition", COND_SYN, "Near Mint", "Condition", "Near Mint, Lightly Played, Moderately Played, Heavily Played or Damaged");
     d.grader = en("grader", GRADER_SYN, "Raw", "Graded by", GRADERS.join(", "));
+    d.owner = en("owner", OWNER_SYN, "", "Owner", "Megan, Justin or Both");
     const phRaw = cell("placeholder");
     d.placeholder = /^(y|yes|true|1|x|✓)$/i.test(phRaw);
     if(phRaw && !d.placeholder && !/^(n|no|false|0)$/i.test(phRaw)) E(`Placeholder “${phRaw}” should be yes or no.`);
@@ -1911,7 +1917,7 @@ async function ciSave(filename, data){
 async function ciTemplate(){
   const H = CI_COLS.map(c=>c.h);
   const ex = [
-    {"Binder":"Binder 1","Page":"1","Pocket":"1","Name":"Charizard ex","Set":"Obsidian Flames","Set code":"OBF","Number":"125/197","Rarity":"Double Rare","Language":"English","Condition":"Near Mint","Graded by":"Raw","Status":"In binder","Paid":"12.00","Paid date":"2026-06-14","Paid where":"Local card shop","Value":"18.50","Value type":"Market price","Value date":"2026-09-20","Value source":"TCGplayer","Currency":"CAD","Notes":"Example row. Replace with your own cards."},
+    {"Binder":"Binder 1","Page":"1","Pocket":"1","Name":"Charizard ex","Set":"Obsidian Flames","Set code":"OBF","Number":"125/197","Rarity":"Double Rare","Language":"English","Condition":"Near Mint","Graded by":"Raw","Status":"In binder","Owner":"Both","Paid":"12.00","Paid date":"2026-06-14","Paid where":"Local card shop","Value":"18.50","Value type":"Market price","Value date":"2026-09-20","Value source":"TCGplayer","Currency":"CAD","Notes":"Example row. Replace with your own cards."},
     {"Binder":"Binder 1","Name":"Umbreon VMAX","Set":"Evolving Skies","Set code":"EVS","Number":"215/203","Rarity":"Secret Rare","Variant":"Alternate art","Language":"English","Condition":"Near Mint","Graded by":"PSA","Grade":"10","Status":"Listed for sale","Value":"1850.00","Value type":"Sold comp","Value date":"2026-09-18","Value source":"eBay","Currency":"USD","Notes":"Example row. Page and Pocket blank, so it goes in the next empty pocket."},
     {"Name":"Pikachu","Set":"Celebrations","Set code":"CEL","Number":"005/025","Rarity":"Holo Rare","Language":"English","Condition":"Lightly Played","Graded by":"Raw","Status":"Sold","Paid":"2.00","Paid date":"2026-03-02","Paid where":"Card show","Sold for":"8.00","Sold date":"2026-08-30","Sold where":"Facebook Marketplace","Currency":"CAD","Notes":"Example row. No binder, so it goes under Not in a binder."}
   ];
