@@ -63,6 +63,13 @@ describe('documents', () => {
     expect(again.get('settings', 'main')).toEqual({ usdToCad: 1.41 });
   });
 
+  it('keeps a placeholder card, and switches it off', async () => {
+    await request(app).put('/api/docs/cards/c1').send(card({ placeholder: true })).expect(200);
+    expect(store.get('cards', 'c1')).toMatchObject({ placeholder: true });
+    await request(app).patch('/api/docs/cards/c1').send({ placeholder: false }).expect(200);
+    expect(store.get('cards', 'c1')).toMatchObject({ placeholder: false });
+  });
+
   it('keeps fields it does not know about', async () => {
     await request(app).put('/api/docs/cards/c1').send(card({ futureField: { a: 1 } })).expect(200);
     expect(store.get('cards', 'c1')?.futureField).toEqual({ a: 1 });
@@ -75,6 +82,7 @@ describe('documents', () => {
     await request(app).put('/api/docs/users/u1').send({}).expect(404);
     await request(app).put('/api/docs/cards/bad%20id').send(card()).expect(400);
     await request(app).patch('/api/docs/cards/missing').send({ name: 'x' }).expect(404);
+    await request(app).put('/api/docs/cards/c1').send(card({ placeholder: 'yes' })).expect(400);
     const r = await request(app).put('/api/docs/cards/c1').set('Content-Type', 'application/json').send('[1,2]').expect(400);
     expect(r.body.code).toBe('invalid_argument');
   });

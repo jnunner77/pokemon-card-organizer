@@ -121,6 +121,14 @@ button{cursor:pointer}
 .pocket .flag{position:absolute;top:26px;right:5px;z-index:1;font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;border-radius:4px;padding:1px 5px}
 .flag.sold{background:#1D7F52;color:#fff}.flag.listed{background:#2360AE;color:#fff}.flag.grading{background:#A45F00;color:#fff}.flag.traded{background:#5A6572;color:#fff}
 .pocket.dim img{filter:grayscale(.6) brightness(.7)}
+.pocket.ph{border-style:dashed;border-color:#E8A317}
+.pocket.ph img,.pocket.ph .face{opacity:.45;filter:grayscale(.5)}
+.flag.placeholder{background:#E8A317;color:#1A1300}
+.chip.placeholder{background:var(--warn-soft);color:var(--warn)}
+.field .phswitch{display:flex;flex-direction:row;gap:10px;align-items:flex-start;font-size:13px;font-weight:400;color:var(--ink);cursor:pointer;padding:9px 10px;border:1px dashed var(--line);border-radius:8px}
+.field .phswitch input[type=checkbox]{width:20px;height:20px;padding:0;margin:1px 0 0;flex:none;accent-color:#E8A317}
+.field .phswitch>span{flex:1;min-width:0}
+.field .phswitch .hint{display:block;margin-top:2px;font-size:12px}
 .pocket .face{position:absolute;inset:8px;border-radius:5px;border:1px solid var(--pocket-line);background:linear-gradient(160deg,#2B3440,#1A2028);display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px;padding:10px;text-align:center}
 .pocket .face .n{font-weight:800;font-stretch:80%;font-size:clamp(13px,2.4vw,18px);line-height:1.1}
 .pocket .face .m{font-family:var(--f-mono);font-size:10.5px;color:rgba(233,238,243,.7)}
