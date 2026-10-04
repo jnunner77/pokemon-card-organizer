@@ -218,6 +218,51 @@ export function createApp(o: AppOptions) {
     res.json({ moved, cards: ids.size });
   });
 
+  // Move cards to another binder (or anywhere): each card goes to the binder, page and pocket
+  // given, all together. The pockets they leave stay empty. Refused if a card would land in a
+  // pocket another card is in afterwards (one added or moved meanwhile). Undo sends the old places.
+  const placeBody = z.object({
+    moves: z
+      .array(
+        z.union([
+          z.object({ id: idSchema, binderId: idSchema, page: z.number().int().min(1).max(100_000), slot: z.number().int().min(1).max(64) }),
+          z.object({ id: idSchema, binderId: z.null(), page: z.null(), slot: z.null() }),
+        ]),
+      )
+      .min(1)
+      .max(5000),
+  });
+  api.post('/cards/place', need('editor'), json, (req, res) => {
+    const body = placeBody.safeParse(req.body);
+    if (!body.success) throw new HttpError(400, 'Send each card with its binder, page and pocket.');
+    const moves = body.data.moves;
+    if (new Set(moves.map((m) => m.id)).size !== moves.length) throw new HttpError(400, 'A card was given twice.');
+    const missing = moves.find((m) => !store.get('cards', m.id));
+    if (missing) throw new HttpError(409, 'A card was deleted meanwhile, so nothing moved. Try again.', 'conflict');
+    const pocketsOf = (bid: string) => {
+      const b = store.get('binders', bid);
+      if (!b) throw new HttpError(409, 'That binder no longer exists, so nothing moved.', 'conflict');
+      return [4, 9, 12, 16].includes(b.pockets as number) ? (b.pockets as number) : 9;
+    };
+    for (const m of moves) if (m.binderId && m.slot! > pocketsOf(m.binderId)) throw new HttpError(400, 'That pocket is past the end of the page.');
+    // Each card lands in a pocket no other card is in once this is done (the ones moving away free theirs).
+    const ids = new Set(moves.map((m) => m.id));
+    const key = (at: Record<string, unknown>) => `${String(at.binderId)}/${String(at.page)}/${String(at.slot)}`;
+    const taken = new Set(store.all().cards.filter((c) => !ids.has(c.id)).map(key));
+    for (const m of moves) {
+      if (!m.binderId) continue;
+      if (taken.has(key(m))) throw new HttpError(409, 'A pocket was filled meanwhile, so nothing moved. Try again.', 'conflict');
+      taken.add(key(m));
+    }
+    const now = new Date().toISOString();
+    const patches = moves
+      .filter((m) => { const c = store.get('cards', m.id)!; return (c.binderId ?? null) !== m.binderId || (c.page ?? null) !== m.page || (c.slot ?? null) !== m.slot; })
+      .map(({ id, ...at }) => ({ id, patch: { ...at, updatedAt: now } }));
+    const moved = store.updateMany('cards', patches);
+    log.info('app', `${who(res)} moved ${moved} card${moved === 1 ? '' : 's'}`);
+    res.json({ moved });
+  });
+
   // Live updates: every change is pushed to every open page, until the session ends.
   api.get('/events', need('viewer'), (req, res) => {
     const release = security ? security.openStream(req, res) : () => {};

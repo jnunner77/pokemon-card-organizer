@@ -153,7 +153,7 @@ function pickBar(){
   const n = S.pick.size, allOn = S.shown.length && S.shown.every(id=>S.pick.has(id));
   const right = S.pickConfirm
     ? `<span class="confirm">Delete ${n} card${n===1?"":"s"} and their price history? <button class="btn sm danger solid" type="button" id="pickDelYes">Delete ${n}</button><button class="btn sm" type="button" id="pickDelNo">Keep</button></span>`
-    : `<button class="btn sm" type="button" id="pickAll">${allOn?"Clear all":"Select all"}</button><button class="btn sm" type="button" id="pickCancel">Cancel</button><button class="btn sm primary" type="button" id="pickSell" ${nSellable()?"":"disabled"}>Quick sell${nSellable()?` ${nSellable()}`:""}</button>${n===2?`<button class="btn sm" type="button" id="pickSwap" title="The two selected cards trade places">Swap</button>`:""}<button class="btn sm" type="button" id="pickPh" ${n?"":"disabled"} title="${pickAllPh()?"You have these cards now: count them in your totals":"Hold these pockets for cards you don't have yet: not counted in your totals"}">${pickAllPh()?"Owned":"Placeholder"}${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickDup" ${n?"":"disabled"}>Duplicate${n?` ${n}`:""}</button><button class="btn sm danger solid" type="button" id="pickDel" ${n?"":"disabled"}>Delete${n?` ${n}`:""}</button>`;
+    : `<button class="btn sm" type="button" id="pickAll">${allOn?"Clear all":"Select all"}</button><button class="btn sm" type="button" id="pickCancel">Cancel</button><button class="btn sm primary" type="button" id="pickSell" ${nSellable()?"":"disabled"}>Quick sell${nSellable()?` ${nSellable()}`:""}</button><button class="btn sm" type="button" id="pickMove" ${n?"":"disabled"} title="Move to another binder, at the end or in a pocket you choose">Move${n?` ${n}`:""}</button>${n===2?`<button class="btn sm" type="button" id="pickSwap" title="The two selected cards trade places">Swap</button>`:""}<button class="btn sm" type="button" id="pickPh" ${n?"":"disabled"} title="${pickAllPh()?"You have these cards now: count them in your totals":"Hold these pockets for cards you don't have yet: not counted in your totals"}">${pickAllPh()?"Owned":"Placeholder"}${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickDup" ${n?"":"disabled"}>Duplicate${n?` ${n}`:""}</button><button class="btn sm danger solid" type="button" id="pickDel" ${n?"":"disabled"}>Delete${n?` ${n}`:""}</button>`;
   return `<div class="pickbar" role="toolbar" aria-label="Selection"><span class="cnt">${n} selected</span>${right}</div>`;
 }
 const nSellable = () => S.pick ? [...S.pick].filter(id => { const c = S.cards.find(x=>x.id===id); return c && owned(c); }).length : 0;
@@ -214,7 +214,7 @@ function renderMainInner(){
       <div class="pageinfo">
         <span><b>${pageCards.length}</b> of ${n} pockets filled</span>
         <span>Page value <b>${money(pst.val)}</b></span>
-        <span class="hint">${n}-pocket pages. Tap a card to price it or move it. Tap an empty pocket to add one. Tap Photos to flip through every picture full screen. Swipe left or right on the page to flip pages. Press and hold a card to quick sell it, or to select several to sell, mark as placeholders, duplicate or delete.</span>
+        <span class="hint">${n}-pocket pages. Tap a card to price it or move it. Tap an empty pocket to add one. Tap Photos to flip through every picture full screen. Swipe left or right on the page to flip pages. Press and hold a card to quick sell it or move it to another binder, or to select several to sell, move, mark as placeholders, duplicate or delete.</span>
       </div>
     </aside></div>`;
 }
@@ -1143,6 +1143,77 @@ async function swapWith(target){
   toast(b ? `Swapped ${name(a)} and ${name(b)}` : `Moved ${name(a)} to ${locText(locB)}`, {label:"Undo", run:() => void swapPlaces(a, locA, b, locB).then(ok => ok && toast(b ? "Swapped back" : "Moved back"))});
 }
 
+/* ---------- move to binder ----------
+   Press and hold, then Move: the selected cards go to a binder, after its last card or from a
+   pocket you pick (cards in the way shift along to the next empty pocket). The pockets they
+   leave stay empty. Saved all at once (POST /api/cards/place), with Undo. */
+let moveTo = {bid:null, at:"end", page:1, slot:1};
+const placeOf = c => { const inB = !!(binderById(c.binderId) && c.page && c.slot); return {id:c.id, binderId:inB?c.binderId:null, page:inB?c.page:null, slot:inB?c.slot:null}; };
+function movePlan(bid, list, at){
+  const b = binderById(bid), ids = list.map(c=>c.id);
+  return window.BinderMove.plan(pocketsOf(b), cardsIn(bid), ids, at);
+}
+function moveModal(ids){
+  const list = ids.map(id=>S.cards.find(c=>c.id===id)).filter(c=>c && held(c))
+    .sort((a,b)=> SORTS.loc(a) < SORTS.loc(b) ? -1 : SORTS.loc(a) > SORTS.loc(b) ? 1 : 0);
+  if(!list.length) return toast("Sold and traded cards can't be moved to a binder.");
+  const bs = sortedBinders(); if(!bs.length) return toast("Make a binder first, with + next to the binder tabs.");
+  if(!binderById(moveTo.bid)) moveTo.bid = (bs.find(b=>b.id!==S.binderId) || bs[0]).id;
+  const one = list.length===1, what = one ? esc(list[0].name||"Unnamed card") : `${list.length} cards`;
+  $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard narrow" role="dialog" aria-modal="true" aria-labelledby="mvTitle">
+    <h2 id="mvTitle">Move ${what}</h2>
+    <p class="lead">${one?"It goes":"They go"} in the binder you choose. The pocket${one?"":"s"} ${one?"it leaves stays":"they leave stay"} empty.</p>
+    <div class="form" style="grid-template-columns:1fr"><div class="field"><label for="mv_binder">Binder</label><select id="mv_binder">${bs.map(b=>`<option value="${esc(b.id)}" ${b.id===moveTo.bid?"selected":""}>${esc(b.name)} (${cardsIn(b.id).length} card${cardsIn(b.id).length===1?"":"s"})</option>`).join("")}</select></div></div>
+    <fieldset class="sortopts" id="mvAt" style="margin-top:12px"><legend class="sr-only">Where in the binder</legend>
+      <label><input type="radio" name="mvat" value="end" ${moveTo.at==="end"?"checked":""}><span id="mvEnd">At the end</span></label>
+      <label><input type="radio" name="mvat" value="at" ${moveTo.at==="at"?"checked":""}>In a pocket I choose</label>
+    </fieldset>
+    <div class="form" id="mvSpot"></div>
+    <p class="sortsum" id="mvPrev" aria-live="polite" style="margin-top:10px"></p>
+    <div class="mfoot"><button class="btn" type="button" data-mclose>Cancel</button><button class="btn primary" type="button" id="mvGo">Move</button></div>
+  </div></div>`;
+  const at = () => moveTo.at==="at" ? {page:moveTo.page, slot:moveTo.slot} : null;
+  const spotFields = () => {
+    const b = binderById(moveTo.bid), n = pocketsOf(b), mp = maxPage(b.id) + 1;
+    moveTo.page = Math.min(Math.max(1, moveTo.page|0), mp); moveTo.slot = Math.min(Math.max(1, moveTo.slot|0), n);
+    $("#mvSpot").hidden = moveTo.at!=="at";
+    $("#mvSpot").innerHTML = `<div class="field"><label for="mv_page">Page</label><select id="mv_page" class="mono">${Array.from({length:mp},(_,i)=>`<option value="${i+1}" ${moveTo.page===i+1?"selected":""}>${i+1}</option>`).join("")}</select></div>
+      <div class="field"><label for="mv_slot">Pocket</label><select id="mv_slot" class="mono">${Array.from({length:n},(_,i)=>{ const c = cardAt(b.id, moveTo.page, i+1); return `<option value="${i+1}" ${moveTo.slot===i+1?"selected":""}>${i+1}${c?` · ${esc(c.name||"Unnamed card")}`:" · empty"}</option>`; }).join("")}</select></div>`;
+  };
+  const show = () => {
+    const b = binderById(moveTo.bid), p = movePlan(b.id, list, at()), first = p.moves[0];
+    const e = window.BinderMove.end(pocketsOf(b), cardsIn(b.id), list.map(c=>c.id));
+    $("#mvEnd").textContent = `At the end (Page ${e.page} · #${e.slot})`;
+    const there = moveTo.at==="at" ? cardAt(b.id, first.page, first.slot) : null, k = p.shifted;
+    const shift = !k ? "" : there && !list.includes(there)
+      ? ` ${esc(there.name||"The card there")} ${k>1?`and the ${k===2?"card":`${k-1} cards`} after it shift`:"shifts"} along, up to the next empty pocket.`
+      : ` ${k} card${k===1?" shifts":"s shift"} along to make room, up to the next empty pocket.`;
+    $("#mvPrev").innerHTML = `${one?"Goes in":"Go in"} <b>${esc(b.name)} · Page ${first.page} · Pocket ${first.slot}</b>${one?"":" onward"}.${shift}`;
+  };
+  $("#mv_binder").onchange = e => { moveTo.bid = e.target.value; spotFields(); show(); };
+  $("#mvAt").onchange = e => { moveTo.at = e.target.value; spotFields(); show(); };
+  $("#mvSpot").onchange = e => { if(e.target.id==="mv_page"){ moveTo.page = +e.target.value; spotFields(); } else moveTo.slot = +e.target.value; show(); };
+  $("#mvGo").onclick = async () => {
+    const b = binderById(moveTo.bid), go = $("#mvGo"); if(!b) return;
+    const p = movePlan(b.id, list, at()), first = p.moves[0];
+    const moves = p.moves.map(m=>({id:m.id, binderId:b.id, page:m.page, slot:m.slot}));
+    const before = moves.map(m=>placeOf(S.cards.find(c=>c.id===m.id)));
+    go.disabled = true;
+    try{ await window.ledgerApi.call("POST", "api/cards/place", {moves}); }
+    catch(err){ go.disabled = false; return toast(err?.message || "Couldn't move. Check your connection and try again."); }
+    applyPlaces(moves); closeModal(); if(S.pick) endPick(); render();
+    const where = `${b.name} · Page ${first.page} · Pocket ${first.slot}`;
+    toast(`${one ? `Moved ${list[0].name||"the card"} to` : `Moved ${list.length} cards to`} ${where}${one?"":" onward"}${p.shifted?` (${p.shifted} shifted along)`:""}`, {label:"Undo", run:() => void undoPlaces(before)});
+  };
+  spotFields(); show();
+  setTimeout(()=> $("#mv_binder")?.focus(), 30);
+}
+function applyPlaces(moves){ for(const m of moves){ const c = S.cards.find(x=>x.id===m.id); if(c) Object.assign(c, {binderId:m.binderId, page:m.page, slot:m.slot}); } }
+async function undoPlaces(before){
+  try{ await window.ledgerApi.call("POST", "api/cards/place", {moves:before}); applyPlaces(before); render(); toast("Moved back"); }
+  catch(err){ toast(err?.message || "Couldn't undo the move."); }
+}
+
 /* ---------- arrange a binder ----------
    Every pocket of a binder in order, page by page, empty pockets too. Drag a card (or an empty
    pocket) by its handle, or move it one place with ↑ ↓, until the list matches the real binder;
@@ -2051,6 +2122,7 @@ document.addEventListener("click", e => {
     if(t.closest("#pickPh")) return void placeholderPicked();
     if(t.closest("#pickSwap")){ const [a, b] = [...S.pick]; endPick(); S.swap = {id:a}; return void swapWith({id:b}); }
     if(t.closest("#pickSell")) return quickSellModal([...S.pick]);
+    if(t.closest("#pickMove")) return moveModal([...S.pick]);
     const pcd = t.closest("#main [data-card]");
     if(pcd){ const id=pcd.dataset.card; S.pick.has(id)?S.pick.delete(id):S.pick.add(id); S.pickConfirm=false; if(!S.pick.size) return endPick(); return renderMain(); }
     if(t.closest("#main [data-empty]")) return;

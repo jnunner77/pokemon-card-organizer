@@ -132,6 +132,11 @@ back, and cards not placed yet follow. *Save* stores it all at once.
 empty pocket, on any page or in any binder, and they trade places straight away, with *Undo*.
 With exactly two cards selected (press and hold), *Swap* does the same. *Escape* or *Cancel* stops.
 
+**Move to another binder:** press and hold a card (or select several), then *Move*. Pick the
+binder; the cards go **at the end**, after its last card, or **in a pocket you choose**, where any
+card in the way shifts along to the next empty pocket (only as far as it has to). The pockets they
+leave stay empty, so nothing else in the old binder moves. Everything moves at once, with *Undo*.
+
 ## Sort a binder by release date or price
 
 *Sort* (next to *Rename / edit binder*) puts every card of the binder in order, from page 1,
