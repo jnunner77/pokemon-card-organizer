@@ -41,7 +41,7 @@ beforeEach(async () => {
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 const makeApp = (extra: Partial<Parameters<typeof createApp>[0]> = {}) =>
-  createApp({ store, assets, accounts, log, config, publicDir: path.join(__dirname, '../public'), envPassword: 'start password 1', ...extra });
+  createApp({ store, assets, accounts, log, config, publicDir: path.join(__dirname, '../public'), envPassword: 'start password 1', now: () => new Date(clock), ...extra });
 
 async function signIn(app: ReturnType<typeof makeApp>, username: string, password: string) {
   const agent = request.agent(app);
@@ -291,9 +291,9 @@ describe('status for the nightly job', () => {
     const admin = await signIn(app, 'admin', 'start password 1');
     const offsite = async () => ((await admin.get('/api/admin/overview').expect(200)).body.checks as { id: string; status: string; detail: string }[]).find((c) => c.id === 'offsite')!;
     expect((await offsite()).status).toBe('warn');
-    fs.writeFileSync(path.join(dir, 'offsite.json'), JSON.stringify({ at: new Date().toISOString(), where: 'gs://nunner-backups/binder/binder-1.tar.gz' }));
+    fs.writeFileSync(path.join(dir, 'offsite.json'), JSON.stringify({ at: new Date(clock).toISOString(), where: 'gs://nunner-backups/binder/binder-1.tar.gz' }));
     expect(await offsite()).toMatchObject({ status: 'pass', detail: 'The nightly job copied a backup to gs://nunner-backups/binder/binder-1.tar.gz today.' });
-    fs.writeFileSync(path.join(dir, 'offsite.json'), JSON.stringify({ at: new Date(Date.now() - 5 * 86_400_000).toISOString(), where: 'gs://x/y' }));
+    fs.writeFileSync(path.join(dir, 'offsite.json'), JSON.stringify({ at: new Date(clock - 5 * 86_400_000).toISOString(), where: 'gs://x/y' }));
     expect(await offsite()).toMatchObject({ status: 'warn', detail: 'The nightly job last copied a backup off the server 5 days ago.' });
     fs.writeFileSync(path.join(dir, 'offsite.json'), '{"at":"not a date"}');
     expect((await offsite()).detail).toBe('No full backup has been downloaded from here.');

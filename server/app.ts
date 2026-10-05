@@ -41,6 +41,8 @@ export interface AppOptions {
   envPassword?: string;
   /** Card details lookups (TCGdex); the lookup routes answer 503 without them. */
   details?: CardDetails;
+  /** The clock for the Administration checks and backups (tests set it; defaults to the real time). */
+  now?: () => Date;
   /** New cards filling themselves in, and Fill in missing details. */
   autofill?: Autofill;
 }
@@ -58,7 +60,8 @@ export function createApp(o: AppOptions) {
   const { store, assets, publicDir = path.join(root, 'public'), trustProxy, updater, accounts, security } = o;
   const log = o.log ?? quietLogger();
   const config = o.config ?? new Config(store.dataDir);
-  const backups = o.backups ?? new Backups(store, assets, config, log);
+  const now = o.now ?? (() => new Date());
+  const backups = o.backups ?? new Backups(store, assets, config, log, now);
 
   const app = express();
   app.disable('x-powered-by');
@@ -393,7 +396,7 @@ export function createApp(o: AppOptions) {
   api.get('/backup', need('editor'), heavy, (_req, res) => {
     const stamp = new Date().toISOString().slice(0, 10);
     res.setHeader('Content-Disposition', `attachment; filename="binder-ledger-backup-${stamp}.json"`);
-    config.set({ lastFullBackupAt: new Date().toISOString() });
+    config.set({ lastFullBackupAt: now().toISOString() });
     log.info('backup', `${who(res)} downloaded a full backup`);
     res.json(makeBackup(store, assets));
   });
@@ -416,10 +419,10 @@ export function createApp(o: AppOptions) {
     const pricingStatus = (store.get('settings', 'pricing') ?? {}) as { running?: boolean; lastRun?: { date: string; finishedAt: string; counts: Record<string, number> } };
     const sch = updater?.schedule();
     const counts = log.counts(86_400_000);
-    const failed = log.query({ cat: 'auth', text: 'failed sign-in', limit: 5000 }).filter((e) => Date.now() - Date.parse(e.at) < 86_400_000).length;
+    const failed = log.query({ cat: 'auth', text: 'failed sign-in', limit: 5000 }).filter((e) => now().getTime() - Date.parse(e.at) < 86_400_000).length;
     const sec = security?.summary();
     return runChecks({
-      now: new Date(),
+      now: now(),
       ...request,
       authEnabled: !!accounts,
       accounts: accounts ? accounts.health() : null,
@@ -437,7 +440,7 @@ export function createApp(o: AppOptions) {
   /** Write status.txt for the server's nightly job (see status.ts). */
   const writeStatusFile = async () => {
     const checks = await overviewChecks({ secure: true, untrustedProxy: false, localRequest: false });
-    writeStatus(store.dataDir, statusText(new Date(), checks, cardsNeedingAttention(store.all().cards as Parameters<typeof cardsNeedingAttention>[0])));
+    writeStatus(store.dataDir, statusText(now(), checks, cardsNeedingAttention(store.all().cards as Parameters<typeof cardsNeedingAttention>[0])));
   };
 
   admin.get('/overview', async (req, res) => {
