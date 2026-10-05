@@ -7,7 +7,7 @@ import { createApp } from '../server/app';
 import { Assets } from '../server/assets';
 import { chooseMatch, detailsFromProduct, searchQuery } from '../server/pricing/match';
 import { type Candidate, type Fetcher, retryPolicy, parsePriceChartingProduct, parsePriceChartingSearch, parseTcgplayerDetails, parseTcgplayerSearch, pickTcgPrice, releaseDate } from '../server/pricing/sources';
-import { PriceUpdater } from '../server/pricing/updater';
+import { PriceUpdater, thinAutoPrices } from '../server/pricing/updater';
 import { Store } from '../server/store';
 
 retryPolicy.baseMs = 1; // retries happen at once in tests
@@ -182,16 +182,23 @@ describe('the daily update', () => {
     expect(store.get('settings', 'pricing')).toMatchObject({ running: false, lastRun: { date: '2026-10-03', counts: { updated: 1 } } });
   });
 
-  it('keeps one automatic price a day for 30 days and never touches the person’s own entries', async () => {
+  it('keeps one automatic price a day for 30 days, one a week before that, and never touches the person’s own entries', async () => {
     const old = (date: string, amount: number) => ({ id: date, type: 'market', amount, currency: 'CAD', date, auto: true });
     store.set('cards', 'c1', card({
       pricing: { source: 'pricecharting', id: '/game/pokemon-30th-celebration/lapras-131' },
-      prices: [old('2026-08-01', 10), old('2026-09-02', 11), old('2026-09-03', 12), old('2026-10-03', 13), { id: 'paid', type: 'paid', amount: 5, currency: 'CAD', date: '2025-01-01' }, { id: 'mine', type: 'market', amount: 30, currency: 'CAD', date: '2026-01-01' }],
+      // 2026-08-24 to 08-30 is one week (Monday to Sunday): only its last entry stays
+      prices: [old('2026-08-01', 10), old('2026-08-24', 10.5), old('2026-08-27', 10.7), old('2026-09-02', 11), old('2026-09-03', 12), old('2026-10-03', 13), { id: 'paid', type: 'paid', amount: 5, currency: 'CAD', date: '2025-01-01' }, { id: 'mine', type: 'market', amount: 30, currency: 'CAD', date: '2026-01-01' }],
     }));
     await updater(fakeNet().fetcher).runAll('manual');
     await updater(fakeNet().fetcher).runAll('manual'); // a second run the same day replaces today's entry
     const dates = (store.get('cards', 'c1')!.prices as { id: string; date: string; auto?: boolean }[]).map((p) => (p.auto ? p.date : p.id));
-    expect(dates).toEqual(['2026-09-03', 'paid', 'mine', '2026-10-03']);
+    expect(dates).toEqual(['2026-08-01', '2026-08-27', '2026-09-02', '2026-09-03', 'paid', 'mine', '2026-10-03']);
+  });
+
+  it('thins automatic prices older than the cutoff to the last of each week', () => {
+    const a = (date: string | null) => ({ date, auto: true });
+    const kept = thinAutoPrices([a('2026-07-06'), a('2026-07-08'), a('2026-07-12'), a('2026-07-13'), a('2026-07-13'), a(null), a('2026-09-10'), a('2026-09-11'), { date: '2026-07-07' }], '2026-10-01', '2026-09-01');
+    expect(kept.map((p) => p.date)).toEqual(['2026-07-12', '2026-07-13', '2026-09-10', '2026-09-11', '2026-07-07']);
   });
 
   it('leaves sold cards, cards with pricing turned off, and uncertain matches alone', async () => {

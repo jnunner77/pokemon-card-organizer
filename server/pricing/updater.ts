@@ -24,8 +24,40 @@ import {
 
 // The daily price and image update. For every card still in the collection it finds the
 // card's product on PriceCharting (or TCGplayer), logs today's market price in Canadian
-// dollars, keeps the last month of those automatic entries, and downloads the product's
-// high-resolution image. Entries the person logged themselves are never touched.
+// dollars, keeps the last month of those automatic entries (and one a week before that, for the
+// Pricing view's longer date ranges), and downloads the product's high-resolution image. Entries the person logged themselves are never touched.
+
+/** Monday of the week a YYYY-MM-DD date falls in. */
+function weekOf(date: string): string {
+  const t = Date.parse(`${date}T12:00:00Z`);
+  if (Number.isNaN(t)) return '';
+  const day = (new Date(t).getUTCDay() + 6) % 7;
+  return new Date(t - day * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * The price log before today's automatic entry is added: today's earlier automatic entry is
+ * dropped (it's replaced), automatic entries from `cutoff` on are all kept, and older ones are
+ * thinned to the last one of each week. Entries the person logged are always kept.
+ */
+export function thinAutoPrices<P extends { auto?: boolean | null; date?: string | null }>(prices: P[], today: string, cutoff: string): P[] {
+  const lastOfWeek = new Map<string, string>();
+  for (const p of prices) {
+    if (!p.auto || !p.date || p.date >= cutoff) continue;
+    const w = weekOf(p.date);
+    if (p.date > (lastOfWeek.get(w) ?? '')) lastOfWeek.set(w, p.date);
+  }
+  const kept = new Set<string>();
+  return prices.filter((p) => {
+    if (!p.auto) return true;
+    if (!p.date || p.date === today) return false;
+    if (p.date >= cutoff) return true;
+    // one entry per week, even if two share that week's last date
+    if (lastOfWeek.get(weekOf(p.date)) !== p.date || kept.has(p.date)) return false;
+    kept.add(p.date);
+    return true;
+  });
+}
 
 export interface UpdaterOptions {
   store: Store;
@@ -36,7 +68,7 @@ export interface UpdaterOptions {
   timeZone?: string;
   /** Hour of the day (0-23, in timeZone) after which the daily run starts. */
   hour?: number;
-  /** Days of automatic price entries to keep. */
+  /** Days of daily automatic price entries to keep; older ones are thinned to one a week. */
   keepDays?: number;
   /** Pause between cards, to be gentle with the price sites. */
   delayMs?: number;
@@ -324,7 +356,7 @@ export class PriceUpdater {
     if (!fresh || !isLinked(fresh.pricing) || fresh.pricing.id !== link.id) return 'skipped';
     const date = this.today();
     const cutoff = this.today(new Date(Date.parse(`${date}T12:00:00Z`) - this.keepDays * 86_400_000));
-    let prices = (fresh.prices ?? []).filter((p) => !(p.auto && (p.date === date || (p.date ?? '') < cutoff)));
+    let prices = thinAutoPrices(fresh.prices ?? [], date, cutoff);
     if (quote.usd != null) {
       prices = [
         ...prices,

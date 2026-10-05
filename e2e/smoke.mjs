@@ -2,7 +2,7 @@
 //   DATA_DIR=$(mktemp -d) AUTH=off PRICE_UPDATES=off npm start
 //   BASE_URL=http://localhost:4100/ npm run test:e2e
 // It creates a binder and cards, prices, moves and sells one, finds it with Find, checks live
-// updates between two tabs, a backup download, and the phone layout.
+// updates between two tabs, the Pricing view, a backup download, and the phone layout.
 import { chromium } from 'playwright';
 
 const BASE = process.env.BASE_URL || 'http://localhost:4100/';
@@ -80,6 +80,18 @@ try {
   await page.locator('#lbCap').getByText('Charizard ex').waitFor();
   await page.keyboard.press('Escape');
 
+  // Pricing shows the binder's value over the chosen range; a card row opens its details.
+  await page.getByRole('button', { name: 'Pricing' }).click();
+  await page.locator('#pv_scope').selectOption({ label: 'Trade binder' });
+  await page.locator('[data-pvrange="90d"]').click();
+  await page.locator('.pv-stats').getByText('$18.50').first().waitFor();
+  await page.locator('#pvChart svg').waitFor();
+  await page.locator('[data-pvcard]').filter({ hasText: 'Charizard ex' }).click();
+  await page.locator('#dTitle', { hasText: 'Charizard ex' }).waitFor();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Back to binders' }).click();
+  await page.locator('#sheet').waitFor();
+
   // Full backup downloads with the card and photo in it.
   await page.getByRole('button', { name: 'Settings' }).click();
   const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download full backup' }).click()]);
@@ -96,6 +108,10 @@ try {
   await p.locator('[data-card]').first().waitFor();
   const overflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   if (overflow > 1) fail(`phone layout scrolls sideways by ${overflow}px`);
+  await p.getByRole('button', { name: 'Pricing' }).click();
+  await p.locator('#pvChart svg').waitFor();
+  const pvOverflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  if (pvOverflow > 1) fail(`phone Pricing view scrolls sideways by ${pvOverflow}px`);
 
   if (errors.length) fail(`page errors:\n${errors.join('\n')}`);
   console.log('Binder smoke test passed');
