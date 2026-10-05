@@ -106,6 +106,18 @@ sets its price, so neither is adjusted (`public/condition.js`).
 Each card's details have an **Owner**: Megan, Justin or Both (blank until you set it). It's saved
 with *Save changes*, copied by *Duplicate*, and has its own *Owner* column in CSV import and export.
 
+## Filters
+
+*Filters* in the List view narrows the cards shown (in this binder, or *All cards*): by **owner**
+(tick any of Megan, Justin, Both, Not set), **set**, **rarity**, **status**, **release year** (from / to)
+and **value** in CAD (min / max). Cards with no release date or value are left out when those filters
+are set. The count and total value of what's shown sit next to the button, and filters are remembered
+on this device until *Clear filters*.
+
+To change many cards at once, filter, press and hold a row, *Select all*, then use the selection's
+buttons. *Owner* sets the owner of every selected card; for example, to make everything that isn't
+*Both* Justin's, tick Megan and Not set, select all, and choose Justin.
+
 ## Placeholders
 
 A **placeholder** holds a pocket for a card you don't have yet: it sits in its pocket (dimmed, with a

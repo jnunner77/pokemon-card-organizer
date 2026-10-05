@@ -23,6 +23,7 @@ const S = {
   binders:[], cards:[], settings:{usdToCad:1.37},
   binderId: null, page: 1, view: store.get("view","pages") === "list" ? "list" : "pages",
   q:"", scope: store.get("scope","binder"), sort: store.get("sort",{k:"loc",d:1}),
+  filt: {...window.BinderFilter.EMPTY, ...store.get("filt",{})}, filtOpen: store.get("filtOpen",false),
   sel:null, draft:null, dirty:false, editPrice:null, confirm:null,
   pick:null, pickConfirm:false, shown:[], found:null
 };
@@ -155,7 +156,7 @@ function pickBar(){
   const n = S.pick.size, allOn = S.shown.length && S.shown.every(id=>S.pick.has(id));
   const right = S.pickConfirm
     ? `<span class="confirm">Delete ${n} card${n===1?"":"s"} and their price history? <button class="btn sm danger solid" type="button" id="pickDelYes">Delete ${n}</button><button class="btn sm" type="button" id="pickDelNo">Keep</button></span>`
-    : `<button class="btn sm" type="button" id="pickAll">${allOn?"Clear all":"Select all"}</button><button class="btn sm" type="button" id="pickCancel">Cancel</button><button class="btn sm primary" type="button" id="pickSell" ${nSellable()?"":"disabled"}>Quick sell${nSellable()?` ${nSellable()}`:""}</button><button class="btn sm" type="button" id="pickMove" ${n?"":"disabled"} title="Move to another binder, at the end or in a pocket you choose">Move${n?` ${n}`:""}</button>${n===2?`<button class="btn sm" type="button" id="pickSwap" title="The two selected cards trade places">Swap</button>`:""}<button class="btn sm" type="button" id="pickPh" ${n?"":"disabled"} title="${pickAllPh()?"You have these cards now: count them in your totals":"Hold these pockets for cards you don't have yet: not counted in your totals"}">${pickAllPh()?"Owned":"Placeholder"}${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickDup" ${n?"":"disabled"}>Duplicate${n?` ${n}`:""}</button><button class="btn sm danger solid" type="button" id="pickDel" ${n?"":"disabled"}>Delete${n?` ${n}`:""}</button>`;
+    : `<button class="btn sm" type="button" id="pickAll">${allOn?"Clear all":"Select all"}</button><button class="btn sm" type="button" id="pickCancel">Cancel</button><button class="btn sm primary" type="button" id="pickSell" ${nSellable()?"":"disabled"}>Quick sell${nSellable()?` ${nSellable()}`:""}</button><button class="btn sm" type="button" id="pickMove" ${n?"":"disabled"} title="Move to another binder, at the end or in a pocket you choose">Move${n?` ${n}`:""}</button>${n===2?`<button class="btn sm" type="button" id="pickSwap" title="The two selected cards trade places">Swap</button>`:""}<button class="btn sm" type="button" id="pickPh" ${n?"":"disabled"} title="${pickAllPh()?"You have these cards now: count them in your totals":"Hold these pockets for cards you don't have yet: not counted in your totals"}">${pickAllPh()?"Owned":"Placeholder"}${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickOwner" ${n?"":"disabled"} title="Set who these cards belong to">Owner${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickDup" ${n?"":"disabled"}>Duplicate${n?` ${n}`:""}</button><button class="btn sm danger solid" type="button" id="pickDel" ${n?"":"disabled"}>Delete${n?` ${n}`:""}</button>`;
   return `<div class="pickbar" role="toolbar" aria-label="Selection"><span class="cnt">${n} selected</span>${right}</div>`;
 }
 const nSellable = () => S.pick ? [...S.pick].filter(id => { const c = S.cards.find(x=>x.id===id); return c && owned(c); }).length : 0;
@@ -169,17 +170,38 @@ async function placeholderPicked(){
   toast(ok===l.length ? (on ? `${ok} card${ok===1?" is a placeholder":"s are placeholders"}: not counted in your totals` : `${ok} card${ok===1?"":"s"} counted in your totals now`) : `${ok} of ${l.length} saved. Try the rest again.`);
   endPick();
 }
+/* set the owner of every selected card at once */
+function ownerModal(){
+  const l = pickedCards(); if(!l.length) return;
+  $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard narrow" role="dialog" aria-modal="true" aria-labelledby="ownTitle">
+    <h2 id="ownTitle">Owner of ${l.length} card${l.length===1?"":"s"}</h2>
+    <p class="lead">Who ${l.length===1?"does this card":"do these cards"} belong to?</p>
+    <div class="ownerpick">${OWNERS.map(([v,lab])=>`<button class="btn" type="button" data-setowner="${esc(v)}">${esc(lab)}</button>`).join("")}</div>
+    <div class="mfoot"><button class="btn" type="button" data-mclose>Cancel</button></div>
+  </div></div>`;
+  $(".ownerpick").onclick = async e => {
+    const b = e.target.closest("[data-setowner]"); if(!b) return;
+    const owner = b.dataset.setowner, todo = l.filter(c=>(c.owner||"")!==owner);
+    document.querySelectorAll("[data-setowner]").forEach(x=>x.disabled=true);
+    const res = await Promise.allSettled(todo.map(c => S.db.doc("cards/"+c.id).update({owner, updatedAt:nowISO()})));
+    const ok = res.filter(r=>r.status==="fulfilled").length, who = owner || "not set";
+    closeModal();
+    toast(ok===todo.length ? `${l.length} card${l.length===1?"":"s"}: owner ${who}` : `${ok} of ${todo.length} saved. Try the rest again.`);
+    endPick();
+  };
+}
 function startPick(id){ S.pick = new Set(id?[id]:[]); S.pickConfirm=false; try{ navigator.vibrate?.(15); }catch(_){} if(S.sel) closeDrawer(); else renderMain(); }
 function endPick(){ S.pick=null; S.pickConfirm=false; renderMain(); }
 function renderMain(){
   if(S.pick){ for(const id of [...S.pick]) if(!S.cards.some(c=>c.id===id)) S.pick.delete(id); }
-  const a = document.activeElement, keep = a && a.id==="q" ? a.selectionStart : null;
+  const a = document.activeElement, keepId = a && a.id && a.closest("#main") && /^(INPUT|SELECT)$/.test(a.tagName) ? a.id : null;
+  let keep = null; try{ keep = keepId ? a.selectionStart : null; }catch(_){}
   renderMainInner();
   $("#main").classList.toggle("picking", !!S.pick);
   if(S.pick) $("#main").insertAdjacentHTML("afterbegin", pickBar());
   else if(S.swap) $("#main").insertAdjacentHTML("afterbegin", swapBar());
   updatePhotosBtn();
-  if(keep!=null){ const q=$("#q"); if(q){ q.focus(); try{ q.setSelectionRange(keep,keep); }catch(_){} } }
+  if(keepId){ const el=document.getElementById(keepId); if(el){ el.focus(); if(keep!=null) try{ el.setSelectionRange(keep,keep); }catch(_){} } }
 }
 function renderMainInner(){
   const m = $("#main");
@@ -232,7 +254,9 @@ const SORTS = {
 function renderList(m){
   const q = S.q.trim().toLowerCase();
   let list = S.scope==="all" ? S.cards : S.binderId==="__loose" ? looseCards() : cardsIn(S.binderId);
+  const base = list, nf = window.BinderFilter.count(S.filt);
   if(q) list = list.filter(c => [c.name,c.set,c.setCode,c.number,c.rarity,c.variant,c.artist,c.notes].join(" ").toLowerCase().includes(q));
+  if(nf) list = list.filter(c => window.BinderFilter.match(c, S.filt, valueOf(c)));
   const f = SORTS[S.sort.k] || SORTS.loc;
   list = list.slice().sort((a,b)=>{ const x=f(a), y=f(b); return (x<y?-1:x>y?1:0)*S.sort.d; });
   S.shown = list.map(c=>c.id);
@@ -252,9 +276,34 @@ function renderList(m){
   m.innerHTML = `<div class="listbar">
       <label class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" placeholder="Search name, set, number, rarity…" value="${esc(S.q)}" aria-label="Search cards"></label>
       <div class="seg" role="group" aria-label="Scope"><button type="button" data-scope="binder" aria-pressed="${S.scope!=="all"}">${S.binderId==="__loose"?"Loose":"This binder"}</button><button type="button" data-scope="all" aria-pressed="${S.scope==="all"}">All cards</button></div>
-      <span class="hint">${list.length} shown${S.pick||!list.length?"":" · hold a row to quick sell or select"}</span></div>
+      <button class="btn sm${nf?" primary":""}" type="button" id="btnFilt" aria-expanded="${!!S.filtOpen}" aria-controls="filtPane">Filters${nf?` · ${nf}`:""}</button>
+      <span class="hint">${list.length} shown${nf||q?` · ${money(statsFor(list).val)} value`:""}${S.pick||!list.length?"":" · hold a row to quick sell or select"}</span></div>
+    ${S.filtOpen?filterPane(base):""}
     <div class="tablewrap"><table><thead><tr>${S.pick?"<th></th>":""}<th></th>${th("name","Card")}${th("set","Set · No.")}${th("released","Released")}${th("loc","Location")}${th("status","Status")}${th("value","Value","r")}${th("paid","Paid","r")}</tr></thead>
-    <tbody>${rows || `<tr><td colspan="${S.pick?9:8}" class="empty-state">${q?"No cards match that search.":"No cards here yet."}</td></tr>`}</tbody></table></div>`;
+    <tbody>${rows || `<tr><td colspan="${S.pick?9:8}" class="empty-state">${q||nf?"No cards match. Try fewer filters, or All cards.":"No cards here yet."}</td></tr>`}</tbody></table></div>`;
+}
+
+/* the List view's filters (filter.js); choices come from the cards in scope */
+function filterPane(list){
+  const F = S.filt, uniq = a => [...new Set(a.filter(Boolean))].sort((x,y)=>x.localeCompare(y));
+  const sets = uniq(list.map(window.BinderFilter.setOf)), rars = uniq(list.map(c=>c.rarity));
+  const years = uniq(list.map(c=>/^\d{4}/.test(c.released||"") ? c.released.slice(0,4) : ""));
+  const sel = (id, v, any, opts) => `<select id="${id}"><option value="">${any}</option>${opts.map(o=>{ const [val,lab]=Array.isArray(o)?o:[o,o]; return `<option value="${esc(val)}" ${String(v)===String(val)?"selected":""}>${esc(lab)}</option>`; }).join("")}</select>`;
+  const nOwner = v => list.filter(c=>(c.owner||"")===v).length;
+  return `<div class="filtpane" id="filtPane" role="group" aria-label="Filters">
+    <fieldset class="field full"><legend>Owner</legend><div class="filtowners">${OWNERS.map(([v,l])=>`<label><input type="checkbox" data-fowner="${esc(v)}" ${F.owners.includes(v)?"checked":""}> ${esc(l)} <span class="hint">${nOwner(v)}</span></label>`).join("")}</div></fieldset>
+    <div class="field"><label for="ff_set">Set</label>${sel("ff_set", F.set, "Any set", sets)}</div>
+    <div class="field"><label for="ff_rarity">Rarity</label>${sel("ff_rarity", F.rarity, "Any rarity", rars)}</div>
+    <div class="field"><label for="ff_status">Status</label>${sel("ff_status", F.status, "Any status", STATUSES)}</div>
+    <div class="field"><label for="ff_yFrom">Released</label><span class="filtrange">${sel("ff_yFrom", F.yFrom, "From any", years)}<span>to</span>${sel("ff_yTo", F.yTo, "Any", years)}</span></div>
+    <div class="field"><label for="ff_vMin">Value (CAD)</label><span class="filtrange"><input id="ff_vMin" class="mono" type="number" min="0" step="1" inputmode="decimal" placeholder="Min" value="${esc(F.vMin)}"><span>to</span><input id="ff_vMax" class="mono" type="number" min="0" step="1" inputmode="decimal" placeholder="Max" value="${esc(F.vMax)}"></span></div>
+    <div class="field filtacts"><button class="btn sm ghost" type="button" id="filtClear" ${window.BinderFilter.count(F)?"":"disabled"}>Clear filters</button></div>
+  </div>`;
+}
+function readFilters(){
+  const v = id => $("#"+id)?.value ?? "";
+  S.filt = {owners:[...document.querySelectorAll("[data-fowner]:checked")].map(x=>x.dataset.fowner), set:v("ff_set"), rarity:v("ff_rarity"), status:v("ff_status"), yFrom:v("ff_yFrom"), yTo:v("ff_yTo"), vMin:v("ff_vMin"), vMax:v("ff_vMax")};
+  store.set("filt", S.filt);
 }
 
 /* ---------- sales ---------- */
@@ -2129,6 +2178,7 @@ document.addEventListener("click", e => {
     if(t.closest("#pickSwap")){ const [a, b] = [...S.pick]; endPick(); S.swap = {id:a}; return void swapWith({id:b}); }
     if(t.closest("#pickSell")) return quickSellModal([...S.pick]);
     if(t.closest("#pickMove")) return moveModal([...S.pick]);
+    if(t.closest("#pickOwner")) return ownerModal();
     const pcd = t.closest("#main [data-card]");
     if(pcd){ const id=pcd.dataset.card; S.pick.has(id)?S.pick.delete(id):S.pick.add(id); S.pickConfirm=false; if(!S.pick.size) return endPick(); return renderMain(); }
     if(t.closest("#main [data-empty]")) return;
@@ -2178,6 +2228,8 @@ document.addEventListener("click", e => {
   const em = t.closest("[data-empty]"); if(em){ return openNew({binderId:curBinder().id, page:S.page, slot:+em.dataset.empty}); }
   const sc = t.closest("[data-sort]"); if(sc){ const k=sc.dataset.sort; S.sort = {k, d: S.sort.k===k ? -S.sort.d : (k==="value"||k==="paid"?-1:1)}; persistNav(); renderMain(); return; }
   const scp = t.closest("[data-scope]"); if(scp){ S.scope=scp.dataset.scope; persistNav(); renderMain(); return; }
+  if(t.closest("#btnFilt")){ S.filtOpen = !S.filtOpen; store.set("filtOpen", S.filtOpen); renderMain(); return; }
+  if(t.closest("#filtClear")){ S.filt = {...window.BinderFilter.EMPTY}; store.set("filt", S.filt); renderMain(); return; }
   const us = t.closest("[data-unsell]"); if(us) return void undoSale(us.dataset.unsell);
   const ub = t.closest("[data-unbundle]"); if(ub) return void undoBundle(ub.dataset.unbundle);
   const sr = t.closest("[data-sale]"); if(sr){ return openCard(sr.dataset.sale); }
@@ -2215,6 +2267,7 @@ document.addEventListener("input", e => {
     if(e.target.classList.contains("autofilled")) e.target.classList.remove("autofilled");
     if(/^f_(name|number|set|setCode)$/.test(e.target.id)) scheduleLookup(); }
   if(e.target.id==="q"){ S.q=e.target.value; clearTimeout(S._qt); S._qt=setTimeout(renderMain,120); }
+  if(e.target.id==="ff_vMin" || e.target.id==="ff_vMax"){ readFilters(); clearTimeout(S._qt); S._qt=setTimeout(renderMain,250); }
   if(e.target.id==="findQ"){ FIND.q=e.target.value; findRun(); }
   if(e.target.id==="arrQ" && ARR?.place){ ARR.place.q = e.target.value; ARR.place.hi = 0; renderPlaceRes(); }
   if(e.target.closest("#priceSec")) S.priceTouched=true;
@@ -2228,6 +2281,7 @@ async function switchPlaceholder(box){
   toast(on ? `${c.name||"Card"} is a placeholder: not counted in your totals` : `${c.name||"Card"} is counted in your totals now`);
 }
 document.addEventListener("change", e => {
+  if(e.target.closest("#filtPane") && e.target.type!=="number"){ readFilters(); renderMain(); }
   if(e.target.closest("#priceSec")) S.priceTouched=true;
   if(e.target.closest("#moveSec")) S.moveTouched=true;
   if(e.target.id==="f_placeholder" && S.sel!=="__new") return void switchPlaceholder(e.target);
