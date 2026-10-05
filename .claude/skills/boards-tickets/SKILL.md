@@ -58,9 +58,14 @@ Tell the user the ticket numbers (e.g. "AB#113 with tasks AB#114–AB#116") befo
 
 - Set a task to `In Progress` when you start it: `boards.py state "In Progress" <task>`.
 - Name the work in commits and pull requests with `AB#<id>`: the commit message ends its subject
-  with `(AB#<pbi> AB#<task> …)`, and the PR title or description says `AB#<pbi>`. If the branch can
-  be named after the item, use `wi/<id>-<short-title>`; when the session gives a branch name, keep
-  it and rely on AB# in commits and the PR.
+  with `(AB#<pbi> AB#<task> …)`.
+- Name the branch after the item: `wi/<id>-<short-title>`, a few lowercase words for what it
+  implements (`wi/120-pricing-view`, `wi/117-admin-checks-any-date`). Do this even when the session
+  suggests another branch name (a `claude/…` one): the owner asked for it.
+- Title the pull request with what it implements, in plain words, ending with `(AB#<pbi>)`
+  (`Pricing view: a binder's or the whole collection's value over time (AB#120)`), and start its
+  description with `AB#<pbi>` and its tasks. If a pull request was opened for you with another
+  title, retitle it.
 - New work found along the way (another bug, a follow-up) gets its own ticket; mention it to the
   user rather than widening the current change.
 
