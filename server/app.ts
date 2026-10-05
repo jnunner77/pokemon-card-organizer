@@ -191,8 +191,11 @@ export function createApp(o: AppOptions) {
   // Sort a binder: the page puts its cards in an order (release date, price) and sends where each
   // one goes. Saved all together, and only if it still covers every card in the binder exactly
   // once, so nothing ends up doubled in a pocket or left behind. Undo sends the old places back.
+  // With saveLayout, where the cards are now is kept on the binder too (its own layout), so the
+  // page can put them back after sorting by release date or price.
   const arrangeBody = z.object({
     moves: z.array(z.object({ id: idSchema, page: z.number().int().min(1).max(100_000), slot: z.number().int().min(1).max(64) })).max(5000),
+    saveLayout: z.boolean().optional(),
   });
   api.post('/binders/:id/arrange', need('editor'), json, (req, res) => {
     const id = idSchema.safeParse(req.params.id);
@@ -213,9 +216,18 @@ export function createApp(o: AppOptions) {
     const patches = body.data.moves
       .filter((m) => { const c = store.get('cards', m.id)!; return c.page !== m.page || c.slot !== m.slot; })
       .map((m) => ({ id: m.id, patch: { page: m.page, slot: m.slot, updatedAt: now } }));
+    let layout: { savedAt: string; places: { id: string; page: number; slot: number }[] } | undefined;
+    if (body.data.saveLayout) {
+      const fits = (v: unknown, max: number): v is number => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= max;
+      const kept = inBinder
+        .map((c) => ({ id: c.id, page: (c as { page?: unknown }).page, slot: (c as { slot?: unknown }).slot }))
+        .filter((c): c is { id: string; page: number; slot: number } => fits(c.page, 100_000) && fits(c.slot, pockets));
+      layout = { savedAt: now, places: kept };
+    }
     const moved = store.updateMany('cards', patches);
-    log.info('app', `${who(res)} sorted ${String(binder.name ?? 'a binder')}: ${moved} of ${ids.size} cards moved`);
-    res.json({ moved, cards: ids.size });
+    if (layout) store.update('binders', id.data, { layout });
+    log.info('app', `${who(res)} sorted ${String(binder.name ?? 'a binder')}: ${moved} of ${ids.size} cards moved${layout ? ', layout saved' : ''}`);
+    res.json({ moved, cards: ids.size, ...(layout ? { layoutSaved: layout.places.length } : {}) });
   });
 
   // Move cards to another binder (or anywhere): each card goes to the binder, page and pocket

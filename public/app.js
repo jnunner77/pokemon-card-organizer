@@ -1453,7 +1453,9 @@ addEventListener("beforeunload", e => { if(S.view==="arrange" && arrDirty()){ e.
 
 /* ---------- sort a binder ----------
    Puts every card of a binder in order (release date or price) from page 1, pocket 1 with no
-   gaps, after a preview. The server saves all the moves together; Undo sends the old places back. */
+   gaps, after a preview. The server saves all the moves together; Undo sends the old places back.
+   The binder's own layout is saved with the first sort (layout.js), and "My binder layout" puts
+   it back, so the binder can go back and forth between its layout and a sorted order. */
 const BINDER_ORDERS = [
   {k:"old", label:"Release date, oldest first"},
   {k:"new", label:"Release date, newest first"},
@@ -1469,8 +1471,16 @@ function binderOrder(list, k){
   const rest = list.filter(c=>key(c)==null).sort((a,b)=> cmp(SORTS.loc(a), SORTS.loc(b)));
   return {order:[...known, ...rest], missing:rest.length};
 }
+const hasLayout = b => Array.isArray(b?.layout?.places) && b.layout.places.length > 0;
+const layoutDate = b => { const d = new Date(b?.layout?.savedAt || ""); return isNaN(d) ? "earlier" : d.toLocaleDateString(undefined, {month:"short", day:"numeric", year:"numeric"}); };
 function sortPlan(b, k){
-  const n = pocketsOf(b), {order, missing} = binderOrder(cardsIn(b.id), k);
+  const n = pocketsOf(b), cards = cardsIn(b.id);
+  if(k==="layout"){
+    const r = window.BinderLayout.restore(n, cards, b.layout), at = new Map(cards.map(c=>[c.id, c]));
+    const moves = r.moves.slice().sort((x,y)=> x.page-y.page || x.slot-y.slot);
+    return {n, order:moves.map(m=>at.get(m.id)), moves, moved:r.moved, missing:r.added, pages:moves.length ? moves.at(-1).page : 0};
+  }
+  const {order, missing} = binderOrder(cards, k);
   const moves = order.map((c,i)=>({id:c.id, page:Math.floor(i/n)+1, slot:i%n+1}));
   const moved = moves.filter((m,i)=> order[i].page!==m.page || order[i].slot!==m.slot).length;
   return {n, order, moves, moved, missing, pages:Math.ceil(order.length/n)};
@@ -1478,36 +1488,56 @@ function sortPlan(b, k){
 let sortK = "old";
 function sortModal(id){
   const b = binderById(id); if(!b) return;
+  const saved = hasLayout(b), atLayout = saved && window.BinderLayout.current(pocketsOf(b), cardsIn(b.id), b.layout);
+  // The order the binder is in now, if it's one of the sorts (then it isn't saved as the layout unless asked).
+  const sortedAs = BINDER_ORDERS.find(o => { const p = sortPlan(b, o.k); return !p.moved && p.missing < p.order.length; });
+  const orders = [...(saved ? [{k:"layout", label:`My binder layout (saved ${layoutDate(b)})`}] : []), ...BINDER_ORDERS];
+  let k = saved && !atLayout ? "layout" : sortK;
+  // Save the layout with this sort: always when the binder is in its saved layout (that keeps cards
+  // added since), by default when there's none yet, and only if asked when that would replace it.
+  const autoSave = atLayout, offerSave = !atLayout;
+  let save = autoSave || (!saved && !sortedAs);
   $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard narrow" role="dialog" aria-modal="true" aria-labelledby="sortTitle">
     <h2 id="sortTitle">Sort ${esc(b.name)}</h2>
-    <p class="lead">Moves every card into the order you choose, from page 1, pocket 1 with no gaps, so you can rearrange the binder to match. Nothing moves until you press Sort; Undo puts every card back.</p>
-    <fieldset class="sortopts" id="sortOpts"><legend class="sr-only">Order</legend>${BINDER_ORDERS.map(o=>`<label><input type="radio" name="sortk" value="${o.k}" ${o.k===sortK?"checked":""}>${esc(o.label)}</label>`).join("")}</fieldset>
+    <p class="lead">Moves every card into the order you choose, from page 1, pocket 1 with no gaps, so you can rearrange the binder to match. Your own layout is kept, so <i>My binder layout</i> can put it back any time. Nothing moves until you press Sort; Undo puts every card back.</p>
+    <fieldset class="sortopts" id="sortOpts"><legend class="sr-only">Order</legend>${orders.map(o=>`<label><input type="radio" name="sortk" value="${o.k}" ${o.k===k?"checked":""}>${esc(o.label)}</label>`).join("")}</fieldset>
+    <div id="sortSave"></div>
     <div id="sortPrev"></div>
     <div class="mfoot"><button class="btn" type="button" data-mclose>Cancel</button><button class="btn primary" type="button" id="sortGo">Sort binder</button></div>
   </div></div>`;
   const show = () => {
-    const p = sortPlan(b, sortK), byDate = sortK==="old" || sortK==="new";
+    const p = sortPlan(b, k), mine = k==="layout", byDate = k==="old" || k==="new";
     const what = byDate ? "release date" : "price";
     let rows = "", page = 0;
     p.order.slice(0, 400).forEach((c,i) => {
       const m = p.moves[i];
       if(m.page!==page){ page = m.page; rows += `<li class="pg">Page ${page}</li>`; }
-      const k = byDate ? c.released : valueOf(c)!=null ? money(valueOf(c)) : null;
-      rows += `<li class="${k==null?"none":""}"><span class="k">#${m.slot}</span><span class="nm">${esc(c.name||"Unnamed card")} <span class="hint">${esc(metaLine(c))}</span></span><span class="k">${esc(k ?? "no "+what)}</span></li>`;
+      const key = mine ? (c.page===m.page && c.slot===m.slot ? "stays" : c.page && c.slot ? `from p${c.page} #${c.slot}` : "")
+        : byDate ? c.released : valueOf(c)!=null ? money(valueOf(c)) : null;
+      rows += `<li class="${key==null?"none":""}"><span class="k">#${m.slot}</span><span class="nm">${esc(c.name||"Unnamed card")} <span class="hint">${esc(metaLine(c))}</span></span><span class="k">${esc(key ?? "no "+what)}</span></li>`;
     });
-    $("#sortPrev").innerHTML = `<p class="sortsum">${p.moved ? `<b>${p.moved} of ${p.order.length} cards move</b>, across ${p.pages} page${p.pages===1?"":"s"}.` : `<b>Already in this order.</b>`}${p.missing ? ` ${p.missing} card${p.missing===1?" has":"s have"} no ${what} and go${p.missing===1?"es":""} at the end, in their current order.${byDate?" Release dates are filled in overnight, or from Settings → Fill in missing details.":""}` : ""}</p>
-      <ol class="sortprev" aria-label="New order">${rows}</ol>`;
+    const sum = mine
+      ? (p.moved ? `<b>${p.moved} of ${p.order.length} cards go back</b> to your layout.` : `<b>Already in your layout.</b>`) + (p.missing ? ` ${p.missing} card${p.missing===1?" was":"s were"} added since and go${p.missing===1?"es":""} after the last saved card.` : "")
+      : (p.moved ? `<b>${p.moved} of ${p.order.length} cards move</b>, across ${p.pages} page${p.pages===1?"":"s"}.` : `<b>Already in this order.</b>`) + (p.missing ? ` ${p.missing} card${p.missing===1?" has":"s have"} no ${what} and go${p.missing===1?"es":""} at the end, in their current order.${byDate?" Release dates are filled in overnight, or from Settings → Fill in missing details.":""}` : "");
+    $("#sortPrev").innerHTML = `<p class="sortsum">${sum}</p><ol class="sortprev" aria-label="New order">${rows}</ol>`;
+    $("#sortSave").innerHTML = mine ? "" : !offerSave
+      ? `<p class="sortsum hint">Your binder layout is saved, so you can put it back after sorting.</p>`
+      : `<label class="sortsave"><input type="checkbox" id="sortKeep" ${save?"checked":""}><span>${saved ? `Replace <i>My binder layout</i> (saved ${esc(layoutDate(b))}) with the current order` : sortedAs ? `Save the current order (${esc(sortedAs.label.toLowerCase())}) as <i>My binder layout</i>` : `Save the current layout as <i>My binder layout</i>, to put it back later`}</span></label>`;
+    $("#sortGo").textContent = mine ? "Put back my layout" : "Sort binder";
     $("#sortGo").disabled = !p.moved;
   };
-  $("#sortOpts").onchange = e => { sortK = e.target.value; show(); };
+  $("#sortOpts").onchange = e => { k = e.target.value; if(k!=="layout") sortK = k; show(); };
+  $("#sortSave").onchange = e => { if(e.target.id==="sortKeep") save = e.target.checked; };
   $("#sortGo").onclick = async () => {
-    const p = sortPlan(b, sortK), go = $("#sortGo");
+    const p = sortPlan(b, k), go = $("#sortGo"), mine = k==="layout";
     const before = cardsIn(b.id).map(c=>({id:c.id, page:c.page, slot:c.slot}));
     go.disabled = true;
     try{
-      const r = await window.ledgerApi.call("POST", `api/binders/${encodeURIComponent(b.id)}/arrange`, {moves:p.moves});
+      const r = await window.ledgerApi.call("POST", `api/binders/${encodeURIComponent(b.id)}/arrange`, {moves:p.moves, ...(!mine && save ? {saveLayout:true} : {})});
       closeModal(); S.page = 1; persistNav(); render();
-      toast(`Sorted ${b.name}: ${r.moved} card${r.moved===1?"":"s"} moved`, {label:"Undo", run:() => void undoSort(b, before, p.moves)});
+      const msg = mine ? `${b.name} is back in your layout: ${r.moved} card${r.moved===1?"":"s"} moved`
+        : `Sorted ${b.name}: ${r.moved} card${r.moved===1?"":"s"} moved${r.layoutSaved && !autoSave ? ". Your layout is saved" : ""}`;
+      toast(msg, {label:"Undo", run:() => void undoSort(b, before, p.moves)});
     }catch(e){ go.disabled = false; toast(e?.message || "Couldn't sort the binder. Try again."); }
   };
   show();

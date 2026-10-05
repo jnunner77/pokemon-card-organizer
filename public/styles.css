@@ -322,6 +322,8 @@ tbody tr.sel{background:var(--accent-soft)}
 .sortopts label{display:flex;gap:10px;align-items:center;padding:9px 12px;border:1px solid var(--line);border-radius:8px;cursor:pointer;font-weight:600;min-height:24px}
 .sortopts label:has(input:checked){border-color:var(--ink);background:var(--surface-2)}
 .sortsum{margin:0 0 8px;font-size:13px}
+.sortsave{display:flex;gap:10px;align-items:flex-start;margin:0 0 12px;font-size:13px;cursor:pointer}
+.sortsave input{margin-top:2px;flex:none}
 .sortprev{margin:0;padding:0;list-style:none;max-height:min(260px,38vh);overflow:auto;border:1px solid var(--line-2);border-radius:8px}
 .sortprev li{display:grid;grid-template-columns:62px minmax(0,1fr) auto;gap:8px;align-items:baseline;padding:6px 10px;border-top:1px solid var(--line-2);font-size:13px}
 .sortprev li:first-child{border-top:0}
