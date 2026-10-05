@@ -18,6 +18,10 @@ confirmed on the live binder.
 ## Workflow
 
 - Never commit to `main`; each change goes on a branch and is merged through a pull request.
+- Name branches and pull requests after what they implement: the branch is `wi/<id>-<short-title>`
+  for its PBI/Bug (like `wi/120-pricing-view`), even when the session suggests another name, and the
+  pull request's title says what it does in plain words and ends with `(AB#<id>)`. Details in the
+  `boards-tickets` skill.
 - Before pushing: `npm run typecheck` and `npm test` pass. For UI changes, also run the app
   (`DATA_DIR=$(mktemp -d) AUTH=off PRICE_UPDATES=off npm start`) and check it in a browser,
   including a phone-sized screen (≤ 640px).
