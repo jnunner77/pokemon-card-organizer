@@ -154,7 +154,7 @@ binder; the cards go **at the end**, after its last card, or **in a pocket you c
 card in the way shifts along to the next empty pocket (only as far as it has to). The pockets they
 leave stay empty, so nothing else in the old binder moves. Everything moves at once, with *Undo*.
 
-## Sort a binder by release date or price
+## Sort a binder by release date or price, and back
 
 *Sort* (next to *Rename / edit binder*) puts every card of the binder in order, from page 1,
 pocket 1 with no gaps, so you can rearrange the real binder to match:
@@ -170,6 +170,13 @@ pocket 1 with no gaps, so you can rearrange the real binder to match:
 A preview shows the new order page by page before anything moves. Cards with no release date
 or price go at the end in their current order. All the moves are saved together, and *Undo* in
 the message afterwards puts every card back.
+
+**Your own layout is kept.** The first sort saves where every card was (gaps included) as the
+binder's *My binder layout*, and the Sort dialog then offers it next to release date and price,
+so you can go back and forth between your layout and, say, price order as often as you like.
+Cards added since it was saved go after its last card; cards removed since are skipped. Sorting
+again never replaces the saved layout by itself: tick *Replace My binder layout* in the dialog
+when you've rearranged the binder and want to keep the new layout instead.
 
 ## Everything else
 

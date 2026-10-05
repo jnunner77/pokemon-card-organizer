@@ -117,6 +117,13 @@ const binder = z.looseObject({
   pockets: z.number().int().min(1).max(64).nullish(),
   order: z.number().finite().nullish(),
   createdAt: optText(40),
+  /** The binder's own layout, saved when it was first sorted, so it can be put back after sorting. */
+  layout: z
+    .looseObject({
+      savedAt: text(40),
+      places: z.array(z.object({ id: idSchema, page: count(100_000), slot: count(64) })).max(5000),
+    })
+    .nullish(),
 });
 
 const settings = z.looseObject({

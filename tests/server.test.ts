@@ -156,6 +156,26 @@ describe('sorting a binder', () => {
     expect(['x', 'y', 'z'].map(place)).toEqual(before);
   });
 
+  it("keeps the binder's own layout when asked, and only once the moves are saved", async () => {
+    setUp();
+    const sort = [{ id: 'z', page: 1, slot: 1 }, { id: 'x', page: 1, slot: 2 }, { id: 'y', page: 1, slot: 3 }];
+    const r = await request(app).post('/api/binders/b1/arrange').send({ moves: sort, saveLayout: true }).expect(200);
+    expect(r.body).toEqual({ moved: 2, cards: 3, layoutSaved: 3 });
+    const layout = store.get('binders', 'b1')!.layout as { savedAt: string; places: unknown[] };
+    expect(layout.places).toEqual([{ id: 'x', page: 1, slot: 1 }, { id: 'y', page: 1, slot: 3 }, { id: 'z', page: 2, slot: 1 }]);
+    expect(layout.savedAt).toMatch(/^\d{4}-/);
+    expect(store.get('binders', 'b1')).toMatchObject({ name: 'Trainers', pockets: 4 });
+    // Putting it back (or sorting again) without saveLayout leaves the saved layout alone.
+    await request(app).post('/api/binders/b1/arrange').send({ moves: [{ id: 'x', page: 1, slot: 1 }, { id: 'y', page: 1, slot: 3 }, { id: 'z', page: 2, slot: 1 }] }).expect(200);
+    expect(store.get('binders', 'b1')!.layout).toEqual(layout);
+    expect(['x', 'y', 'z'].map(place)).toEqual([{ page: 1, slot: 1 }, { page: 1, slot: 3 }, { page: 2, slot: 1 }]);
+    // A refused sort doesn't replace it.
+    await request(app).post('/api/binders/b1/arrange').send({ moves: sort.slice(0, 2), saveLayout: true }).expect(409);
+    expect(store.get('binders', 'b1')!.layout).toEqual(layout);
+    // And a damaged layout can't be saved through the documents API.
+    await request(app).patch('/api/docs/binders/b1').send({ layout: { savedAt: 'x', places: [{ id: 'x', page: 0, slot: 1 }] } }).expect(400);
+  });
+
   it('saves none of several changes when one of them is invalid', () => {
     setUp();
     expect(() => store.updateMany('cards', [{ id: 'x', patch: { page: 5 } }, { id: 'y', patch: { slot: 'nine' } }])).toThrow();
