@@ -18,8 +18,9 @@ Every morning (after 5:00 in your time zone, catching up if the server was off) 
    Typos, "VSTAR"/"V Star" spellings and promos filed under other sets are handled.
 2. **Logs today's market price** in CAD: PriceCharting's ungraded price (recent eBay sales)
    or TCGplayer's market price, converted at the Bank of Canada's daily rate. Each day adds one
-   entry; the last 30 days are kept and older automatic entries are dropped. Prices you log
-   yourself (what you paid, sales, listings, your own market prices) are never changed.
+   entry; the last 30 days are kept, and older automatic entries are thinned to one a week (the
+   last of each week) for the Pricing view's longer ranges. Prices you log yourself (what you
+   paid, sales, listings, your own market prices) are never changed.
 3. **Downloads the official picture**, the largest the site has (745×1042 from PriceCharting
    for most cards), and shows it instead of your photo. Your photos are kept; each card has an
    *Official image / Your photo* switch.
@@ -117,6 +118,26 @@ on this device until *Clear filters*.
 To change many cards at once, filter, press and hold a row, *Select all*, then use the selection's
 buttons. *Owner* sets the owner of every selected card; for example, to make everything that isn't
 *Both* Justin's, tick Megan and Not set, select all, and choose Justin.
+
+## Pricing
+
+*Pricing* (next to *Find a card*) shows what your cards are worth over time, for **All cards**, one
+binder, or the cards not in a binder:
+
+- **Date range:** 7D, 30D, 90D, 1Y, All (from the first price), or *Custom* from / to dates.
+- **Filters:** owner, set, rarity, status, release year and value, like the List view's (kept
+  separately, and remembered on this device).
+- **Value** at the end of the range, the **change** since its start ($ and %), and the high and
+  low, with a chart of the total; point at (or tap, or use the arrow keys on) the chart to read any day.
+- **What moved:** the cards with the biggest moves, or added up by *Sets*, *Binders* or *Owners*,
+  sorted by biggest move, gain, drop, % move or value. Tap a card to open it; tap a set, binder
+  or owner to see just its cards.
+
+Each day counts the cards you have now at that day's prices (their condition-adjusted value, as
+everywhere else). A card priced only later in the range counts at its first price before then, so
+the line shows prices moving rather than cards being added. Placeholders and sold or traded cards
+aren't counted. Daily prices are kept for 30 days and one a week before that, so ranges longer than
+a month are weekly at their start.
 
 ## Placeholders
 

@@ -568,3 +568,39 @@ tbody tr.found{background:var(--accent-soft);box-shadow:inset 4px 0 0 var(--acce
 .dtxt>*{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dtxt .mono{font-family:var(--f-mono);font-size:11px;color:var(--ink-2)}
 @media (max-width:480px){.dchoices{grid-template-columns:1fr}}
+
+/* pricing view */
+#btnPricing[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--surface)}
+.sheet.pv{border-radius:var(--r)}
+.pv-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px;padding:14px 16px 4px}
+.pv-head h2{margin:0;font-size:20px;font-weight:800;font-stretch:80%;line-height:1.1}
+.pv-head .hint{margin:2px 0 0}
+.pv-bar .field select{width:auto;max-width:240px}
+.pv-dates{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-3)}
+.pv-dates input{border:1px solid var(--line);border-radius:7px;background:var(--surface-2);padding:5px 7px;font-size:12.5px;min-width:0}
+.pv-stats{padding:14px 16px 4px}
+.pv-chart{position:relative;margin:6px 16px 0;min-width:0}
+.pv-chart svg{display:block;width:100%;height:auto;overflow:visible;touch-action:pan-y}
+.pv-chart svg:focus-visible{outline:2px solid var(--accent-line);outline-offset:4px;border-radius:4px}
+.pv-chart .grid{stroke:var(--line-2);stroke-width:1}
+.pv-chart .ylab,.pv-chart .xlab{fill:var(--ink-3);font:11px var(--f-mono)}
+.pv-chart .line{fill:none;stroke:var(--info);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.pv-chart .area{fill:var(--info);opacity:.1}
+.pv-chart .end,.pv-chart #pvCrossDot{fill:var(--info);stroke:var(--surface);stroke-width:2}
+.pv-chart #pvCrossLine{stroke:var(--ink-3);stroke-width:1}
+.pv-tip{position:absolute;top:0;pointer-events:none;display:flex;flex-direction:column;gap:1px;background:var(--surface);border:1px solid var(--line);border-radius:7px;box-shadow:var(--shadow);padding:5px 9px;white-space:nowrap}
+.pv-tip b{font-family:var(--f-mono);font-size:14px;font-variant-numeric:tabular-nums}
+.pv-tip span{font-size:11.5px;color:var(--ink-3)}
+.pv-note{margin:6px 16px 4px}
+.pv-tbar{border-top:1px solid var(--line-2);margin-top:10px}
+.pv-tbar .field select{width:auto}
+.pv-table td.cellname span{display:block}
+.pv-more{text-align:center;padding:10px}
+@media (max-width:640px){
+  .pv-bar .field,.pv-bar .field select{width:100%;max-width:none}
+  .pv-bar .seg,.pv-tbar .seg{width:100%}
+  .pv-bar .seg button,.pv-tbar .seg button{flex:1 1 0;padding:7px 4px}
+  .pv-chart{margin-inline:8px}
+  .pv-table .hide-sm{display:none}
+  .pv-table td,.pv-table th{padding:7px 6px}
+}

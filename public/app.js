@@ -102,7 +102,7 @@ async function guard(fn){ if(!S.db){ toast("Saving isn't available in this view.
 
 /* ---------- rendering ---------- */
 function render(){
-  renderBanner(); renderTabs(); renderStats(); renderMain(); renderDrawer();
+  renderBanner(); renderTabs(); renderStats(); renderMain(); renderDrawer(); renderPricing();
 }
 function renderBanner(){
   const el = $("#banner");
@@ -283,28 +283,29 @@ function renderList(m){
     <tbody>${rows || `<tr><td colspan="${S.pick?9:8}" class="empty-state">${q||nf?"No cards match. Try fewer filters, or All cards.":"No cards here yet."}</td></tr>`}</tbody></table></div>`;
 }
 
-/* the List view's filters (filter.js); choices come from the cards in scope */
-function filterPane(list){
-  const F = S.filt, uniq = a => [...new Set(a.filter(Boolean))].sort((x,y)=>x.localeCompare(y));
+/* the List view's filters (filter.js); choices come from the cards in scope. The Pricing view has
+   its own copy (F, pre for its field ids, pane for its id, statuses it offers). */
+function filterPane(list, F=S.filt, pre="ff", pane="filtPane", statuses=STATUSES){
+  const uniq = a => [...new Set(a.filter(Boolean))].sort((x,y)=>x.localeCompare(y));
   const sets = uniq(list.map(window.BinderFilter.setOf)), rars = uniq(list.map(c=>c.rarity));
   const years = uniq(list.map(c=>/^\d{4}/.test(c.released||"") ? c.released.slice(0,4) : ""));
   const sel = (id, v, any, opts) => `<select id="${id}"><option value="">${any}</option>${opts.map(o=>{ const [val,lab]=Array.isArray(o)?o:[o,o]; return `<option value="${esc(val)}" ${String(v)===String(val)?"selected":""}>${esc(lab)}</option>`; }).join("")}</select>`;
   const nOwner = v => list.filter(c=>(c.owner||"")===v).length;
-  return `<div class="filtpane" id="filtPane" role="group" aria-label="Filters">
+  return `<div class="filtpane" id="${pane}" role="group" aria-label="Filters">
     <fieldset class="field full"><legend>Owner</legend><div class="filtowners">${OWNERS.map(([v,l])=>`<label><input type="checkbox" data-fowner="${esc(v)}" ${F.owners.includes(v)?"checked":""}> ${esc(l)} <span class="hint">${nOwner(v)}</span></label>`).join("")}</div></fieldset>
-    <div class="field"><label for="ff_set">Set</label>${sel("ff_set", F.set, "Any set", sets)}</div>
-    <div class="field"><label for="ff_rarity">Rarity</label>${sel("ff_rarity", F.rarity, "Any rarity", rars)}</div>
-    <div class="field"><label for="ff_status">Status</label>${sel("ff_status", F.status, "Any status", STATUSES)}</div>
-    <div class="field"><label for="ff_yFrom">Released</label><span class="filtrange">${sel("ff_yFrom", F.yFrom, "From any", years)}<span>to</span>${sel("ff_yTo", F.yTo, "Any", years)}</span></div>
-    <div class="field"><label for="ff_vMin">Value (CAD)</label><span class="filtrange"><input id="ff_vMin" class="mono" type="number" min="0" step="1" inputmode="decimal" placeholder="Min" value="${esc(F.vMin)}"><span>to</span><input id="ff_vMax" class="mono" type="number" min="0" step="1" inputmode="decimal" placeholder="Max" value="${esc(F.vMax)}"></span></div>
-    <div class="field filtacts"><button class="btn sm ghost" type="button" id="filtClear" ${window.BinderFilter.count(F)?"":"disabled"}>Clear filters</button></div>
+    <div class="field"><label for="${pre}_set">Set</label>${sel(pre+"_set", F.set, "Any set", sets)}</div>
+    <div class="field"><label for="${pre}_rarity">Rarity</label>${sel(pre+"_rarity", F.rarity, "Any rarity", rars)}</div>
+    <div class="field"><label for="${pre}_status">Status</label>${sel(pre+"_status", F.status, "Any status", statuses)}</div>
+    <div class="field"><label for="${pre}_yFrom">Released</label><span class="filtrange">${sel(pre+"_yFrom", F.yFrom, "From any", years)}<span>to</span>${sel(pre+"_yTo", F.yTo, "Any", years)}</span></div>
+    <div class="field"><label for="${pre}_vMin">Value (CAD)</label><span class="filtrange"><input id="${pre}_vMin" class="mono" type="number" min="0" step="1" inputmode="decimal" placeholder="Min" value="${esc(F.vMin)}"><span>to</span><input id="${pre}_vMax" class="mono" type="number" min="0" step="1" inputmode="decimal" placeholder="Max" value="${esc(F.vMax)}"></span></div>
+    <div class="field filtacts"><button class="btn sm ghost" type="button" id="${pre==="ff"?"filtClear":pre+"Clear"}" ${window.BinderFilter.count(F)?"":"disabled"}>Clear filters</button></div>
   </div>`;
 }
-function readFilters(){
-  const v = id => $("#"+id)?.value ?? "";
-  S.filt = {owners:[...document.querySelectorAll("[data-fowner]:checked")].map(x=>x.dataset.fowner), set:v("ff_set"), rarity:v("ff_rarity"), status:v("ff_status"), yFrom:v("ff_yFrom"), yTo:v("ff_yTo"), vMin:v("ff_vMin"), vMax:v("ff_vMax")};
-  store.set("filt", S.filt);
+function filtersFrom(pre, pane){
+  const v = id => $("#"+pre+"_"+id)?.value ?? "", el = $("#"+pane);
+  return {owners:el ? [...el.querySelectorAll("[data-fowner]:checked")].map(x=>x.dataset.fowner) : [], set:v("set"), rarity:v("rarity"), status:v("status"), yFrom:v("yFrom"), yTo:v("yTo"), vMin:v("vMin"), vMax:v("vMax")};
 }
+function readFilters(){ S.filt = filtersFrom("ff", "filtPane"); store.set("filt", S.filt); }
 
 /* ---------- sales ---------- */
 function renderSales(m){
@@ -2219,9 +2220,9 @@ document.addEventListener("click", e => {
     const sc = t.closest("#main [data-card]"), se = t.closest("#main [data-empty]");
     if(sc || se){ e.preventDefault(); return void swapWith(sc ? {id:sc.dataset.card} : {binderId:curBinder().id, page:S.page, slot:+se.dataset.empty}); }
   }
-  if(t.closest("#btnSwap")){ const c = selCard(); if(c){ S.swap = {id:c.id}; closeDrawer(); renderMain(); } return; }
+  if(t.closest("#btnSwap")){ const c = selCard(); if(c){ S.swap = {id:c.id}; if(PV.open){ PV.open = false; pvSave(); render(); } closeDrawer(); renderMain(); } return; }
   const ar = t.closest("#arrList .arrrow"); if(ar && !t.closest("button,.arrhandle")) return arrTap(+ar.dataset.i);
-  if(t.closest("#vPages,#vList,#vArrange,[data-binder],#btnAdd,#btnFind") && S.view==="arrange" && arrDirty() && !t.closest("#vArrange")){
+  if(t.closest("#vPages,#vList,#vArrange,[data-binder],#btnAdd,#btnFind,#btnPricing") && S.view==="arrange" && arrDirty() && !t.closest("#vArrange")){
     if(!confirm("Leave without saving the new order?")) return;
     ARR = null;
   }
@@ -2242,6 +2243,7 @@ document.addEventListener("click", e => {
   if(t.closest("#vList")){ if(S.binderId==="__sales") S.binderId = sortedBinders()[0]?.id || "__loose"; S.view="list"; persistNav(); render(); return; }
   if(t.closest("#btnPhotos")) return openViewer();
   if(t.closest("#btnFind")) return openFind();
+  if(t.closest("#btnPricing")) return PV.open ? closePricing() : openPricing();
   if(t.closest("#btnAdd")) return openNew();
   if(t.closest("#btnImport")) return importModal();
   if(t.closest("#btnCsvImport")) return csvImportModal();
@@ -2330,7 +2332,7 @@ document.addEventListener("keydown", e => {
   if(FIND.open) return findKey(e);
   if(!LB.open && !$("#modalRoot").innerHTML && !isTyping(e.target) && !e.altKey && ((e.key==="/" && !e.ctrlKey && !e.metaKey) || ((e.key==="k" || e.key==="K") && (e.ctrlKey || e.metaKey)))){ e.preventDefault(); return openFind(); }
   if(LB.open){ if(e.key==="Escape"){ e.preventDefault(); closeViewer(); } else if(e.key==="ArrowLeft"||e.key==="ArrowRight"){ e.preventDefault(); lbGo(LB.i+(e.key==="ArrowLeft"?-1:1)); } else if(e.key==="Home"||e.key==="End"){ e.preventDefault(); lbGo(e.key==="Home"?0:LB.list.length-1); } return; }
-  if(e.key==="Escape"){ if($("#modalRoot").innerHTML){ if(!CI?.busy || !$("#ci_card")) closeModal(); } else if(S.sel) closeDrawer(); else if(S.pick) endPick(); else if(S.swap){ S.swap = null; renderMain(); } } });
+  if(e.key==="Escape"){ if($("#modalRoot").innerHTML){ if(!CI?.busy || !$("#ci_card")) closeModal(); } else if(S.sel) closeDrawer(); else if(S.pick) endPick(); else if(S.swap){ S.swap = null; renderMain(); } else if(PV.open) closePricing(); } });
 function updateMoveNote(){
   const n=$("#moveNote"); if(!n) return; const c=selCard(); const bid=$("#m_binder").value;
   if(!bid){ n.textContent="The card stays in your ledger under “Not in a binder”."; return; }
@@ -2425,6 +2427,7 @@ function showCard(id){
   else if(w.kind==="loose"){ S.binderId = "__loose"; S.view = "list"; S.scope = "binder"; S.q = ""; }
   else S.binderId = "__sales";
   S.found = {id:c.id, until:Date.now()+FOUND_MS};
+  if(PV.open){ PV.open = false; pvSave(); }
   persistNav(); render();
   const sel = CSS.escape(c.id), el = $(`#main [data-card="${sel}"], #main [data-sale="${sel}"]`);
   if(el){ el.scrollIntoView({block:"center", behavior: reduceMotion() ? "auto" : "smooth"}); try{ el.focus({preventScroll:true}); }catch(_){} }
@@ -2450,6 +2453,189 @@ $("#findRoot").addEventListener("click", e => {
 $("#findRoot").addEventListener("pointermove", e => {
   const li = e.target.closest && e.target.closest(".find-item"); if(!li || e.pointerType!=="mouse") return;
   const k = +li.dataset.fi; if(k!==FIND.i){ FIND.i = k; document.querySelectorAll("#findList .find-item").forEach((x,j) => x.classList.toggle("cur", j===k)); }
+});
+
+/* ---------- pricing ---------- */
+/* Pricing (button next to Find a card): what one binder, the loose cards or the whole collection was
+   worth over a date range, with the List view's filters, a chart and the cards (or sets, binders,
+   owners) that moved most. The numbers come from portfolio.js. */
+const PV_KEEP = ["open","scope","range","from","to","filt","filtOpen","group","sort"];
+const PV = {open:false, scope:"all", range:"30d", from:"", to:"", filtOpen:false, group:"card", sort:"change", all:false, hover:null,
+  ...store.get("pv", {})};
+PV.filt = {...window.BinderFilter.EMPTY, ...(PV.filt||{})};
+const pvSave = () => store.set("pv", Object.fromEntries(PV_KEEP.map(k=>[k, PV[k]])));
+const PV_STATUSES = STATUSES.filter(([k]) => k!=="sold" && k!=="traded");
+const PV_GROUPS = [["card","Cards"],["set","Sets"],["binder","Binders"],["owner","Owners"]];
+const PV_SORTS = [["change","Biggest move"],["gain","Biggest gain"],["drop","Biggest drop"],["pct","Biggest % move"],["value","Highest value"]];
+const PV_KEYS = {set: c => window.BinderFilter.setOf(c) || "No set", binder: c => binderById(c.binderId)?.name || "Not in a binder", owner: c => c.owner || "Not set"};
+const dLabel = (d, year=true) => new Date(d+"T12:00:00Z").toLocaleDateString(undefined, {month:"short", day:"numeric", ...(year?{year:"numeric"}:{}), timeZone:"UTC"});
+const pctText = p => p==null || !isFinite(p) ? "—" : (p>=0?"+":"−") + Math.abs(p).toFixed(1) + "%";
+const tone = n => n>0.004 ? "pos" : n<-0.004 ? "neg" : "";
+const pvValue = (c, p) => { const a = window.BinderCondition.adjust(c, p); return a==null ? null : toCAD({...p, amount:a}); };
+
+function openPricing(){ PV.open = true; PV.hover = null; pvSave(); render(); window.scrollTo({top:0}); }
+function closePricing(){ PV.open = false; PV.hover = null; pvSave(); render(); }
+
+/* everything the view shows, for the current scope, range and filters */
+function pvData(){
+  if(PV.scope!=="all" && PV.scope!=="__loose" && !binderById(PV.scope)) PV.scope = "all";
+  const base = PV.scope==="all" ? S.cards : PV.scope==="__loose" ? looseCards() : cardsIn(PV.scope);
+  const P = window.BinderPortfolio;
+  const cards = base.filter(owned).filter(c => window.BinderFilter.match(c, PV.filt, valueOf(c)));
+  const items = cards.map(c => ({card:c, hist:P.history(c, pvValue)}));
+  const earliest = items.reduce((m,x) => x.hist.length && (!m || x.hist[0].date < m) ? x.hist[0].date : m, "");
+  const r = P.range(PV.range, today(), {from:PV.from, to:PV.to}, earliest);
+  const series = P.series(items.map(x=>x.hist), r.from, r.to);
+  const rows = P.movers(items, r.from, r.to);
+  return {base, cards, items, earliest, r, series, rows, ph: base.filter(c=>held(c) && c.placeholder).length};
+}
+
+function renderPricing(){
+  const v = $("#pricingView"), btn = $("#btnPricing");
+  if(btn) btn.setAttribute("aria-pressed", PV.open);
+  $("#tabs").hidden = PV.open; $("#sheet").hidden = PV.open; v.hidden = !PV.open;
+  if(!PV.open){ v.innerHTML = ""; return; }
+  if(S.mode==="loading"){ v.innerHTML = `<div class="empty-state">Loading…</div>`; return; }
+  const a = document.activeElement, keepId = a && a.id && v.contains(a) ? a.id : null;
+  const D = pvData(), P = window.BinderPortfolio, {r, series, rows} = D;
+  const start = series[0]?.value ?? 0, end = series[series.length-1]?.value ?? 0, change = end - start;
+  const vals = series.map(x=>x.value), hi = Math.max(...vals), lo = Math.min(...vals);
+  const hiAt = series.find(x=>x.value===hi), loAt = series.find(x=>x.value===lo);
+  const nf = window.BinderFilter.count(PV.filt), priced = rows.length;
+  const scopeOpts = [["all","All cards"], ...sortedBinders().map(b=>[b.id, b.name]), ...(looseCards().length || PV.scope==="__loose" ? [["__loose","Not in a binder"]] : [])];
+  const ranges = P.RANGES.map(([k,l]) => `<button type="button" data-pvrange="${k}" aria-pressed="${PV.range===k}">${l}</button>`).join("");
+  const custom = PV.range==="custom" ? `<span class="pv-dates"><label class="sr-only" for="pv_from">From</label><input id="pv_from" type="date" class="mono" value="${esc(r.from)}" max="${esc(today())}"><span>to</span><label class="sr-only" for="pv_to">To</label><input id="pv_to" type="date" class="mono" value="${esc(r.to)}" max="${esc(today())}"></span>` : "";
+  const startsLate = D.earliest && D.earliest > r.from, yr = r.from.slice(0,4)!==r.to.slice(0,4);
+  v.innerHTML = `
+    <div class="pv-head">
+      <div><h2>Pricing</h2><p class="hint">${esc(dLabel(r.from))} to ${esc(dLabel(r.to))} · in CAD, at each card's condition</p></div>
+      <button class="btn" type="button" id="pvClose">‹ Back to binders</button>
+    </div>
+    <div class="listbar pv-bar" role="group" aria-label="What to show">
+      <div class="field pv-scope"><label for="pv_scope" class="sr-only">Cards</label><select id="pv_scope" aria-label="Cards">${opt(scopeOpts, PV.scope)}</select></div>
+      <div class="seg" role="group" aria-label="Date range">${ranges}</div>
+      ${custom}
+      <button class="btn sm${nf?" primary":""}" type="button" id="pvFilt" aria-expanded="${!!PV.filtOpen}" aria-controls="pvPane">Filters${nf?` · ${nf}`:""}</button>
+    </div>
+    ${PV.filtOpen ? filterPane(D.base.filter(owned), PV.filt, "pf", "pvPane", PV_STATUSES) : ""}
+    ${!D.cards.length ? `<div class="empty-state">${D.base.length ? "No cards match. Try fewer filters." : "No cards here yet."}</div>`
+    : !priced ? `<div class="empty-state">None of these ${D.cards.length} cards has a price yet.</div>`
+    : `<div class="stats pv-stats">
+      <div class="stat"><span class="k">Value ${r.to===today()?"now":"on "+esc(dLabel(r.to,yr))}</span><span class="v">${money(end)} <small>${priced}/${D.cards.length} priced</small></span></div>
+      <div class="stat"><span class="k">Change since ${esc(dLabel(r.from,yr))}</span><span class="v ${tone(change)}">${signed(change)} <small>${pctText(start>0 ? change/start*100 : null)}</small></span></div>
+      <div class="stat"><span class="k">High</span><span class="v">${money(hi)} <small>${esc(dLabel(hiAt.date,yr))}</small></span></div>
+      <div class="stat"><span class="k">Low</span><span class="v">${money(lo)} <small>${esc(dLabel(loAt.date,yr))}</small></span></div>
+    </div>
+    <figure class="pv-chart" id="pvChart" aria-label="Total value from ${esc(dLabel(r.from))} to ${esc(dLabel(r.to))}"></figure>
+    <p class="hint pv-note">Each day counts these cards at that day's prices; a card priced only later counts at its first price before then. ${startsLate?`Price history starts ${esc(dLabel(D.earliest))}. `:""}Daily prices are kept for 30 days, then one a week.${D.ph?` ${D.ph} placeholder${D.ph===1?"":"s"} not counted.`:""} Sold and traded cards aren't counted.</p>
+    ${pvTable(rows)}`}`;
+  pvChart(series);
+  if(keepId){ const el = document.getElementById(keepId); if(el) try{ el.focus({preventScroll:true}); }catch(_){} }
+}
+
+function pvTable(rows){
+  const P = window.BinderPortfolio, isCard = PV.group==="card";
+  let list = isCard ? P.sortRows(rows, PV.sort) : P.sortRows(P.groups(rows, PV_KEYS[PV.group]), PV.sort);
+  const total = list.length, cut = isCard && !PV.all && total > 50;
+  if(cut) list = list.slice(0, 50);
+  const head = `<div class="listbar pv-tbar">
+      <div class="seg" role="group" aria-label="Show by">${PV_GROUPS.map(([k,l])=>`<button type="button" data-pvgroup="${k}" aria-pressed="${PV.group===k}">${l}</button>`).join("")}</div>
+      <div class="field"><label for="pv_sort" class="sr-only">Sort by</label><select id="pv_sort" aria-label="Sort by">${opt(PV_SORTS, PV.sort)}</select></div>
+      <span class="hint">${isCard ? `${total} priced card${total===1?"":"s"}` : `${total} ${PV_GROUPS.find(g=>g[0]===PV.group)[1].toLowerCase()} · tap one to see its cards`}</span></div>`;
+  const nums = x => `<td class="r mono">${money(x.start)}</td><td class="r mono">${money(x.end)}</td><td class="r mono ${tone(x.change)}">${signed(x.change)}</td><td class="r mono ${tone(x.change)} hide-sm">${pctText(x.pct)}</td>`;
+  const body = list.map(x => isCard
+    ? `<tr data-pvcard="${esc(x.card.id)}" tabindex="0"><td>${shown(x.card)?`<img class="thumb" src="${imgURL(shown(x.card))}" alt="" loading="lazy">`:`<span class="thumb"></span>`}</td><td class="cellname"><b>${esc(x.card.name||"Unnamed card")}</b><span>${esc([metaLine(x.card), locShort(x.card)].filter(Boolean).join(" · "))}</span></td>${nums(x)}</tr>`
+    : `<tr data-pvkey="${esc(x.key)}" tabindex="0"><td class="cellname" colspan="2"><b>${esc(x.key)}</b><span>${x.n} card${x.n===1?"":"s"}</span></td>${nums(x)}</tr>`).join("");
+  return `${head}<div class="tablewrap"><table class="pv-table"><thead><tr><th></th><th>${isCard?"Card":PV_GROUPS.find(g=>g[0]===PV.group)[1].replace(/s$/,"")}</th><th class="r">Start</th><th class="r">End</th><th class="r">Change</th><th class="r hide-sm">%</th></tr></thead><tbody>${body}</tbody></table></div>
+    ${cut?`<p class="pv-more"><button class="btn sm" type="button" id="pvAll">Show all ${total}</button></p>`:""}`;
+}
+
+/* round step for the value axis */
+function niceStep(span){ const p = Math.pow(10, Math.floor(Math.log10(span || 1))), f = span/p; return (f<=1?1:f<=2?2:f<=5?5:10) * p; }
+function pvChart(series){
+  const fig = $("#pvChart"); if(!fig) return;
+  const W = Math.max(260, Math.round(fig.clientWidth || 600)), H = W < 500 ? 220 : 270, L = 8, R = 12, T = 48, B = 24; // T leaves room for the readout
+  const vals = series.map(x=>x.value); let lo = Math.min(...vals), hi = Math.max(...vals);
+  if(hi - lo < Math.max(1, hi*0.02)){ const pad = Math.max(1, hi*0.02); lo -= pad; hi += pad; }
+  const step = niceStep((hi - lo) / 3); lo = Math.max(0, Math.floor(lo/step)*step); hi = Math.ceil(hi/step)*step;
+  const ticks = []; for(let t = lo; t <= hi + step/2; t += step) ticks.push(t);
+  const lbl = t => money(t).replace(/\.00$/,"");
+  const yw = Math.max(...ticks.map(t=>lbl(t).length)) * 7 + 8, x0 = L + yw;
+  const n = series.length, X = i => n<2 ? (x0 + W - R)/2 : x0 + i*(W - R - x0)/(n-1), Y = v => T + (hi - v)*(H - T - B)/((hi - lo) || 1);
+  const pts = series.map((s,i)=>`${X(i).toFixed(1)},${Y(s.value).toFixed(1)}`);
+  const xi = n<3 ? [...new Set([0, n-1])] : [0, Math.round((n-1)/2), n-1];
+  const last = series[n-1], yr = series[0].date.slice(0,4)!==last.date.slice(0,4);
+  fig.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" tabindex="0" aria-label="${esc(fig.getAttribute("aria-label"))}: ${esc(money(series[0].value))} to ${esc(money(last.value))}. Use the arrow keys to read each day.">
+      ${ticks.map(t=>`<line class="grid" x1="${x0}" x2="${W-R}" y1="${Y(t).toFixed(1)}" y2="${Y(t).toFixed(1)}"/><text class="ylab" x="${x0-6}" y="${(Y(t)+4).toFixed(1)}" text-anchor="end">${esc(lbl(t))}</text>`).join("")}
+      ${xi.map((i,k)=>`<text class="xlab" x="${X(i).toFixed(1)}" y="${H-6}" text-anchor="${k===0&&xi.length>1?"start":i===n-1&&xi.length>1?"end":"middle"}">${esc(dLabel(series[i].date, yr))}</text>`).join("")}
+      ${n>1?`<polygon class="area" points="${x0},${Y(lo)} ${pts.join(" ")} ${X(n-1).toFixed(1)},${Y(lo)}"/><polyline class="line" points="${pts.join(" ")}"/>`:""}
+      <circle class="end" cx="${X(n-1).toFixed(1)}" cy="${Y(last.value).toFixed(1)}" r="4"/>
+      <g class="cross" id="pvCross" hidden><line id="pvCrossLine" y1="${T}" y2="${H-B}"/><circle id="pvCrossDot" r="4"/></g>
+    </svg><div class="pv-tip" id="pvTip" hidden></div>`;
+  const svg = fig.querySelector("svg"), tip = $("#pvTip");
+  const show = i => {
+    if(i==null){ $("#pvCross").setAttribute("hidden",""); tip.hidden = true; PV.hover = null; return; }
+    i = Math.max(0, Math.min(n-1, i)); PV.hover = i;
+    const s = series[i], x = X(i), y = Y(s.value), d = s.value - series[0].value;
+    $("#pvCross").removeAttribute("hidden");
+    $("#pvCrossLine").setAttribute("x1", x); $("#pvCrossLine").setAttribute("x2", x);
+    $("#pvCrossDot").setAttribute("cx", x); $("#pvCrossDot").setAttribute("cy", y);
+    tip.hidden = false; tip.textContent = "";
+    const b = document.createElement("b"); b.textContent = money(s.value);
+    const sm = document.createElement("span"); sm.textContent = `${dLabel(s.date)} · ${signed(d)}`;
+    tip.append(b, sm);
+    const tw = tip.offsetWidth; tip.style.left = Math.max(0, Math.min(W - tw, x - tw/2)) + "px";
+  };
+  const at = e => { const b = svg.getBoundingClientRect(), px = (e.clientX - b.left) * W / b.width; return n<2 ? 0 : Math.round((px - x0) / ((W - R - x0)/(n-1))); };
+  svg.addEventListener("pointermove", e => show(at(e)));
+  svg.addEventListener("pointerdown", e => show(at(e)));
+  svg.addEventListener("pointerleave", e => { if(e.pointerType==="mouse") show(null); });
+  svg.addEventListener("blur", () => show(null));
+  svg.addEventListener("keydown", e => {
+    const k = {ArrowLeft:-1, ArrowRight:1}[e.key];
+    if(k){ e.preventDefault(); show(PV.hover==null ? (k<0 ? n-1 : 0) : PV.hover + k); }
+    else if(e.key==="Home" || e.key==="End"){ e.preventDefault(); show(e.key==="Home" ? 0 : n-1); }
+  });
+  if(PV.hover!=null && PV.hover < n) show(PV.hover);
+}
+let pvResizeT;
+window.addEventListener("resize", () => { if(!PV.open) return; clearTimeout(pvResizeT); pvResizeT = setTimeout(() => { if(PV.open && S.mode!=="loading") pvChart(pvData().series); }, 150); });
+
+$("#pricingView").addEventListener("click", e => {
+  const t = e.target;
+  if(t.closest("#pvClose")) return closePricing();
+  const rg = t.closest("[data-pvrange]");
+  if(rg){ const k = rg.dataset.pvrange; if(k==="custom" && PV.range!=="custom"){ const D = pvData(); PV.from = D.r.from; PV.to = D.r.to; } PV.range = k; PV.hover = null; pvSave(); return renderPricing(); }
+  if(t.closest("#pvFilt")){ PV.filtOpen = !PV.filtOpen; pvSave(); return renderPricing(); }
+  if(t.closest("#pfClear")){ PV.filt = {...window.BinderFilter.EMPTY}; pvSave(); return renderPricing(); }
+  const g = t.closest("[data-pvgroup]"); if(g){ PV.group = g.dataset.pvgroup; PV.all = false; pvSave(); return renderPricing(); }
+  if(t.closest("#pvAll")){ PV.all = true; return renderPricing(); }
+  const cr = t.closest("[data-pvcard]"); if(cr) return openCard(cr.dataset.pvcard);
+  const gr = t.closest("[data-pvkey]");
+  if(gr){
+    const k = gr.dataset.pvkey;
+    if(PV.group==="binder") PV.scope = sortedBinders().find(b=>b.name===k)?.id || "__loose";
+    else if(PV.group==="set") PV.filt = {...PV.filt, set: k==="No set" ? "" : k};
+    else if(PV.group==="owner") PV.filt = {...PV.filt, owners: [OWNERS.find(o=>o[1]===k)?.[0] ?? ""]};
+    PV.group = "card"; PV.hover = null; pvSave(); renderPricing(); window.scrollTo({top:0, behavior: reduceMotion() ? "auto" : "smooth"}); return;
+  }
+});
+$("#pricingView").addEventListener("change", e => {
+  const t = e.target;
+  if(t.id==="pv_scope"){ PV.scope = t.value; PV.hover = null; }
+  else if(t.id==="pv_sort") PV.sort = t.value;
+  else if(t.id==="pv_from" || t.id==="pv_to"){ PV.from = $("#pv_from").value; PV.to = $("#pv_to").value; PV.hover = null; }
+  else if(t.closest("#pvPane")) PV.filt = filtersFrom("pf", "pvPane");
+  else return;
+  pvSave(); renderPricing();
+});
+$("#pricingView").addEventListener("input", e => {
+  if(e.target.id!=="pf_vMin" && e.target.id!=="pf_vMax") return;
+  PV.filt = filtersFrom("pf", "pvPane"); pvSave(); clearTimeout(S._pvt); S._pvt = setTimeout(renderPricing, 250);
+});
+$("#pricingView").addEventListener("keydown", e => {
+  const tr = e.target.closest && e.target.closest("tr[data-pvcard],tr[data-pvkey]");
+  if(tr && (e.key==="Enter" || e.key===" ")){ e.preventDefault(); tr.click(); }
 });
 
 /* ---------- full-screen photo viewer ---------- */
