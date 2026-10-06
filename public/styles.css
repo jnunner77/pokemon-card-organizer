@@ -596,6 +596,11 @@ tbody tr.found{background:var(--accent-soft);box-shadow:inset 4px 0 0 var(--acce
 .pv-tbar .field select{width:auto}
 .pv-table td.cellname span{display:block}
 .pv-more{text-align:center;padding:10px}
+.sv-chart .bar{fill:var(--info)}
+.sv-chart svg.hov .bar:not(.on){opacity:.45}
+.sv-chart .sv-sel{fill:var(--ink);opacity:.06;pointer-events:none}
+.sv-best{display:inline-block;max-width:16ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+.sv-table td.sv-date{white-space:nowrap;font-size:12px;color:var(--ink-2)}
 @media (max-width:640px){
   .pv-bar .field,.pv-bar .field select{width:100%;max-width:none}
   .pv-bar .seg,.pv-tbar .seg{width:100%}
@@ -603,4 +608,6 @@ tbody tr.found{background:var(--accent-soft);box-shadow:inset 4px 0 0 var(--acce
   .pv-chart{margin-inline:8px}
   .pv-table .hide-sm{display:none}
   .pv-table td,.pv-table th{padding:7px 6px}
+  .pv-tbar .seg.sv-groups{flex-wrap:wrap}
+  .pv-tbar .seg.sv-groups button{flex:1 1 25%}
 }

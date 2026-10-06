@@ -2,7 +2,7 @@
 //   DATA_DIR=$(mktemp -d) AUTH=off PRICE_UPDATES=off npm start
 //   BASE_URL=http://localhost:4100/ npm run test:e2e
 // It creates a binder and cards, prices, moves and sells one, finds it with Find, checks live
-// updates between two tabs, the Pricing view, a backup download, and the phone layout.
+// updates between two tabs, the Pricing and Selling views, a backup download, and the phone layout.
 import { chromium } from 'playwright';
 
 const BASE = process.env.BASE_URL || 'http://localhost:4100/';
@@ -112,6 +112,28 @@ try {
   await p.locator('#pvChart svg').waitFor();
   const pvOverflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   if (pvOverflow > 1) fail(`phone Pricing view scrolls sideways by ${pvOverflow}px`);
+
+  // Selling: sell the card again, then see it by occasion and as a card, on a computer and a phone.
+  await page.locator('[data-card]').filter({ hasText: 'Charizard ex' }).click();
+  await page.locator('#btnQuickSell').click();
+  await page.locator('[data-qsamt]').fill('30');
+  await page.locator('#qs_go').click();
+  await page.getByText(/Sold Charizard ex for \$30\.00/).waitFor();
+  await page.getByRole('button', { name: 'Selling' }).click();
+  await page.locator('[data-svrange="30d"]').click();
+  await page.locator('.pv-stats').getByText('$30.00').first().waitFor();
+  await page.locator('#svChart svg').waitFor();
+  await page.locator('[data-svgroup="occasion"]').click();
+  await page.locator('[data-svkey]').filter({ hasText: 'Card show' }).click();
+  await page.locator('#svFilt', { hasText: 'Filters · 1' }).waitFor();
+  await page.locator('[data-svcard]').filter({ hasText: 'Charizard ex' }).click();
+  await page.locator('#dTitle', { hasText: 'Charizard ex' }).waitFor();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Back to binders' }).click();
+  await p.getByRole('button', { name: 'Selling' }).click();
+  await p.locator('#svChart svg').waitFor();
+  const svOverflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  if (svOverflow > 1) fail(`phone Selling view scrolls sideways by ${svOverflow}px`);
 
   if (errors.length) fail(`page errors:\n${errors.join('\n')}`);
   console.log('Binder smoke test passed');
