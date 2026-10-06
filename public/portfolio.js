@@ -88,14 +88,36 @@
     return [...m.values()].map(g => ({ ...g, change: g.end - g.start, pct: pct(g.start, g.end) })).sort((a, b) => b.end - a.end);
   }
 
+  /* Sorting movers or groups: by the size of the move ($ or %), or by change, %, end value (value)
+     or start value, high to low or low to high. Rows without a % (nothing at the start) go last. */
+  const pctOf = (r, sign) => r.pct == null || !isFinite(r.pct) ? -Infinity : sign * r.pct;
   const SORTS = {
     change: (a, b) => Math.abs(b.change) - Math.abs(a.change),
+    pct: (a, b) => cmpDesc(pctOf(a, Math.sign(a.pct)), pctOf(b, Math.sign(b.pct))),
     gain: (a, b) => b.change - a.change,
     drop: (a, b) => a.change - b.change,
-    pct: (a, b) => Math.abs(b.pct ?? 0) - Math.abs(a.pct ?? 0),
-    value: (a, b) => b.end - a.end
+    pctGain: (a, b) => cmpDesc(pctOf(a, 1), pctOf(b, 1)),
+    pctDrop: (a, b) => cmpDesc(pctOf(a, -1), pctOf(b, -1)),
+    value: (a, b) => b.end - a.end,
+    valueLow: (a, b) => a.end - b.end,
+    start: (a, b) => b.start - a.start,
+    startLow: (a, b) => a.start - b.start
   };
+  function cmpDesc(x, y) { return x === y ? 0 : x > y ? -1 : 1; }
+  /* The sorts a column heading toggles between: [high to low, low to high]. */
+  const COLUMN_SORTS = { start: ["start", "startLow"], end: ["value", "valueLow"], change: ["gain", "drop"], pct: ["pctGain", "pctDrop"] };
+  /* The sort after clicking a column heading: high to low first, then flip. */
+  function columnSort(col, current) {
+    const pair = COLUMN_SORTS[col];
+    if (!pair) return current;
+    return current === pair[0] ? pair[1] : pair[0];
+  }
+  /* The column a sort orders by, and which way (1 low to high, -1 high to low), for the ▲/▼. */
+  function sortColumn(k) {
+    for (const col in COLUMN_SORTS) { const i = COLUMN_SORTS[col].indexOf(k); if (i >= 0) return { col, dir: i ? 1 : -1 }; }
+    return null;
+  }
   function sortRows(rows, k) { return rows.slice().sort((SORTS[k] || SORTS.change)); }
 
-  root.BinderPortfolio = { RANGES, isDate, addDays, daysBetween, history, valueAt, range, dates, series, movers, groups, sortRows };
+  root.BinderPortfolio = { RANGES, isDate, addDays, daysBetween, history, valueAt, range, dates, series, movers, groups, sortRows, columnSort, sortColumn };
 })(typeof window !== "undefined" ? window : globalThis);

@@ -130,8 +130,10 @@ binder, or the cards not in a binder:
 - **Value** at the end of the range, the **change** since its start ($ and %), and the high and
   low, with a chart of the total; point at (or tap, or use the arrow keys on) the chart to read any day.
 - **What moved:** the cards with the biggest moves, or added up by *Sets*, *Binders* or *Owners*,
-  sorted by biggest move, gain, drop, % move or value. Tap a card to open it; tap a set, binder
-  or owner to see just its cards.
+  sorted by the biggest move ($ or %), or by change, %, value or start value, high to low or low
+  to high (cards with no start price, so no %, go last). Pick it in *Sort by*, or click the
+  *Start*, *End*, *Change* or *%* heading, and again to flip it; ▼ is high to low, ▲ low to high.
+  Tap a card to open it; tap a set, binder or owner to see just its cards.
 
 Each day counts the cards you have now at that day's prices (their condition-adjusted value, as
 everywhere else). A card priced only later in the range counts at its first price before then, so
