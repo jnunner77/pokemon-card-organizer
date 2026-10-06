@@ -2473,7 +2473,8 @@ PV.filt = {...window.BinderFilter.EMPTY, ...(PV.filt||{})};
 const pvSave = () => store.set("pv", Object.fromEntries(PV_KEEP.map(k=>[k, PV[k]])));
 const PV_STATUSES = STATUSES.filter(([k]) => k!=="sold" && k!=="traded");
 const PV_GROUPS = [["card","Cards"],["set","Sets"],["binder","Binders"],["owner","Owners"]];
-const PV_SORTS = [["change","Biggest move"],["gain","Biggest gain"],["drop","Biggest drop"],["pct","Biggest % move"],["value","Highest value"]];
+const PV_SORTS = [["change","Biggest move ($)"],["pct","Biggest move (%)"],["gain","Change: high to low"],["drop","Change: low to high"],["pctGain","%: high to low"],["pctDrop","%: low to high"],
+  ["value","Value: high to low"],["valueLow","Value: low to high"],["start","Start: high to low"],["startLow","Start: low to high"]];
 const PV_KEYS = {set: c => window.BinderFilter.setOf(c) || "No set", binder: c => binderById(c.binderId)?.name || "Not in a binder", owner: c => c.owner || "Not set"};
 const dLabel = (d, year=true) => new Date(d+"T12:00:00Z").toLocaleDateString(undefined, {month:"short", day:"numeric", ...(year?{year:"numeric"}:{}), timeZone:"UTC"});
 const pctText = p => p==null || !isFinite(p) ? "—" : (p>=0?"+":"−") + Math.abs(p).toFixed(1) + "%";
@@ -2553,7 +2554,10 @@ function pvTable(rows){
   const body = list.map(x => isCard
     ? `<tr data-pvcard="${esc(x.card.id)}" tabindex="0"><td>${shown(x.card)?`<img class="thumb" src="${imgURL(shown(x.card))}" alt="" loading="lazy">`:`<span class="thumb"></span>`}</td><td class="cellname"><b>${esc(x.card.name||"Unnamed card")}</b><span>${esc([metaLine(x.card), locShort(x.card)].filter(Boolean).join(" · "))}</span></td>${nums(x)}</tr>`
     : `<tr data-pvkey="${esc(x.key)}" tabindex="0"><td class="cellname" colspan="2"><b>${esc(x.key)}</b><span>${x.n} card${x.n===1?"":"s"}</span></td>${nums(x)}</tr>`).join("");
-  return `${head}<div class="tablewrap"><table class="pv-table"><thead><tr><th></th><th>${isCard?"Card":PV_GROUPS.find(g=>g[0]===PV.group)[1].replace(/s$/,"")}</th><th class="r">Start</th><th class="r">End</th><th class="r">Change</th><th class="r hide-sm">%</th></tr></thead><tbody>${body}</tbody></table></div>
+  const by = P.sortColumn(PV.sort);
+  const th = (col, l, cls="") => { const on = by && by.col===col;
+    return `<th class="r${cls}"${on?` aria-sort="${by.dir>0?"ascending":"descending"}"`:""}><button type="button" data-pvsort="${col}" title="Sort by ${l==="%"?"% change":l.toLowerCase()}">${l}${on?(by.dir>0?" ▲":" ▼"):""}</button></th>`; };
+  return `${head}<div class="tablewrap"><table class="pv-table"><thead><tr><th></th><th>${isCard?"Card":PV_GROUPS.find(g=>g[0]===PV.group)[1].replace(/s$/,"")}</th>${th("start","Start")}${th("end","End")}${th("change","Change")}${th("pct","%"," hide-sm")}</tr></thead><tbody>${body}</tbody></table></div>
     ${cut?`<p class="pv-more"><button class="btn sm" type="button" id="pvAll">Show all ${total}</button></p>`:""}`;
 }
 
@@ -2617,6 +2621,7 @@ $("#pricingView").addEventListener("click", e => {
   if(t.closest("#pfClear")){ PV.filt = {...window.BinderFilter.EMPTY}; pvSave(); return renderPricing(); }
   const g = t.closest("[data-pvgroup]"); if(g){ PV.group = g.dataset.pvgroup; PV.all = false; pvSave(); return renderPricing(); }
   if(t.closest("#pvAll")){ PV.all = true; return renderPricing(); }
+  const so = t.closest("[data-pvsort]"); if(so){ PV.sort = window.BinderPortfolio.columnSort(so.dataset.pvsort, PV.sort); pvSave(); renderPricing(); document.querySelector(`#pricingView [data-pvsort="${so.dataset.pvsort}"]`)?.focus({preventScroll:true}); return; }
   const cr = t.closest("[data-pvcard]"); if(cr) return openCard(cr.dataset.pvcard);
   const gr = t.closest("[data-pvkey]");
   if(gr){

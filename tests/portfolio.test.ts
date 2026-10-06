@@ -17,6 +17,8 @@ interface Portfolio {
   movers: (items: { card: Card; hist: Point[] }[], from: string, to: string) => Row[];
   groups: (rows: Row[], keyOf: (c: Card) => string) => { key: string; n: number; start: number; end: number; change: number; pct: number | null }[];
   sortRows: (rows: Row[], k: string) => Row[];
+  columnSort: (col: string, current: string) => string;
+  sortColumn: (k: string) => { col: string; dir: number } | null;
 }
 const sandbox = { window: {} as { BinderPortfolio: Portfolio } };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../public/portfolio.js'), 'utf8'), sandbox);
@@ -97,5 +99,42 @@ describe('totals and movers', () => {
       { key: '30th', n: 2, start: 30, end: 36, change: 6, pct: 20 },
       { key: 'SVP', n: 1, start: 5, end: 4, change: -1, pct: -20 },
     ]);
+  });
+});
+
+describe('sorting what moved', () => {
+  const row = (name: string, start: number, end: number): Row => ({ card: { name }, start, end, change: end - start, pct: start > 0 ? ((end - start) / start) * 100 : null });
+  // Charizard: +$20 (+10%), Eevee: +$3 (+60%), Gengar: −$8 (−40%), Zubat: −$1 (−50%), Ditto: new, +$4 (no %)
+  const rows = [row('Charizard', 200, 220), row('Eevee', 5, 8), row('Gengar', 20, 12), row('Zubat', 2, 1), row('Ditto', 0, 4)];
+  const names = (k: string) => P.sortRows(rows, k).map((r) => r.card.name);
+
+  it('sorts by change and by %, high to low and low to high', () => {
+    expect(names('gain')).toEqual(['Charizard', 'Ditto', 'Eevee', 'Zubat', 'Gengar']);
+    expect(names('drop')).toEqual(['Gengar', 'Zubat', 'Eevee', 'Ditto', 'Charizard']);
+    expect(names('pctGain')).toEqual(['Eevee', 'Charizard', 'Gengar', 'Zubat', 'Ditto']);
+    expect(names('pctDrop')).toEqual(['Zubat', 'Gengar', 'Charizard', 'Eevee', 'Ditto']);
+  });
+
+  it('sorts by the size of the move, and by end or start value either way', () => {
+    expect(names('change')).toEqual(['Charizard', 'Gengar', 'Ditto', 'Eevee', 'Zubat']);
+    expect(names('pct')).toEqual(['Eevee', 'Zubat', 'Gengar', 'Charizard', 'Ditto']);
+    expect(names('value')).toEqual(['Charizard', 'Gengar', 'Eevee', 'Ditto', 'Zubat']);
+    expect(names('valueLow')).toEqual(['Zubat', 'Ditto', 'Eevee', 'Gengar', 'Charizard']);
+    expect(names('start')).toEqual(['Charizard', 'Gengar', 'Eevee', 'Zubat', 'Ditto']);
+    expect(names('startLow')).toEqual(['Ditto', 'Zubat', 'Eevee', 'Gengar', 'Charizard']);
+    expect(names('nonsense')).toEqual(names('change'));
+  });
+
+  it('flips a column heading between high to low and low to high', () => {
+    expect(P.columnSort('change', 'value')).toBe('gain');
+    expect(P.columnSort('change', 'gain')).toBe('drop');
+    expect(P.columnSort('change', 'drop')).toBe('gain');
+    expect(P.columnSort('pct', 'pct')).toBe('pctGain');
+    expect(P.columnSort('pct', 'pctGain')).toBe('pctDrop');
+    expect(P.columnSort('end', 'gain')).toBe('value');
+    expect(P.columnSort('start', 'start')).toBe('startLow');
+    expect(P.sortColumn('pctDrop')).toEqual({ col: 'pct', dir: 1 });
+    expect(P.sortColumn('value')).toEqual({ col: 'end', dir: -1 });
+    expect(P.sortColumn('change')).toBeNull();
   });
 });
