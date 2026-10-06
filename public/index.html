@@ -20,6 +20,7 @@
 <script src="layout.js" defer></script>
 <script src="filter.js" defer></script>
 <script src="portfolio.js" defer></script>
+<script src="selling.js" defer></script>
 <script src="app.js" defer></script>
 </head>
 <body>
@@ -34,6 +35,7 @@
     <div class="actions">
       <button class="btn find-btn" id="btnFind" type="button" aria-keyshortcuts="/" title="Find a card by name, set, set code or number (press /)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Find a card<kbd>/</kbd></button>
       <button class="btn" id="btnPricing" type="button" aria-pressed="false" title="What a binder or all your cards were worth over time"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 6-7"/></svg>Pricing</button>
+      <button class="btn" id="btnSelling" type="button" aria-pressed="false" title="What you've sold: by date, occasion, set and card"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>Selling</button>
       <button class="btn" id="btnImport" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h3l2-3h6l2 3h3v13H4z"/><circle cx="12" cy="13" r="4"/></svg>Import page photo</button>
       <button class="btn" id="btnCsvImport" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15V3m0 0-4 4m4-4 4 4M4 17v3h16v-3"/></svg>Import CSV</button>
       <button class="btn" id="btnExport" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v3h16v-3"/></svg>Export CSV</button>
@@ -60,6 +62,7 @@
     <div id="main"></div>
   </section>
   <section class="sheet pv" id="pricingView" aria-label="Pricing" hidden></section>
+  <section class="sheet pv sv" id="sellingView" aria-label="Selling" hidden></section>
 </div>
 <div id="drawerRoot"></div>
 <div id="modalRoot"></div>

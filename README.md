@@ -139,6 +139,27 @@ the line shows prices moving rather than cards being added. Placeholders and sol
 aren't counted. Daily prices are kept for 30 days and one a week before that, so ranges longer than
 a month are weekly at their start.
 
+## Selling
+
+*Selling* (next to *Pricing*) is the overview of everything you've sold, from **all binders** or the
+cards sold from one binder:
+
+- **Date range:** 7D, 30D, 90D, 1Y, All (the default, from your first sale), or *Custom* from / to dates.
+- **Filters:** owner, set, rarity, status (sold or traded), release year and **sold for** in CAD, like
+  the Pricing view's, plus **where** it sold. Kept separately and remembered on this device.
+- **Totals:** what it all sold for (cards and sales: a bundle is one sale), the **profit** and margin on
+  what the cards cost, the average per card and the best sale.
+- **Chart:** what sold each day (ranges up to a month), week (up to six months) or month; point at
+  (or tap, or use the arrow keys on) a bar to read its total, cards and profit.
+- **Sales by** *Cards*, *Occasions* (where and when: the card show on the 27th, eBay on the 3rd),
+  *Where*, *Sets*, *Binders* (sold from), *Owners* or *Months*, sorted by latest, highest sale, most
+  profit, biggest loss, best margin or most cards. Tap a card to open it; tap an occasion, place, set,
+  binder, owner or month to see just its sales.
+
+Profit is what each card sold for against what you paid for it, or its market price when you hadn't
+logged a paid price, as it was on the day you sold it (the same profit as the Sales tab). Cards with
+neither are counted in what sold but not in the profit.
+
 ## Placeholders
 
 A **placeholder** holds a pocket for a card you don't have yet: it sits in its pocket (dimmed, with a
@@ -327,4 +348,5 @@ BASE_URL=http://localhost:4100/ npm run test:e2e    # browser smoke test
   `config.ts` (administrators' settings), `app.ts` (HTTP API).
 - `public/`: `admin.html`/`admin.js` (Administration), `login.html`/`login.js` (sign-in).
 - `public/`: the page. `app.js` is the ledger UI; `search.js` matches cards for Find (tested in
-  `tests/search.test.ts`); `runtime.js` connects it to the server.
+  `tests/search.test.ts`); `portfolio.js` and `selling.js` work out the Pricing and Selling views'
+  numbers; `runtime.js` connects it to the server.
