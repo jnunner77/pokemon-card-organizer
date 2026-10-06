@@ -2511,7 +2511,7 @@ function renderPricing(){
   const hiAt = series.find(x=>x.value===hi), loAt = series.find(x=>x.value===lo);
   const nf = window.BinderFilter.count(PV.filt), priced = rows.length;
   const scopeOpts = [["all","All cards"], ...sortedBinders().map(b=>[b.id, b.name]), ...(looseCards().length || PV.scope==="__loose" ? [["__loose","Not in a binder"]] : [])];
-  const ranges = P.RANGES.map(([k,l]) => `<button type="button" data-pvrange="${k}" aria-pressed="${PV.range===k}">${l}</button>`).join("");
+  const ranges = P.RANGES.map(([k,l,,title]) => `<button type="button" data-pvrange="${k}" aria-pressed="${PV.range===k}"${title?` title="${esc(title)}"`:""}>${l}</button>`).join("");
   const custom = PV.range==="custom" ? `<span class="pv-dates"><label class="sr-only" for="pv_from">From</label><input id="pv_from" type="date" class="mono" value="${esc(r.from)}" max="${esc(today())}"><span>to</span><label class="sr-only" for="pv_to">To</label><input id="pv_to" type="date" class="mono" value="${esc(r.to)}" max="${esc(today())}"></span>` : "";
   const startsLate = D.earliest && D.earliest > r.from, yr = r.from.slice(0,4)!==r.to.slice(0,4);
   v.innerHTML = `
@@ -2705,7 +2705,7 @@ function renderSelling(){
   const a = document.activeElement, keepId = a && a.id && v.contains(a) ? a.id : null;
   const D = svData(), {r, t} = D, nf = svNf();
   const scopeOpts = [["all","All sales"], ...sortedBinders().map(b=>[b.id, b.name]), ...(D.all.some(x=>!binderById(svFrom(x))) || SV.scope==="__loose" ? [["__loose","Not from a binder"]] : [])];
-  const ranges = window.BinderPortfolio.RANGES.map(([k,l]) => `<button type="button" data-svrange="${k}" aria-pressed="${SV.range===k}">${l}</button>`).join("");
+  const ranges = window.BinderPortfolio.RANGES.filter(([k]) => k!=="1d").map(([k,l]) => `<button type="button" data-svrange="${k}" aria-pressed="${SV.range===k}">${l}</button>`).join("");
   const custom = SV.range==="custom" ? `<span class="pv-dates"><label class="sr-only" for="sv_from">From</label><input id="sv_from" type="date" class="mono" value="${esc(r.from)}" max="${esc(today())}"><span>to</span><label class="sr-only" for="sv_to">To</label><input id="sv_to" type="date" class="mono" value="${esc(r.to)}" max="${esc(today())}"></span>` : "";
   const wheres = [...new Set(D.base.map(x=>window.BinderSelling.whereOf(x.sale)))].sort((x,y)=>x.localeCompare(y));
   const whereSel = `<div class="field"><label for="sf_where">Where</label><select id="sf_where"><option value="">Anywhere</option>${opt(wheres, SV.filt.where)}</select></div>`;
