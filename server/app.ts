@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express, { type NextFunction, type Request, type Response } from 'express';
+import QRCode from 'qrcode';
 import { z } from 'zod';
 import { type Accounts, type Caller, type Role, SESSION_COOKIE, atLeast, schemas } from './accounts';
 import { Assets, MAX_IMAGE_BYTES } from './assets';
@@ -12,6 +13,7 @@ import { Backups } from './backups';
 import { dirBytes, freeBytes, runChecks } from './checks';
 import { Config, pricingConfigSchema, retentionSchema } from './config';
 import type { CardDetails } from './details';
+import { GUEST_COOKIE, GUEST_IDLE_MS, type Guests, guestCard, guestSchemas, isListed, shownImage } from './guests';
 import { CATEGORIES, LEVELS, type Logger, quietLogger } from './log';
 import { SourceError } from './pricing/sources';
 import type { PriceUpdater } from './pricing/updater';
@@ -45,19 +47,24 @@ export interface AppOptions {
   now?: () => Date;
   /** New cards filling themselves in, and Fill in missing details. */
   autofill?: Autofill;
+  /** Guests looking through the cards listed for sale; the guest routes answer 404 without it. */
+  guests?: Guests;
 }
 
 /** Largest restore upload. The reverse proxy may cap it lower; `npm run import-backup` has no cap. */
 const RESTORE_LIMIT = '200mb';
 /** Settings documents the page may write; the rest are the server's own. */
 const WRITABLE_SETTINGS = new Set(['main']);
-/** Anyone may load these: the sign-in page and what it needs. */
-const PUBLIC = [/^\/login\.(html|js)$/, /^\/styles\.css$/, /^\/icon\.svg$/, /^\/fonts\//, /^\/api\/(health|auth\/(me|login|logout|password|setup))$/];
+/**
+ * Anyone may load these: the sign-in page and what it needs, and the guest page (whose API checks
+ * for a signed-in guest itself).
+ */
+const PUBLIC = [/^\/login\.(html|js)$/, /^\/styles\.css$/, /^\/icon\.svg$/, /^\/fonts\//, /^\/api\/(health|auth\/(me|login|logout|password|setup))$/, /^\/guest\.(html|js)$/, /^\/(search|back)\.js$/, /^\/api\/guest\//];
 const PAGES = new Set(['/', '/index.html', '/admin.html']);
 const LOCAL = /^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/;
 
 export function createApp(o: AppOptions) {
-  const { store, assets, publicDir = path.join(root, 'public'), trustProxy, updater, accounts, security } = o;
+  const { store, assets, publicDir = path.join(root, 'public'), trustProxy, updater, accounts, security, guests } = o;
   const log = o.log ?? quietLogger();
   const config = o.config ?? new Config(store.dataDir);
   const now = o.now ?? (() => new Date());
@@ -70,6 +77,15 @@ export function createApp(o: AppOptions) {
   // ---- every request ------------------------------------------------------------------
   app.use(requestLog(log));
   app.use(securityHeaders);
+  // A guest from the QR code, if any, before the firewall so they get a guest's limits. Their page's
+  // once-a-minute check (GET /api/guest/me) doesn't count as using it, so idle guests still time out.
+  if (guests) {
+    app.use((req, res, next) => {
+      const token = readCookie(req, GUEST_COOKIE);
+      if (token) res.locals.guest = guests.identify(token, !(req.method === 'GET' && req.path === '/api/guest/me')) ?? undefined;
+      next();
+    });
+  }
   if (security) app.use(security.firewall);
 
   // Who is calling: a session cookie, an API token, or (without accounts) the local owner.
@@ -161,6 +177,61 @@ export function createApp(o: AppOptions) {
       if (token) accounts.endSession(token);
       res.clearCookie(SESSION_COOKIE, { path: '/' });
       res.status(204).end();
+    });
+  }
+
+  // ---- guests ---------------------------------------------------------------------------
+  // The guest page (guest.html, from the QR code): sign in with a name and a phone number or
+  // email, then only the cards listed for sale, their details, value and picture.
+  if (guests) {
+    type SignedInGuest = NonNullable<ReturnType<Guests['identify']>>;
+    const guestOf = (res: Response) => res.locals.guest as SignedInGuest | undefined;
+    const needGuest = (_req: Request, res: Response, next: NextFunction) => {
+      if (!guestOf(res)) throw new HttpError(401, 'Your guest visit ended. Sign in again to keep looking.', 'guest_signin');
+      next();
+    };
+    const usdToCad = () => Number(store.get('settings', 'main')?.usdToCad) || 1;
+    api.get('/guest/me', (req, res) => {
+      const g = guestOf(res);
+      const k = typeof req.query.k === 'string' ? req.query.k.slice(0, 100) : '';
+      res.json({
+        open: guests.settings.enabled,
+        keyOk: k ? guests.keyMatches(k) : null,
+        idleMinutes: GUEST_IDLE_MS / 60_000,
+        guest: g ? { name: g.name, contact: g.contact, expiresAt: g.expiresAt } : null,
+      });
+    });
+    api.post('/guest/login', json, (req, res) => {
+      const { token, guest } = guests.login(guestSchemas.login.parse(req.body), req.ip ?? '', req.get('user-agent') ?? '');
+      res.cookie(GUEST_COOKIE, token, { httpOnly: true, sameSite: 'lax', secure: req.secure, path: '/' });
+      res.json({ guest: { name: guest.name, contact: guest.contact } });
+    });
+    api.post('/guest/logout', (req, res) => {
+      const token = readCookie(req, GUEST_COOKIE);
+      if (token) guests.logout(token);
+      res.clearCookie(GUEST_COOKIE, { path: '/' });
+      res.status(204).end();
+    });
+    // The page's "still here": the guest used the page since the last check.
+    api.post('/guest/ping', needGuest, (_req, res) => {
+      res.json({ expiresAt: guestOf(res)!.expiresAt });
+    });
+    api.get('/guest/cards', needGuest, (_req, res) => {
+      const rate = usdToCad();
+      res.json({ cards: store.all().cards.filter(isListed).map((c) => guestCard(c, rate)) });
+    });
+    api.get('/guest/cards/:id/image', needGuest, (req, res) => {
+      const id = idSchema.safeParse(req.params.id);
+      const card = id.success ? store.get('cards', id.data) : undefined;
+      const img = card && isListed(card) ? shownImage(card) : null;
+      if (!img) throw new HttpError(404, 'No such picture', 'not_found');
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      // Photos saved before uploads were available are small data: URLs in the card itself.
+      const inline = /^data:(image\/(?:jpeg|png|webp|gif));base64,(.+)$/s.exec(img);
+      if (inline) return void res.type(inline[1]).send(Buffer.from(inline[2], 'base64'));
+      const hit = assets.find(img);
+      if (!hit) throw new HttpError(404, 'No such picture', 'not_found');
+      res.type(hit.type).sendFile(hit.file);
     });
   }
 
@@ -550,6 +621,56 @@ export function createApp(o: AppOptions) {
     const ok = security?.unban(String(req.params.ip)) ?? false;
     log.info('admin', `${who(res)} unblocked ${req.params.ip}`);
     res.json({ unblocked: ok });
+  });
+
+  // Guests
+  const needGuests = () => {
+    if (!guests) throw new HttpError(400, 'Guest viewing is not available on this server.');
+    return guests;
+  };
+  /** The QR code's link: next to the Administration page the person has open (base), or this host. */
+  const guestLink = (req: Request, key: string) => {
+    let base = `${req.protocol}://${req.get('host')}/`;
+    const asked = typeof req.query.base === 'string' ? req.query.base : '';
+    try {
+      const u = new URL(asked);
+      if (/^https?:$/.test(u.protocol) && u.host === req.get('host')) base = u.href;
+    } catch {
+      // No base, or not a link: this host.
+    }
+    const u = new URL('guest.html', base);
+    u.searchParams.set('k', key);
+    return u.href;
+  };
+  admin.get('/guests', async (req, res) => {
+    const g = needGuests();
+    const st = g.settings;
+    const url = guestLink(req, st.key);
+    res.json({
+      enabled: st.enabled,
+      keyCreatedAt: st.keyCreatedAt,
+      idleMinutes: GUEST_IDLE_MS / 60_000,
+      url,
+      qr: await QRCode.toString(url, { type: 'svg', errorCorrectionLevel: 'M', margin: 2 }),
+      listed: store.all().cards.filter(isListed).length,
+      active: g.active(),
+      log: g.visits(),
+    });
+  });
+  admin.put('/guests', json, (req, res) => {
+    const { enabled } = guestSchemas.settings.parse(req.body);
+    res.json({ enabled: needGuests().setEnabled(enabled, who(res)).enabled });
+  });
+  admin.post('/guests/key', (_req, res) => {
+    needGuests().newKey(who(res));
+    res.status(204).end();
+  });
+  admin.delete('/guests/sessions/:id', (req, res) => {
+    needGuests().endSession(String(req.params.id), who(res));
+    res.status(204).end();
+  });
+  admin.delete('/guests/log', (_req, res) => {
+    res.json({ removed: needGuests().clearLog(who(res)) });
   });
 
   // Logs

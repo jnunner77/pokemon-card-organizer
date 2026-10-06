@@ -1,5 +1,5 @@
 // Administration page: health and security checks, people, sign-in settings, API tokens,
-// sessions, backups, price updates, security and logs. Only administrators can open it.
+// sessions, guests, backups, price updates, security and logs. Only administrators can open it.
 (() => {
   "use strict";
   const $ = (s, r = document) => r.querySelector(s);
@@ -138,6 +138,58 @@
     main.querySelectorAll("[data-end]").forEach(b => b.onclick = () => act(() => api("DELETE", `admin/sessions/${b.dataset.end}`), "Session ended"));
   }
 
+  // ---- Guests --------------------------------------------------------------------------
+  const ENDED = { signout: "Signed out", timeout: "Timed out", admin: "Ended here", closed: "Guest viewing turned off", replaced: "Signed in again", restart: "Server restarted" };
+  let guestData = null;
+  async function guests() {
+    const g = guestData = await api("GET", "admin/guests?base=" + encodeURIComponent(location.href));
+    const contact = v => `<a href="${v.contactKind === "email" ? "mailto:" : "tel:"}${esc(v.contact)}">${esc(v.contact)}</a>`;
+    const active = g.active.map(v => `<tr><td><b>${esc(v.name)}</b></td><td>${contact(v)}</td><td class="mono">${when(v.startedAt)}</td><td class="mono">${when(v.lastSeenAt)}</td><td class="mono">${esc(v.ip)}</td><td><button class="btn sm" type="button" data-gend="${esc(v.id)}">End</button></td></tr>`).join("");
+    const visits = g.log.map(v => `<tr><td><b>${esc(v.name)}</b></td><td>${contact(v)}</td><td class="mono">${when(v.startedAt)}</td><td class="mono">${when(v.lastSeenAt)}</td><td>${v.ended ? esc(ENDED[v.ended] || v.ended) : chip("pass", "Looking now")}</td></tr>`).join("");
+    return `<div class="adminhead"><div class="stats">
+        <div class="stat"><span class="k">Guest viewing</span><span class="v ${g.enabled ? "pos" : ""}">${g.enabled ? "On" : "Off"}</span></div>
+        <div class="stat"><span class="k">Listed for sale</span><span class="v">${g.listed} <small>card${g.listed === 1 ? "" : "s"}</small></span></div>
+        <div class="stat"><span class="k">Looking now</span><span class="v">${g.active.length}</span></div>
+        <div class="stat"><span class="k">Visits logged</span><span class="v">${g.log.length}</span></div>
+      </div><button class="btn ${g.enabled ? "" : "primary"}" type="button" id="guestToggle">${g.enabled ? "Turn guest viewing off" : "Turn guest viewing on"}</button></div>
+      <div class="adminform"><h3>QR code</h3>
+        <div class="qrbox"><div class="qrcode" aria-label="QR code for the guest page" role="img">${g.qr}</div>
+          <div class="qrinfo">
+            <p class="hint">Guests scan this to look through every card marked <b>Listed for sale</b>. They give their name and a phone number or email, see only those cards (details, picture, and market value rounded up to the dollar, nothing else in the ledger), and are signed out after ${g.idleMinutes} minutes without use. No two guests at once share a name or a phone number or email.</p>
+            ${g.enabled ? "" : `<p>${chip("warn", "Guest viewing is off")} <span class="hint">The code says guest viewing is closed until you turn it on.</span></p>`}
+            <span class="qrlink" id="guestUrl">${esc(g.url)}</span>
+            <div class="tokenrow"><button class="btn primary" type="button" id="qrPrint">Print</button><a class="btn" href="${esc(g.url)}" target="_blank" rel="noopener">Open the guest page</a><button class="btn" type="button" id="qrCopy">Copy link</button><button class="btn danger" type="button" id="qrNew">New QR code</button></div>
+            <p class="hint">A new QR code makes the ones already printed or shared stop working (made ${when(g.keyCreatedAt)}). Guests looking now stay signed in. Turning guest viewing off signs every guest out.</p>
+          </div></div></div>
+      <h3 class="pad">Looking now</h3>
+      <div class="tablewrap"><table><thead><tr><th>Name</th><th>Phone or email</th><th>Signed in</th><th>Last active</th><th>Address</th><th></th></tr></thead><tbody>${active || `<tr><td colspan="6" class="empty-state">No guests are looking right now.</td></tr>`}</tbody></table></div>
+      <h3 class="pad">Guest log</h3>
+      <div class="tablewrap"><table><thead><tr><th>Name</th><th>Phone or email</th><th>Signed in</th><th>Last active</th><th>Ended</th></tr></thead><tbody>${visits || `<tr><td colspan="5" class="empty-state">No guests yet.</td></tr>`}</tbody></table></div>
+      <div class="formfoot pad"><span class="hint">Kept on this server only (not in backups), the newest 2,000 visits.</span><button class="btn sm danger" type="button" id="guestClear" ${g.log.length ? "" : "disabled"}>Clear the log</button></div>`;
+  }
+  function wireGuests() {
+    const g = guestData;
+    $("#guestToggle").onclick = () => {
+      if (g.enabled && g.active.length && !confirm(`Turn guest viewing off? The ${g.active.length} guest${g.active.length === 1 ? "" : "s"} looking now will be signed out.`)) return;
+      act(() => api("PUT", "admin/guests", { enabled: !g.enabled }), g.enabled ? "Guest viewing is off" : "Guest viewing is on");
+    };
+    $("#qrNew").onclick = () => { if (confirm("Make a new QR code? Codes already printed or shared stop working. Guests looking now stay signed in.")) act(() => api("POST", "admin/guests/key"), "New QR code made; print it again"); };
+    $("#qrCopy").onclick = () => navigator.clipboard?.writeText(g.url).then(() => toast("Link copied"), () => toast("Couldn't copy; select the link instead."));
+    $("#qrPrint").onclick = () => {
+      const sheet = document.createElement("div");
+      sheet.className = "qrprint";
+      sheet.innerHTML = `<h1>Cards for sale</h1><p>Scan with your phone's camera to look through them.</p><div class="qrcode">${g.qr}</div>`;
+      document.body.append(sheet);
+      document.body.classList.add("printing-qr");
+      const done = () => { document.body.classList.remove("printing-qr"); sheet.remove(); window.removeEventListener("afterprint", done); };
+      window.addEventListener("afterprint", done);
+      window.print();
+      setTimeout(done, 1000);
+    };
+    main.querySelectorAll("[data-gend]").forEach(b => b.onclick = () => act(() => api("DELETE", `admin/guests/sessions/${b.dataset.gend}`), "Guest signed out"));
+    $("#guestClear").onclick = () => { if (confirm("Clear the guest log? Names and phone numbers or emails of past guests are deleted for good.")) act(() => api("DELETE", "admin/guests/log"), "Guest log cleared"); };
+  }
+
   // ---- Backups -------------------------------------------------------------------------
   const KIND = { daily: "Daily", snapshot: "Snapshot", "before-restore": "Before a restore" };
   async function backups() {
@@ -198,7 +250,7 @@
       <p class="hint pad">An address is blocked after ${L.ban.violations} over-limit requests, ${L.ban.authFailures} failed sign-ins or ${L.ban.notFound} requests for missing API paths within ${Math.round(L.ban.windowMs / 60000)} minutes. The first block lasts ${Math.round(L.ban.durationMs / 60000)} minutes and each further one that day twice as long, up to ${Math.round(L.ban.maxDurationMs / 3600000)} hours.${s.allowlist.filter(Boolean).length ? ` Never limited: ${s.allowlist.filter(Boolean).map(esc).join(", ")}.` : ""}</p>
       <h3 class="pad">Limits</h3>
       <div class="tablewrap"><table><thead><tr><th>What</th><th class="r">At once</th><th class="r">Per minute</th></tr></thead><tbody>
-        ${lim("Every request, per address", L.ip)}${lim("Before signing in, per address", L.anonymous)}${lim("Signed in, per person", L.user)}${lim("Changes, per person", L.mutations)}${lim("Sign-in attempts, per address", L.signIn)}${lim("Backups, restores and price operations, per person", L.heavy)}
+        ${lim("Every request, per address", L.ip)}${lim("Before signing in, per address", L.anonymous)}${lim("Signed in, per person", L.user)}${lim("Changes, per person", L.mutations)}${lim("Sign-in attempts, per address", L.signIn)}${lim("Backups, restores and price operations, per person", L.heavy)}${L.guest ? lim("Guests, per guest", L.guest) + lim("Guest sign-ins, per address", L.guestSignIn) : ""}
       </tbody></table></div>
       <h3 class="pad">Recent security events</h3><ul class="events">${events || `<li class="hint">None.</li>`}</ul>`;
   }
@@ -231,7 +283,7 @@
   }
 
   // ---- routing -------------------------------------------------------------------------
-  const VIEWS = { overview: [overview], people: [people, wirePeople], signin: [signin, wireSignin], tokens: [tokens, wireTokens], sessions: [sessions, wireSessions], backups: [backups, wireBackups], prices: [prices, wirePrices], security: [security, wireSecurity], logs: [logs, wireLogs] };
+  const VIEWS = { overview: [overview], people: [people, wirePeople], signin: [signin, wireSignin], tokens: [tokens, wireTokens], sessions: [sessions, wireSessions], guests: [guests, wireGuests], backups: [backups, wireBackups], prices: [prices, wirePrices], security: [security, wireSecurity], logs: [logs, wireLogs] };
   async function show() {
     const key = (location.hash.slice(1) in VIEWS) ? location.hash.slice(1) : "overview";
     document.querySelectorAll(".admintabs .tab").forEach(t => t.setAttribute("aria-selected", t.getAttribute("href") === "#" + key));

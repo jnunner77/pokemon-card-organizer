@@ -2,7 +2,8 @@
 //   DATA_DIR=$(mktemp -d) AUTH=off PRICE_UPDATES=off npm start
 //   BASE_URL=http://localhost:4100/ npm run test:e2e
 // It creates a binder and cards, prices, moves and sells one, finds it with Find, checks live
-// updates between two tabs, the Pricing and Selling views, a backup download, and the phone layout.
+// updates between two tabs, the Pricing and Selling views, a backup download, the phone layout, and
+// a guest from the QR code looking through the cards listed for sale on a phone.
 import { chromium } from 'playwright';
 
 const BASE = process.env.BASE_URL || 'http://localhost:4100/';
@@ -134,6 +135,29 @@ try {
   await p.locator('#svChart svg').waitFor();
   const svOverflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   if (svOverflow > 1) fail(`phone Selling view scrolls sideways by ${svOverflow}px`);
+
+  // Guests: list a card for sale, turn guest viewing on, and look at it from the QR code's link on a phone.
+  const listed = await page.request.put(new URL('api/docs/cards/e2e-listed', BASE).href, { data: { name: 'Pikachu', set: 'Base Set', number: '58/102', status: 'listed', condition: 'Near Mint', prices: [{ type: 'market', amount: 4.2, currency: 'CAD', date: '2026-10-01' }] } });
+  if (!listed.ok()) fail(`listing a card: ${listed.status()}`);
+  await page.goto(new URL('admin.html#guests', BASE).href);
+  await page.getByRole('button', { name: 'Turn guest viewing on' }).click();
+  await page.getByText('Guest viewing is on').first().waitFor();
+  const guestUrl = await page.locator('#guestUrl').textContent();
+  const g = await (await browser.newContext({ viewport: { width: 375, height: 740 }, hasTouch: true, isMobile: true })).newPage();
+  watch(g);
+  await g.goto(guestUrl);
+  await g.locator('#gName').fill('Ash Ketchum');
+  await g.locator('#gContact').fill('604-555-0199');
+  await g.getByRole('button', { name: 'See the cards' }).click();
+  await g.locator('.gcard').filter({ hasText: 'Pikachu' }).filter({ hasText: '$5' }).waitFor();
+  if ((await g.locator('.gcard').count()) !== 1) fail('guest sees cards that are not listed for sale');
+  await g.locator('#gQuery').fill('58/102');
+  await g.locator('.gcard').filter({ hasText: 'Pikachu' }).click();
+  await g.locator('#lbCap').getByText('Pikachu').waitFor();
+  await g.getByRole('button', { name: 'Close full screen' }).click();
+  const gOverflow = await g.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  if (gOverflow > 1) fail(`phone guest page scrolls sideways by ${gOverflow}px`);
+  if ((await g.request.get(new URL('api/guest/cards', BASE).href)).status() !== 200) fail('guest card list');
 
   if (errors.length) fail(`page errors:\n${errors.join('\n')}`);
   console.log('Binder smoke test passed');

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex">
+<title>Cards for sale · Pokémon Binder Ledger</title>
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="fonts/archivo/wdth.css">
+<link rel="stylesheet" href="fonts/jetbrains-mono/latin-400.css">
+<link rel="stylesheet" href="fonts/jetbrains-mono/latin-600.css">
+<link rel="stylesheet" href="styles.css">
+<script src="search.js" defer></script>
+<script src="back.js" defer></script>
+<script src="guest.js" defer></script>
+</head>
+<body>
+<main class="signin" id="gStart">
+  <form class="mcard narrow" id="gSignin" hidden novalidate>
+    <h1>Cards for sale</h1>
+    <p class="lead" id="gLead">Look through every card we have for sale. Tell us who you are to start.</p>
+    <div class="field"><label for="gName">Your name</label><input id="gName" name="name" autocomplete="name" maxlength="80" required></div>
+    <div class="field"><label for="gContact">Phone number or email</label><input id="gContact" name="contact" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="120" required></div>
+    <p class="hint">We keep your name and phone number or email in our visitor list, so we know who looked and can follow up if you ask about a card. We don't share it. You're signed out after <span data-idle>15</span> minutes without use.</p>
+    <p class="hint msg" role="alert"></p>
+    <div class="mfoot"><button class="btn primary" type="submit">See the cards</button></div>
+  </form>
+  <div class="mcard narrow" id="gClosed" hidden>
+    <h1>Cards for sale</h1>
+    <p class="lead" id="gClosedText"></p>
+  </div>
+  <p class="empty-state" id="gLoading">Loading…</p>
+</main>
+<div class="app guest" id="gMain" hidden>
+  <header class="top">
+    <div class="brand"><div>
+      <h1>Cards for sale</h1>
+      <p id="gWho"></p>
+    </div></div>
+    <button class="btn" type="button" id="gSignout">Sign out</button>
+  </header>
+  <div class="gbar" role="search">
+    <label class="search"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="gQuery" type="search" placeholder="Find a card: name, set or number" aria-label="Find a card" autocomplete="off" autocapitalize="none" spellcheck="false" enterkeyhint="search"></label>
+    <select id="gSort" aria-label="Sort cards">
+      <option value="value-desc">Price: high to low</option>
+      <option value="value-asc">Price: low to high</option>
+      <option value="name">Name</option>
+      <option value="new">Newest set first</option>
+      <option value="old">Oldest set first</option>
+    </select>
+  </div>
+  <p class="hint gcount" id="gCount" aria-live="polite"></p>
+  <div class="ggrid" id="gGrid"></div>
+</div>
+<div id="lbRoot"></div>
+<div id="toastRoot"></div>
+</body>
+</html>

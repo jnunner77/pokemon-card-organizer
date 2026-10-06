@@ -6,6 +6,7 @@ import { Autofill } from './autofill';
 import { Backups } from './backups';
 import { Config } from './config';
 import { CardDetails } from './details';
+import { Guests } from './guests';
 import { Logger } from './log';
 import { PriceUpdater } from './pricing/updater';
 import { Security } from './security';
@@ -33,6 +34,10 @@ else log.warn('security', 'AUTH=off: sign-in is turned off and anyone who can re
 const security = new Security({ allowlist: (env.SECURITY_ALLOWLIST ?? '').split(',').map((s) => s.trim()).filter(Boolean) }, log);
 security.start();
 
+// Guests from the QR code (off until an administrator turns guest viewing on).
+const guests = new Guests(dataDir, log);
+guests.start();
+
 // CARD_LOOKUPS=off: no TCGdex lookups (card details) at all.
 const details = env.CARD_LOOKUPS === 'off' ? undefined : new CardDetails();
 const updater = new PriceUpdater({ store, assets, log, config, details, timeZone: env.TZ || 'America/Vancouver' });
@@ -52,6 +57,7 @@ const app = createApp({
   backups,
   details,
   autofill,
+  guests,
   envPassword: env.BINDER_PASSWORD,
   trustProxy: trust === undefined ? undefined : /^\d+$/.test(trust) ? Number(trust) : trust === 'true',
 });
@@ -91,6 +97,7 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) {
     updater.stopScheduler();
     autofill?.stop();
     security.stop();
+    guests.stop();
     accounts?.flush();
     server.close(() => process.exit(0));
     server.closeAllConnections();
