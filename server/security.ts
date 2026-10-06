@@ -36,6 +36,13 @@ export interface SecurityOptions {
   signIn: Limit;
   /** Expensive operations (backups, restores, price runs, price-site searches) per person. */
   heavy: Limit;
+  /** Every request (cards, pictures, pages) per signed-in guest, instead of the per-address limit. */
+  guest: Limit;
+  /**
+   * Guest sign-in and the guest page's start-up check, per address. Looser than signIn: at a card
+   * show many guests share the venue's Wi-Fi or a phone network's address.
+   */
+  guestSignIn: Limit;
   streamsPerUser: number;
   streamsPerIp: number;
   streamsTotal: number;
@@ -57,6 +64,8 @@ export const DEFAULT_SECURITY: SecurityOptions = {
   mutations: { burst: 100, perMinute: 240 },
   signIn: { burst: 5, perMinute: 5 },
   heavy: { burst: 10, perMinute: 6 },
+  guest: { burst: 300, perMinute: 600 },
+  guestSignIn: { burst: 40, perMinute: 60 },
   streamsPerUser: 10,
   streamsPerIp: 20,
   streamsTotal: 200,
@@ -179,7 +188,7 @@ export interface BanInfo {
 
 export class Security {
   readonly options: SecurityOptions;
-  private readonly buckets: Record<'ip' | 'anonymous' | 'user' | 'mutations' | 'signIn' | 'heavy', TokenBucket>;
+  private readonly buckets: Record<'ip' | 'anonymous' | 'user' | 'mutations' | 'signIn' | 'heavy' | 'guest' | 'guestSignIn', TokenBucket>;
   private readonly violations: EventCounter;
   private readonly authFailures: EventCounter;
   private readonly notFounds: EventCounter;
@@ -201,7 +210,7 @@ export class Security {
     this.options = { ...DEFAULT_SECURITY, ...options, ban: { ...DEFAULT_SECURITY.ban, ...options.ban } };
     const o = this.options;
     const b = (l: Limit) => new TokenBucket(l, o.maxTrackedKeys, now);
-    this.buckets = { ip: b(o.ip), anonymous: b(o.anonymous), user: b(o.user), mutations: b(o.mutations), signIn: b(o.signIn), heavy: b(o.heavy) };
+    this.buckets = { ip: b(o.ip), anonymous: b(o.anonymous), user: b(o.user), mutations: b(o.mutations), signIn: b(o.signIn), heavy: b(o.heavy), guest: b(o.guest), guestSignIn: b(o.guestSignIn) };
     this.violations = new EventCounter(o.ban.windowMs, o.maxTrackedKeys, now);
     this.authFailures = new EventCounter(o.ban.windowMs, o.maxTrackedKeys, now);
     this.notFounds = new EventCounter(o.ban.windowMs, o.maxTrackedKeys, now);
@@ -296,7 +305,10 @@ export class Security {
     }
     const p = req.path;
     if (p === '/api/health') return next();
-    this.check('ip', ip, ip);
+    // A signed-in guest has their own limit, so guests sharing a venue's address don't use up each other's.
+    const guest = res.locals.guest as { id: string } | undefined;
+    if (guest) this.check('guest', `guest:${guest.id}`, ip);
+    else this.check('ip', ip, ip);
     res.on('finish', () => {
       if (res.statusCode === 401 && SIGN_IN_PATHS.has(p)) this.count(this.authFailures, ip, this.options.ban.authFailures, 'too many failed sign-ins');
       else if (res.statusCode === 404 && p.startsWith('/api/')) this.count(this.notFounds, ip, this.options.ban.notFound, 'probing for API paths');
@@ -308,7 +320,10 @@ export class Security {
   apiLimits = (req: Request, res: Response, next: NextFunction) => {
     const ip = req.ip ?? 'unknown';
     const who = res.locals.user as { id: string } | undefined;
-    if (!who) this.check('anonymous', ip, ip);
+    // Guests were limited by the firewall already; their sign-in has its own, looser, per-address limit.
+    if (!who && res.locals.guest) return next();
+    if (!who && req.path.startsWith('/guest/')) this.check('guestSignIn', ip, ip, 'guest sign-ins from your network');
+    else if (!who) this.check('anonymous', ip, ip);
     else {
       this.check('user', who.id, ip);
       if (MUTATING.has(req.method)) this.check('mutations', who.id, ip, 'changes');

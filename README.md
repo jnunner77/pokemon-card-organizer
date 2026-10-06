@@ -249,6 +249,30 @@ when you've rearranged the binder and want to keep the new layout instead.
   The server also keeps the ledger as it was at the start of each of the last 14 days.
 - **Live updates** between every open tab and device.
 
+## Guests from a QR code
+
+Let people at a card show (or anyone you hand the code to) look through what's for sale on their
+own phone, without an account:
+
+1. *Settings → Administration → Guests*: **Turn guest viewing on** and **Print** the QR code (or
+   copy its link).
+2. A guest scans it and gives their **name** and a **phone number or email**, then sees every card
+   marked **Listed for sale**: its picture, name, set, number, rarity, variant, language,
+   condition or grade, illustrator, release year and **market value rounded up to the dollar**.
+   They can search like *Find a card* (name, set, set code or number), sort by price, name or
+   set date, and tap a card to flip through them all full screen (swipe, or the arrow keys).
+3. Nothing else in the ledger reaches a guest: not what you paid, sales, notes, owner, where a
+   card sits, its price log or any other card or picture.
+
+Guests are signed out after **15 minutes without use** and can sign in again. Several can look
+at once, but no two at the same time with the same name or the same phone number or email; giving
+the same name and contact again carries on where that guest was (another device is signed out).
+
+The Guests page shows who's looking now (with *End*), and a **guest log** of every visit: name,
+phone or email, when they signed in, were last active and how the visit ended. *New QR code* makes
+codes already printed or shared stop working; turning guest viewing off signs every guest out.
+Guests' names and contacts stay on the server, never in backups; *Clear the log* deletes them.
+
 ## People and administration
 
 Everyone signs in with a username and password. Roles: **administrator** (everything,
@@ -266,6 +290,8 @@ including Administration), **editor** (changes the ledger) and **viewer** (looks
 - **API tokens:** for scripts and assistants (`Authorization: Bearer binder_…`); a token acts as
   one person, read-only or read & write, never with administrator rights, and always expires.
 - **Sessions:** who is signed in where; end any session.
+- **Guests:** guest viewing on/off, the QR code, guests looking now and the guest log (see
+  [Guests from a QR code](#guests-from-a-qr-code)).
 - **Backups:** full backup download; copies on the server (daily, thinning out to weekly and
   monthly) and snapshots, each downloadable or restorable; how long copies are kept.
 - **Prices:** daily schedule (on/off, hour), update now, recent runs with their problems.
@@ -284,7 +310,9 @@ including Administration), **editor** (changes the ledger) and **viewer** (looks
   sign-in attempts and for backups, restores and price-site searches), with `Retry-After`.
   Addresses that keep going over the limits, failing sign-in or probing for API paths are
   blocked for 15 minutes, then 30, 60 … up to a day for repeat offenders. Live-update
-  connections are capped. `SECURITY_ALLOWLIST` exempts trusted addresses.
+  connections are capped. `SECURITY_ALLOWLIST` exempts trusted addresses. Signed-in guests have a
+  limit each instead of their address's, and guest sign-in a looser one per address, so a venue's
+  shared Wi-Fi isn't blocked.
 - **Requests:** changes from other websites are refused; bodies are size-limited; uploads are
   checked by their bytes; slow requests are dropped (header and request timeouts).
 - **Browser:** strict Content Security Policy, HSTS over HTTPS, no framing, nosniff,
@@ -327,7 +355,8 @@ photos and the official pictures; deleted ones in `assets/.trash` for 400 days),
 (daily, weekly and monthly copies, snapshots, and the ledger before every restore), `logs/` (a
 file per day, two weeks), `admin.json` (backup retention, price schedule), `auth.json` and
 `sessions.json` (people, password hashes, API token hashes and sessions; never in backups or
-responses), `status.txt` (the Overview's checks and the cards that need a person, rewritten every
+responses), `guests.json` (guest viewing on/off, the QR code's key and the guest log; never in
+backups), `status.txt` (the Overview's checks and the cards that need a person, rewritten every
 five minutes for the server's nightly job) and `offsite.json` (written by that job after it copies
 a backup off the server).
 
@@ -350,8 +379,10 @@ BASE_URL=http://localhost:4100/ npm run test:e2e    # browser smoke test
 - `server/`: `store.ts` (ledger file and change feed), `assets.ts` (pictures), `backup.ts`
   (full backups), `backups.ts` (copies and retention), `accounts.ts` (people, sessions, API
   tokens), `security.ts` (rate limits and blocks), `log.ts`, `checks.ts` (Overview checks),
-  `config.ts` (administrators' settings), `app.ts` (HTTP API).
-- `public/`: `admin.html`/`admin.js` (Administration), `login.html`/`login.js` (sign-in).
+  `config.ts` (administrators' settings), `guests.ts` (guest sign-in, sessions, log, and what guests
+  see of a card; tested in `tests/guests.test.ts`), `app.ts` (HTTP API).
+- `public/`: `admin.html`/`admin.js` (Administration), `login.html`/`login.js` (sign-in),
+  `guest.html`/`guest.js` (the guest page).
 - `public/`: the page. `app.js` is the ledger UI; `search.js` matches cards for Find (tested in
   `tests/search.test.ts`); `portfolio.js` and `selling.js` work out the Pricing and Selling views'
   numbers; `back.js` makes Back close a card's details (tested in `tests/back.test.ts`); `runtime.js` connects it to the server.
