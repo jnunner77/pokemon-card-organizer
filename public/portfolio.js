@@ -7,7 +7,8 @@
   "use strict";
 
   const DAY = 86400000;
-  const RANGES = [["7d", "7D", 7], ["30d", "30D", 30], ["90d", "90D", 90], ["1y", "1Y", 365], ["all", "All"], ["custom", "Custom"]];
+  /* [key, button label, days back from today, button title]; 1D is the Pricing view's own (not Selling's). */
+  const RANGES = [["1d", "1D", 1, "Since yesterday"], ["7d", "7D", 7], ["30d", "30D", 30], ["90d", "90D", 90], ["1y", "1Y", 365], ["all", "All"], ["custom", "Custom"]];
   const isDate = d => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d) && !isNaN(Date.parse(d + "T12:00:00Z"));
   const addDays = (d, n) => new Date(Date.parse(d + "T12:00:00Z") + n * DAY).toISOString().slice(0, 10);
   const daysBetween = (a, b) => Math.round((Date.parse(b + "T12:00:00Z") - Date.parse(a + "T12:00:00Z")) / DAY);

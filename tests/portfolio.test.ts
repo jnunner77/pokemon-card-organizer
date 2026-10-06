@@ -49,6 +49,7 @@ describe('a card’s value history', () => {
 
 describe('date ranges', () => {
   it('counts back from today for the presets', () => {
+    expect(P.range('1d', '2026-10-01')).toEqual({ from: '2026-09-30', to: '2026-10-01' });
     expect(P.range('7d', '2026-10-05')).toEqual({ from: '2026-09-28', to: '2026-10-05' });
     expect(P.range('1y', '2026-10-05')).toEqual({ from: '2025-10-05', to: '2026-10-05' });
   });

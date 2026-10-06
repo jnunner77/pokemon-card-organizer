@@ -124,7 +124,8 @@ buttons. *Owner* sets the owner of every selected card; for example, to make eve
 *Pricing* (next to *Find a card*) shows what your cards are worth over time, for **All cards**, one
 binder, or the cards not in a binder:
 
-- **Date range:** 7D, 30D, 90D, 1Y, All (from the first price), or *Custom* from / to dates.
+- **Date range:** 1D (since yesterday: what the latest daily price update changed), 7D, 30D, 90D,
+  1Y, All (from the first price), or *Custom* from / to dates.
 - **Filters:** owner, set, rarity, status, release year and value, like the List view's (kept
   separately, and remembered on this device).
 - **Value** at the end of the range, the **change** since its start ($ and %), and the high and
