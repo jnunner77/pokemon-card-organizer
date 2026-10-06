@@ -226,6 +226,8 @@ when you've rearranged the binder and want to keep the new layout instead.
   Swipe between pages on a phone.
 - **Cards** with set, number, rarity, variant, language, condition, grading, illustrator,
   status (in binder, listed, out for grading, sold, traded) and notes.
+  Tap a card to open its details; the phone's Back gesture (or the browser's Back button) closes
+  them and keeps you on the binder.
 - **Find a card** (the *Find a card* button, or press `/`): type a Pokémon name, set name, set code
   or set number, in any combination ("pikachu m22", "base set 2 118", "7/15"). Each match shows
   where it is; **Show in binder** turns to its binder and page and highlights the pocket (loose and
@@ -349,4 +351,4 @@ BASE_URL=http://localhost:4100/ npm run test:e2e    # browser smoke test
 - `public/`: `admin.html`/`admin.js` (Administration), `login.html`/`login.js` (sign-in).
 - `public/`: the page. `app.js` is the ledger UI; `search.js` matches cards for Find (tested in
   `tests/search.test.ts`); `portfolio.js` and `selling.js` work out the Pricing and Selling views'
-  numbers; `runtime.js` connects it to the server.
+  numbers; `back.js` makes Back close a card's details (tested in `tests/back.test.ts`); `runtime.js` connects it to the server.

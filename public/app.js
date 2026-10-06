@@ -495,10 +495,14 @@ function openNew(loc){
   renderMain(); renderDrawer(true);
 }
 function closeDrawer(){ S.pricePick=null; S.pickRes=null; S.sel=null; S.draft=null; S.dirty=false; S.editPrice=null; S.confirm=null; renderMain(); renderDrawer(true); }
+/* Back (the phone's gesture or the browser's button) closes the drawer instead of leaving the page */
+const BACK = window.BackClose.create(history, () => { if(S.sel) closeDrawer(); });
+addEventListener("popstate", e => BACK.popstate(e.state));
 const opt = (list, v) => list.map(o => { const [val,lab] = Array.isArray(o)?o:[o,o]; return `<option value="${esc(val)}" ${String(v)===String(val)?"selected":""}>${esc(lab)}</option>`; }).join("");
 function renderDrawer(force){
   const root = $("#drawerRoot");
   const c = selCard();
+  BACK.sync(!!c);
   if(!c){ root.innerHTML=""; root.dataset.showing=""; return; }
   if(!force && root.dataset.showing===S.sel && $("#cardForm")){ if(S.sel!=="__new") refreshParts(c); return; }
   S.priceTouched=false; S.moveTouched=false; root.dataset.showing=S.sel; resetLookup();
