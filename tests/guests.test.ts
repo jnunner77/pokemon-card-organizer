@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import request from 'supertest';
@@ -63,6 +65,45 @@ async function guest(app: ReturnType<typeof makeApp>, name: string, contact: str
   const r = await agent.post('/api/guest/login').send({ key, name, contact });
   return { agent, r };
 }
+
+/** A guest page's live updates (GET /api/guest/events): the lists of cards as they arrive. */
+async function listen(app: ReturnType<typeof makeApp>, loginResponse: request.Response) {
+  const cookie = String(loginResponse.headers['set-cookie']?.[0] ?? '').split(';')[0];
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise((ok) => server.once('listening', ok));
+  const { port } = server.address() as AddressInfo;
+  const res = await new Promise<http.IncomingMessage>((ok, bad) => http.get({ host: '127.0.0.1', port, path: '/api/guest/events', headers: { cookie } }, ok).on('error', bad));
+  const lists: { id: string; value: number | null }[][] = [];
+  let ended = false;
+  let buf = '';
+  res.setEncoding('utf8');
+  res.on('data', (chunk: string) => {
+    buf += chunk;
+    for (let i = buf.indexOf('\n\n'); i >= 0; i = buf.indexOf('\n\n')) {
+      const block = buf.slice(0, i);
+      buf = buf.slice(i + 2);
+      const data = /^data: (.*)$/m.exec(block);
+      if (/^event: cards$/m.test(block) && data) lists.push(JSON.parse(data[1]));
+    }
+  });
+  res.on('end', () => (ended = true));
+  return {
+    status: res.statusCode,
+    lists,
+    ended: () => ended,
+    ids: (n: number) => lists[n].map((c) => c.id).sort(),
+    close() {
+      res.destroy();
+      server.closeAllConnections();
+      server.close();
+    },
+  };
+}
+const until = async (ok: () => boolean) => {
+  for (let i = 0; i < 300 && !ok(); i++) await new Promise((r) => setTimeout(r, 10));
+  expect(ok()).toBe(true);
+};
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe('who a guest is', () => {
   it('compares names without case or extra spaces', () => {
@@ -196,6 +237,78 @@ describe('guest viewing', () => {
   });
 });
 
+describe("guests' live updates", () => {
+  it('push the cards guests see to their open page as soon as they change', async () => {
+    seed();
+    const app = makeApp();
+    guests.setEnabled(true, 'test');
+    const { agent, r } = await guest(app, 'Ash', 'ash@pallet.town');
+    const live = await listen(app, r);
+    try {
+      expect(live.status).toBe(200);
+      // On connecting: the list as it is now.
+      await until(() => live.lists.length === 1);
+      expect(live.ids(0)).toEqual(['listed1', 'listed2']);
+
+      // Changes guests can't see send nothing.
+      store.update('cards', 'kept', { notes: 'trade bait', page: 2 });
+      store.update('binders', 'b1', { name: 'Trade binder' });
+      await pause(400);
+      expect(live.lists.length).toBe(1);
+
+      // Listed, sold, repriced: sent right away, still only what guests see.
+      store.update('cards', 'kept', { status: 'listed' });
+      await until(() => live.lists.length === 2);
+      expect(live.ids(1)).toEqual(['kept', 'listed1', 'listed2']);
+      expect(JSON.stringify(live.lists[1])).not.toMatch(/Justin|Dave|trade bait|b1/);
+      store.update('cards', 'listed1', { status: 'sold' });
+      await until(() => live.lists.length === 3);
+      expect(live.ids(2)).toEqual(['kept', 'listed2']);
+      store.update('settings', 'main', { usdToCad: 1.5 });
+      await until(() => live.lists.length === 4);
+      expect(live.lists[3].find((c) => c.id === 'listed2')?.value).toBe(1500);
+      // Several changes at once arrive as one list.
+      store.update('cards', 'kept', { status: 'binder' });
+      store.update('cards', 'listed1', { status: 'listed' });
+      await until(() => live.lists.length === 5);
+      await pause(400);
+      expect(live.lists.length).toBe(5);
+      expect(live.ids(4)).toEqual(['listed1', 'listed2']);
+      await agent.get('/api/guest/cards').expect(200);
+    } finally {
+      live.close();
+    }
+  });
+
+  it("don't count as use, and stop when the visit ends", async () => {
+    seed();
+    const app = makeApp();
+    guests.setEnabled(true, 'test');
+    const { agent, r } = await guest(app, 'Misty', 'misty@cerulean.gym');
+    clock += 10 * 60_000;
+    const live = await listen(app, r);
+    try {
+      await until(() => live.lists.length === 1);
+      clock += 6 * 60_000; // 16 minutes since Misty last used the page
+      expect((await agent.get('/api/guest/me').expect(200)).body.guest).toBeNull();
+      store.update('cards', 'kept', { status: 'listed' });
+      await until(() => live.ended());
+      expect(live.lists.length).toBe(1);
+    } finally {
+      live.close();
+    }
+  });
+
+  it('are for signed-in guests only', async () => {
+    seed();
+    const app = makeApp();
+    guests.setEnabled(true, 'test');
+    await request(app).get('/api/guest/events').expect(401);
+    const admin = await signInAdmin(app);
+    await admin.get('/api/guest/events').expect(401);
+  });
+});
+
 describe('administering guests', () => {
   it('turns guest viewing on and off, makes new QR codes, ends visits and keeps a log', async () => {
     seed();
@@ -277,5 +390,23 @@ describe('guests behind one address', () => {
     // 8 guests × 5 requests is far past the address's 20, but each guest has their own allowance.
     for (const agent of people) for (let i = 0; i < 5; i++) await agent.get('/api/guest/cards').expect(200);
     expect(security.listBans()).toEqual([]);
+  });
+
+  it('can all keep their page updating live', async () => {
+    seed();
+    const security = new Security({ streamsPerIp: 2 }, log, () => clock);
+    const app = makeApp({ security });
+    guests.setEnabled(true, 'test');
+    const open = [];
+    try {
+      for (let i = 0; i < 4; i++) {
+        const { r } = await guest(app, `Trainer ${i}`, `trainer${i}@league.org`);
+        const live = await listen(app, r);
+        open.push(live);
+        expect(live.status).toBe(200);
+      }
+    } finally {
+      for (const live of open) live.close();
+    }
   });
 });

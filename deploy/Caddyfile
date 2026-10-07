@@ -4,7 +4,7 @@
 		max_size 60MB
 	}
 	# Live updates must reach browsers unbuffered.
-	@compressible not path /api/events
+	@compressible not path /api/events /api/guest/events
 	encode @compressible zstd gzip
 	reverse_proxy binder:4100
 	header {

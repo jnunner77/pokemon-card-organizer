@@ -342,15 +342,20 @@ export class Security {
     next();
   };
 
-  /** Reserve a live-update connection; returns a release function, or throws 429. */
-  openStream(req: Request, res: Response): () => void {
+  /**
+   * Reserve a live-update connection; returns a release function, or throws 429. A signed-in
+   * guest's (`guestId`) count against that guest instead of their address, like their requests,
+   * so guests sharing a venue's Wi-Fi don't use up each other's.
+   */
+  openStream(req: Request, res: Response, guestId?: string): () => void {
     const ip = req.ip ?? 'unknown';
-    const who = (res.locals.user as { id: string } | undefined)?.id ?? `ip:${ip}`;
+    const who = guestId ? `guest:${guestId}` : ((res.locals.user as { id: string } | undefined)?.id ?? `ip:${ip}`);
     const o = this.options;
-    if (!this.trusted(ip) && (this.streamsOpen >= o.streamsTotal || (this.streams.get(who) ?? 0) >= o.streamsPerUser || (this.streams.get(`ip:${ip}`) ?? 0) >= o.streamsPerIp)) {
+    const perIp = !guestId && (this.streams.get(`ip:${ip}`) ?? 0) >= o.streamsPerIp;
+    if (!this.trusted(ip) && (this.streamsOpen >= o.streamsTotal || (this.streams.get(who) ?? 0) >= o.streamsPerUser || perIp)) {
       throw new HttpError(429, 'Too many open live-update connections. Close some tabs and reload.', 'rate_limited', 30);
     }
-    const keys = who === `ip:${ip}` ? [who] : [who, `ip:${ip}`];
+    const keys = who === `ip:${ip}` || guestId ? [who] : [who, `ip:${ip}`];
     for (const k of keys) this.streams.set(k, (this.streams.get(k) ?? 0) + 1);
     this.streamsOpen++;
     let done = false;

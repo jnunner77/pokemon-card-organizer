@@ -24,7 +24,7 @@
   }
   const key = () => store.get("key", "");
 
-  const G = { me: null, cards: [], q: "", sort: "value-desc", lastUse: Date.now(), lastCheck: Date.now(), timer: 0 };
+  const G = { me: null, cards: [], q: "", sort: "value-desc", lastUse: Date.now(), lastCheck: Date.now(), timer: 0, live: null };
   try { G.sort = localStorage.getItem("guest.sort") || G.sort; } catch (_) {}
 
   class Ended extends Error {}
@@ -75,6 +75,7 @@
     $("gSort").value = G.sort;
     screen("main");
     await loadCards();
+    listen();
     G.lastUse = G.lastCheck = Date.now();
     clearInterval(G.timer);
     G.timer = setInterval(check, 30_000);
@@ -82,6 +83,7 @@
 
   async function ended(text) {
     clearInterval(G.timer);
+    unlisten();
     closeViewer();
     G.me = null; G.cards = [];
     $("gGrid").innerHTML = "";
@@ -111,6 +113,7 @@
   $("gSignout").addEventListener("click", async () => {
     try { await api("POST", "logout"); } catch (_) {}
     clearInterval(G.timer);
+    unlisten();
     closeViewer();
     G.me = null; G.cards = []; $("gGrid").innerHTML = "";
     screen("signin", "You're signed out. Thanks for looking!");
@@ -130,19 +133,51 @@
     try {
       if (active) await api("POST", "ping");
       else { const me = await api("GET", "me"); if (!me.guest) return timedOut(); }
+      listen(); // live updates dropped (too many open, say): try again
     } catch (err) { if (err instanceof Ended) timedOut(); }
   }
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState !== "visible" || !G.me) return;
     // Back on the page: still signed in? Then catch up on cards sold or listed meanwhile.
-    api("GET", "me").then(me => me.guest ? loadCards() : timedOut(), () => {});
+    api("GET", "me").then(me => me.guest ? (loadCards(), listen()) : timedOut(), () => {});
   });
+
+  // ---- live updates ----------------------------------------------------------------------
+  // The server sends the cards guests see on connecting and whenever that changes (a card listed,
+  // delisted, sold or repriced). The browser reconnects by itself after a dropped connection; once
+  // the server turns it away (the visit ended, too many open), it stays closed and check() retries.
+  function listen() {
+    if (!G.me || !window.EventSource || (G.live && G.live.readyState !== EventSource.CLOSED)) return;
+    const es = G.live = new EventSource("api/guest/events");
+    es.addEventListener("cards", e => { if (G.live === es) try { showCards(JSON.parse(e.data)); } catch (_) {} });
+    es.addEventListener("error", () => {
+      if (es.readyState !== EventSource.CLOSED || G.live !== es) return;
+      G.live = null;
+      api("GET", "me").then(me => { if (!me.guest && G.me) timedOut(); }, () => {});
+    });
+  }
+  function unlisten() {
+    if (G.live) G.live.close();
+    G.live = null;
+  }
 
   // ---- the cards -------------------------------------------------------------------------
   async function loadCards() {
-    try { G.cards = (await api("GET", "cards")).cards; }
-    catch (err) { if (err instanceof Ended) return timedOut(); toast(err.message); }
+    try { showCards((await api("GET", "cards")).cards, true); }
+    catch (err) { if (err instanceof Ended) return timedOut(); toast(err.message); render(); }
+  }
+  /* always: draw it even if nothing changed */
+  function showCards(cards, always) {
+    if (!G.me || (!always && JSON.stringify(cards) === JSON.stringify(G.cards))) return;
+    G.cards = cards;
     render();
+    // Full screen stays on the card it showed; one that's no longer for sale drops out.
+    if (!LB.open) return;
+    const list = G.list || [];
+    if (!list.length) return closeViewer();
+    if (JSON.stringify(list) === JSON.stringify(LB.list)) return;
+    const at = list.findIndex(c => c.id === LB.list[LB.i]?.id);
+    openViewer(at >= 0 ? at : Math.min(LB.i, list.length - 1), true);
   }
 
   const year = c => (c.released || "").slice(0, 4);
@@ -205,14 +240,15 @@
     ].filter(Boolean);
     return `<span class="n">${esc(c.name || "Unnamed card")}</span>${lines.map(l => `<span class="m">${esc(l)}</span>`).join("")}${c.value != null ? `<span class="v">${esc(money(c.value))}</span>` : ""}`;
   }
-  function openViewer(i) {
+  /* again: redraw the open viewer with the latest list */
+  function openViewer(i, again) {
     const list = G.list || [];
     if (!list.length) return;
-    Object.assign(LB, { open: true, list, i, last: -1, back: document.activeElement });
+    Object.assign(LB, { open: true, list, i, last: -1, back: again ? LB.back : document.activeElement });
     const n = list.length;
     const slides = list.map((c, k) => `<div class="lb-slide" role="group" aria-roledescription="slide" aria-label="${k + 1} of ${n}: ${esc(c.name || "Unnamed card")}">${c.image ? `<img data-src="${esc(c.image)}" alt="${esc(c.name || "Card")}" draggable="false">` : `<span class="lb-noimg">No picture yet</span>`}</div>`).join("");
     const thumbs = n > 1 ? `<div class="lb-strip" id="lbStrip">${list.map((c, k) => `<button type="button" class="lb-th" data-lbi="${k}" aria-label="Card ${k + 1}: ${esc(c.name || "Unnamed card")}">${c.image ? `<img src="${esc(c.image)}" alt="" loading="lazy" draggable="false">` : ""}</button>`).join("")}</div>` : "";
-    $("lbRoot").innerHTML = `<div class="lb" role="dialog" aria-modal="true" aria-label="Cards full screen">
+    $("lbRoot").innerHTML = `<div class="lb${again ? " again" : ""}" role="dialog" aria-modal="true" aria-label="Cards full screen">
       <div class="lb-top"><span class="lb-count" id="lbCount" aria-live="polite"></span>
         <div class="lb-acts"><button type="button" class="lb-btn" data-lb="close" aria-label="Close full screen">✕ Close</button></div></div>
       <div class="lb-stage">
