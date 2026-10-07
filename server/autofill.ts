@@ -140,9 +140,11 @@ export class Autofill {
     // A card that became a different one: its TCGdex match and release date were for the old
     // card, and so was an automatic price match (one the person chose is kept).
     if (changed) {
-      const link = card.pricing as { linkedBy?: string } | null | undefined;
+      const link = card.pricing as { linkedBy?: string; pair?: { linkedBy?: string; off?: boolean } | null } | null | undefined;
       const auto = link && link.linkedBy !== 'user';
-      this.store.update('cards', id, { details: null, released: null, ...(auto ? { pricing: null, officialImageId: null } : {}) });
+      // The other site's product goes the same way, unless the person chose it or turned that site off.
+      const pairAuto = !!link?.pair && link.pair.linkedBy !== 'user' && !link.pair.off;
+      this.store.update('cards', id, { details: null, released: null, ...(auto ? { pricing: null, officialImageId: null } : pairAuto ? { pricing: { ...link, pair: null } } : {}) });
     }
     const result = await this.details.fill(this.store, id, changed);
     if (result === 'filled') {

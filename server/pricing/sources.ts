@@ -1,11 +1,12 @@
 // Where prices and card images come from.
 //
-// PriceCharting (https://www.pricecharting.com) is the main source: its "ungraded" price is
-// what the card has recently sold for on eBay, it lists nearly every English card including
-// promos and brand-new sets, and its largest image is the sharpest freely available scan.
-// TCGplayer's market price (recent TCGplayer sales) is the fallback for cards PriceCharting
-// doesn't have. Both are read the way their own web pages read them, so a change on their
-// side can break a source; the daily run records failures instead of stopping.
+// PriceCharting (https://www.pricecharting.com) is the main source for a card's details and
+// image: it lists nearly every English card including promos and brand-new sets, and its
+// largest image is the sharpest freely available scan. Its "ungraded" price is what the card has
+// recently sold for on eBay; TCGplayer's market price is recent TCGplayer sales. A card is priced
+// from both and the higher of the two is logged (updater.ts). Both are read the way their own web
+// pages read them, so a change on their side can break a source; the daily run records failures
+// instead of stopping.
 
 export type Source = 'pricecharting' | 'tcgplayer';
 
@@ -243,9 +244,10 @@ export function pickTcgPrice(points: unknown, foil: boolean, strict = false): nu
   return want ? Math.round(want.marketPrice! * 100) / 100 : null;
 }
 
-export async function quoteTcgplayer(fetcher: Fetcher, id: string, foil: boolean, strict = false): Promise<Quote> {
+/** `withInfo` false: the price only, for a card whose details come from its PriceCharting product. */
+export async function quoteTcgplayer(fetcher: Fetcher, id: string, foil: boolean, strict = false, withInfo = true): Promise<Quote> {
   if (!/^\d{1,10}$/.test(id)) throw new SourceError(`Not a TCGplayer product id: ${id}`);
-  const [res, info] = await Promise.all([get(fetcher, `https://mpapi.tcgplayer.com/v2/product/${id}/pricepoints`), tcgplayerInfo(fetcher, id)]);
+  const [res, info] = await Promise.all([get(fetcher, `https://mpapi.tcgplayer.com/v2/product/${id}/pricepoints`), withInfo ? tcgplayerInfo(fetcher, id) : null]);
   return { usd: pickTcgPrice(await res.json(), foil, strict), image: tcgImage(id, 1000), info };
 }
 

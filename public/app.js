@@ -674,21 +674,37 @@ function candList(list, from){
   if(!list || !list.length) return `<p class="hint">Nothing found. Try a different search, like the card name and number.</p>`;
   return `<ul class="cands">${list.map((x,i)=>`<li>${x.thumb?`<img src="${esc(x.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer">`:`<span class="thumb"></span>`}<div><b>${esc(x.title)}</b><span>${esc(x.set||"")}${x.number?` · #${esc(x.number)}`:""}</span><span>${esc(SRC[x.source]||x.source)}${x.usd!=null?` · US$${Number(x.usd).toFixed(2)}`:""}${x.url?` · <a href="${esc(x.url)}" target="_blank" rel="noopener">view</a>`:""}</span></div><button class="btn sm primary" type="button" data-cand="${from}:${i}">Use this</button></li>`).join("")}</ul>`;
 }
+const productLine = l => `<p class="autoline"><a href="${esc(l.url||"#")}" target="_blank" rel="noopener">${esc(SRC[l.source])}: ${esc(l.title||"")}${l.set?` · ${esc(l.set)}`:""}</a> <span class="chip">${l.linkedBy==="user"?"you chose this":"matched automatically"}</span></p>`;
+/** The card's product on its other price site, whose price is compared with the main one's. */
+function pairInfo(p){
+  const site = p.source==="pricecharting" ? "tcgplayer" : "pricecharting", q = p.pair && p.pair.source===site ? p.pair : null, name = SRC[site];
+  if(q && q.off) return `<p class="hint pairline">${esc(name)} isn't used for this card. <button class="btn sm ghost" type="button" data-pr="pairauto">Use ${esc(name)} again</button></p>`;
+  const off = `<button class="btn sm ghost" type="button" data-pr="pairoff">Don't use ${esc(name)}</button>`;
+  if(q && q.id) return `${productLine(q)}${q.error?`<p class="hint pairline">${esc(q.error)}</p>`:""}`;
+  if(q) return `<p class="hint pairline">${esc(name)}: no certain match, so only ${esc(SRC[p.source])}'s price is used. Choose its product with Change match to compare both. ${off}</p>`;
+  return `<p class="hint pairline">${esc(name)} is searched at the next update, to compare its price.</p>`;
+}
+/** "US$20.00 from TCGplayer; PriceCharting US$13.20": which site's price an automatic entry is, and the other's. */
+function quoteText(e){
+  if(e.usd==null) return "";
+  const others = Object.entries(e.quotes||{}).filter(([s])=>SRC[s]!==e.where).map(([s,v])=>`${SRC[s]} US$${Number(v).toFixed(2)}`);
+  return ` (US$${Number(e.usd).toFixed(2)}${e.where?` from ${e.where}`:""}${others.length?`; ${others.join(", ")}`:""})`;
+}
 function autoInfo(c){
   const p = c.pricing || null, daily = dailyPrices(c), last = daily[daily.length-1];
   const busy = S.priceBusy===c.id ? `<p class="hint">Working…</p>` : "";
-  if(isLinked(p)) return `<p class="autoline"><a href="${esc(p.url||"#")}" target="_blank" rel="noopener">${esc(SRC[p.source])}: ${esc(p.title||"")}${p.set?` · ${esc(p.set)}`:""}</a> <span class="chip">${p.linkedBy==="user"?"you chose this":"matched automatically"}</span></p>
-    ${last?`<p class="hint" style="margin:4px 0 0">Latest ${esc(money(last.amount))} near mint on ${esc(last.date)}${last.usd!=null?` (US$${Number(last.usd).toFixed(2)})`:""}${window.BinderCondition.factor(c)!==1?`, so ${esc(money(window.BinderCondition.adjust(c, last)))} for this ${esc(c.condition)} copy (${Math.round(window.BinderCondition.factor(c)*100)}%)`:""}. Updated every day; the last 30 days are kept.</p>`:`<p class="hint" style="margin:4px 0 0">No price yet.</p>`}
+  if(isLinked(p)) return `${productLine(p)}${pairInfo(p)}
+    ${last?`<p class="hint" style="margin:4px 0 0">Latest ${esc(money(last.amount))} near mint on ${esc(last.date)}${esc(quoteText(last))}${window.BinderCondition.factor(c)!==1?`, so ${esc(money(window.BinderCondition.adjust(c, last)))} for this ${esc(c.condition)} copy (${Math.round(window.BinderCondition.factor(c)*100)}%)`:""}. The higher of the two sites' prices is used, updated every day; the last 30 days are kept.</p>`:`<p class="hint" style="margin:4px 0 0">No price yet.</p>`}
     ${p.error?`<p class="autoerr">${esc(p.error)}</p>`:""}${sparkline(daily)}${busy}
-    <div class="links"><button class="btn sm" type="button" data-pr="refresh">Update now</button><button class="btn sm" type="button" data-pr="pick">Change match</button><button class="btn sm ghost" type="button" data-pr="off">Turn off</button></div>`;
+    <div class="links"><button class="btn sm" type="button" data-pr="refresh">Update now</button><button class="btn sm" type="button" data-pr="pick">Change match</button>${p.pair&&p.pair.id&&!p.pair.off?`<button class="btn sm ghost" type="button" data-pr="pairoff">Don't use ${esc(SRC[p.pair.source])}</button>`:""}<button class="btn sm ghost" type="button" data-pr="off">Turn off</button></div>`;
   if(p && p.source==="off") return `<p class="hint" style="margin:0">Automatic pricing is off for this card, so its value comes from the prices you log.</p>${busy}<div class="links"><button class="btn sm" type="button" data-pr="auto">Turn it back on</button></div>`;
   if(p && p.source==="none") return `<p class="autoerr">No certain match on PriceCharting or TCGplayer. If one of these is the card, choose it.</p>${p.error?`<p class="autoerr">${esc(p.error)}</p>`:""}${candList(p.candidates||[], "stored")}${busy}<div class="links"><button class="btn sm" type="button" data-pr="pick">Search</button><button class="btn sm ghost" type="button" data-pr="off">Turn off</button></div>`;
-  return `<p class="hint" style="margin:0">This card is matched to PriceCharting or TCGplayer at the next daily update. You can do it now.</p>${p&&p.error?`<p class="autoerr">${esc(p.error)}</p>`:""}${busy}<div class="links"><button class="btn sm primary" type="button" data-pr="refresh">Find its price now</button><button class="btn sm" type="button" data-pr="pick">Choose the match</button></div>`;
+  return `<p class="hint" style="margin:0">This card is matched to PriceCharting and TCGplayer at the next daily update, and priced at the higher of the two. You can do it now.</p>${p&&p.error?`<p class="autoerr">${esc(p.error)}</p>`:""}${busy}<div class="links"><button class="btn sm primary" type="button" data-pr="refresh">Find its price now</button><button class="btn sm" type="button" data-pr="pick">Choose the match</button></div>`;
 }
 const pickerQuery = c => S.pickQ ?? [c.name, String(c.number||"").split("/")[0]].filter(Boolean).join(" ");
 function pickerHTML(c){
   const r = S.pickRes;
-  return `<div class="picker"><form class="search" id="pickForm" role="search"><input id="pickQ" type="search" value="${esc(pickerQuery(c))}" aria-label="Search PriceCharting and TCGplayer"><button class="btn sm" type="submit">Search</button></form>
+  return `<div class="picker"><p class="hint" style="margin:0 0 6px">Choose the card's product on either site. Its price is compared with the other site's product, and the higher is used.</p><form class="search" id="pickForm" role="search"><input id="pickQ" type="search" value="${esc(pickerQuery(c))}" aria-label="Search PriceCharting and TCGplayer"><button class="btn sm" type="submit">Search</button></form>
     ${r==="loading"?`<p class="hint">Searching PriceCharting and TCGplayer…</p>`:r&&r.error?`<p class="autoerr">${esc(r.error)}</p>`:Array.isArray(r)?candList(r,"search"):""}
     <button class="btn sm ghost" type="button" data-pr="cancel">Close search</button></div>`;
 }
@@ -699,6 +715,7 @@ async function priceCall(method, url, body){
   try{ return await window.ledgerApi.call(method, url, body); }
   catch(e){ toast(e?.message || "That didn't work. Try again."); throw e; }
 }
+const PAIR = {pairoff:"off", pairauto:"auto"};
 const OUTCOME = {updated:"Price updated", needsMatch:"No certain match found. Choose one from the list.", noPrice:"Matched, but the site has no price for it yet.", failed:"The price site didn't answer. It'll try again tomorrow.", skipped:"Sold and traded cards aren't priced automatically.", off:"Automatic pricing turned off"};
 async function priceAction(kind, c, arg){
   if(!c || S.sel==="__new") return;
@@ -707,7 +724,7 @@ async function priceAction(kind, c, arg){
   S.priceBusy=c.id; renderAutoInfo();
   try{
     const r = kind==="refresh" ? await priceCall("POST", "api/pricing/refresh/"+encodeURIComponent(c.id))
-      : await priceCall("POST", "api/pricing/link/"+encodeURIComponent(c.id), kind==="link" ? arg : {source:kind});
+      : await priceCall("POST", "api/pricing/link/"+encodeURIComponent(c.id), kind==="link" ? arg : PAIR[kind] ? {pair:PAIR[kind]} : {source:kind});
     if(kind==="link"){ S.pricePick=null; S.pickRes=null; renderPicker(); }
     toast(kind==="auto" && r.outcome==="updated" ? "Automatic pricing is back on" : OUTCOME[r.outcome] || "Done");
   }catch(_){}
@@ -730,7 +747,7 @@ function pricingSettingsHTML(){
   const need = S.cards.filter(x=>held(x) && x.pricing && x.pricing.source==="none");
   return `<div class="sec" style="margin-top:18px;border-top:1px solid var(--line-2);padding-top:14px" id="sPricing">
     <h3>Automatic prices</h3>
-    <p class="hint" style="margin:0 0 8px">Every morning each card's market price is read from PriceCharting (TCGplayer for cards it doesn't list), converted to Canadian dollars at the Bank of Canada's rate, and added to its price log. The last 30 days are kept. Prices you log yourself are never changed.</p>
+    <p class="hint" style="margin:0 0 8px">Every morning each card's market price is read from both PriceCharting and TCGplayer and the higher of the two is used, converted to Canadian dollars at the Bank of Canada's rate, and added to its price log. The last 30 days are kept. Prices you log yourself are never changed.</p>
     ${st.running?`<p><b>Updating now:</b> ${st.done||0} of ${st.total||0} cards…</p>`:last?`<p style="margin:0 0 6px">Last update <b>${esc(last.date)}</b> (${esc(last.reason==="manual"?"started by you":"daily")}) · ${c.updated||0} updated${c.needsMatch?` · ${c.needsMatch} need a match`:""}${c.noPrice?` · ${c.noPrice} without a price`:""}${c.failed?` · ${c.failed} failed`:""} · US$1 = C$${Number(last.rate).toFixed(4)}</p>`:`<p class="hint">Not run yet.</p>`}
     ${last && last.errors && last.errors.length?`<details class="autolog"><summary>Problems (${last.errors.length})</summary><ul class="errs">${last.errors.map(e=>`<li><b>${esc(e.card)}</b>: ${esc(e.error)}</li>`).join("")}</ul></details>`:""}
     ${need.length?`<p style="margin:8px 0 4px">These cards need you to choose their match:</p><div class="links">${need.map(x=>`<button class="btn sm" type="button" data-openc="${esc(x.id)}">${esc(x.name||"Unnamed card")} ${esc(metaLine(x))}</button>`).join("")}</div>`:""}

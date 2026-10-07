@@ -11,13 +11,16 @@ server, so it can update prices every day and keep your data on your own server.
 
 Every morning (after 5:00 in your time zone, catching up if the server was off) the ledger:
 
-1. **Matches each card** to its product on [PriceCharting](https://www.pricecharting.com),
-   or on [TCGplayer](https://www.tcgplayer.com) for cards PriceCharting doesn't list. A card is
-   linked on its own only when exactly one English product has the same number, name, set and
-   variant; otherwise its drawer lists the likely products for you to pick (or search for).
-   Typos, "VSTAR"/"V Star" spellings and promos filed under other sets are handled.
-2. **Logs today's market price** in CAD: PriceCharting's ungraded price (recent eBay sales)
-   or TCGplayer's market price, converted at the Bank of Canada's daily rate. Each day adds one
+1. **Matches each card** to its product on [PriceCharting](https://www.pricecharting.com)
+   and on [TCGplayer](https://www.tcgplayer.com). A card is linked on its own only when exactly
+   one English product has the same number, name, set and variant; otherwise its drawer lists the
+   likely products for you to pick (or search for). Typos, "VSTAR"/"V Star" spellings and promos
+   filed under other sets are handled. A site that had no certain match is searched again a week
+   later.
+2. **Logs today's market price** in CAD: the **higher** of PriceCharting's ungraded price (recent
+   eBay sales) and TCGplayer's market price (recent TCGplayer sales), converted at the Bank of
+   Canada's daily rate. The entry says which site it came from and keeps both prices. If one site
+   has no match, no price or doesn't answer, the other's price is used. Each day adds one
    entry; the last 30 days are kept, and older automatic entries are thinned to one a week (the
    last of each week) for the Pricing view's longer ranges. Prices you log yourself (what you
    paid, sales, listings, your own market prices) are never changed.
@@ -25,8 +28,9 @@ Every morning (after 5:00 in your time zone, catching up if the server was off) 
    for most cards), and shows it instead of your photo. Your photos are kept; each card has an
    *Official image / Your photo* switch.
 
-Each card's drawer shows its match, a 30-day price chart, and *Update now*, *Change match*
-and *Turn off*. **Settings** shows the last run (updated, needing a match, problems) and
+Each card's drawer shows its match on each site, a 30-day price chart, and *Update now*,
+*Change match* (choose the product on either site), *Don't use TCGplayer* (or PriceCharting) for
+that card, and *Turn off*. **Settings** shows the last run (updated, needing a match, problems) and
 *Update all prices now*.
 
 On the first real run against a 122-card collection, 120 cards were matched, priced and
@@ -35,7 +39,7 @@ under the wrong set, and a promo only priced as a holo). Automatic prices were a
 from the prices logged by hand a week earlier.
 
 > **About the sources.** PriceCharting and TCGplayer are read the way their own pages read
-> them (about two requests per card per day, spaced out). Neither offers this for free
+> them (about three requests per card per day across the two sites, spaced out). Neither offers this for free
 > officially and their terms restrict automated access, so use it for your own collection,
 > and expect to adjust `server/pricing/sources.ts` if a site changes its pages. PriceCharting
 > sells an official API if you want to switch to it.
@@ -86,8 +90,9 @@ price site confirms its name and number.
 
 ### Details from the price match
 
-Every price update also reads the product the card is priced from: PriceCharting's set and release
-date, or TCGplayer's set, release date and rarity. They fill the card's empty fields, after TCGdex
+Every price update also reads the card's main product, PriceCharting's when it has one: its set and
+release date, or TCGplayer's set, release date and rarity for cards PriceCharting doesn't list. The
+other site's product only gives a price to compare; it never fills details or the picture. They fill the card's empty fields, after TCGdex
 has filled what it knows (so Classic box cards and new promos get a set and a release date too).
 When you chose the product yourself and the card is filed under a different set, the card takes
 the product's set: you said that product is your card.

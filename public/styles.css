@@ -454,6 +454,8 @@ tbody tr.sel{background:var(--accent-soft)}
 .statbtn:hover .v{text-decoration:underline;text-decoration-thickness:1px}
 .autoline{margin:0;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .autoline a{color:var(--info);font-weight:600;text-decoration:none;overflow-wrap:anywhere}
+.autoline+.autoline,.pairline{margin:4px 0 0}
+.pairline .btn{margin-left:4px}
 .autoerr{margin:6px 0 0;padding:7px 10px;border-radius:7px;background:var(--warn-soft);color:var(--ink);font-size:12.5px}
 #autoInfo .links{margin-top:10px}
 .spark{margin:10px 0 0}

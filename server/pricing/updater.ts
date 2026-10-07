@@ -5,7 +5,7 @@ import type { CardDetails } from '../details';
 import { type Logger, quietLogger } from '../log';
 import type { Doc } from '../schema';
 import type { Store } from '../store';
-import { chooseMatch, detailsFromProduct, searchQuery, type CardForMatch } from './match';
+import { chooseMatch, detailsFromProduct, searchQuery, setSearchQuery, type CardForMatch, type MatchResult } from './match';
 import {
   type Candidate,
   type Fetcher,
@@ -23,9 +23,12 @@ import {
 } from './sources';
 
 // The daily price and image update. For every card still in the collection it finds the
-// card's product on PriceCharting (or TCGplayer), logs today's market price in Canadian
-// dollars, keeps the last month of those automatic entries (and one a week before that, for the
-// Pricing view's longer date ranges), and downloads the product's high-resolution image. Entries the person logged themselves are never touched.
+// card's product on PriceCharting and on TCGplayer, logs the higher of the two sites' market
+// prices in Canadian dollars, keeps the last month of those automatic entries (and one a week
+// before that, for the Pricing view's longer date ranges), and downloads the product's
+// high-resolution image. The card's main product (PriceCharting's when it has one) gives its
+// details and image; the other site's product, its pair, only gives a price to compare. Entries
+// the person logged themselves are never touched.
 
 /** Monday of the week a YYYY-MM-DD date falls in. */
 function weekOf(date: string): string {
@@ -98,6 +101,8 @@ interface PriceEntry {
   note?: string;
   auto?: boolean | null;
   usd?: number | null;
+  /** Each site's US-dollar price that day; `usd` is the higher. */
+  quotes?: Partial<Record<Source, number>> | null;
 }
 interface Link {
   source: Source | 'none' | 'off';
@@ -111,6 +116,24 @@ interface Link {
   checkedAt?: string | null;
   error?: string | null;
   candidates?: Candidate[] | null;
+  /** The card's product on the other site; the higher of the two sites' prices is logged. */
+  pair?: Pair | null;
+}
+/**
+ * The card's product on the other price site. No `id`: that site was searched (at checkedAt)
+ * without a certain match. `off`: the person said not to use that site for this card.
+ */
+interface Pair {
+  source: Source;
+  id?: string | null;
+  url?: string | null;
+  title?: string | null;
+  set?: string | null;
+  linkedBy?: 'auto' | 'user' | null;
+  linkedAt?: string | null;
+  off?: boolean | null;
+  checkedAt?: string | null;
+  error?: string | null;
 }
 
 /** Part of the error a card keeps while its site has no price for it (a person should pick another product). */
@@ -130,7 +153,24 @@ export interface RunSummary {
 }
 
 const SOURCE_NAME: Record<Source, string> = { pricecharting: 'PriceCharting', tcgplayer: 'TCGplayer' };
-const isLinked = (l: Link | null | undefined): l is Link & { source: Source; id: string } => !!l && (l.source === 'pricecharting' || l.source === 'tcgplayer') && !!l.id;
+const SOURCES: readonly string[] = ['pricecharting', 'tcgplayer'];
+const isLinked = (l: Link | null | undefined): l is Link & { source: Source; id: string } => !!l && SOURCES.includes(l.source) && !!l.id;
+const otherSite = (s: Source): Source => (s === 'pricecharting' ? 'tcgplayer' : 'pricecharting');
+const pairLinked = (p: Pair | null | undefined): p is Pair & { id: string } => !!p && SOURCES.includes(p.source) && !!p.id && !p.off;
+/** A pair the person decided on (chose it, or turned that site off), kept when the card is matched again. */
+const keptPair = (p: Pair | null | undefined): Pair | null => (p && SOURCES.includes(p.source) && (p.off || (pairLinked(p) && p.linkedBy === 'user')) ? p : null);
+/** Which product a link or pair is, without its card's state (error, candidates, image). */
+const productOf = (l: { source: Source; id?: string | null; url?: string | null; title?: string | null; set?: string | null; linkedBy?: 'auto' | 'user' | null; linkedAt?: string | null }) => ({
+  source: l.source,
+  id: l.id ?? null,
+  url: l.url ?? null,
+  title: l.title ?? null,
+  set: l.set ?? null,
+  linkedBy: l.linkedBy ?? null,
+  linkedAt: l.linkedAt ?? null,
+});
+/** How long before the other site is searched again for a card it had no certain match for. */
+const PAIR_RETRY_MS = 7 * 86_400_000;
 const label = (c: Card) => [c.name || 'Unnamed card', c.setCode || c.set, c.number].filter(Boolean).join(' ');
 const rid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-6);
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -151,6 +191,8 @@ export class PriceUpdater {
   private readonly config?: Config;
   private readonly breakerAfter: number;
   private readonly details?: CardDetails;
+  /** During a run: each site's failures in a row, and the sites left alone for the rest of it. */
+  private run: { streak: Record<Source, number>; tripped: Set<Source> } | null = null;
 
   constructor(o: UpdaterOptions) {
     this.store = o.store;
@@ -235,36 +277,21 @@ export class PriceUpdater {
     const errors: RunSummary['errors'] = [];
     let done = 0;
     // A site that keeps failing (down, or blocking us) is left alone for the rest of the run.
-    const streak: Record<Source, number> = { pricecharting: 0, tcgplayer: 0 };
-    const tripped = new Set<Source>();
+    const run = (this.run = { streak: { pricecharting: 0, tcgplayer: 0 }, tripped: new Set<Source>() });
     this.log.info('pricing', `Price update started (${reason}) for ${ids.length} cards at US$1 = C$${rate}`, { reason, cards: ids.length, rate });
     try {
       for (const id of ids) {
         const card = this.store.get('cards', id) as Card | undefined;
         let outcome: CardOutcome = 'skipped';
         if (card) {
-          const src = isLinked(card.pricing) ? card.pricing.source : card.pricing?.source === 'off' ? null : 'pricecharting';
           try {
-            if (src && tripped.has(src) && card.status !== 'sold' && card.status !== 'traded') {
-              this.patchLink(id, { error: `Skipped: ${SOURCE_NAME[src]} kept failing during this update. It will be tried again next time.` });
-              outcome = 'failed';
-            } else {
-              // Blanks first, release date included (it only asks TCGdex about cards with blanks, at
-              // most once a week each): a known set helps find the right product.
-              if (this.details) await this.details.fill(this.store, id).catch(() => {});
-              outcome = await this.updateCard(id, rate);
-            }
+            // Blanks first, release date included (it only asks TCGdex about cards with blanks, at
+            // most once a week each): a known set helps find the right product.
+            if (this.details) await this.details.fill(this.store, id).catch(() => {});
+            outcome = await this.updateCard(id, rate);
           } catch (err) {
             outcome = 'failed';
             this.log.error('pricing', `Price update for ${label(card)} failed: ${message(err)}`);
-          }
-          if (src && !tripped.has(src)) {
-            if (outcome === 'failed') {
-              if (++streak[src] >= this.breakerAfter) {
-                tripped.add(src);
-                this.log.warn('pricing', `${SOURCE_NAME[src]} failed ${streak[src]} times in a row; skipping it for the rest of this update`, { source: src });
-              }
-            } else if (outcome !== 'skipped' && outcome !== 'off') streak[src] = 0;
           }
           const after = this.store.get('cards', id) as Card | undefined;
           if (outcome === 'failed' || outcome === 'noPrice') errors.push({ card: label(card), error: after?.pricing?.error ?? 'Failed' });
@@ -274,13 +301,35 @@ export class PriceUpdater {
         if (outcome !== 'skipped' && outcome !== 'off') await this.pause();
       }
     } finally {
+      this.run = null;
       const summary: RunSummary = { reason, date, startedAt, finishedAt: this.now().toISOString(), rate, rateDate, counts, errors: errors.slice(0, 30) };
       const history = ((this.status().history as RunSummary[] | undefined) ?? []).slice(0, 29);
       this.setStatus({ running: false, lastRun: summary, history: [{ ...summary, errors: summary.errors.slice(0, 5) }, ...history] });
       const lvl = counts.failed ? 'warn' : 'info';
-      this.log[lvl]('pricing', `Price update finished: ${counts.updated} updated, ${counts.needsMatch} need a match, ${counts.noPrice} without a price, ${counts.failed} failed`, { ...counts, tripped: [...tripped] });
+      this.log[lvl]('pricing', `Price update finished: ${counts.updated} updated, ${counts.needsMatch} need a match, ${counts.noPrice} without a price, ${counts.failed} failed`, { ...counts, tripped: [...run.tripped] });
     }
     return this.status().lastRun as RunSummary;
+  }
+
+  /**
+   * Ask a site something. During a run, a site that fails `breakerAfter` times in a row isn't asked
+   * again until the next one. A site that answered, even "no such product", isn't failing.
+   */
+  private async ask<T>(src: Source, work: () => Promise<T>): Promise<T> {
+    const run = this.run;
+    if (run?.tripped.has(src)) throw new SourceError(`Skipped: ${SOURCE_NAME[src]} kept failing during this update. It will be tried again next time.`);
+    try {
+      const out = await work();
+      if (run) run.streak[src] = 0;
+      return out;
+    } catch (err) {
+      if (run && err instanceof ProductGone) run.streak[src] = 0;
+      else if (run && !run.tripped.has(src) && ++run.streak[src] >= this.breakerAfter) {
+        run.tripped.add(src);
+        this.log.warn('pricing', `${SOURCE_NAME[src]} failed ${run.streak[src]} times in a row; skipping it for the rest of this update`, { source: src });
+      }
+      throw err;
+    }
   }
 
   private pause() {
@@ -302,7 +351,7 @@ export class PriceUpdater {
 
   // ---- one card ----------------------------------------------------------------------
 
-  /** Find the card's product if needed, then log today's price and refresh its image. */
+  /** Find the card's products if needed, then log today's price (the higher site's) and refresh its image. */
   async updateCard(id: string, rate?: number, rematched = false): Promise<CardOutcome> {
     let card = this.store.get('cards', id) as Card | undefined;
     if (!card) return 'skipped';
@@ -311,45 +360,72 @@ export class PriceUpdater {
     const checkedAt = this.now().toISOString();
 
     if (!isLinked(card.pricing)) {
-      let found: { match: Candidate | null; candidates: Candidate[] };
-      try {
-        found = await this.autoMatch(card);
-      } catch (err) {
-        this.patchLink(id, { error: message(err), checkedAt });
-        return 'failed';
+      const kept = keptPair(card.pricing?.pair);
+      if (pairLinked(kept)) {
+        // The product the person chose on the other site stands in until the main one is found (findPair).
+        this.store.update('cards', id, { pricing: { imageUrl: card.pricing?.imageUrl ?? null, ...productOf(kept), candidates: null, error: null, pair: null } });
+      } else {
+        let found: Awaited<ReturnType<PriceUpdater['autoMatch']>>;
+        try {
+          found = await this.autoMatch(card, kept?.off ? [kept.source] : []);
+        } catch (err) {
+          this.patchLink(id, { error: message(err), checkedAt });
+          return 'failed';
+        }
+        if (!found.match) {
+          this.patchLink(id, { source: 'none', candidates: found.candidates, checkedAt, error: null }, true);
+          return 'needsMatch';
+        }
+        this.patchLink(id, { ...productOf(found.match), linkedBy: 'auto', linkedAt: checkedAt, candidates: null, error: null, pair: kept ?? found.pair ?? null }, true);
       }
-      if (!found.match) {
-        this.patchLink(id, { source: 'none', candidates: found.candidates, checkedAt, error: null }, true);
-        return 'needsMatch';
-      }
-      const m = found.match;
-      this.patchLink(id, { source: m.source, id: m.id, url: m.url, title: m.title, set: m.set, linkedBy: 'auto', linkedAt: checkedAt, candidates: null, error: null }, true);
       card = this.store.get('cards', id) as Card;
     }
     // Links saved from PriceCharting's search before its "&amp;" was decoded ("Scarlet &amp; Violet").
     if (card.pricing?.source === 'pricecharting' && pcPath(card.pricing.id!) !== card.pricing.id) {
       const path = pcPath(card.pricing.id!);
       this.patchLink(id, { id: path, url: `https://www.pricecharting.com${path}` });
-      card = this.store.get('cards', id) as Card;
     }
-    const link = card.pricing as Link & { source: Source; id: string };
+    await this.findPair(id);
+    card = this.store.get('cards', id) as Card;
+    if (!isLinked(card.pricing)) return 'skipped';
+    const link = card.pricing;
+    const pair = pairLinked(link.pair) && link.pair.source !== link.source ? link.pair : null;
 
-    let quote: Quote;
-    try {
-      quote = link.source === 'pricecharting' ? await quotePriceCharting(this.fetcher, link.id) : await quoteTcgplayer(this.fetcher, link.id, foilWanted(card), !foilWanted(card) && /^(common|uncommon)$/i.test(String(card.rarity ?? '')));
-    } catch (err) {
-      // The product moved (renamed or merged on the site): match the card again, once.
-      if (err instanceof ProductGone && !rematched) {
-        this.log.warn('pricing', `${label(card)}: ${err.message} Matching it again.`);
-        this.patchLink(id, { source: 'none', id: null, url: null, title: null, set: null, linkedBy: null, candidates: null, error: null }, true);
-        return this.updateCard(id, rate, true);
-      }
-      this.patchLink(id, { error: message(err), checkedAt });
+    // Both sites at once: the main product gives the image and details too, the pair only its price.
+    const foil = foilWanted(card);
+    const strict = !foil && /^(common|uncommon)$/i.test(String(card.rarity ?? ''));
+    const quote = (l: { source: Source; id: string }, main: boolean) =>
+      this.ask(l.source, () => (l.source === 'pricecharting' ? quotePriceCharting(this.fetcher, l.id) : quoteTcgplayer(this.fetcher, l.id, foil, strict, main)));
+    const [mainQ, pairQ] = await Promise.allSettled([quote(link, true), pair ? quote(pair, false) : Promise.resolve(null)]);
+    // The product moved (renamed or merged on the site): match the card again, once.
+    if (mainQ.status === 'rejected' && mainQ.reason instanceof ProductGone && !rematched) {
+      this.log.warn('pricing', `${label(card)}: ${mainQ.reason.message} Matching it again.`);
+      this.patchLink(id, { source: 'none', id: null, url: null, title: null, set: null, linkedBy: null, candidates: null, error: null }, true);
+      return this.updateCard(id, rate, true);
+    }
+    const main = mainQ.status === 'fulfilled' ? mainQ.value : null;
+    const mainError = mainQ.status === 'rejected' ? message(mainQ.reason) : null;
+    const other = pairQ.status === 'fulfilled' ? pairQ.value : null;
+    // A pair whose product is gone is looked for again next time.
+    let pairPatch: Pair | null | undefined;
+    if (pair) {
+      if (pairQ.status === 'rejected') pairPatch = pairQ.reason instanceof ProductGone ? null : { ...pair, checkedAt, error: message(pairQ.reason) };
+      else pairPatch = { ...pair, checkedAt, error: other?.usd == null ? `${SOURCE_NAME[pair.source]} ${NO_PRICE} of the card.` : null };
+    }
+    const withPair = pairPatch === undefined ? {} : { pair: pairPatch };
+
+    // Each site's price; the higher is logged (the main site's on a tie).
+    const quotes: Partial<Record<Source, number>> = {};
+    if (main?.usd != null) quotes[link.source] = main.usd;
+    if (pair && other?.usd != null) quotes[pair.source] = other.usd;
+    const best = (Object.entries(quotes) as [Source, number][]).reduce<[Source, number] | null>((b, q) => (!b || q[1] > b[1] ? q : b), null);
+    if (!best && mainError) {
+      this.patchLink(id, { error: mainError, checkedAt, ...withPair });
       return 'failed';
     }
 
     const fx = rate ?? (Number(this.store.get('settings', 'main')?.usdToCad) || 1.37);
-    const image = await this.fetchImage(card, quote.image);
+    const image = main ? await this.fetchImage(card, main.image) : null;
 
     // Network work is done: re-read the card so nothing the person changed meanwhile is lost.
     const fresh = this.store.get('cards', id) as Card | undefined;
@@ -357,34 +433,38 @@ export class PriceUpdater {
     const date = this.today();
     const cutoff = this.today(new Date(Date.parse(`${date}T12:00:00Z`) - this.keepDays * 86_400_000));
     let prices = thinAutoPrices(fresh.prices ?? [], date, cutoff);
-    if (quote.usd != null) {
+    if (best) {
+      const [src, usd] = best;
+      const each = (Object.entries(quotes) as [Source, number][]).map(([s, v]) => `${SOURCE_NAME[s]} US$${v.toFixed(2)}`);
       prices = [
         ...prices,
         {
           id: rid(),
           at: checkedAt,
           type: 'market',
-          amount: round2(quote.usd * fx),
+          amount: round2(usd * fx),
           currency: 'CAD',
           date,
-          where: SOURCE_NAME[link.source],
-          note: `Daily update · US$${quote.usd.toFixed(2)} at ${fx.toFixed(4)}`,
+          where: SOURCE_NAME[src],
+          note: `Daily update · ${each.length > 1 ? `higher of ${each.join(' and ')}` : `US$${usd.toFixed(2)}`} at ${fx.toFixed(4)}`,
           auto: true,
-          usd: quote.usd,
+          usd,
+          quotes,
         },
       ];
     }
     const oldImage = fresh.officialImageId;
+    const noPrice = `${SOURCE_NAME[link.source]} ${NO_PRICE} of the card. If it's the wrong product, choose another.`;
     const patch: Doc = {
       prices,
-      pricing: { ...fresh.pricing, checkedAt, error: quote.usd == null ? `${SOURCE_NAME[link.source]} ${NO_PRICE} of the card. If it's the wrong product, choose another.` : null, ...(image ? { imageUrl: image.url } : {}) },
+      pricing: { ...fresh.pricing, checkedAt, error: mainError ?? (best ? null : noPrice), ...withPair, ...(image ? { imageUrl: image.url } : {}) },
       updatedAt: checkedAt,
     };
     if (image) patch.officialImageId = image.id;
     // The product's set, release date and rarity, for cards that lack them (or that the person
     // matched to a product from another set).
-    if (quote.info) {
-      const d = detailsFromProduct(fresh, quote.info, link.linkedBy === 'user');
+    if (main?.info) {
+      const d = detailsFromProduct(fresh, main.info, link.linkedBy === 'user');
       if (d.filled.length) {
         Object.assign(patch, d.patch);
         const was = d.patch.set && !String(fresh.set ?? '').trim() ? '' : d.patch.set ? ` (was ${fresh.set})` : '';
@@ -393,7 +473,39 @@ export class PriceUpdater {
     }
     this.store.update('cards', id, patch);
     if (image && oldImage && oldImage !== image.id && !this.store.referencedImages().has(oldImage)) this.assets.remove(oldImage);
-    return quote.usd == null ? 'noPrice' : 'updated';
+    return best ? 'updated' : 'noPrice';
+  }
+
+  /**
+   * Look for the card's product on its other site, when it has never been looked for there, or
+   * wasn't found a week ago. A PriceCharting product found for a card matched on TCGplayer becomes
+   * its main product (details and image come from PriceCharting); TCGplayer's becomes the pair.
+   */
+  private async findPair(id: string): Promise<void> {
+    const card = this.store.get('cards', id) as Card | undefined;
+    if (!card || !isLinked(card.pricing)) return;
+    const site = otherSite(card.pricing.source);
+    const p = card.pricing.pair;
+    if (p && p.source === site && (p.off || p.id || Date.parse(p.checkedAt ?? '') > this.now().getTime() - PAIR_RETRY_MS)) return;
+    let list: Candidate[];
+    try {
+      const q = searchQuery(card);
+      list = await this.ask(site, () => (site === 'pricecharting' ? searchPriceCharting(this.fetcher, q) : this.searchTcgplayerFor(card, q)));
+    } catch (err) {
+      this.log.warn('pricing', `Couldn't search ${SOURCE_NAME[site]} for ${label(card)}: ${message(err)}`);
+      return; // looked for again next time
+    }
+    const at = this.now().toISOString();
+    const m = chooseMatch(card, list).match;
+    const fresh = this.store.get('cards', id) as Card | undefined;
+    if (!fresh || !isLinked(fresh.pricing) || fresh.pricing.id !== card.pricing.id) return;
+    if (m && site === 'pricecharting') {
+      this.log.info('pricing', `${label(card)}: found on PriceCharting, which now gives its details and image; TCGplayer still gives a price`);
+      this.store.update('cards', id, { pricing: { ...fresh.pricing, ...productOf(m), linkedBy: 'auto', linkedAt: at, pair: { ...productOf(fresh.pricing), checkedAt: at } } });
+    } else {
+      const pair: Pair = m ? { ...productOf(m), linkedBy: 'auto', linkedAt: at, checkedAt: at } : { source: site, id: null, checkedAt: at };
+      this.store.update('cards', id, { pricing: { ...fresh.pricing, pair } });
+    }
   }
 
   /** Download the product image when the card has none yet or the match changed. */
@@ -413,15 +525,39 @@ export class PriceUpdater {
     }
   }
 
-  /** PriceCharting first; TCGplayer for cards PriceCharting doesn't list. */
-  async autoMatch(card: CardForMatch): Promise<{ match: Candidate | null; candidates: Candidate[] }> {
+  /**
+   * Search both sites (except any in `skip`). The card's main product is PriceCharting's certain
+   * match, or else TCGplayer's; the other site's certain match, if any, is its pair. A site that
+   * didn't answer leaves no pair, so it's looked for again next time.
+   */
+  async autoMatch(card: CardForMatch, skip: Source[] = []): Promise<{ match: Candidate | null; candidates: Candidate[]; pair?: Pair }> {
     const q = searchQuery(card);
-    const pc = chooseMatch(card, await searchPriceCharting(this.fetcher, q));
-    if (pc.match) return pc;
+    const at = this.now().toISOString();
+    const usePc = !skip.includes('pricecharting');
+    const pc: MatchResult = usePc ? chooseMatch(card, await this.ask('pricecharting', () => searchPriceCharting(this.fetcher, q))) : { match: null, candidates: [] };
+    let tg: MatchResult | null = null;
+    if (!skip.includes('tcgplayer')) {
+      if (usePc) await this.pause();
+      tg = await this.ask('tcgplayer', () => this.searchTcgplayerFor(card, q)).then(
+        (list) => chooseMatch(card, list),
+        () => null,
+      );
+    }
+    const asPair = (r: MatchResult | null, source: Source): Pair | undefined =>
+      !r ? undefined : r.match ? { ...productOf(r.match), linkedBy: 'auto', linkedAt: at, checkedAt: at } : { source, id: null, checkedAt: at };
+    if (pc.match) return { ...pc, pair: asPair(tg, 'tcgplayer') };
+    if (tg?.match) return { ...tg, pair: usePc ? asPair(pc, 'pricecharting') : undefined };
+    return { match: null, candidates: [...pc.candidates.slice(0, 5), ...(tg?.candidates ?? []).slice(0, 3)] };
+  }
+
+  /** TCGplayer's products for the card: by name and number, then by name and set if that found nothing certain. */
+  private async searchTcgplayerFor(card: CardForMatch, q: string): Promise<Candidate[]> {
+    const list = await searchTcgplayer(this.fetcher, q);
+    const bySet = setSearchQuery(card);
+    if (chooseMatch(card, list).match || !bySet || bySet === q) return list;
     await this.pause();
-    const tg = chooseMatch(card, await searchTcgplayer(this.fetcher, q).catch(() => []));
-    if (tg.match) return tg;
-    return { match: null, candidates: [...pc.candidates.slice(0, 5), ...tg.candidates.slice(0, 3)] };
+    const more = await searchTcgplayer(this.fetcher, bySet);
+    return [...list, ...more.filter((c) => !list.some((x) => x.id === c.id))];
   }
 
   /** Products the person can choose from, from both sites. */
@@ -432,27 +568,49 @@ export class PriceUpdater {
     return [...rank(pc).slice(0, 10), ...rank(tg).slice(0, 6)];
   }
 
-  /** The person chose a product (or turned automatic pricing off, or back on). Updates the card straight away. */
-  async link(id: string, choice: { source: 'off' | 'auto' } | Pick<Candidate, 'source' | 'id' | 'url' | 'title' | 'set'>): Promise<CardOutcome> {
-    if (!this.store.get('cards', id)) throw new SourceError('No such card');
+  /**
+   * The person chose a product (or turned automatic pricing off, or back on, or stopped or
+   * restarted using the card's other site). Updates the card straight away. A product chosen on
+   * the card's other site becomes its pair; PriceCharting's, when chosen, is always the main one.
+   */
+  async link(id: string, choice: { source: 'off' | 'auto' } | { pair: 'off' | 'auto' } | Pick<Candidate, 'source' | 'id' | 'url' | 'title' | 'set'>): Promise<CardOutcome> {
+    const card = this.store.get('cards', id) as Card | undefined;
+    if (!card) throw new SourceError('No such card');
     const at = this.now().toISOString();
+    if ('pair' in choice) {
+      if (!isLinked(card.pricing)) throw new SourceError('Match the card on one site first');
+      this.patchLink(id, { pair: choice.pair === 'off' ? { source: otherSite(card.pricing.source), off: true, checkedAt: at } : null });
+      return this.updateCard(id);
+    }
     if (choice.source === 'off') {
       this.patchLink(id, { source: 'off', checkedAt: at, error: null, candidates: null }, true);
       return 'off';
     }
-    if (choice.source === 'auto') this.patchLink(id, { source: 'none', candidates: null, error: null }, true);
-    else {
-      const c = choice as Candidate;
-      this.patchLink(id, { source: c.source, id: c.id, url: c.url, title: c.title, set: c.set, linkedBy: 'user', linkedAt: at, candidates: null, error: null }, true);
+    if (choice.source === 'auto') {
+      this.patchLink(id, { source: 'none', candidates: null, error: null }, true);
+      return this.updateCard(id);
     }
+    const c = choice as Candidate;
+    const p = card.pricing;
+    const links: Partial<Record<Source, Pair | null>> = {};
+    if (p?.pair && SOURCES.includes(p.pair.source)) links[p.pair.source] = p.pair;
+    if (isLinked(p)) links[p.source] = productOf(p);
+    const before = links[c.source];
+    links[c.source] = { ...productOf(c), linkedBy: 'user', linkedAt: at };
+    // Correcting a match: the other site's automatic match was for the old product, so it's looked for again.
+    const o = otherSite(c.source);
+    if (pairLinked(before) && before.id !== c.id && links[o] && !keptPair(links[o])) links[o] = null;
+    const mainSite: Source = pairLinked(links.pricecharting) ? 'pricecharting' : c.source;
+    const mainLink = links[mainSite] as Pair;
+    this.store.update('cards', id, { pricing: { imageUrl: p?.imageUrl ?? null, ...productOf(mainLink), candidates: null, error: null, pair: links[otherSite(mainSite)] ?? null } });
     return this.updateCard(id);
   }
 
-  /** Change the card's link. `replace` starts a fresh link; otherwise fields are merged into it. */
+  /** Change the card's link. `replace` starts a fresh link (keeping a pair the person decided on); otherwise fields are merged into it. */
   private patchLink(id: string, link: Partial<Link>, replace = false) {
     const card = this.store.get('cards', id) as Card | undefined;
     if (!card) return;
-    const base = replace ? { imageUrl: card.pricing?.imageUrl ?? null } : (card.pricing ?? { source: 'none' });
+    const base = replace ? { imageUrl: card.pricing?.imageUrl ?? null, pair: keptPair(card.pricing?.pair) } : (card.pricing ?? { source: 'none' });
     this.store.update('cards', id, { pricing: { ...base, ...link } });
   }
 }
