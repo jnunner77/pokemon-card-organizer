@@ -230,6 +230,30 @@ describe('moving cards to another binder', () => {
     await place([]).expect(400);
     expect([at('x'), at('y'), at('z')]).toEqual([{ binderId: 'b1', page: 1, slot: 1 }, { binderId: 'b1', page: 1, slot: 2 }, { binderId: 'b2', page: 1, slot: 1 }]);
   });
+
+  it('puts cards in a display case with no page or pocket, and back into a binder', async () => {
+    setUp();
+    store.set('binders', 'case', { name: 'Show case', kind: 'case', order: 3 });
+    await place([{ id: 'x', binderId: 'case', page: null, slot: null }, { id: 'z', binderId: 'case', page: null, slot: null }]).expect(200);
+    expect([at('x'), at('z')]).toEqual([{ binderId: 'case', page: null, slot: null }, { binderId: 'case', page: null, slot: null }]);
+    // A case has no pockets, and a binder needs one.
+    await place([{ id: 'y', binderId: 'case', page: 1, slot: 1 }]).expect(400);
+    await place([{ id: 'y', binderId: 'b1', page: null, slot: null }]).expect(400);
+    // Undo puts them back in their pockets.
+    await place([{ id: 'x', binderId: 'b1', page: 1, slot: 1 }, { id: 'z', binderId: 'b2', page: 1, slot: 1 }]).expect(200);
+    expect([at('x'), at('y'), at('z')]).toEqual([{ binderId: 'b1', page: 1, slot: 1 }, { binderId: 'b1', page: 1, slot: 2 }, { binderId: 'b2', page: 1, slot: 1 }]);
+  });
+
+  it("won't arrange a display case's cards into pockets", async () => {
+    store.set('binders', 'case', { name: 'Show case', kind: 'case' });
+    store.set('cards', 'x', card({ binderId: 'case', page: null, slot: null }));
+    await request(app).post('/api/binders/case/arrange').send({ moves: [{ id: 'x', page: 1, slot: 1 }] }).expect(400);
+  });
+
+  it('keeps a binder type that is binder or case', async () => {
+    await request(app).put('/api/docs/binders/c').send({ name: 'Show case', kind: 'case' }).expect(200);
+    await request(app).put('/api/docs/binders/d').send({ name: 'Odd', kind: 'box' }).expect(400);
+  });
 });
 
 describe('photos', () => {

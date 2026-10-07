@@ -6,8 +6,8 @@ import { describe, expect, it } from 'vitest';
 // public/move.js is a plain browser script; load it the way the page does.
 type Spot = { page: number; slot: number };
 type Card = { id: string; page?: number | null; slot?: number | null };
-type Plan = (pockets: number, cards: Card[], ids: string[], at: Spot | null) => { moves: ({ id: string } & Spot)[]; shifted: number };
-const sandbox = { window: {} as { BinderMove: { plan: Plan; end: (pockets: number, cards: Card[], ids: string[]) => Spot } } };
+type Plan = (pockets: number | null, cards: Card[], ids: string[], at: Spot | null) => { moves: ({ id: string } & (Spot | { page: null; slot: null }))[]; shifted: number };
+const sandbox = { window: {} as { BinderMove: { plan: Plan; end: (pockets: number | null, cards: Card[], ids: string[]) => Spot | null } } };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../public/move.js'), 'utf8'), sandbox);
 const { plan, end } = sandbox.window.BinderMove;
 const c = (id: string, page: number, slot: number) => ({ id, page, slot });
@@ -51,5 +51,12 @@ describe('moving cards to a binder', () => {
   it("ignores cards with no pocket or in a pocket past the page's size", () => {
     const odd = [c('a', 1, 1), { id: 'loose', page: null, slot: null }, c('big', 1, 7)];
     expect(plan(4, odd, ['x'], null).moves).toEqual([{ id: 'x', page: 1, slot: 2 }]);
+  });
+
+  it('puts cards in a display case with no page or pocket, moving nothing else', () => {
+    const inCase = [{ id: 'a', page: null, slot: null }, { id: 'b', page: null, slot: null }];
+    expect(plan(null, inCase, ['x', 'y'], null)).toEqual({ moves: [{ id: 'x', page: null, slot: null }, { id: 'y', page: null, slot: null }], shifted: 0 });
+    expect(plan(null, inCase, ['x'], { page: 1, slot: 1 }).moves).toEqual([{ id: 'x', page: null, slot: null }]);
+    expect(end(null, inCase, ['x'])).toBeNull();
   });
 });

@@ -301,6 +301,7 @@ export function createApp(o: AppOptions) {
     if (!id.success || !binder) throw new HttpError(404, 'That binder no longer exists.', 'not_found');
     const body = arrangeBody.safeParse(req.body);
     if (!body.success) throw new HttpError(400, 'Send each card with its page and pocket.');
+    if (binder.kind === 'case') throw new HttpError(400, 'A display case has no pages or pockets to arrange.');
     const pockets = [4, 9, 12, 16].includes(binder.pockets as number) ? (binder.pockets as number) : 9;
     const inBinder = store.all().cards.filter((c) => (c as { binderId?: unknown }).binderId === id.data);
     const ids = new Set(body.data.moves.map((m) => m.id));
@@ -331,12 +332,13 @@ export function createApp(o: AppOptions) {
   // Move cards to another binder (or anywhere): each card goes to the binder, page and pocket
   // given, all together. The pockets they leave stay empty. Refused if a card would land in a
   // pocket another card is in afterwards (one added or moved meanwhile). Undo sends the old places.
+  // A display case has no pockets: cards go in it with a blank page and pocket.
   const placeBody = z.object({
     moves: z
       .array(
         z.union([
           z.object({ id: idSchema, binderId: idSchema, page: z.number().int().min(1).max(100_000), slot: z.number().int().min(1).max(64) }),
-          z.object({ id: idSchema, binderId: z.null(), page: z.null(), slot: z.null() }),
+          z.object({ id: idSchema, binderId: idSchema.nullable(), page: z.null(), slot: z.null() }),
         ]),
       )
       .min(1)
@@ -349,18 +351,28 @@ export function createApp(o: AppOptions) {
     if (new Set(moves.map((m) => m.id)).size !== moves.length) throw new HttpError(400, 'A card was given twice.');
     const missing = moves.find((m) => !store.get('cards', m.id));
     if (missing) throw new HttpError(409, 'A card was deleted meanwhile, so nothing moved. Try again.', 'conflict');
-    const pocketsOf = (bid: string) => {
+    const binderOf = (bid: string) => {
       const b = store.get('binders', bid);
       if (!b) throw new HttpError(409, 'That binder no longer exists, so nothing moved.', 'conflict');
-      return [4, 9, 12, 16].includes(b.pockets as number) ? (b.pockets as number) : 9;
+      return b;
     };
-    for (const m of moves) if (m.binderId && m.slot! > pocketsOf(m.binderId)) throw new HttpError(400, 'That pocket is past the end of the page.');
+    for (const m of moves) {
+      if (!m.binderId) continue;
+      const b = binderOf(m.binderId);
+      if (b.kind === 'case') {
+        if (m.page !== null) throw new HttpError(400, `${String(b.name ?? 'That display case')} is a display case: it has no pages or pockets.`);
+        continue;
+      }
+      if (m.page === null) throw new HttpError(400, 'Choose a page and pocket in that binder.');
+      const pockets = [4, 9, 12, 16].includes(b.pockets as number) ? (b.pockets as number) : 9;
+      if (m.slot! > pockets) throw new HttpError(400, 'That pocket is past the end of the page.');
+    }
     // Each card lands in a pocket no other card is in once this is done (the ones moving away free theirs).
     const ids = new Set(moves.map((m) => m.id));
     const key = (at: Record<string, unknown>) => `${String(at.binderId)}/${String(at.page)}/${String(at.slot)}`;
     const taken = new Set(store.all().cards.filter((c) => !ids.has(c.id)).map(key));
     for (const m of moves) {
-      if (!m.binderId) continue;
+      if (!m.binderId || m.page === null) continue;
       if (taken.has(key(m))) throw new HttpError(409, 'A pocket was filled meanwhile, so nothing moved. Try again.', 'conflict');
       taken.add(key(m));
     }
