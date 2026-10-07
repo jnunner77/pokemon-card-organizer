@@ -495,14 +495,17 @@ function openNew(loc){
   renderMain(); renderDrawer(true);
 }
 function closeDrawer(){ S.pricePick=null; S.pickRes=null; S.sel=null; S.draft=null; S.dirty=false; S.editPrice=null; S.confirm=null; renderMain(); renderDrawer(true); }
-/* Back (the phone's gesture or the browser's button) closes the drawer instead of leaving the page */
-const BACK = window.BackClose.create(history, () => { if(S.sel) closeDrawer(); });
+/* Back (the phone's gesture or the browser's button) closes the drawer, then the Pricing or Selling
+   view, instead of leaving the page */
+const BACK = window.BackClose.create(history);
+const BACK_VIEW = BACK.layer("view", () => { if(PV.open || SV.open){ closeViews(); PV.hover = SV.hover = null; render(); } });
+const BACK_CARD = BACK.layer("card", () => { if(S.sel) closeDrawer(); });
 addEventListener("popstate", e => BACK.popstate(e.state));
 const opt = (list, v) => list.map(o => { const [val,lab] = Array.isArray(o)?o:[o,o]; return `<option value="${esc(val)}" ${String(v)===String(val)?"selected":""}>${esc(lab)}</option>`; }).join("");
 function renderDrawer(force){
   const root = $("#drawerRoot");
   const c = selCard();
-  BACK.sync(!!c);
+  BACK_CARD.sync(!!c);
   if(!c){ root.innerHTML=""; root.dataset.showing=""; return; }
   if(!force && root.dataset.showing===S.sel && $("#cardForm")){ if(S.sel!=="__new") refreshParts(c); return; }
   S.priceTouched=false; S.moveTouched=false; root.dataset.showing=S.sel; resetLookup();
@@ -2501,6 +2504,7 @@ function pvData(){
 function renderPricing(){
   const v = $("#pricingView"), btn = $("#btnPricing");
   if(btn) btn.setAttribute("aria-pressed", PV.open);
+  BACK_VIEW.sync(PV.open || SV.open);
   $("#tabs").hidden = PV.open || SV.open; $("#sheet").hidden = PV.open || SV.open; v.hidden = !PV.open;
   if(!PV.open){ v.innerHTML = ""; return; }
   if(S.mode==="loading"){ v.innerHTML = `<div class="empty-state">Loading…</div>`; return; }
@@ -2698,6 +2702,7 @@ function svData(){
 function renderSelling(){
   const v = $("#sellingView"), btn = $("#btnSelling");
   if(btn) btn.setAttribute("aria-pressed", SV.open);
+  BACK_VIEW.sync(PV.open || SV.open);
   if(SV.open){ $("#tabs").hidden = true; $("#sheet").hidden = true; }
   v.hidden = !SV.open;
   if(!SV.open){ v.innerHTML = ""; return; }

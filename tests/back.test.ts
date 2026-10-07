@@ -5,8 +5,9 @@ import { describe, expect, it } from 'vitest';
 
 // public/back.js is a plain browser script; load it the way the page does.
 type State = Record<string, unknown> | null;
-type Back = { sync: (open: boolean) => void; popstate: (state: State) => void };
-const sandbox = { window: {} as { BackClose: { create: (history: FakeHistory, onBack: () => void) => Back } } };
+type Layer = { sync: (open: boolean) => void };
+type Back = Layer & { popstate: (state: State) => void; layer: (name: string, onBack: () => void) => Layer };
+const sandbox = { window: {} as { BackClose: { create: (history: FakeHistory, onBack?: () => void) => Back } } };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../public/back.js'), 'utf8'), sandbox);
 const { create } = sandbox.window.BackClose;
 
@@ -73,7 +74,7 @@ describe('Back closes Card details', () => {
     p.show(false); p.show(true); // closed and opened again before popstate arrives
     p.h.settle();
     expect(p.h.i).toBe(2);
-    expect(p.h.state).toEqual({ cardDetails: true });
+    expect(p.h.state).toEqual({ backDepth: 1 });
     p.h.back(); p.h.settle();
     expect(p.open).toBe(false);
     expect(p.h.i).toBe(1);
@@ -82,17 +83,17 @@ describe('Back closes Card details', () => {
   it('keeps what else the entry holds', () => {
     const p = page(new FakeHistory([{ page: 'admin' }, { scroll: 4 }]));
     p.show(true);
-    expect(p.h.state).toEqual({ scroll: 4, cardDetails: true });
+    expect(p.h.state).toEqual({ scroll: 4, backDepth: 1 });
     p.show(false); p.h.settle();
     expect(p.h.state).toEqual({ scroll: 4 });
   });
 
   it('forgets an entry left over from a reload, so the next card adds its own', () => {
-    const h = new FakeHistory([{ page: 'admin' }, null, { cardDetails: true }]);
+    const h = new FakeHistory([{ page: 'admin' }, null, { backDepth: 1 }]);
     const p = page(h);
     expect(h.state).toEqual({});
     p.show(true);
-    expect(h.state).toEqual({ cardDetails: true });
+    expect(h.state).toEqual({ backDepth: 1 });
     h.back(); h.settle();
     expect(p.open).toBe(false);
     expect(h.state).toEqual({});
@@ -106,6 +107,97 @@ describe('Back closes Card details', () => {
     expect(p.open).toBe(false);
     expect(p.h.state).toEqual({});
     p.show(true);
-    expect(p.h.state).toEqual({ cardDetails: true });
+    expect(p.h.state).toEqual({ backDepth: 1 });
+  });
+});
+
+it('forgets an entry left over from before Back closed more than Card details', () => {
+  const h = new FakeHistory([{ page: 'admin' }, { scroll: 2, cardDetails: true }]);
+  page(h);
+  expect(h.state).toEqual({ scroll: 2 });
+});
+
+/* the binder page: the Pricing or Selling view, with Card details on top */
+type View = '' | 'pricing' | 'selling';
+type Binder = { h: FakeHistory; view: View; card: boolean; back: Back; v: Layer; c: Layer;
+  render(): void; setView(v: View): void; setCard(on: boolean): void };
+function binder(h = new FakeHistory()) {
+  const p: Binder = { h, view: '', card: false, back: null as unknown as Back, v: null as unknown as Layer, c: null as unknown as Layer,
+    render() { p.v.sync(!!p.view); p.c.sync(p.card); },
+    setView(v) { p.view = v; p.render(); },
+    setCard(on) { p.card = on; p.render(); } };
+  p.back = create(h);
+  p.v = p.back.layer('view', () => { p.view = ''; p.render(); });
+  p.c = p.back.layer('card', () => { p.card = false; p.render(); });
+  h.listener = s => p.back.popstate(s);
+  return p;
+}
+
+describe('Back closes the Pricing and Selling views', () => {
+  it('Back from Pricing shows the binders again instead of going to Administration', () => {
+    const p = binder();
+    p.setView('pricing');
+    expect(p.h.length).toBe(3);
+    p.h.back(); p.h.settle();
+    expect(p.view).toBe('');
+    expect(p.h.i).toBe(1);
+    p.h.back(); p.h.settle();
+    expect(p.h.state).toEqual({ page: 'admin' });
+  });
+
+  it('switching between Pricing and Selling adds no extra Back steps', () => {
+    const p = binder();
+    p.setView('pricing'); p.setView('selling'); p.setView('pricing');
+    expect(p.h.length).toBe(3);
+    p.h.back(); p.h.settle();
+    expect(p.view).toBe('');
+    expect(p.h.i).toBe(1);
+  });
+
+  it('"Back to binders" takes the entry back off, so the next Back goes where it did before', () => {
+    const p = binder();
+    p.setView('selling');
+    p.setView(''); p.h.settle();
+    expect(p.h.i).toBe(1);
+    p.h.back(); p.h.settle();
+    expect(p.h.state).toEqual({ page: 'admin' });
+  });
+
+  it('Back closes a card opened over the view first, then the view', () => {
+    const p = binder();
+    p.setView('pricing'); p.setCard(true);
+    expect(p.h.state).toEqual({ backDepth: 2 });
+    p.h.back(); p.h.settle();
+    expect([p.view, p.card]).toEqual(['pricing', false]);
+    p.h.back(); p.h.settle();
+    expect([p.view, p.card]).toEqual(['', false]);
+    expect(p.h.i).toBe(1);
+  });
+
+  it('closing the view and the card together takes both entries off', () => {
+    const p = binder();
+    p.setView('pricing'); p.setCard(true);
+    p.view = ''; p.card = false; p.render(); p.h.settle();
+    expect(p.h.i).toBe(1);
+    expect(p.h.state).toBe(null);
+  });
+
+  it('closing the view under an open card leaves one entry, and Back closes the card', () => {
+    const p = binder();
+    p.setView('pricing'); p.setCard(true);
+    p.setView(''); p.h.settle();
+    expect(p.h.state).toEqual({ backDepth: 1 });
+    p.h.back(); p.h.settle();
+    expect(p.card).toBe(false);
+    expect(p.h.i).toBe(1);
+  });
+
+  it('a view still open after a reload gets its entry, so Back closes it', () => {
+    const p = binder(new FakeHistory([{ page: 'admin' }, null, { backDepth: 1 }, { backDepth: 2 }]));
+    expect(p.h.state).toEqual({});
+    p.setView('pricing');
+    expect(p.h.state).toEqual({ backDepth: 1 });
+    p.h.back(); p.h.settle();
+    expect(p.view).toBe('');
   });
 });
