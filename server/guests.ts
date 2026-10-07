@@ -7,6 +7,7 @@ import { z } from 'zod';
 import type { Logger } from './log';
 import type { Doc } from './schema';
 import { HttpError } from './security';
+import type { Event, Store } from './store';
 
 // Guests: people who scan the QR code at the table and look through the cards listed for sale,
 // without an account.
@@ -173,6 +174,63 @@ export function guestCard(card: Doc, usdToCad: number): GuestCard {
   const img = shownImage(card);
   out.image = img ? `api/guest/cards/${encodeURIComponent(String(card.id))}/image?v=${crypto.createHash('sha256').update(img).digest('hex').slice(0, 12)}` : null;
   return out as unknown as GuestCard;
+}
+
+/**
+ * Live updates for the guest page: what guests see of the cards (the list `GET /api/guest/cards`
+ * returns), as JSON, each time it changes. One feed serves every open guest page: card and
+ * settings changes are gathered for `delayMs`, the list is worked out once, and it's sent only if
+ * it differs from the last one, so ledger changes guests can't see send nothing.
+ */
+export class GuestFeed {
+  private readonly listeners = new Set<(json: string) => void>();
+  private last = '';
+  private timer: NodeJS.Timeout | undefined;
+  private unsubscribe: (() => void) | null = null;
+
+  constructor(
+    private readonly store: Pick<Store, 'all' | 'subscribe'>,
+    private readonly usdToCad: () => number,
+    private readonly delayMs = 250,
+  ) {}
+
+  cards(): GuestCard[] {
+    const rate = this.usdToCad();
+    return this.store.all().cards.filter(isListed).map((c) => guestCard(c, rate));
+  }
+
+  /** The list as last sent (or now, with nobody listening yet). */
+  current(): string {
+    return this.listeners.size ? this.last : JSON.stringify(this.cards());
+  }
+
+  /** Call `fn` with the list each time it changes; returns the function that stops it. */
+  subscribe(fn: (json: string) => void): () => void {
+    if (!this.listeners.size) {
+      this.last = JSON.stringify(this.cards());
+      this.unsubscribe = this.store.subscribe((e) => this.changed(e));
+    }
+    this.listeners.add(fn);
+    return () => {
+      if (!this.listeners.delete(fn) || this.listeners.size) return;
+      clearTimeout(this.timer);
+      this.timer = undefined;
+      this.unsubscribe?.();
+      this.unsubscribe = null;
+    };
+  }
+
+  private changed(e: Event) {
+    if (e.type === 'change' && e.change.collection === 'binders') return;
+    if (this.timer) return;
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      const json = JSON.stringify(this.cards());
+      if (json === this.last) return;
+      this.last = json;
+      for (const fn of [...this.listeners]) fn(json);
+    }, this.delayMs);
+  }
 }
 
 // ---- sessions and settings ------------------------------------------------------------

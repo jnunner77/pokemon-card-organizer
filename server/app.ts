@@ -13,7 +13,7 @@ import { Backups } from './backups';
 import { dirBytes, freeBytes, runChecks } from './checks';
 import { Config, pricingConfigSchema, retentionSchema } from './config';
 import type { CardDetails } from './details';
-import { GUEST_COOKIE, GUEST_IDLE_MS, type Guests, guestCard, guestSchemas, isListed, shownImage } from './guests';
+import { GUEST_COOKIE, GUEST_IDLE_MS, GuestFeed, type Guests, guestSchemas, isListed, shownImage } from './guests';
 import { CATEGORIES, LEVELS, type Logger, quietLogger } from './log';
 import { SourceError } from './pricing/sources';
 import type { PriceUpdater } from './pricing/updater';
@@ -78,11 +78,13 @@ export function createApp(o: AppOptions) {
   app.use(requestLog(log));
   app.use(securityHeaders);
   // A guest from the QR code, if any, before the firewall so they get a guest's limits. Their page's
-  // once-a-minute check (GET /api/guest/me) doesn't count as using it, so idle guests still time out.
+  // twice-a-minute check (GET /api/guest/me) and live updates (GET /api/guest/events) don't count as
+  // using it, so idle guests still time out.
   if (guests) {
+    const quiet = new Set(['/api/guest/me', '/api/guest/events']);
     app.use((req, res, next) => {
       const token = readCookie(req, GUEST_COOKIE);
-      if (token) res.locals.guest = guests.identify(token, !(req.method === 'GET' && req.path === '/api/guest/me')) ?? undefined;
+      if (token) res.locals.guest = guests.identify(token, !(req.method === 'GET' && quiet.has(req.path))) ?? undefined;
       next();
     });
   }
@@ -191,6 +193,7 @@ export function createApp(o: AppOptions) {
       next();
     };
     const usdToCad = () => Number(store.get('settings', 'main')?.usdToCad) || 1;
+    const feed = new GuestFeed(store, usdToCad);
     api.get('/guest/me', (req, res) => {
       const g = guestOf(res);
       const k = typeof req.query.k === 'string' ? req.query.k.slice(0, 100) : '';
@@ -217,8 +220,29 @@ export function createApp(o: AppOptions) {
       res.json({ expiresAt: guestOf(res)!.expiresAt });
     });
     api.get('/guest/cards', needGuest, (_req, res) => {
-      const rate = usdToCad();
-      res.json({ cards: store.all().cards.filter(isListed).map((c) => guestCard(c, rate)) });
+      res.json({ cards: feed.cards() });
+    });
+    // Live updates: the cards guests see, once on connecting and again whenever that changes (a card
+    // listed, delisted, sold or repriced), until the visit ends.
+    api.get('/guest/events', needGuest, (req, res) => {
+      const release = security ? security.openStream(req, res, guestOf(res)!.id) : () => {};
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+      const token = readCookie(req, GUEST_COOKIE);
+      const stillIn = () => !!guests.identify(token, false);
+      const send = (json: string) => (stillIn() ? res.write(`event: cards\ndata: ${json}\n\n`) : stop());
+      let open = true;
+      const stop = () => {
+        if (!open) return;
+        open = false;
+        clearInterval(heartbeat);
+        unsubscribe();
+        release();
+        res.end();
+      };
+      const unsubscribe = feed.subscribe(send);
+      const heartbeat = setInterval(() => (stillIn() ? res.write(': ping\n\n') : stop()), 25_000);
+      send(feed.current());
+      req.on('close', stop);
     });
     api.get('/guest/cards/:id/image', needGuest, (req, res) => {
       const id = idSchema.safeParse(req.params.id);

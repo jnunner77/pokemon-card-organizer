@@ -262,6 +262,8 @@ own phone, without an account:
    condition or grade, illustrator, release year and **market value rounded up to the dollar**.
    They can search like *Find a card* (name, set, set code or number), sort by price, name or
    set date, and tap a card to flip through them all full screen (swipe, or the arrow keys).
+   Their page updates live: a card you list shows up, and one you delist or sell disappears
+   (from full screen too), within a second, as does a new price.
 3. Nothing else in the ledger reaches a guest: not what you paid, sales, notes, owner, where a
    card sits, its price log or any other card or picture.
 
@@ -311,9 +313,9 @@ including Administration), **editor** (changes the ledger) and **viewer** (looks
   sign-in attempts and for backups, restores and price-site searches), with `Retry-After`.
   Addresses that keep going over the limits, failing sign-in or probing for API paths are
   blocked for 15 minutes, then 30, 60 … up to a day for repeat offenders. Live-update
-  connections are capped. `SECURITY_ALLOWLIST` exempts trusted addresses. Signed-in guests have a
-  limit each instead of their address's, and guest sign-in a looser one per address, so a venue's
-  shared Wi-Fi isn't blocked.
+  connections are capped. `SECURITY_ALLOWLIST` exempts trusted addresses. Signed-in guests have
+  limits each (requests and live-update connections) instead of their address's, and guest
+  sign-in a looser one per address, so a venue's shared Wi-Fi isn't blocked.
 - **Requests:** changes from other websites are refused; bodies are size-limited; uploads are
   checked by their bytes; slow requests are dropped (header and request timeouts).
 - **Browser:** strict Content Security Policy, HSTS over HTTPS, no framing, nosniff,

@@ -383,6 +383,7 @@ tbody tr.sel{background:var(--accent-soft)}
 .lb{position:fixed;inset:0;z-index:35;background:#05080B;color:#E9EEF3;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);animation:lbIn .16s ease-out}
 @keyframes lbIn{from{opacity:0}to{opacity:1}}
 @media (prefers-reduced-motion:reduce){.lb{animation:none}}
+.lb.again{animation:none} /* redrawn with a live update: already showing */
 .lb-top{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px 4px 16px}
 .lb-count{font-family:var(--f-mono);font-size:12px;color:rgba(233,238,243,.65)}
 .lb-acts{display:flex;gap:6px}
