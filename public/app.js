@@ -25,7 +25,8 @@ const S = {
   q:"", scope: store.get("scope","binder"), sort: store.get("sort",{k:"loc",d:1}),
   filt: {...window.BinderFilter.EMPTY, ...store.get("filt",{})}, filtOpen: store.get("filtOpen",false),
   sel:null, draft:null, dirty:false, editPrice:null, confirm:null,
-  pick:null, pickConfirm:false, shown:[], found:null
+  pick:null, pickConfirm:false, shown:[], found:null,
+  caseSort: store.get("caseSort","value")
 };
 
 /* ---------- money ---------- */
@@ -62,11 +63,13 @@ const sortedBinders = () => S.binders.slice().sort((a,b)=>(a.order??0)-(b.order?
 const curBinder = () => S.binderId === "__loose" || S.binderId === "__sales" ? null : binderById(S.binderId);
 const cardsIn = id => S.cards.filter(c => c.binderId === id);
 const looseCards = () => S.cards.filter(c => (!c.binderId || !binderById(c.binderId)) && !(c.sale && c.status==="sold"));
-const cardAt = (bid, page, slot) => S.cards.find(c => c.binderId===bid && c.page===page && c.slot===slot);
+/* a display case (like the one taken to card shows) holds cards with no pages or pockets */
+const isCase = b => b?.kind === "case";
+const cardAt = (bid, page, slot) => !page || !slot || isCase(binderById(bid)) ? undefined : S.cards.find(c => c.binderId===bid && c.page===page && c.slot===slot);
 const pocketsOf = b => POCKETS[b?.pockets] ? b.pockets : 9;
 const maxPage = bid => Math.max(1, ...cardsIn(bid).map(c => c.page||1));
-const locText = c => { const b = binderById(c.binderId); return b ? `${b.name} · Page ${c.page} · Pocket ${c.slot}` : "Not in a binder"; };
-const locShort = c => { const b = binderById(c.binderId); return b ? `${b.name.replace(/^Binder\s*/i,"B")} · p${c.page} · #${c.slot}` : "Loose"; };
+const locText = c => { const b = binderById(c.binderId); return !b ? "Not in a binder" : isCase(b) ? b.name : `${b.name} · Page ${c.page} · Pocket ${c.slot}`; };
+const locShort = c => { const b = binderById(c.binderId); return !b ? "Loose" : isCase(b) ? b.name : `${b.name.replace(/^Binder\s*/i,"B")} · p${c.page} · #${c.slot}`; };
 const metaLine = c => [c.setCode || c.set, c.number].filter(Boolean).join(" ");
 /* the card Find just took you to: highlighted for a few seconds */
 const isFound = id => !!S.found && S.found.id===id && Date.now() < S.found.until;
@@ -76,7 +79,8 @@ const imgURL = id => !id ? "" : isInline(id) ? id : "blob/" + encodeURIComponent
 const shown = c => (c.officialImageId && (c.imagePref !== "photo" || !c.imageId)) ? c.officialImageId : c.imageId;
 async function delAsset(id){ if(!id || isInline(id) || !S.assets) return; return S.assets.delete(id); }
 function firstFree(bid){
-  const b = binderById(bid); if(!b) return null; const n = pocketsOf(b);
+  const b = binderById(bid); if(!b) return null; if(isCase(b)) return {page:null, slot:null};
+  const n = pocketsOf(b);
   for(let p=1;p<=maxPage(bid)+1;p++) for(let s=1;s<=n;s++) if(!cardAt(bid,p,s)) return {page:p, slot:s};
   return {page:maxPage(bid)+1, slot:1};
 }
@@ -114,14 +118,15 @@ function renderBanner(){
 function renderTabs(){
   const loose = looseCards().length;
   const bs = sortedBinders();
-  let h = bs.map(b => `<button class="tab" role="tab" type="button" data-binder="${esc(b.id)}" aria-selected="${S.binderId===b.id}" title="${S.binderId===b.id?"Click to rename or edit this binder":esc(b.name)}" style="--bc:${esc(b.color||BINDER_COLORS[0])}"><span class="swatch"></span><span>${esc(b.name)}</span><span class="count">${cardsIn(b.id).length}</span>${S.binderId===b.id?`<span class="edit" data-rename="${esc(b.id)}" title="Rename binder" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m14 6 4 4"/></svg></span>`:""}</button>`).join("");
+  let h = bs.map(b => `<button class="tab${isCase(b)?" case":""}" role="tab" type="button" data-binder="${esc(b.id)}" aria-selected="${S.binderId===b.id}" title="${S.binderId===b.id?`Click to rename or edit this ${isCase(b)?"display case":"binder"}`:esc(b.name)+(isCase(b)?" (display case)":"")}" style="--bc:${esc(b.color||BINDER_COLORS[0])}"><span class="swatch"></span><span>${esc(b.name)}</span><span class="count">${cardsIn(b.id).length}</span>${S.binderId===b.id?`<span class="edit" data-rename="${esc(b.id)}" title="Rename ${isCase(b)?"display case":"binder"}" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m14 6 4 4"/></svg></span>`:""}</button>`).join("");
   if(loose || S.binderId==="__loose") h += `<button class="tab loose" role="tab" type="button" data-binder="__loose" aria-selected="${S.binderId==="__loose"}"><span class="swatch"></span><span>Not in a binder</span><span class="count">${loose}</span></button>`;
   const nSales = salesList().length;
   if(nSales || S.binderId==="__sales") h += `<button class="tab sales" role="tab" type="button" data-binder="__sales" aria-selected="${S.binderId==="__sales"}"><span class="swatch"></span><span>Sales</span><span class="count">${nSales}</span></button>`;
-  h += `<button class="tab add" type="button" id="btnNewBinder">+ New binder</button>`;
+  h += `<button class="tab add" type="button" id="btnNewBinder" title="A binder with pages and pockets, or a display case">+ New binder</button>`;
   $("#tabs").innerHTML = h;
   const b = curBinder(); $("#sheet").style.setProperty("--bc", b?.color || "#77838F"); $("#btnBinderSettings").hidden = !b;
-  $("#btnSortBinder").hidden = !b || S.me?.user?.role==="viewer" || cardsIn(b.id).length < 2;
+  $("#btnBinderSettings").textContent = isCase(b) ? "Rename / edit case" : "Rename / edit binder";
+  $("#btnSortBinder").hidden = !b || isCase(b) || S.me?.user?.role==="viewer" || cardsIn(b.id).length < 2;
 }
 function statsFor(list){
   const heldList = list.filter(owned), ph = list.filter(c => held(c) && c.placeholder).length;
@@ -138,7 +143,7 @@ function renderStats(){
   const label = b ? esc(b.name) : (S.binderId==="__loose" ? "Loose cards" : S.binderId==="__sales" ? "Sales" : "No binder");
   const tot = salesTotals();
   $("#stats").innerHTML = `
-    <div class="stat"><span class="k">${label}</span><span class="v">${st.n} <small>cards${b?` · ${maxPage(b.id)} pg`:""}</small></span></div>
+    <div class="stat"><span class="k">${label}</span><span class="v">${st.n} <small>cards${b && !isCase(b)?` · ${maxPage(b.id)} pg`:""}</small></span></div>
     <div class="stat"><span class="k">Est. value held</span><span class="v">${money(st.val)} <small>${st.priced}/${st.held} priced${st.ph?` · ${st.ph} placeholder${st.ph===1?"":"s"} not counted`:""}</small></span></div>
     <div class="stat"><span class="k">Paid</span><span class="v">${money(st.paid)}</span></div>
     <div class="stat"><span class="k">Sold for</span><span class="v">${money(st.sold)}</span></div>
@@ -149,7 +154,7 @@ function renderStats(){
   $("#vPages").setAttribute("aria-pressed", S.view==="pages");
   $("#vList").setAttribute("aria-pressed", S.view==="list");
   $("#vArrange").setAttribute("aria-pressed", S.view==="arrange");
-  $("#vArrange").hidden = S.me?.user?.role==="viewer";
+  $("#vArrange").hidden = S.me?.user?.role==="viewer" || isCase(curBinder());
 }
 function pickBar(){
   if(!S.pick) return "";
@@ -210,6 +215,7 @@ function renderMainInner(){
   if(S.view==="list") return renderList(m);
   const b = curBinder();
   if(S.binderId==="__loose"){ S.view="list"; return renderList(m); }
+  if(isCase(b)) return renderCase(m, b);
   if(S.view==="arrange" && b) return renderArrange(m, b);
   if(!b){ m.innerHTML = `<div class="empty-state"><p>No binders yet.</p><p style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center"><button class="btn primary" type="button" id="btnFirstBinder">Create your first binder</button>${S.cards.length || (S.me?.user && S.me.user.role!=="admin")?"":`<button class="btn" type="button" id="btnFirstRestore">Restore from a backup</button>`}</p></div>`; return; }
   const n = pocketsOf(b), cols = POCKETS[n].cols, mp = maxPage(b.id);
@@ -218,11 +224,7 @@ function renderMainInner(){
   for(let s=1;s<=n;s++){
     const c = cardAt(b.id, S.page, s);
     if(!c){ cells += `<button class="pocket empty" type="button" data-empty="${s}" aria-label="Empty pocket ${s}, add a card"><span class="slotno">${s}</span><span class="plus">+</span><span>Add card</span></button>`; continue; }
-    const v = valueOf(c), flag = c.placeholder && held(c) ? `<span class="flag placeholder">Placeholder</span>` : c.status && c.status!=="binder" ? `<span class="flag ${esc(c.status)}">${esc((STATUSES.find(x=>x[0]===c.status)||[,""])[1].replace("Listed for sale","Listed").replace("Out for grading","Grading"))}</span>` : "";
-    const inner = shown(c)
-      ? `<img src="${imgURL(shown(c))}" alt="${esc(c.name||"Card")}" loading="lazy"><span class="cap"><span class="n">${esc(c.name||"Unnamed card")}</span><span class="m">${esc(metaLine(c))}</span></span>`
-      : `<span class="face"><span class="n">${esc(c.name||"Unnamed card")}</span><span class="m">${esc(metaLine(c)||"No set yet")}</span><span class="np">No photo</span></span>`;
-    cells += `<button class="pocket${S.sel===c.id?" sel":""}${S.swap?.id===c.id?" swapsrc":""}${held(c)?"":" dim"}${c.placeholder&&held(c)?" ph":""}${S.pick?.has(c.id)?" picked":""}${isFound(c.id)?" found":""}" type="button" data-card="${esc(c.id)}" aria-label="${esc((c.name||"Unnamed card")+(c.placeholder&&held(c)?" (placeholder)":"")+", pocket "+s+(cardChecks(c).length?", needs checking":""))}"${S.pick?` aria-pressed="${S.pick.has(c.id)}"`:""}><span class="slotno">${s}</span>${cardChecks(c).length?`<span class="chkmark" title="${esc(cardChecks(c)[0].title)}" aria-hidden="true">!</span>`:""}<span class="tick" aria-hidden="true">✓</span>${inner}${v!=null?`<span class="price">${esc(money(v).replace(".00",""))}</span>`:""}${flag}</button>`;
+    cells += pocketHTML(c, s);
   }
   const pageCards = cardsIn(b.id).filter(c=>c.page===S.page);
   const pst = statsFor(pageCards);
@@ -239,6 +241,36 @@ function renderMainInner(){
         <span><b>${pageCards.length}</b> of ${n} pockets filled</span>
         <span>Page value <b>${money(pst.val)}</b></span>
         <span class="hint">${n}-pocket pages. Tap a card to price it or move it. Tap an empty pocket to add one. Tap Photos to flip through every picture full screen. Swipe left or right on the page to flip pages. Press and hold a card to quick sell it or move it to another binder, or to select several to sell, move, mark as placeholders, duplicate or delete.</span>
+      </div>
+    </aside></div>`;
+}
+/* a card in a binder's pocket (s: its pocket number) or in a display case (no number) */
+function pocketHTML(c, s){
+  const v = valueOf(c), flag = c.placeholder && held(c) ? `<span class="flag placeholder">Placeholder</span>` : c.status && c.status!=="binder" ? `<span class="flag ${esc(c.status)}">${esc((STATUSES.find(x=>x[0]===c.status)||[,""])[1].replace("Listed for sale","Listed").replace("Out for grading","Grading"))}</span>` : "";
+  const inner = shown(c)
+    ? `<img src="${imgURL(shown(c))}" alt="${esc(c.name||"Card")}" loading="lazy"><span class="cap"><span class="n">${esc(c.name||"Unnamed card")}</span><span class="m">${esc(metaLine(c))}</span></span>`
+    : `<span class="face"><span class="n">${esc(c.name||"Unnamed card")}</span><span class="m">${esc(metaLine(c)||"No set yet")}</span><span class="np">No photo</span></span>`;
+  return `<button class="pocket${S.sel===c.id?" sel":""}${S.swap?.id===c.id?" swapsrc":""}${held(c)?"":" dim"}${c.placeholder&&held(c)?" ph":""}${S.pick?.has(c.id)?" picked":""}${isFound(c.id)?" found":""}" type="button" data-card="${esc(c.id)}" aria-label="${esc((c.name||"Unnamed card")+(c.placeholder&&held(c)?" (placeholder)":"")+(s?", pocket "+s:"")+(cardChecks(c).length?", needs checking":""))}"${S.pick?` aria-pressed="${S.pick.has(c.id)}"`:""}>${s?`<span class="slotno">${s}</span>`:""}${cardChecks(c).length?`<span class="chkmark" title="${esc(cardChecks(c)[0].title)}" aria-hidden="true">!</span>`:""}<span class="tick" aria-hidden="true">✓</span>${inner}${v!=null?`<span class="price">${esc(money(v).replace(".00",""))}</span>`:""}${flag}</button>`;
+}
+/* a display case: every card in it as one grid, in the order chosen (no pages or pockets) */
+const CASE_SORTS = [["value","Price, high to low"],["name","Name"],["set","Set and number"],["released","Newest first"]];
+function caseCards(b){
+  const k = CASE_SORTS.some(x=>x[0]===S.caseSort) ? S.caseSort : "value";
+  const key = {value:c=>valueOf(c) ?? -1, name:SORTS.name, set:SORTS.set, released:c=>c.released||""}[k], d = k==="value"||k==="released" ? -1 : 1;
+  return cardsIn(b.id).sort((x,y)=>{ const a=key(x), z=key(y); return (a<z?-1:a>z?1:0)*d || (x.name||"").localeCompare(y.name||""); });
+}
+function renderCase(m, b){
+  const list = caseCards(b), st = statsFor(list);
+  S.shown = list.map(c=>c.id);
+  const add = `<button class="pocket empty" type="button" data-caseadd aria-label="Add a card to ${esc(b.name)}"><span class="plus">+</span><span>Add card</span></button>`;
+  m.innerHTML = `<div class="pageview caseview">
+    <div class="binder-page case-page" style="--bc:${esc(b.color||BINDER_COLORS[0])}"><div class="grid casegrid">${list.map(c=>pocketHTML(c)).join("")}${add}</div></div>
+    <aside class="pagenav">
+      <div class="field"><label class="lbl" for="caseSort">Show by</label><select id="caseSort">${opt(CASE_SORTS, S.caseSort)}</select></div>
+      <div class="pageinfo">
+        <span><b>${list.length}</b> card${list.length===1?"":"s"} in the case</span>
+        <span>Case value <b>${money(st.val)}</b></span>
+        <span class="hint">A display case has no pages or pockets: its cards are shown together. Tap a card to price it or move it, or + to add one. Press and hold a card to quick sell it or move it to a binder, or to select several. To fill the case, select cards in a binder and Move them here.</span>
       </div>
     </aside></div>`;
 }
@@ -605,17 +637,20 @@ function renderPriceSummary(c){
   box.innerHTML = `<span class="stat"><span class="k">Current value</span></span><span class="big">${money(v)}</span><span class="sub">${esc(basis)}</span>
     <dl class="kv"><dt>Paid</dt><dd>${money(pd)}</dd>${sd!=null?`<dt>Sold for</dt><dd>${money(sd)}</dd>`:""}${gain!=null?`<dt>${si?`Profit ${BASIS_LABEL[si.basis]}`:"Unrealized"}</dt><dd class="${gain>=0?"pos":"neg"}">${gain>=0?"+":""}${money(gain)}</dd>`:""}<dt>Entries</dt><dd>${prices(c).length}</dd></dl>`;
 }
+/* "Binder", or "Binder or case" once there's a display case to choose */
+const binderWord = () => S.binders.some(isCase) ? "Binder or case" : "Binder";
+const binderOpt = (b, sel, extra="") => `<option value="${esc(b.id)}" ${b.id===sel?"selected":""}>${esc(b.name)}${isCase(b) && !/case/i.test(b.name||"")?" (display case)":""}${extra}</option>`;
 function moveSection(c){
   const bs = sortedBinders();
   const bid = c.binderId && binderById(c.binderId) ? c.binderId : "";
-  const n = bid ? pocketsOf(binderById(bid)) : 9;
+  const cb = binderById(bid), inCase = isCase(cb), n = bid && !inCase ? pocketsOf(cb) : 9;
   return `<div class="sec" id="moveSec"><h3>Location <span class="mono" style="letter-spacing:0;text-transform:none;font-weight:400">${esc(locShort(c))}</span></h3>
     <div class="movebox">
-      <div class="field"><label for="m_binder">Binder</label><select id="m_binder">${bs.map(b=>`<option value="${esc(b.id)}" ${b.id===bid?"selected":""}>${esc(b.name)}</option>`).join("")}<option value="" ${bid?"":"selected"}>Not in a binder</option></select></div>
-      <div class="field"><label for="m_page">Page</label><input id="m_page" class="mono" type="number" min="1" inputmode="numeric" value="${esc(c.page||1)}" ${bid?"":"disabled"}></div>
-      <div class="field"><label for="m_slot">Pocket</label><select id="m_slot" class="mono" ${bid?"":"disabled"}>${Array.from({length:n},(_,i)=>`<option value="${i+1}" ${c.slot===i+1?"selected":""}>${i+1}</option>`).join("")}</select></div>
+      <div class="field"><label for="m_binder">${binderWord()}</label><select id="m_binder">${bs.map(b=>binderOpt(b, bid)).join("")}<option value="" ${bid?"":"selected"}>Not in a binder</option></select></div>
+      <div class="field" data-pocketf ${inCase?"hidden":""}><label for="m_page">Page</label><input id="m_page" class="mono" type="number" min="1" inputmode="numeric" value="${esc(c.page||1)}" ${bid?"":"disabled"}></div>
+      <div class="field" data-pocketf ${inCase?"hidden":""}><label for="m_slot">Pocket</label><select id="m_slot" class="mono" ${bid?"":"disabled"}>${Array.from({length:n},(_,i)=>`<option value="${i+1}" ${c.slot===i+1?"selected":""}>${i+1}</option>`).join("")}</select></div>
       <div class="note" id="moveNote"></div>
-      <div class="btns"><button class="btn" type="button" id="btnMove">Move card</button><button class="btn ghost sm" type="button" id="btnFree">Next empty pocket</button><button class="btn ghost sm" type="button" id="btnSwap" title="Then tap the card or empty pocket to trade places with">Swap with…</button>${bid?`<button class="btn ghost sm" type="button" id="btnTakeOut">Take out of binder</button>`:""}</div>
+      <div class="btns"><button class="btn" type="button" id="btnMove">Move card</button><button class="btn ghost sm" type="button" id="btnFree" ${inCase?"hidden":""}>Next empty pocket</button><button class="btn ghost sm" type="button" id="btnSwap" title="Then tap the card or empty pocket to trade places with">Swap with…</button>${bid?`<button class="btn ghost sm" type="button" id="btnTakeOut">Take out of ${inCase?"case":"binder"}</button>`:""}</div>
     </div></div>`;
 }
 function priceRowView(p){
@@ -844,7 +879,7 @@ async function saveCard(){
     if(loc.binderId && cardAt(loc.binderId, loc.page, loc.slot)){ const f = firstFree(loc.binderId); loc.page=f.page; loc.slot=f.slot; }
     const id = rid();
     const ok = await guard(()=> S.db.collection("cards").doc(id).set({...data, ...loc, placeholder:!!$("#f_placeholder")?.checked, imageId:c.imageId||null, prices:[], createdAt:nowISO(), updatedAt:nowISO()}));
-    if(ok){ toast(`Added ${data.name}. Looking up its price and picture…`); S.sel=id; S.draft=null; S.dirty=false; if(loc.binderId){ S.binderId=loc.binderId; S.page=loc.page; persistNav(); } render(); renderDrawer(true); }
+    if(ok){ toast(`Added ${data.name}. Looking up its price and picture…`); S.sel=id; S.draft=null; S.dirty=false; if(loc.binderId){ S.binderId=loc.binderId; if(loc.page) S.page=loc.page; persistNav(); } render(); renderDrawer(true); }
     return;
   }
   const ok = await guard(()=> S.db.doc("cards/"+c.id).update({...data, updatedAt:nowISO()}));
@@ -869,11 +904,19 @@ async function delPrice(pid){
   if(await updateCard(c.id, {prices:(c.prices||[]).filter(x=>x.id!==pid)})){ S.confirm=null; refreshParts(selCard(),{price:true}); toast("Entry deleted"); }
 }
 async function moveCard(c, bid, page, slot){
-  if(!bid){ if(await updateCard(c.id,{binderId:null,page:null,slot:null})){ S.moveTouched=false; render(); refreshParts(selCard(),{move:true}); toast(`${c.name||"Card"} taken out of the binder`); } return; }
+  if(!bid){ const from = isCase(binderById(c.binderId)) ? "case" : "binder"; if(await updateCard(c.id,{binderId:null,page:null,slot:null})){ S.moveTouched=false; render(); refreshParts(selCard(),{move:true}); toast(`${c.name||"Card"} taken out of the ${from}`); } return; }
+  if(isCase(binderById(bid))){
+    if(c.binderId===bid) return toast("It's already there.");
+    if(await updateCard(c.id, {binderId:bid, page:null, slot:null})){
+      toast(`Moved to ${binderById(bid).name}`);
+      S.binderId = bid; S.moveTouched=false; persistNav(); render(); refreshParts(selCard(),{move:true});
+    }
+    return;
+  }
   const other = cardAt(bid, page, slot);
   if(other && other.id===c.id) return toast("It's already there.");
   if(other){
-    const back = c.binderId && binderById(c.binderId) ? {binderId:c.binderId, page:c.page, slot:c.slot} : {binderId:null,page:null,slot:null};
+    const back = c.binderId && binderById(c.binderId) ? {binderId:c.binderId, page:c.page||null, slot:c.slot||null} : {binderId:null,page:null,slot:null};
     if(!(await updateCard(other.id, back))) return;
   }
   if(await updateCard(c.id, {binderId:bid, page, slot})){
@@ -904,7 +947,8 @@ async function duplicateCards(ids){
   for(const c of src){
     const inB = c.binderId && binderById(c.binderId);
     let spot = null;
-    if(inB){ const t = taken[c.binderId] ||= new Set(); spot = nextFreeAfter(c.binderId, c.page, c.slot, t); t.add(spot.page+":"+spot.slot); }
+    if(inB && isCase(inB)) spot = {page:null, slot:null};
+    else if(inB){ const t = taken[c.binderId] ||= new Set(); spot = nextFreeAfter(c.binderId, c.page, c.slot, t); t.add(spot.page+":"+spot.slot); }
     const nid = rid(), data = dupData(c, spot);
     jobs.push({nid, data, name:c.name});
   }
@@ -921,7 +965,7 @@ async function duplicateCard(){
   const d = j.data;
   toast(d.binderId ? `Copy of ${c.name||"card"} added to ${locText(d)}` : `Copy of ${c.name||"card"} added`);
   S.sel = j.nid; S.draft=null; S.dirty=false; S.editPrice=null; S.confirm=null;
-  if(d.binderId){ S.binderId=d.binderId; S.page=d.page; persistNav(); }
+  if(d.binderId){ S.binderId=d.binderId; if(d.page) S.page=d.page; persistNav(); }
   render(); renderDrawer(true);
 }
 async function duplicatePicked(){
@@ -1078,22 +1122,49 @@ function newBinder(){ binderModal(null); }
 function binderModal(id){
   const isNew = !id;
   let b = isNew ? null : binderById(id); if(!isNew && !b) return;
-  if(isNew){ const k = S.binders.length + 1; let nm = `Binder ${k}`, j=k; while(S.binders.some(x=>x.name===nm)) nm = `Binder ${++j}`; b = {name:nm, color:BINDER_COLORS[(k-1)%BINDER_COLORS.length], pockets:9}; }
+  const nameFor = kind => { const base = kind==="case" ? "Display case" : "Binder"; const k = S.binders.filter(x=>isCase(x)===(kind==="case")).length + 1; let nm = kind==="case" && k===1 ? base : `${base} ${k}`, j=k; while(S.binders.some(x=>x.name===nm)) nm = `${base} ${++j}`; return nm; };
+  if(isNew){ const k = S.binders.length + 1; b = {name:nameFor("binder"), color:BINDER_COLORS[(k-1)%BINDER_COLORS.length], pockets:9}; }
   const count = isNew ? 0 : cardsIn(id).length;
   const n = pocketsOf(b);
-  $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard narrow" role="dialog" aria-modal="true" aria-label="${isNew?"New binder":"Binder settings"}">
-    <h2>${isNew?"New binder":"Binder settings"}</h2><p class="lead">${isNew?"Give it a name you'll recognise, like \u201cVintage holos\u201d or \u201cTrade binder\u201d.":`${count} card${count===1?"":"s"} across ${maxPage(id)} page${maxPage(id)===1?"":"s"}.`}</p>
+  let kind = isCase(b) ? "case" : "binder";
+  const what = () => kind==="case" ? "display case" : "binder";
+  const lead = () => isNew ? (kind==="case" ? "A display case holds cards with no pages or pockets, like the case you take to card shows. Move cards into it from your binders." : "Give it a name you'll recognise, like “Vintage holos” or “Trade binder”.")
+    : kind==="case" ? `${count} card${count===1?"":"s"} in the case.` : `${count} card${count===1?"":"s"} across ${maxPage(id)} page${maxPage(id)===1?"":"s"}.`;
+  $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard narrow" role="dialog" aria-modal="true" aria-labelledby="bTitle">
+    <h2 id="bTitle"></h2><p class="lead" id="bLead"></p>
     <div class="form" style="grid-template-columns:1fr">
-      <div class="field"><label for="b_name">Binder name</label><input id="b_name" value="${esc(b.name)}" maxlength="40" placeholder="e.g. Vintage holos" autocomplete="off"></div>
-      <div class="field"><label>Cover colour</label><div class="swatches" id="b_colors">${BINDER_COLORS.map(c=>`<button type="button" style="--c:${c}" data-color="${c}" aria-pressed="${(b.color||BINDER_COLORS[0])===c}" aria-label="Colour ${c}"></button>`).join("")}</div></div>
-      <div class="field"><label for="b_pockets">Pockets per page</label><select id="b_pockets">${[4,9,12,16].map(p=>`<option value="${p}" ${p===n?"selected":""}>${p}-pocket</option>`).join("")}</select><span class="hint">Changing this doesn't move cards. Pockets past the new size stay listed but won't show on the page.</span></div>
+      <fieldset class="sortopts kindopts" id="b_kind"><legend>Type</legend>
+        <label><input type="radio" name="bkind" value="binder" ${kind==="binder"?"checked":""} ${count?"disabled":""}><span><b>Binder</b> <span class="hint">pages and pockets</span></span></label>
+        <label><input type="radio" name="bkind" value="case" ${kind==="case"?"checked":""} ${count?"disabled":""}><span><b>Display case</b> <span class="hint">no pages or pockets, like the case at card shows</span></span></label>
+        ${count?`<span class="hint">Move its ${count} card${count===1?"":"s"} out to change its type.</span>`:""}
+      </fieldset>
+      <div class="field"><label for="b_name">Name</label><input id="b_name" value="${esc(b.name)}" maxlength="40" placeholder="e.g. Vintage holos" autocomplete="off"></div>
+      <div class="field"><label>Colour</label><div class="swatches" id="b_colors">${BINDER_COLORS.map(c=>`<button type="button" style="--c:${c}" data-color="${c}" aria-pressed="${(b.color||BINDER_COLORS[0])===c}" aria-label="Colour ${c}"></button>`).join("")}</div></div>
+      <div class="field" id="b_pocketsF"><label for="b_pockets">Pockets per page</label><select id="b_pockets">${[4,9,12,16].map(p=>`<option value="${p}" ${p===n?"selected":""}>${p}-pocket</option>`).join("")}</select><span class="hint">Changing this doesn't move cards. Pockets past the new size stay listed but won't show on the page.</span></div>
     </div>
-    <div class="mfoot" style="justify-content:space-between"><span id="bDelZone">${isNew?"":count?`<span class="hint">Move or delete its ${count} cards to remove this binder.</span>`:`<button class="btn sm danger" type="button" id="bDel">Delete binder</button>`}</span>
-      <span style="display:flex;gap:8px"><button class="btn" type="button" data-mclose>Cancel</button><button class="btn primary" type="button" id="bSave">${isNew?"Create binder":"Save"}</button></span></div>
+    <div class="mfoot" style="justify-content:space-between"><span id="bDelZone"></span>
+      <span style="display:flex;gap:8px"><button class="btn" type="button" data-mclose>Cancel</button><button class="btn primary" type="button" id="bSave"></button></span></div>
   </div></div>`;
+  const nameIn = $("#b_name");
+  const sync = () => {
+    $("#bTitle").textContent = isNew ? `New ${what()}` : `${kind==="case"?"Display case":"Binder"} settings`;
+    $("#bLead").textContent = lead();
+    $("#bSave").textContent = isNew ? `Create ${what()}` : "Save";
+    $("#b_pocketsF").hidden = kind==="case";
+    $("#bDelZone").innerHTML = isNew ? "" : count ? `<span class="hint">Move or delete its ${count} cards to remove this ${what()}.</span>` : `<button class="btn sm danger" type="button" id="bDel">Delete ${what()}</button>`;
+    const del = $("#bDel");
+    if(del) del.onclick = () => {
+      $("#bDelZone").innerHTML = `<span class="confirm">Delete ${esc(b.name)}? <button class="btn sm danger solid" type="button" id="bDelYes">Delete</button></span>`;
+      $("#bDelYes").onclick = async () => { if(await guard(()=> S.db.doc("binders/"+id).delete())){ closeModal(); S.binderId = sortedBinders().find(x=>x.id!==id)?.id || null; persistNav(); toast(`${kind==="case"?"Display case":"Binder"} deleted`); render(); } };
+    };
+  };
+  $("#b_kind").onchange = e => {
+    const was = kind; kind = e.target.value;
+    if(isNew && nameIn.value.trim()===nameFor(was)) nameIn.value = nameFor(kind);
+    sync();
+  };
   let color = b.color || BINDER_COLORS[0];
   $("#b_colors").onclick = e => { const t = e.target.closest("[data-color]"); if(!t) return; color = t.dataset.color; $("#b_colors").querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed", x===t)); };
-  const nameIn = $("#b_name");
   setTimeout(()=>{ nameIn.focus(); nameIn.select(); }, 30);
   nameIn.addEventListener("keydown", e => { if(e.key==="Enter"){ e.preventDefault(); $("#bSave").click(); } });
   $("#bSave").onclick = async () => {
@@ -1101,18 +1172,15 @@ function binderModal(id){
     const pockets = +$("#b_pockets").value;
     if(isNew){
       const nid = rid();
-      if(await guard(()=> S.db.collection("binders").doc(nid).set({name, color, pockets, order:Math.max(0,...S.binders.map(x=>x.order||0))+1, createdAt:nowISO()}))){
+      if(await guard(()=> S.db.collection("binders").doc(nid).set({name, color, pockets, kind, order:Math.max(0,...S.binders.map(x=>x.order||0))+1, createdAt:nowISO()}))){
         closeModal(); S.binderId=nid; S.page=1; persistNav(); toast(`${name} created`); render();
       }
       return;
     }
-    if(await guard(()=> S.db.doc("binders/"+id).update({name, color, pockets}))){ closeModal(); toast(name!==b.name?`Renamed to ${name}`:"Binder saved"); }
+    if(kind!==(isCase(b)?"case":"binder") && cardsIn(id).length) return toast(`Move its cards out to change its type.`);
+    if(await guard(()=> S.db.doc("binders/"+id).update({name, color, pockets, kind}))){ closeModal(); toast(name!==b.name?`Renamed to ${name}`:`${kind==="case"?"Display case":"Binder"} saved`); }
   };
-  const del = isNew ? null : $("#bDel");
-  if(del) del.onclick = () => {
-    $("#bDelZone").innerHTML = `<span class="confirm">Delete ${esc(b.name)}? <button class="btn sm danger solid" type="button" id="bDelYes">Delete</button></span>`;
-    $("#bDelYes").onclick = async () => { if(await guard(()=> S.db.doc("binders/"+id).delete())){ closeModal(); S.binderId = sortedBinders().find(x=>x.id!==id)?.id || null; persistNav(); toast("Binder deleted"); render(); } };
-  };
+  sync();
 }
 /* ---------- cards to check ----------
    What the nightly check against TCGdex (server/details.ts) found wrong with a card, plus cards
@@ -1236,10 +1304,16 @@ async function swapWith(target){
    pocket you pick (cards in the way shift along to the next empty pocket). The pockets they
    leave stay empty. Saved all at once (POST /api/cards/place), with Undo. */
 let moveTo = {bid:null, at:"end", page:1, slot:1};
-const placeOf = c => { const inB = !!(binderById(c.binderId) && c.page && c.slot); return {id:c.id, binderId:inB?c.binderId:null, page:inB?c.page:null, slot:inB?c.slot:null}; };
+const placeOf = c => {
+  const b = binderById(c.binderId);
+  if(isCase(b)) return {id:c.id, binderId:b.id, page:null, slot:null};
+  const inB = !!(b && c.page && c.slot); return {id:c.id, binderId:inB?c.binderId:null, page:inB?c.page:null, slot:inB?c.slot:null};
+};
+/* pockets per page, or null for a display case (move.js puts cards in it with no pocket) */
+const movePockets = b => isCase(b) ? null : pocketsOf(b);
 function movePlan(bid, list, at){
   const b = binderById(bid), ids = list.map(c=>c.id);
-  return window.BinderMove.plan(pocketsOf(b), cardsIn(bid), ids, at);
+  return window.BinderMove.plan(movePockets(b), cardsIn(bid), ids, at);
 }
 function moveModal(ids){
   const list = ids.map(id=>S.cards.find(c=>c.id===id)).filter(c=>c && held(c))
@@ -1251,7 +1325,7 @@ function moveModal(ids){
   $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard narrow" role="dialog" aria-modal="true" aria-labelledby="mvTitle">
     <h2 id="mvTitle">Move ${what}</h2>
     <p class="lead">${one?"It goes":"They go"} in the binder you choose. The pocket${one?"":"s"} ${one?"it leaves stays":"they leave stay"} empty.</p>
-    <div class="form" style="grid-template-columns:1fr"><div class="field"><label for="mv_binder">Binder</label><select id="mv_binder">${bs.map(b=>`<option value="${esc(b.id)}" ${b.id===moveTo.bid?"selected":""}>${esc(b.name)} (${cardsIn(b.id).length} card${cardsIn(b.id).length===1?"":"s"})</option>`).join("")}</select></div></div>
+    <div class="form" style="grid-template-columns:1fr"><div class="field"><label for="mv_binder">${binderWord()}</label><select id="mv_binder">${bs.map(b=>binderOpt(b, moveTo.bid, ` · ${cardsIn(b.id).length} card${cardsIn(b.id).length===1?"":"s"}`)).join("")}</select></div></div>
     <fieldset class="sortopts" id="mvAt" style="margin-top:12px"><legend class="sr-only">Where in the binder</legend>
       <label><input type="radio" name="mvat" value="end" ${moveTo.at==="end"?"checked":""}><span id="mvEnd">At the end</span></label>
       <label><input type="radio" name="mvat" value="at" ${moveTo.at==="at"?"checked":""}>In a pocket I choose</label>
@@ -1263,6 +1337,8 @@ function moveModal(ids){
   const at = () => moveTo.at==="at" ? {page:moveTo.page, slot:moveTo.slot} : null;
   const spotFields = () => {
     const b = binderById(moveTo.bid), n = pocketsOf(b), mp = maxPage(b.id) + 1;
+    $("#mvAt").hidden = isCase(b);
+    if(isCase(b)){ $("#mvSpot").hidden = true; return; }
     moveTo.page = Math.min(Math.max(1, moveTo.page|0), mp); moveTo.slot = Math.min(Math.max(1, moveTo.slot|0), n);
     $("#mvSpot").hidden = moveTo.at!=="at";
     $("#mvSpot").innerHTML = `<div class="field"><label for="mv_page">Page</label><select id="mv_page" class="mono">${Array.from({length:mp},(_,i)=>`<option value="${i+1}" ${moveTo.page===i+1?"selected":""}>${i+1}</option>`).join("")}</select></div>
@@ -1270,6 +1346,7 @@ function moveModal(ids){
   };
   const show = () => {
     const b = binderById(moveTo.bid), p = movePlan(b.id, list, at()), first = p.moves[0];
+    if(isCase(b)){ $("#mvPrev").innerHTML = `${one?"Goes in":"Go in"} the display case <b>${esc(b.name)}</b>. It has no pages or pockets, so nothing else moves.`; return; }
     const e = window.BinderMove.end(pocketsOf(b), cardsIn(b.id), list.map(c=>c.id));
     $("#mvEnd").textContent = `At the end (Page ${e.page} · #${e.slot})`;
     const there = moveTo.at==="at" ? cardAt(b.id, first.page, first.slot) : null, k = p.shifted;
@@ -1290,8 +1367,8 @@ function moveModal(ids){
     try{ await window.ledgerApi.call("POST", "api/cards/place", {moves}); }
     catch(err){ go.disabled = false; return toast(err?.message || "Couldn't move. Check your connection and try again."); }
     applyPlaces(moves); closeModal(); if(S.pick) endPick(); render();
-    const where = `${b.name} · Page ${first.page} · Pocket ${first.slot}`;
-    toast(`${one ? `Moved ${list[0].name||"the card"} to` : `Moved ${list.length} cards to`} ${where}${one?"":" onward"}${p.shifted?` (${p.shifted} shifted along)`:""}`, {label:"Undo", run:() => void undoPlaces(before)});
+    const where = isCase(b) ? b.name : `${b.name} · Page ${first.page} · Pocket ${first.slot}`;
+    toast(`${one ? `Moved ${list[0].name||"the card"} to` : `Moved ${list.length} cards to`} ${where}${one||isCase(b)?"":" onward"}${p.shifted?` (${p.shifted} shifted along)`:""}`, {label:"Undo", run:() => void undoPlaces(before)});
   };
   spotFields(); show();
   setTimeout(()=> $("#mv_binder")?.focus(), 30);
@@ -1641,6 +1718,7 @@ function unitToQuad(q){ // maps unit square -> quad (TL,TR,BR,BL)
 function importModal(){
   const b = curBinder();
   if(!b) return toast("Pick or create a binder first.");
+  if(isCase(b)) return toast("A display case has no pages to photograph. Add each card's photo from its details, or import a binder page.");
   if(!S.db) return toast("Saving isn't available in this view.");
   const n = pocketsOf(b), cols = POCKETS[n].cols, rows = n/cols, mp = maxPage(b.id);
   const startPage = Math.min(S.page, mp+1);
@@ -1759,7 +1837,7 @@ async function exportCSV(){
 /* ---------- CSV import ---------- */
 const norm = s => String(s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]/g,"");
 const CI_COLS = [
-  {k:"binder", h:"Binder", a:["bindername"], d:"Binder name, spelled as on its tab. Leave blank for a card that isn't in a binder. A name that doesn't exist yet creates a new binder."},
+  {k:"binder", h:"Binder", a:["bindername"], d:"Binder or display case name, spelled as on its tab. Leave blank for a card that isn't in a binder. A name that doesn't exist yet creates a new binder."},
   {k:"page", h:"Page", a:["pg","pageno","pagenumber"], d:"Whole number, 1 or more."},
   {k:"slot", h:"Pocket", a:["slot","pocketno","pocketnumber","position"], d:"Whole number from 1 to the binder's pockets per page. Leave Page and Pocket both blank to use the next empty pocket. If that pocket already has a card, the imported card replaces it (you can change this in the import box)."},
   {k:"name", h:"Name", a:["cardname","pokemon","card"], req:true, d:"The Pokémon or card name, e.g. Umbreon VMAX."},
@@ -1911,7 +1989,11 @@ function ciValidate(P, o){
       if(b){ r.bkey = "id:"+b.id; r.bname = b.name; }
       else if(o.create){ r.bkey = "new:"+key; r.bname = bn.slice(0,40); r.isNew = true; if(!res.newBinders.has(r.bkey)) res.newBinders.set(r.bkey, {name:bn.slice(0,40), pockets:o.pockets}); }
       else E(`There's no binder called “${bn}”. Check the spelling against its tab, or set “Binders that don't exist yet” to Create them.`);
-      if(r.bkey){
+      if(r.bkey && r.bkey.startsWith("id:") && isCase(binderById(r.bkey.slice(3)))){
+        r.inCase = true;
+        if(pg || sl) W(`${r.bname} is a display case, so Page and Pocket are ignored.`);
+      }
+      else if(r.bkey){
         const n = pocketsFor(r.bkey);
         if(!pg && !sl) r.auto = true;
         else if(!pg || !sl) E("Fill in both Page and Pocket, or leave both blank to use the next empty pocket.");
@@ -1931,7 +2013,7 @@ function ciValidate(P, o){
   if(!res.rows.length){ res.fatal = "The file has headings but no card rows."; return res; }
   const ok = r => !r.errors.length;
   for(const r of res.rows){
-    if(!ok(r) || !r.bkey || r.auto) continue;
+    if(!ok(r) || !r.bkey || r.auto || r.inCase) continue;
     const k = `${r.bkey}|${r.page}|${r.slot}`, who = occ.get(k);
     if(who && o.taken==="replace"){
       const prev = occRow.get(k), old = occCard.get(k);
@@ -1948,7 +2030,7 @@ function ciValidate(P, o){
     } else { occ.set(k, `row ${r.line} (${r.data.name})`); occRow.set(k, r); }
   }
   for(const r of res.rows){
-    if(!ok(r) || !r.bkey || !r.auto) continue;
+    if(!ok(r) || !r.bkey || !r.auto || r.inCase) continue;
     const n = pocketsFor(r.bkey); let p = 1, s = 1;
     while(occ.has(`${r.bkey}|${p}|${s}`)){ if(++s > n){ s = 1; p++; } }
     r.page = p; r.slot = s; occ.set(`${r.bkey}|${p}|${s}`, `row ${r.line} (${r.data.name})`);
@@ -2097,7 +2179,7 @@ async function ciRun(){
   await Promise.all([worker(), worker(), worker()]);
   CI.busy = false;
   const failed = rows.filter(r=>r.failed).length, first = rows.find(r=>r.saved);
-  if(first){ const bid = bidOf(first); if(bid){ S.binderId = bid; S.page = first.page; S.view = "pages"; } else { S.binderId = "__loose"; S.view = "list"; } persistNav(); }
+  if(first){ const bid = bidOf(first); if(bid){ S.binderId = bid; S.page = first.page || 1; S.view = "pages"; } else { S.binderId = "__loose"; S.view = "list"; } persistNav(); }
   const repTxt = replacedN ? ` (${replacedN} replaced)` : "";
   if(!failed && $("#ci_card")){ closeModal(); render(); toast(`Imported ${done} card${done===1?"":"s"}${repTxt}`); return; }
   CI.done = true; CI.filter = failed ? "issues" : "all";
@@ -2136,7 +2218,7 @@ document.addEventListener("pointerup", e => {
   const sw = swipe; swipe = null; if(!sw || sw.id!==e.pointerId) return;
   const dx = e.clientX-sw.x, dy = e.clientY-sw.y;
   if(Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy)*1.5 || Date.now()-sw.t > 800) return;
-  const b = curBinder(); if(!b) return;
+  const b = curBinder(); if(!b || isCase(b)) return;
   const mp = maxPage(b.id), dir = dx < 0 ? 1 : -1, np = S.page + dir;
   if(np < 1 || np > mp+1) return;
   cancelHold(); swipeEat = Date.now(); S.page = np; persistNav(); renderMain();
@@ -2247,13 +2329,13 @@ document.addEventListener("click", e => {
     if(t.closest("#pickOwner")) return ownerModal();
     const pcd = t.closest("#main [data-card]");
     if(pcd){ const id=pcd.dataset.card; S.pick.has(id)?S.pick.delete(id):S.pick.add(id); S.pickConfirm=false; if(!S.pick.size) return endPick(); return renderMain(); }
-    if(t.closest("#main [data-empty]")) return;
+    if(t.closest("#main [data-empty],#main [data-caseadd]")) return;
     if(t.closest("[data-binder],#btnAdd,#btnImport")){ S.pick=null; S.pickConfirm=false; }
   }
   if(S.swap){
     if(t.closest("#swapCancel")){ S.swap = null; return renderMain(); }
-    const sc = t.closest("#main [data-card]"), se = t.closest("#main [data-empty]");
-    if(sc || se){ e.preventDefault(); return void swapWith(sc ? {id:sc.dataset.card} : {binderId:curBinder().id, page:S.page, slot:+se.dataset.empty}); }
+    const sc = t.closest("#main [data-card]"), se = t.closest("#main [data-empty]"), sa = t.closest("#main [data-caseadd]");
+    if(sc || se || sa){ e.preventDefault(); return void swapWith(sc ? {id:sc.dataset.card} : sa ? {binderId:curBinder().id, page:null, slot:null} : {binderId:curBinder().id, page:S.page, slot:+se.dataset.empty}); }
   }
   if(t.closest("#btnSwap")){ const c = selCard(); if(c){ S.swap = {id:c.id}; if(PV.open || SV.open){ closeViews(); render(); } closeDrawer(); renderMain(); } return; }
   const ar = t.closest("#arrList .arrrow"); if(ar && !t.closest("button,.arrhandle")) return arrTap(+ar.dataset.i);
@@ -2262,9 +2344,9 @@ document.addEventListener("click", e => {
     ARR = null;
   }
   const tab = t.closest("[data-binder]");
-  if(tab){ const id = tab.dataset.binder; if(S.binderId===id && id!=="__loose" && id!=="__sales"){ binderModal(id); return; } S.binderId=id; S.page=1; if(id==="__loose") S.view="list"; persistNav(); render(); return; }
+  if(tab){ const id = tab.dataset.binder; if(S.binderId===id && id!=="__loose" && id!=="__sales"){ binderModal(id); return; } S.binderId=id; S.page=1; if(id==="__loose") S.view="list"; if(S.view==="arrange" && isCase(binderById(id))){ S.view="pages"; ARR=null; } persistNav(); render(); return; }
   if(t.closest("#btnNewBinder") || t.closest("#btnFirstBinder")) return void newBinder();
-  if(t.closest("#vArrange")){ if(S.binderId==="__loose" || S.binderId==="__sales") S.binderId = sortedBinders()[0]?.id || null; S.view="arrange"; ARR = null; persistNav(); render(); return; }
+  if(t.closest("#vArrange")){ if(S.binderId==="__loose" || S.binderId==="__sales" || isCase(curBinder())) S.binderId = sortedBinders().find(b=>!isCase(b))?.id || null; S.view="arrange"; ARR = null; persistNav(); render(); return; }
   const am = t.closest("[data-arrmove]"); if(am){ const i = +am.closest(".arrrow").dataset.i; return arrMove(i, +am.dataset.arrmove); }
   if(t.closest("#arrSave")){ if(ARR?.place) ARR.place = null; renderPlace(); return void arrSave(); }
   if(t.closest("#arrType")) return placeStart();
@@ -2289,11 +2371,12 @@ document.addEventListener("click", e => {
   if(t.closest("#sRunPrices")){ t.closest("#sRunPrices").disabled = true; window.ledgerApi.call("POST","api/pricing/run").then(()=>toast("Updating every card's price. This takes a few minutes."), e=>toast(e?.message||"Couldn't start the update.")); return; }
   const oc = t.closest("[data-openc]"); if(oc){ closeModal(); return openCard(oc.dataset.openc); }
   if(t.closest("#btnBinderSettings")){ const b=curBinder(); if(b) binderModal(b.id); return; }
-  if(t.closest("#btnSortBinder")){ const b=curBinder(); if(b) sortModal(b.id); return; }
+  if(t.closest("#btnSortBinder")){ const b=curBinder(); if(b && !isCase(b)) sortModal(b.id); return; }
   if(t.closest("#btnChecks")) return checksModal();
   const pc = t.closest("[data-page]"); if(pc){ S.page=+pc.dataset.page; persistNav(); renderMain(); return; }
   const stp = t.closest("[data-step]"); if(stp){ S.page+= +stp.dataset.step; persistNav(); renderMain(); return; }
   const em = t.closest("[data-empty]"); if(em){ return openNew({binderId:curBinder().id, page:S.page, slot:+em.dataset.empty}); }
+  if(t.closest("#main [data-caseadd]")) return openNew({binderId:curBinder().id});
   const sc = t.closest("[data-sort]"); if(sc){ const k=sc.dataset.sort; S.sort = {k, d: S.sort.k===k ? -S.sort.d : (k==="value"||k==="paid"?-1:1)}; persistNav(); renderMain(); return; }
   const scp = t.closest("[data-scope]"); if(scp){ S.scope=scp.dataset.scope; persistNav(); renderMain(); return; }
   if(t.closest("#btnFilt")){ S.filtOpen = !S.filtOpen; store.set("filtOpen", S.filtOpen); renderMain(); return; }
@@ -2355,8 +2438,10 @@ document.addEventListener("change", e => {
   if(e.target.id==="f_placeholder" && S.sel!=="__new") return void switchPlaceholder(e.target);
   if(e.target.closest("#cardForm")){ S.dirty=true; const b=$("#btnSave"); if(b) b.disabled=false; }
   if(e.target.matches && e.target.matches("input[data-photo]")){ const f=e.target.files && e.target.files[0]; if(f){ takePhotoFile(f); try{ e.target.value=""; }catch(_){} } }
+  if(e.target.id==="caseSort"){ S.caseSort = e.target.value; store.set("caseSort", S.caseSort); renderMain(); return; }
   if(e.target.id==="m_binder"){ const bid=e.target.value; const b=binderById(bid); $("#m_page").disabled=!bid; $("#m_slot").disabled=!bid;
-    if(b){ const n=pocketsOf(b); $("#m_slot").innerHTML=Array.from({length:n},(_,i)=>`<option value="${i+1}">${i+1}</option>`).join(""); const f=firstFree(bid); $("#m_page").value=f.page; $("#m_slot").value=f.slot; }
+    document.querySelectorAll("#moveSec [data-pocketf]").forEach(f=>f.hidden=isCase(b)); $("#btnFree").hidden = isCase(b);
+    if(b && !isCase(b)){ const n=pocketsOf(b); $("#m_slot").innerHTML=Array.from({length:n},(_,i)=>`<option value="${i+1}">${i+1}</option>`).join(""); const f=firstFree(bid); $("#m_page").value=f.page; $("#m_slot").value=f.slot; }
     updateMoveNote(); }
 });
 document.addEventListener("submit", e => {
@@ -2372,6 +2457,7 @@ document.addEventListener("keydown", e => {
 function updateMoveNote(){
   const n=$("#moveNote"); if(!n) return; const c=selCard(); const bid=$("#m_binder").value;
   if(!bid){ n.textContent="The card stays in your ledger under “Not in a binder”."; return; }
+  if(isCase(binderById(bid))){ n.textContent = c.binderId===bid ? "That's where it is now." : "It goes in the display case (no page or pocket)."; return; }
   const o = cardAt(bid, Math.max(1,+$("#m_page").value||1), +$("#m_slot").value);
   n.textContent = o && o.id!==c.id ? `${o.name||"Another card"} is in that pocket. They'll swap places.` : o ? "That's where it is now." : "That pocket is empty.";
 }
@@ -2385,7 +2471,7 @@ const reduceMotion = () => !!(window.matchMedia && matchMedia("(prefers-reduced-
 const isTyping = t => !!t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
 function whereIs(c){
   const b = binderById(c.binderId);
-  if(b) return {kind:"binder", label:`${b.name} · Page ${c.page} · Pocket ${c.slot}`, act:"Show in binder"};
+  if(b) return {kind:"binder", label:isCase(b) ? `${b.name} (display case)` : locText(c), act:isCase(b) ? "Show in case" : "Show in binder"};
   if(saleInfo(c) && !looseCards().some(x=>x.id===c.id)) return {kind:"sales", label:"Sold", act:"Show in sales"};
   return {kind:"loose", label:"Not in a binder", act:"Show in list"};
 }
@@ -2893,6 +2979,7 @@ function photoScope(){
   if(S.mode==="loading") return [];
   if(S.view==="list" || S.binderId==="__loose"){ const m = new Map(S.cards.map(c=>[c.id,c])); return S.shown.map(id=>m.get(id)).filter(c=>c && shown(c)); }
   const b = curBinder(); if(!b) return [];
+  if(isCase(b)) return caseCards(b).filter(c=>shown(c));
   return cardsIn(b.id).filter(c=>shown(c)).sort((x,y)=>(x.page||0)-(y.page||0) || (x.slot||0)-(y.slot||0));
 }
 function updatePhotosBtn(){
@@ -2915,7 +3002,7 @@ function openViewer(startId, only){
   let list = only && only.length ? only : photoScope();
   if(startId && !list.some(c=>c.id===startId)){ const c = selCard(); list = c && shown(c) ? [c] : list; }
   if(!list.length){ toast("No card photos here yet."); return; }
-  let i = startId ? list.findIndex(c=>c.id===startId) : (S.view==="pages" && S.binderId!=="__loose" ? list.findIndex(c=>c.page===S.page) : 0);
+  let i = startId ? list.findIndex(c=>c.id===startId) : (S.view==="pages" && S.binderId!=="__loose" && !isCase(curBinder()) ? list.findIndex(c=>c.page===S.page) : 0);
   if(i<0) i = 0;
   Object.assign(LB, {open:true, list, i, fromDrawer: !!startId && !only, fromFind: !!only, back: document.activeElement});
   const n = list.length;

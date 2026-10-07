@@ -210,6 +210,22 @@ binder; the cards go **at the end**, after its last card, or **in a pocket you c
 card in the way shifts along to the next empty pocket (only as far as it has to). The pockets they
 leave stay empty, so nothing else in the old binder moves. Everything moves at once, with *Undo*.
 
+## Display cases
+
+A **display case** is storage with no pages or pockets, like the case you take to card shows. Make
+one with *+ New binder* and choose *Display case* as its type (a binder or case can change type
+while it's empty). Its tab has an outlined swatch, and it works like a binder everywhere else: List
+view, filters, totals, Find (*Show in case*), quick sell, Pricing and Selling.
+
+- **Its cards** show together as one grid, by price (high to low), name, set and number, or newest
+  release (*Show by*). There are no empty pockets: *+ Add card* at the end of the grid adds one.
+- **Moving cards in:** press and hold cards in a binder (or select several), then *Move* and pick the
+  case; or choose it under *Location* in a card's details. Nothing else moves, and *Undo* puts them
+  back in their pockets. Moving a card from the case to a binder works the same way, at the end or in
+  a pocket you choose. *Swap with…* trades places with a card in a case too.
+- A card's location is just the case's name. *Arrange*, *Sort* and *Import page photo* are for
+  binders only. In a CSV import, a row naming a case goes in it, and its Page and Pocket are ignored.
+
 ## Sort a binder by release date or price, and back
 
 *Sort* (next to *Rename / edit binder*) puts every card of the binder in order, from page 1,
@@ -237,7 +253,7 @@ when you've rearranged the binder and want to keep the new layout instead.
 ## Everything else
 
 - **Binders and pages** with 4, 9, 12 or 16 pockets per page, drawn like the real thing.
-  Swipe between pages on a phone.
+  Swipe between pages on a phone. Or a [display case](#display-cases), with no pages or pockets.
 - **Cards** with set, number, rarity, variant, language, condition, grading, illustrator,
   status (in binder, listed, out for grading, sold, traded) and notes.
   Tap a card to open its details; the phone's Back gesture (or the browser's Back button) closes

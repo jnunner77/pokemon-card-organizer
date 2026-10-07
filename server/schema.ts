@@ -135,6 +135,8 @@ const binder = z.looseObject({
   name: text(80),
   color: optText(40),
   pockets: z.number().int().min(1).max(64).nullish(),
+  /** case: a display case, holding cards with no pages or pockets (their page and slot are blank). */
+  kind: z.enum(['binder', 'case']).nullish(),
   order: z.number().finite().nullish(),
   createdAt: optText(40),
   /** The binder's own layout, saved when it was first sorted, so it can be put back after sorting. */

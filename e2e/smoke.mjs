@@ -2,8 +2,9 @@
 //   DATA_DIR=$(mktemp -d) AUTH=off PRICE_UPDATES=off npm start
 //   BASE_URL=http://localhost:4100/ npm run test:e2e
 // It creates a binder and cards, prices, moves and sells one, finds it with Find, checks live
-// updates between two tabs, the Pricing and Selling views, a backup download, the phone layout, and
-// a guest from the QR code looking through the cards listed for sale on a phone.
+// updates between two tabs, the Pricing and Selling views, a backup download, a display case (the
+// card moved in and back out), the phone layout, and a guest from the QR code looking through the
+// cards listed for sale on a phone.
 import { chromium } from 'playwright';
 
 const BASE = process.env.BASE_URL || 'http://localhost:4100/';
@@ -100,6 +101,38 @@ try {
   const backup = JSON.parse(text);
   if (Object.keys(backup.cards).length !== 1 || Object.keys(backup.assets).length !== 1) fail('backup contents');
   await page.keyboard.press('Escape');
+
+  // A display case: no pages or pockets. Move the card in from its details, find it there, and
+  // move it back to the binder with Move.
+  await page.locator('#btnNewBinder').click();
+  await page.locator('input[name=bkind][value=case]').check();
+  await page.locator('#b_name').fill('Show case');
+  await page.getByRole('button', { name: 'Create display case' }).click();
+  await page.getByText('Show case created').waitFor();
+  await page.locator('[data-caseadd]').waitFor();
+  await page.getByRole('tab', { name: /Trade binder/ }).click();
+  await page.locator('[data-card]').filter({ hasText: 'Charizard ex' }).click();
+  await page.locator('#m_binder').selectOption({ label: 'Show case' });
+  await page.locator('#btnMove').click();
+  await page.getByText('Moved to Show case').waitFor();
+  await page.keyboard.press('Escape');
+  await page.locator('.casegrid [data-card]').filter({ hasText: 'Charizard ex' }).waitFor();
+  await page.keyboard.press('/');
+  await page.locator('#findQ').fill('charizard');
+  await page.getByRole('button', { name: 'Show in case', exact: true }).click();
+  await page.locator('.casegrid .pocket.found').filter({ hasText: 'Charizard ex' }).waitFor();
+  const inCase = page.locator('.casegrid [data-card]').filter({ hasText: 'Charizard ex' });
+  const at = await inCase.boundingBox();
+  await page.mouse.move(at.x + 20, at.y + 20);
+  await page.mouse.down();
+  await page.waitForTimeout(700);
+  await page.mouse.up();
+  await page.locator('#pickMove').click();
+  await page.locator('#mv_binder').selectOption({ label: 'Trade binder · 0 cards' });
+  await page.locator('#mvGo').click();
+  await page.getByText(/Moved Charizard ex to Trade binder · Page 1 · Pocket 1/).waitFor();
+  await page.getByRole('tab', { name: /Trade binder/ }).click();
+  await page.locator('.pocket[data-card]').filter({ hasText: 'Charizard ex' }).waitFor();
 
   // Phone layout: no sideways scrolling, and press-and-hold selection has buttons.
   const phone = await browser.newContext({ viewport: { width: 375, height: 740 }, hasTouch: true, isMobile: true });
