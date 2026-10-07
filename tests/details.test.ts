@@ -290,6 +290,9 @@ describe('new cards fill themselves in', () => {
     const recent = new Date().toISOString();
     store.set('cards', 'auto', { name: 'Pikachu', number: '51', setCode: 'XYZ', pricing: { source: 'pricecharting', id: '/old', linkedBy: 'auto' }, officialImageId: 'old', details: { source: 'tcgdex', result: 'several', checkedAt: recent } });
     store.set('cards', 'mine', { name: 'Pikachu', number: '51', pricing: { source: 'tcgplayer', id: '9', linkedBy: 'user' }, officialImageId: 'img' });
+    // The other site's automatic match was for the old card too; one the person chose stays.
+    store.set('cards', 'pairAuto', { name: 'Pikachu', number: '51', pricing: { source: 'pricecharting', id: '/mine', linkedBy: 'user', pair: { source: 'tcgplayer', id: '9', linkedBy: 'auto' } } });
+    store.set('cards', 'pairMine', { name: 'Pikachu', number: '51', pricing: { source: 'pricecharting', id: '/mine', linkedBy: 'user', pair: { source: 'tcgplayer', id: '9', linkedBy: 'user' } } });
     const { updater, updateCard } = fakeUpdater();
     const seen: Record<string, unknown> = {};
     updateCard.mockImplementation(async (id: string) => {
@@ -301,12 +304,19 @@ describe('new cards fill themselves in', () => {
     store.update('cards', 'auto', { number: '51/162' });
     store.update('cards', 'mine', { number: '51/162' });
     store.update('cards', 'mine', { notes: 'only the notes changed' });
+    store.update('cards', 'pairAuto', { number: '51/162' });
+    store.update('cards', 'pairMine', { number: '51/162' });
     await a.idle();
-    expect(seen).toEqual({ auto: null, mine: { source: 'tcgplayer', id: '9', linkedBy: 'user' } });
+    expect(seen).toEqual({
+      auto: null,
+      mine: { source: 'tcgplayer', id: '9', linkedBy: 'user' },
+      pairAuto: { source: 'pricecharting', id: '/mine', linkedBy: 'user', pair: null },
+      pairMine: { source: 'pricecharting', id: '/mine', linkedBy: 'user', pair: { source: 'tcgplayer', id: '9', linkedBy: 'user' } },
+    });
     // Looked up again despite this week's lookup, because it's a different card now.
     expect(store.get('cards', 'auto')).toMatchObject({ set: 'Temporal Forces', artist: 'kodama', setCode: 'XYZ', officialImageId: null, details: { result: 'filled' } });
     expect(store.get('cards', 'mine')!.officialImageId).toBe('img');
-    expect(updateCard).toHaveBeenCalledTimes(2);
+    expect(updateCard).toHaveBeenCalledTimes(4);
     a.stop();
   });
 

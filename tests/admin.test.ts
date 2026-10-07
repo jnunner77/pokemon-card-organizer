@@ -362,10 +362,10 @@ describe('the daily price update under trouble', () => {
     const u = new PriceUpdater({ store, assets, fetcher, delayMs: 0, log, breakerAfter: 3 });
     const s = await u.runAll('manual');
     expect(s.counts.failed).toBe(8);
-    // 3 cards tried (3 attempts each) before the breaker; the other 5 weren't requested at all.
-    expect(calls).toBe(1 + 3 * retryPolicy.attempts);
+    // 3 cards tried on both sites (3 attempts each) before the breaker; the other 5 weren't requested at all.
+    expect(calls).toBe(1 + 2 * 3 * retryPolicy.attempts);
     expect(store.get('cards', 'c7')!.pricing).toMatchObject({ error: expect.stringMatching(/kept failing/) });
     expect((store.get('settings', 'pricing') as { history: unknown[] }).history).toHaveLength(1);
-    expect(log.query({ cat: 'pricing', text: 'skipping it' })).toHaveLength(1);
+    expect(log.query({ cat: 'pricing', text: 'skipping it' })).toHaveLength(2);
   });
 });

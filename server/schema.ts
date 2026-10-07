@@ -31,6 +31,8 @@ const price = z.looseObject({
   auto: z.boolean().nullish(),
   /** The source's US-dollar price behind an automatic CAD entry. */
   usd: z.number().finite().nullish(),
+  /** Each price site's US-dollar price behind it; `usd` is the higher (pricing/updater.ts). */
+  quotes: z.partialRecord(z.enum(['pricecharting', 'tcgplayer']), z.number().finite()).nullish(),
 });
 
 /** Which product on a price site this card is, for the daily price and image update. */
@@ -50,6 +52,24 @@ const pricingLink = z.looseObject({
   error: optText(500),
   /** Possible products when no match was certain: {source, id, url, title, set, number, usd, thumb}. */
   candidates: z.array(z.looseObject({ source: text(20), id: text(300) })).max(16).nullish(),
+  /**
+   * The card's product on the other price site, whose price is compared with this one's (the
+   * higher is logged). No id: not found there; off: the person turned that site off for the card.
+   */
+  pair: z
+    .looseObject({
+      source: z.enum(['pricecharting', 'tcgplayer']),
+      id: optText(300),
+      url: optText(500),
+      title: optText(300),
+      set: optText(200),
+      linkedBy: z.enum(['auto', 'user']).nullish(),
+      linkedAt: optText(40),
+      off: z.boolean().nullish(),
+      checkedAt: optText(40),
+      error: optText(500),
+    })
+    .nullish(),
 });
 
 const sale = z.looseObject({

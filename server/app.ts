@@ -435,13 +435,17 @@ export function createApp(o: AppOptions) {
   });
   const linkSchema = z.union([
     z.object({ source: z.enum(['off', 'auto']) }),
+    // Stop (or start again) using the card's other price site.
+    z.object({ pair: z.enum(['off', 'auto']) }),
     z.object({ source: z.enum(['pricecharting', 'tcgplayer']), id: z.string().min(1).max(300), url: z.string().max(500).optional(), title: z.string().max(300).optional(), set: z.string().max(200).optional() }),
   ]);
   api.post('/pricing/link/:id', need('editor'), json, async (req, res) => {
-    const { id } = cardFor(req.params.id);
+    const { id, card } = cardFor(req.params.id);
     const choice = linkSchema.safeParse(req.body);
     if (!choice.success) throw new HttpError(400, choice.error.issues[0].message);
     const c = choice.data;
+    const linked = card.pricing as { source?: string; id?: string } | null | undefined;
+    if ('pair' in c && !((linked?.source === 'pricecharting' || linked?.source === 'tcgplayer') && linked.id)) throw new HttpError(400, 'Match the card on one price site first.');
     const outcome = await needUpdater().link(id, 'id' in c ? { source: c.source, id: c.id, url: c.url ?? '', title: c.title ?? '', set: c.set ?? '' } : c);
     res.json({ outcome, card: { id, ...store.get('cards', id) } });
   });

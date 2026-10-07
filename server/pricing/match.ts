@@ -141,11 +141,22 @@ function sharesWord(a: string, b: string) {
   return [...words(a)].some((w) => wb.has(w));
 }
 
-/** What to type into a site's search box for this card. */
-export function searchQuery(card: CardForMatch) {
-  const name = String(card.name ?? '')
+const searchName = (card: CardForMatch) =>
+  String(card.name ?? '')
     .replace(/\bV Star\b/i, 'VSTAR')
     .replace(/\bV Max\b/i, 'VMAX')
     .trim();
-  return `${name} ${cardNumber(card.number)}`.trim();
+
+/** What to type into a site's search box for this card. */
+export function searchQuery(card: CardForMatch) {
+  return `${searchName(card)} ${cardNumber(card.number)}`.trim();
+}
+
+/**
+ * The second try on TCGplayer, whose search ranks by sales: "Charizard 11" lists a dozen other
+ * Charizards but not Evolutions' 11/108, while "Charizard Evolutions" does. Empty without a set.
+ */
+export function setSearchQuery(card: CardForMatch) {
+  const set = blank(card.set) ? '' : setWords(card.set).join(' ');
+  return set ? `${searchName(card)} ${set}` : '';
 }
