@@ -106,6 +106,24 @@ export function detailsFromProduct(card: CardForMatch & { released?: unknown; ra
   return { patch, filled: Object.keys(patch) };
 }
 
+/** The card's variant agrees with the product's bracket: "Reverse holo" and "[Reverse Holo]", "Poke Ball" and "[Ball]". */
+function variantAgrees(variant: string, title: string): boolean {
+  const v = norm(variant);
+  const br = norm(bracket(title));
+  return !!v && !!br && (v.includes(br) || br.includes(v) || sharesWord(variant, bracket(title)));
+}
+
+/**
+ * The variant a product the person chose names in its title ("Rayquaza [Ball]" is "Ball"), for
+ * the card's Variant / stamp: when it's blank, or names a different variant. A variant the person
+ * typed that agrees with the product stays as they wrote it, and a plain product changes nothing.
+ */
+export function variantFromProduct(card: CardForMatch, title: string | null | undefined): string | null {
+  const br = bracket(String(title ?? ''));
+  if (!br || (!blank(card.variant) && variantAgrees(card.variant!, String(title)))) return null;
+  return br;
+}
+
 export interface MatchResult {
   /** The product to link, when the match is certain. */
   match: Candidate | null;
@@ -124,9 +142,8 @@ export function chooseMatch(card: CardForMatch, all: Candidate[]): MatchResult {
       const n = nameKey(c.title);
       const nameScore = n === name || (!!name && nearly(name, n)) ? 2 : name && (n.includes(name) || name.includes(n)) ? 1 : 0;
       const setScore = setMatches(card, c.set);
-      const br = norm(bracket(c.title));
       // No variant on the card: the plain product. A variant: a product whose bracket shares a word with it.
-      const variantOk = variant ? !!br && (variant.includes(br) || br.includes(variant) || sharesWord(card.variant!, bracket(c.title))) : !br;
+      const variantOk = variant ? variantAgrees(card.variant!, c.title) : !bracket(c.title);
       return { c, numOk, nameScore, setScore, variantOk, score: (numOk ? 8 : 0) + nameScore * 2 + setScore + (variantOk ? 1 : 0) };
     })
     .filter((x) => x.numOk || x.nameScore > 0)

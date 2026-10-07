@@ -5,7 +5,7 @@ import type { CardDetails } from '../details';
 import { type Logger, quietLogger } from '../log';
 import type { Doc } from '../schema';
 import type { Store } from '../store';
-import { chooseMatch, detailsFromProduct, searchQuery, setSearchQuery, type CardForMatch, type MatchResult } from './match';
+import { chooseMatch, detailsFromProduct, searchQuery, setSearchQuery, variantFromProduct, type CardForMatch, type MatchResult } from './match';
 import {
   type Candidate,
   type Fetcher,
@@ -602,7 +602,10 @@ export class PriceUpdater {
     if (pairLinked(before) && before.id !== c.id && links[o] && !keptPair(links[o])) links[o] = null;
     const mainSite: Source = pairLinked(links.pricecharting) ? 'pricecharting' : c.source;
     const mainLink = links[mainSite] as Pair;
-    this.store.update('cards', id, { pricing: { imageUrl: p?.imageUrl ?? null, ...productOf(mainLink), candidates: null, error: null, pair: links[otherSite(mainSite)] ?? null } });
+    // The person said this product is their card, so a variant in its title is the card's variant.
+    const variant = variantFromProduct(card, c.title);
+    if (variant) this.log.info('pricing', `${label(card)}: variant ${variant}${String(card.variant ?? '').trim() ? ` (was ${card.variant})` : ''} from ${SOURCE_NAME[c.source]}`);
+    this.store.update('cards', id, { pricing: { imageUrl: p?.imageUrl ?? null, ...productOf(mainLink), candidates: null, error: null, pair: links[otherSite(mainSite)] ?? null }, ...(variant ? { variant } : {}) });
     return this.updateCard(id);
   }
 

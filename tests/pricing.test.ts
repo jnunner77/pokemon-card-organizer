@@ -5,7 +5,7 @@ import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../server/app';
 import { Assets } from '../server/assets';
-import { chooseMatch, detailsFromProduct, searchQuery } from '../server/pricing/match';
+import { chooseMatch, detailsFromProduct, searchQuery, variantFromProduct } from '../server/pricing/match';
 import { type Candidate, type Fetcher, retryPolicy, parsePriceChartingProduct, parsePriceChartingSearch, parseTcgplayerDetails, parseTcgplayerSearch, pickTcgPrice, releaseDate } from '../server/pricing/sources';
 import { PriceUpdater, thinAutoPrices } from '../server/pricing/updater';
 import { Store } from '../server/store';
@@ -140,6 +140,18 @@ describe('matching a card to a product', () => {
     // A promo label stays with any promo product.
     expect(detailsFromProduct({ set: 'Mega Evolution Promos', setCode: 'MEP', number: '101' }, { set: 'Pokemon Promo', released: '2026-09-16', rarity: null }, true).patch).toEqual({ released: '2026-09-16' });
     expect(detailsFromProduct({}, { set: null, released: null, rarity: 'Rare Holo' }, false).patch).toEqual({ rarity: 'Holo Rare' });
+  });
+
+  it('takes the variant from a product the person chose', () => {
+    expect(variantFromProduct({ variant: '' }, 'Rayquaza [Ball]')).toBe('Ball');
+    expect(variantFromProduct({}, 'Lapras [Reverse Holo]')).toBe('Reverse Holo');
+    // A different variant gives way; one that agrees stays as the person wrote it.
+    expect(variantFromProduct({ variant: 'Reverse holo' }, 'Rayquaza [Master Ball]')).toBe('Master Ball');
+    expect(variantFromProduct({ variant: 'Reverse holo' }, 'Lapras [Reverse Holo]')).toBeNull();
+    expect(variantFromProduct({ variant: 'Poke Ball pattern' }, 'Rayquaza [Ball]')).toBeNull();
+    // A plain product changes nothing.
+    expect(variantFromProduct({ variant: '30th stamp' }, 'Lapras')).toBeNull();
+    expect(variantFromProduct({}, null)).toBeNull();
   });
 
   it('leaves the choice to the person when it isn’t certain', () => {
@@ -342,6 +354,13 @@ describe('the daily update', () => {
     const tg = { source: 'tcgplayer' as const, id: '696683', url: 'https://www.tcgplayer.com/product/696683', title: 'Lapras', set: 'ME: 30th Celebration' };
     await updater(fakeNet({ '/v1/product/696683/details': () => Response.json(details) }).fetcher).link('tcg', tg);
     expect(store.get('cards', 'tcg')).toMatchObject({ set: 'ME: 30th Celebration', rarity: 'Illustration Rare', released: '2026-09-16' });
+    // A variant product fills in the card's variant; the plain one leaves it.
+    store.set('cards', 'ball', card({ variant: '' }));
+    store.set('cards', 'stamp', card({ variant: '30th stamp' }));
+    await u.link('ball', { ...pc, id: '/game/pokemon-30th-celebration/lapras-ball-131', title: 'Lapras [Ball]' });
+    await u.link('stamp', pc);
+    expect(store.get('cards', 'ball')).toMatchObject({ variant: 'Ball', pricing: { title: 'Lapras [Ball]', linkedBy: 'user' } });
+    expect(store.get('cards', 'stamp')).toMatchObject({ variant: '30th stamp' });
     store.set('cards', 'tcg2', card({ set: '' }));
     expect(await updater(fakeNet({ '/v1/product/696683/details': () => new Response('down', { status: 503 }) }).fetcher).link('tcg2', tg)).toBe('updated');
   });

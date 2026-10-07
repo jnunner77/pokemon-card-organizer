@@ -97,6 +97,12 @@ has filled what it knows (so Classic box cards and new promos get a set and a re
 When you chose the product yourself and the card is filed under a different set, the card takes
 the product's set: you said that product is your card.
 
+Choosing a product that names a variant, like *Rayquaza [Ball]* or *Lapras [Reverse Holo]*, puts
+that variant (*Ball*, *Reverse Holo*) in the card's **Variant / stamp** straight away, on whichever
+site you chose it. A variant you already typed that agrees with it (*Reverse holo*) stays as you
+wrote it; choosing a plain product leaves the field as it is. An open card shows the new value at
+once, and anything you were typing in it is kept.
+
 ## Condition and value
 
 Automatic prices are near-mint market prices. A raw card's value is that price times its
