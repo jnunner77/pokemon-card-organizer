@@ -158,7 +158,8 @@ describe('guest viewing', () => {
     expect(zard).toMatchObject({ name: 'Charizard ex', setCode: 'OBF', number: '125/197', condition: 'Near Mint', artist: 'PLANETA', released: '2023-08-11', value: 21 });
     expect(cards.find((c: { id: string }) => c.id === 'listed2')).toMatchObject({ grader: 'PSA', grade: '10', value: 1370 });
     const body = JSON.stringify(cards);
-    for (const secret of ['Dave', 'Justin', 'b1', 'paid', 'pricecharting']) expect(body).not.toContain(secret);
+    // The binder id as a value ("b1"): a picture's version hash can contain the letters b1.
+    for (const secret of ['Dave', 'Justin', '"b1"', 'paid', 'pricecharting']) expect(body).not.toContain(secret);
 
     // Pictures: listed cards only, inline photos too.
     await agent.get('/' + zard.image).expect(200).expect('content-type', /jpeg/);
@@ -260,7 +261,7 @@ describe("guests' live updates", () => {
       store.update('cards', 'kept', { status: 'listed' });
       await until(() => live.lists.length === 2);
       expect(live.ids(1)).toEqual(['kept', 'listed1', 'listed2']);
-      expect(JSON.stringify(live.lists[1])).not.toMatch(/Justin|Dave|trade bait|b1/);
+      expect(JSON.stringify(live.lists[1])).not.toMatch(/Justin|Dave|trade bait|"b1"/);
       store.update('cards', 'listed1', { status: 'sold' });
       await until(() => live.lists.length === 3);
       expect(live.ids(2)).toEqual(['kept', 'listed2']);
