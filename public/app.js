@@ -573,10 +573,19 @@ function refreshParts(c, o={}){
   const bi=$("#bigImg"); if(bi) bi.innerHTML = imgInner(c);
   const ph=$("#photoSec"); if(ph && ph.dataset.img!==picKey(c) && !S.photoBusy && !pickPending()) ph.outerHTML = photoSection(c);
   const dl=$("#dLoc"); if(dl) dl.textContent = locText(c);
+  syncForm(c);
   if(!S.dirty){ const t=$("#dTitle"); if(t) t.textContent = c.name || "Unnamed card"; }
   const psec=$("#priceSec"); if(psec && (o.price || (!S.editPrice && !S.priceTouched))){ psec.outerHTML = priceSection(c); S.priceTouched=false; }
   const msec=$("#moveSec"); if(msec && (o.move || !S.moveTouched)){ msec.outerHTML = moveSection(c); S.moveTouched=false; }
   const ai=$("#autoInfo"); if(ai) ai.innerHTML = autoInfo(c);
+}
+/* fields the card's new values reach (a chosen product's variant, say); the person's own edits stay */
+function syncForm(c){
+  const f = $("#cardForm"); if(!f) return;
+  const els = window.BinderFormSync.KEYS.map(k=>f.elements[k]).filter(Boolean);
+  const up = window.BinderFormSync.updates(els, c);
+  for(const el of els) if(el.name in up){ el.value = up[el.name]; el.defaultValue = up[el.name]; }
+  const rel = $("#f_released"); if(rel) rel.value = c.released || "";
 }
 function lookupLinks(c){
   const q = [c.name, c.number].filter(Boolean).join(" ").trim() || "pokemon card";
@@ -839,7 +848,7 @@ async function saveCard(){
     return;
   }
   const ok = await guard(()=> S.db.doc("cards/"+c.id).update({...data, updatedAt:nowISO()}));
-  if(ok){ S.dirty=false; const b=$("#btnSave"); if(b) b.disabled=true; toast("Saved"); refreshParts(selCard()); }
+  if(ok){ S.dirty=false; const b=$("#btnSave"); if(b) b.disabled=true; for(const el of $("#cardForm")?.elements||[]) if("defaultValue" in el) el.defaultValue = el.value; toast("Saved"); refreshParts(selCard()); }
 }
 async function updateCard(id, patch){ return guard(()=> S.db.doc("cards/"+id).update({...patch, updatedAt:nowISO()})); }
 async function addPrice(){
