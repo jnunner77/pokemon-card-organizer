@@ -206,7 +206,7 @@ empty pocket, on any page or in any binder, and they trade places straight away,
 With exactly two cards selected (press and hold), *Swap* does the same. *Escape* or *Cancel* stops.
 
 **Move to another binder:** press and hold a card (or select several), then *Move*. Pick the
-binder; the cards go **at the end**, after its last card, or **in a pocket you choose**, where any
+binder (it starts on the one you're in); the cards go **at the end**, after its last card, or **in a pocket you choose**, where any
 card in the way shifts along to the next empty pocket (only as far as it has to). The pockets they
 leave stay empty, so nothing else in the old binder moves. Everything moves at once, with *Undo*.
 
