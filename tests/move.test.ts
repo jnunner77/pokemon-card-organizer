@@ -7,9 +7,9 @@ import { describe, expect, it } from 'vitest';
 type Spot = { page: number; slot: number };
 type Card = { id: string; page?: number | null; slot?: number | null };
 type Plan = (pockets: number | null, cards: Card[], ids: string[], at: Spot | null) => { moves: ({ id: string } & (Spot | { page: null; slot: null }))[]; shifted: number };
-const sandbox = { window: {} as { BinderMove: { plan: Plan; end: (pockets: number | null, cards: Card[], ids: string[]) => Spot | null } } };
+const sandbox = { window: {} as { BinderMove: { plan: Plan; end: (pockets: number | null, cards: Card[], ids: string[]) => Spot | null; target: (ids: string[], current: string | null, last: string | null) => string | null } } };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../public/move.js'), 'utf8'), sandbox);
-const { plan, end } = sandbox.window.BinderMove;
+const { plan, end, target } = sandbox.window.BinderMove;
 const c = (id: string, page: number, slot: number) => ({ id, page, slot });
 
 describe('moving cards to a binder', () => {
@@ -58,5 +58,15 @@ describe('moving cards to a binder', () => {
     expect(plan(null, inCase, ['x', 'y'], null)).toEqual({ moves: [{ id: 'x', page: null, slot: null }, { id: 'y', page: null, slot: null }], shifted: 0 });
     expect(plan(null, inCase, ['x'], { page: 1, slot: 1 }).moves).toEqual([{ id: 'x', page: null, slot: null }]);
     expect(end(null, inCase, ['x'])).toBeNull();
+  });
+
+  it("starts on the binder you're in, else the one picked last time, else the first", () => {
+    const ids = ['ir', 'b2', 'case'];
+    expect(target(ids, 'b2', 'ir')).toBe('b2');
+    expect(target(ids, 'case', null)).toBe('case');
+    expect(target(ids, '__loose', 'b2')).toBe('b2');
+    expect(target(ids, '__sales', 'gone')).toBe('ir');
+    expect(target(ids, null, null)).toBe('ir');
+    expect(target([], 'b2', 'b2')).toBe(null);
   });
 });

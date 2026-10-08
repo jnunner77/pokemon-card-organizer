@@ -40,5 +40,13 @@
     return { moves, shifted: moves.length - ids.length };
   }
 
-  root.BinderMove = { plan, end };
+  /* The binder the Move dialog starts on: the one you're in (binder or display case), else the
+     one picked last time, else the first binder. ids: the binders in tab order. */
+  function target(ids, current, last) {
+    if (ids.includes(current)) return current;
+    if (ids.includes(last)) return last;
+    return ids[0] ?? null;
+  }
+
+  root.BinderMove = { plan, end, target };
 })(typeof window !== "undefined" ? window : globalThis);

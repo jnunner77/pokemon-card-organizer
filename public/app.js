@@ -1320,7 +1320,7 @@ function moveModal(ids){
     .sort((a,b)=> SORTS.loc(a) < SORTS.loc(b) ? -1 : SORTS.loc(a) > SORTS.loc(b) ? 1 : 0);
   if(!list.length) return toast("Sold and traded cards can't be moved to a binder.");
   const bs = sortedBinders(); if(!bs.length) return toast("Make a binder first, with + next to the binder tabs.");
-  if(!binderById(moveTo.bid)) moveTo.bid = (bs.find(b=>b.id!==S.binderId) || bs[0]).id;
+  moveTo.bid = window.BinderMove.target(bs.map(b=>b.id), S.binderId, moveTo.bid);
   const one = list.length===1, what = one ? esc(list[0].name||"Unnamed card") : `${list.length} cards`;
   $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard narrow" role="dialog" aria-modal="true" aria-labelledby="mvTitle">
     <h2 id="mvTitle">Move ${what}</h2>
