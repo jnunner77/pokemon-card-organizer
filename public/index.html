@@ -23,6 +23,7 @@
 <script src="selling.js" defer></script>
 <script src="back.js" defer></script>
 <script src="formsync.js" defer></script>
+<script src="table.js" defer></script>
 <script src="app.js" defer></script>
 </head>
 <body>
@@ -56,6 +57,7 @@
           <button type="button" id="vArrange" aria-pressed="false" title="Drag the cards of this binder into the order they're in">Arrange</button>
         </div>
         <button class="btn" id="btnPhotos" type="button" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>Photos <span class="cnt"></span></button>
+        <button class="btn" id="btnTable" type="button" aria-pressed="false" title="Every card's details in a table you can edit, like a spreadsheet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16"/></svg>Table</button>
         <button class="btn ghost" id="btnSortBinder" type="button" title="Put this binder's cards in order of release date or price"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16m0 0-3-3m3 3 3-3M17 20V4m0 0-3 3m3-3 3 3"/></svg>Sort</button>
         <button class="btn ghost" id="btnBinderSettings" type="button">Rename / edit binder</button>
         <button class="btn primary" id="btnAdd" type="button">+ Add card</button>
@@ -66,6 +68,7 @@
   <section class="sheet pv" id="pricingView" aria-label="Pricing" hidden></section>
   <section class="sheet pv sv" id="sellingView" aria-label="Selling" hidden></section>
 </div>
+<div id="tableRoot"></div>
 <div id="drawerRoot"></div>
 <div id="modalRoot"></div>
 <div id="findRoot"></div>

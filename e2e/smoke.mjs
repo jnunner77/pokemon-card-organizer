@@ -3,8 +3,8 @@
 //   BASE_URL=http://localhost:4100/ npm run test:e2e
 // It creates a binder and cards, prices, moves and sells one, finds it with Find, checks live
 // updates between two tabs, the Pricing and Selling views, a backup download, a display case (the
-// card moved in and back out), the phone layout, and a guest from the QR code looking through the
-// cards listed for sale on a phone.
+// card moved in and back out), editing in the Table, the phone layout, and a guest from the QR
+// code looking through the cards listed for sale on a phone.
 import { chromium } from 'playwright';
 
 const BASE = process.env.BASE_URL || 'http://localhost:4100/';
@@ -134,6 +134,22 @@ try {
   await page.getByRole('tab', { name: /Trade binder/ }).click();
   await page.locator('.pocket[data-card]').filter({ hasText: 'Charizard ex' }).waitFor();
 
+  // Table: edit a card's owner and notes in the cells, filter by a header, and the other tab follows.
+  await page.locator('#btnTable').click();
+  const row = page.locator('#tblBody tr').filter({ has: page.locator('input[value="Charizard ex"]') });
+  await row.locator('select[data-tk="owner"]').selectOption('Megan');
+  await page.getByText('Saved owner of Charizard ex').waitFor();
+  await row.locator('textarea[data-tk="notes"]').fill('Centering 60/40');
+  await row.locator('textarea[data-tk="notes"]').press('Enter');
+  await page.getByText('Saved notes of Charizard ex').waitFor();
+  await page.locator('#tf_owner').selectOption('=Megan');
+  await page.locator('#tblCount', { hasText: '1 of' }).waitFor();
+  await page.locator('#tblClose').click();
+  await other.locator('[data-card]').filter({ hasText: 'Charizard ex' }).click();
+  await other.locator('#f_owner').filter({ has: other.locator('option[value="Megan"]:checked') }).waitFor();
+  if ((await other.locator('#f_notes').inputValue()) !== 'Centering 60/40') fail('notes from the table');
+  await other.keyboard.press('Escape');
+
   // Phone layout: no sideways scrolling, and press-and-hold selection has buttons.
   const phone = await browser.newContext({ viewport: { width: 375, height: 740 }, hasTouch: true, isMobile: true });
   const p = await phone.newPage();
@@ -142,6 +158,11 @@ try {
   await p.locator('[data-card]').first().waitFor();
   const overflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   if (overflow > 1) fail(`phone layout scrolls sideways by ${overflow}px`);
+  await p.locator('#btnTable').click();
+  await p.locator('#tblBody select[data-tk="owner"]').first().waitFor();
+  const tblOverflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  if (tblOverflow > 1) fail(`phone table scrolls the page sideways by ${tblOverflow}px`);
+  await p.locator('#tblClose').click();
   await p.getByRole('button', { name: 'Pricing' }).click();
   await p.locator('#pvChart svg').waitFor();
   const pvOverflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
