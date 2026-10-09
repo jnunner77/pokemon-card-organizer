@@ -107,6 +107,7 @@ async function guard(fn){ if(!S.db){ toast("Saving isn't available in this view.
 /* ---------- rendering ---------- */
 function render(){
   renderBanner(); renderTabs(); renderStats(); renderMain(); renderDrawer(); renderPricing(); renderSelling();
+  if(TB.open) renderTable();
 }
 function renderBanner(){
   const el = $("#banner");
@@ -2359,6 +2360,7 @@ document.addEventListener("click", e => {
   if(t.closest("#vPages")){ if(S.binderId==="__loose" || S.binderId==="__sales") S.binderId = sortedBinders()[0]?.id || null; S.view="pages"; persistNav(); render(); return; }
   if(t.closest("#vList")){ if(S.binderId==="__sales") S.binderId = sortedBinders()[0]?.id || "__loose"; S.view="list"; persistNav(); render(); return; }
   if(t.closest("#btnPhotos")) return openViewer();
+  if(t.closest("#btnTable")) return openTable();
   if(t.closest("#btnFind")) return openFind();
   if(t.closest("#btnPricing")) return PV.open ? closePricing() : openPricing();
   if(t.closest("#btnSelling")) return SV.open ? closeSelling() : openSelling();
@@ -2453,7 +2455,7 @@ document.addEventListener("keydown", e => {
   if(FIND.open) return findKey(e);
   if(!LB.open && !$("#modalRoot").innerHTML && !isTyping(e.target) && !e.altKey && ((e.key==="/" && !e.ctrlKey && !e.metaKey) || ((e.key==="k" || e.key==="K") && (e.ctrlKey || e.metaKey)))){ e.preventDefault(); return openFind(); }
   if(LB.open){ if(e.key==="Escape"){ e.preventDefault(); closeViewer(); } else if(e.key==="ArrowLeft"||e.key==="ArrowRight"){ e.preventDefault(); lbGo(LB.i+(e.key==="ArrowLeft"?-1:1)); } else if(e.key==="Home"||e.key==="End"){ e.preventDefault(); lbGo(e.key==="Home"?0:LB.list.length-1); } return; }
-  if(e.key==="Escape"){ if($("#modalRoot").innerHTML){ if(!CI?.busy || !$("#ci_card")) closeModal(); } else if(S.sel) closeDrawer(); else if(S.pick) endPick(); else if(S.swap){ S.swap = null; renderMain(); } else if(PV.open) closePricing(); else if(SV.open) closeSelling(); } });
+  if(e.key==="Escape"){ if($("#modalRoot").innerHTML){ if(!CI?.busy || !$("#ci_card")) closeModal(); } else if(S.sel) closeDrawer(); else if(TB.open) closeTable(); else if(S.pick) endPick(); else if(S.swap){ S.swap = null; renderMain(); } else if(PV.open) closePricing(); else if(SV.open) closeSelling(); } });
 function updateMoveNote(){
   const n=$("#moveNote"); if(!n) return; const c=selCard(); const bid=$("#m_binder").value;
   if(!bid){ n.textContent="The card stays in your ledger under “Not in a binder”."; return; }
@@ -2549,7 +2551,7 @@ function showCard(id){
   else if(w.kind==="loose"){ S.binderId = "__loose"; S.view = "list"; S.scope = "binder"; S.q = ""; }
   else S.binderId = "__sales";
   S.found = {id:c.id, until:Date.now()+FOUND_MS};
-  closeViews();
+  closeViews(); if(TB.open) closeTable();
   persistNav(); render();
   const sel = CSS.escape(c.id), el = $(`#main [data-card="${sel}"], #main [data-sale="${sel}"]`);
   if(el){ el.scrollIntoView({block:"center", behavior: reduceMotion() ? "auto" : "smooth"}); try{ el.focus({preventScroll:true}); }catch(_){} }
@@ -3070,6 +3072,255 @@ $("#lbRoot").addEventListener("click", e => {
 });
 $("#lbRoot").addEventListener("contextmenu", e => { if(e.target.closest(".lb-slide img")) e.preventDefault(); });
 window.addEventListener("resize", () => { if(!LB.open) return; const tr = lbTrack(); if(tr){ tr.style.scrollBehavior="auto"; tr.scrollLeft = LB.i * tr.clientWidth; } });
+
+/* ---------- table editor (table.js) ----------
+   Every card in one table, its details edited in the cells. The rows and their order are set when the
+   table opens and when a filter or the sort changes; edits don't move rows, like a spreadsheet. */
+const TBL = window.BinderTable;
+const TB_KEEP = ["filt","sort","cols"];
+const TB = {open:false, rows:[], known:new Set(), html:new Map(), colsOpen:false, stale:false, filt:{}, sort:{k:"",d:1}, cols:{}};
+{ const s = store.get("table", {}); for(const k of TB_KEEP) if(s && s[k] && typeof s[k]==="object") TB[k] = s[k]; }
+const tbSave = () => store.set("table", Object.fromEntries(TB_KEEP.map(k=>[k, TB[k]])));
+const BACK_TABLE = BACK.layer("table", () => { if(TB.open) closeTable(); });
+const tbCtx = {
+  options:{language:LANGS, condition:CONDITIONS, grader:GRADERS, status:STATUSES, owner:OWNERS},
+  location: locShort, binder: c => binderById(c.binderId)?.name || "Not in a binder", locKey: SORTS.loc,
+  value: valueOf, paid: paidOf, money,
+  picture: c => !shown(c) ? "No picture" : shown(c)===c.officialImageId ? "Official image" : "Your photo",
+  match: c => { const p = c.pricing;
+    if(!p) return {group:"Not looked up yet", text:"Not looked up yet"};
+    if(p.source==="off") return {group:"Turned off", text:"Turned off"};
+    if(isLinked(p)) return {group:SRC[p.source], text:`${SRC[p.source]}: ${p.title||p.id}${p.set?` · ${p.set}`:""}`};
+    return {group:"No match yet", text:"No match yet"}; }
+};
+/* column widths in px; the name column stays in place while scrolling sideways */
+const TB_W = {name:190, set:170, setCode:90, number:90, rarity:150, variant:140, language:130, condition:145, grader:100, grade:70, artist:150, status:140, owner:100, placeholder:96, notes:280, location:150, released:100, picture:56, value:96, paid:96, match:240};
+const tbW = k => k==="name" && window.matchMedia?.("(max-width:640px)").matches ? 150 : TB_W[k] || 120;
+const tbRO = () => !S.db || S.me?.user?.role==="viewer";
+const tbCols = () => TBL.visible(TB.cols);
+const tbCellId = (id, k) => `tc_${id}_${k}`;
+
+function openTable(){
+  if(S.dirty) return toast("Save or discard the card you're editing first.");
+  if(S.sel) closeDrawer();
+  if(S.pick) endPick();
+  TB.open = true; TB.colsOpen = false; tbApply(); renderTable(true);
+  setTimeout(()=>$("#tblWrap")?.focus({preventScroll:true}), 30);
+}
+function closeTable(){
+  const a = document.activeElement; if(a && a.closest && a.closest("#tableRoot")) a.blur(); // saves the cell being edited
+  TB.open = false; TB.colsOpen = false; renderTable(true);
+  $("#btnTable")?.focus({preventScroll:true});
+}
+/* which cards show, in order */
+function tbApply(){
+  const list = S.cards.filter(c => TBL.matches(c, TB.filt, tbCtx));
+  TB.rows = TBL.sort(list, TB.sort, tbCtx).map(c=>c.id);
+  TB.known = new Set(S.cards.map(c=>c.id));
+}
+/* after a change: keep the rows (cards edited out of the filters stay until the filters change),
+   drop deleted cards and add new ones that match */
+function tbKeepRows(){
+  const ids = new Set(S.cards.map(c=>c.id));
+  TB.rows = TB.rows.filter(id => ids.has(id));
+  for(const c of S.cards) if(!TB.known.has(c.id) && TBL.matches(c, TB.filt, tbCtx)) TB.rows.push(c.id);
+  TB.known = ids;
+}
+
+function tbCell(c, col, ro){
+  const v = TBL.raw(c, col, tbCtx), k = col.k, cls = `tk-${k}${col.mono?" mono":""}`;
+  const a = `id="${tbCellId(c.id,k)}" data-tid="${esc(c.id)}" data-tk="${k}" aria-label="${esc(col.h)}: ${esc(c.name||"Unnamed card")}"`;
+  if(col.edit==="select"){
+    const list = tbCtx.options[k], known = list.some(o => String(Array.isArray(o)?o[0]:o)===String(v));
+    return `<td class="${cls}"><select ${a} ${ro?"disabled":""}>${known?"":`<option value="${esc(v)}" selected>${esc(v)}</option>`}${opt(list, v)}</select></td>`;
+  }
+  if(col.edit==="bool") return `<td class="${cls} c"><input type="checkbox" ${a} ${v?"checked":""} ${ro?"disabled":""}></td>`;
+  if(col.edit==="long") return `<td class="${cls}"><textarea ${a} rows="1" maxlength="${col.max}" ${ro?"readonly":""} spellcheck="true">${esc(v)}</textarea></td>`;
+  if(col.edit) return `<td class="${cls}"><input ${a} value="${esc(v)}" maxlength="${col.max}" ${col.suggest?`list="tdl_${k}"`:""} ${ro?"readonly":""} autocomplete="off" spellcheck="false"></td>`;
+  if(k==="picture") return `<td class="${cls}">${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="${esc(tbCtx.picture(c))}" loading="lazy">`:`<span class="thumb" title="No picture"></span>`}</td>`;
+  if(k==="match" && isLinked(c.pricing) && c.pricing.url) return `<td class="${cls} tro"><a href="${esc(c.pricing.url)}" target="_blank" rel="noopener">${esc(v)}</a></td>`;
+  const txt = TBL.label(col, v, tbCtx);
+  return `<td class="${cls} tro${col.num?" r":""}">${txt ? esc(txt) : `<span class="hint">—</span>`}</td>`;
+}
+function tbRow(c, cols, ro){
+  return `<tr data-trow="${esc(c.id)}">${cols.map(col => col.k==="name"
+    ? tbCell(c, col, ro).replace(/^(<td[^>]*>)/, `$1<div class="tname">`).replace(/<\/td>$/, `<button class="topen" type="button" data-topen="${esc(c.id)}" aria-label="Open ${esc(c.name||"card")}" title="Open the card: picture, prices, move"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></button></div></td>`)
+    : tbCell(c, col, ro)).join("")}</tr>`;
+}
+function tbFilterCtl(col){
+  const f = TB.filt[col.k] || "", lab = `aria-label="Filter ${esc(col.h)}"`;
+  if(col.filter==="pick"){
+    const ch = TBL.choices(S.cards, col, tbCtx);
+    const has = !f || ch.some(x => "="+x.v === f);
+    return `<select id="tf_${col.k}" data-tf="${col.k}" ${lab}><option value="">All</option>${has?"":`<option value="${esc(f)}" selected>${esc(f.slice(1) || TBL.BLANK)} (0)</option>`}${ch.map(x=>`<option value="${esc("="+x.v)}" ${f==="="+x.v?"selected":""}>${esc(x.label)} (${x.n})</option>`).join("")}</select>`;
+  }
+  return `<input id="tf_${col.k}" data-tf="${col.k}" type="search" ${lab} list="tdl__blank" value="${esc(f)}" placeholder="${col.filter==="num"?">10, 5-20…":"Filter…"}" autocomplete="off" spellcheck="false">`;
+}
+function tbHead(cols){
+  return `<tr>${cols.map(col => { const on = TB.sort.k===col.k || (!TB.sort.k && col.k==="location");
+    return `<th class="tk-${col.k}${TB.filt[col.k]?" on":""}" scope="col" style="width:${tbW(col.k)}px" aria-sort="${on?(TB.sort.d<0?"descending":"ascending"):"none"}"><button type="button" data-tsort="${col.k}" title="Sort by ${esc(col.h.toLowerCase())}">${esc(col.h)}<span aria-hidden="true">${on?(TB.sort.d<0?" ▼":" ▲"):""}</span></button>${tbFilterCtl(col)}</th>`; }).join("")}</tr>`;
+}
+function tbLists(){
+  const uniq = a => [...new Set(a.map(x=>String(x??"").trim()).filter(Boolean))].sort((x,y)=>x.localeCompare(y));
+  const from = k => k==="rarity" ? uniq([...RARITIES, ...S.cards.map(c=>c.rarity)]) : uniq(S.cards.map(c=>c[k]));
+  return TBL.COLUMNS.filter(c=>c.suggest).map(c => `<datalist id="tdl_${c.k}">${from(c.k).map(v=>`<option value="${esc(v)}">`).join("")}</datalist>`).join("")
+    + `<datalist id="tdl__blank"><option value="${TBL.BLANK}"><option value="${TBL.FILLED}"></datalist>`;
+}
+function tbCount(){
+  const n = TBL.count(TB.filt), el = $("#tblCount"), clr = $("#tblClear");
+  if(el) el.textContent = `${TB.rows.length} of ${S.cards.length} card${S.cards.length===1?"":"s"}${n?` · ${n} filter${n===1?"":"s"}`:""}`;
+  if(clr) clr.disabled = !n;
+}
+function tbColsPane(){
+  const box = col => `<label><input type="checkbox" data-tcol="${col.k}" ${tbCols().includes(col)?"checked":""}> ${esc(col.h)}</label>`;
+  const extra = TBL.COLUMNS.filter(c=>c.optional), main = TBL.COLUMNS.filter(c=>!c.optional && !c.always);
+  return `<div class="tblcols" id="tblCols" role="group" aria-label="Columns" ${TB.colsOpen?"":"hidden"}>
+    <p class="hint">Card details</p>${main.map(box).join("")}
+    <p class="hint">Off unless you turn them on</p>${extra.map(box).join("")}
+    <button class="btn sm ghost" type="button" id="tblColsReset">Default columns</button></div>`;
+}
+/* keep the cell (or filter) being typed in, with what's typed, across a redraw */
+function tbKeepFocus(fn){
+  const a = document.activeElement, id = a && a.closest && a.closest("#tableRoot") && a.id ? a.id : "";
+  let st = null; if(id) try{ st = {v:a.value, typed: "defaultValue" in a && a.value!==a.defaultValue, s:a.selectionStart, e:a.selectionEnd}; }catch(_){ st = {v:a.value}; }
+  fn();
+  if(!id) return; const n = document.getElementById(id); if(!n || n===a) return;
+  if(st.typed) n.value = st.v;
+  n.focus({preventScroll:true}); try{ if(st.s!=null) n.setSelectionRange(st.s, st.e); }catch(_){}
+}
+function renderTable(full){
+  const root = $("#tableRoot");
+  BACK_TABLE.sync(TB.open);
+  document.documentElement.classList.toggle("tblopen", TB.open);
+  $("#btnTable")?.setAttribute("aria-pressed", TB.open);
+  if(!TB.open){ root.innerHTML = ""; return; }
+  if(full || !$("#tblGrid")){
+    root.innerHTML = `<div class="tbl" role="dialog" aria-modal="true" aria-labelledby="tblTitle">
+      <div class="tblbar">
+        <div class="tbltitle"><h2 id="tblTitle">All cards</h2><span class="hint" id="tblCount" aria-live="polite"></span></div>
+        <div class="tblacts">
+          <button class="btn sm" type="button" id="tblClear">Clear filters</button>
+          <span class="tblcolwrap"><button class="btn sm" type="button" id="tblColsBtn" aria-expanded="${TB.colsOpen}" aria-controls="tblCols">Columns</button>${tbColsPane()}</span>
+          <button class="btn ghost" type="button" id="tblClose" aria-label="Close the table">✕</button>
+        </div>
+      </div>
+      <p class="tblhint hint">${tbRO() ? "View only: you can look and filter, but not change cards." : "Changes save when you leave a cell.<span class=\"kbdhint\"> <b>Enter</b> saves and goes down, <b>Esc</b> puts the cell back, <b>Alt+Enter</b> starts a new line in notes.</span> ↗ opens the card."}</p>
+      <div class="tblwrap" id="tblWrap" tabindex="-1"><table class="tgrid" id="tblGrid"><thead id="tblHead"></thead><tbody id="tblBody"></tbody></table></div>
+      <div id="tblLists"></div>
+    </div>`;
+    TB.html.clear();
+  } else tbKeepRows();
+  tbDraw();
+}
+/* the header row: only headers that changed are redrawn; the filter being typed in keeps its box */
+function tbDrawHead(cols){
+  const thead = $("#tblHead"), html = tbHead(cols);
+  if(TB.headHTML === html && thead.firstChild) return;
+  TB.headHTML = html;
+  const old = thead.firstElementChild, a = document.activeElement;
+  if(!old || !old.contains(a)){ thead.innerHTML = html; return; }
+  const tmp = document.createElement("thead"); tmp.innerHTML = html; const fresh = tmp.firstElementChild;
+  if(fresh.children.length !== old.children.length){ a.blur(); thead.innerHTML = html; return; }
+  [...old.children].forEach((th, i) => { const n = fresh.children[i]; if(th.outerHTML === n.outerHTML) return;
+    if(th.contains(a)){ th.className = n.className; th.setAttribute("aria-sort", n.getAttribute("aria-sort")); th.querySelector("[data-tsort]").outerHTML = n.querySelector("[data-tsort]").outerHTML; }
+    else th.replaceWith(n.cloneNode(true)); });
+}
+/* draw the header and rows; only rows that changed are redrawn, and never the cell being edited */
+function tbDraw(rebuild){
+  const cols = tbCols(), ro = tbRO(), grid = $("#tblGrid"), body = $("#tblBody");
+  grid.style.width = cols.reduce((s,c)=>s+tbW(c.k), 0) + "px";
+  tbDrawHead(cols);
+  $("#tblLists").innerHTML = tbLists();
+  const byId = new Map(S.cards.map(c=>[c.id,c]));
+  const html = new Map(TB.rows.map(id => [id, tbRow(byId.get(id), cols, ro)]));
+  const now = [...body.children].map(tr => tr.dataset.trow).filter(Boolean);
+  const skip = new Set();
+  if(rebuild || now.join() !== TB.rows.join()){
+    tbKeepFocus(() => { body.innerHTML = TB.rows.length ? TB.rows.map(id=>html.get(id)).join("") : `<tr><td class="empty-state" colspan="${cols.length}">${S.cards.length?"No cards match these filters.":"No cards yet."}</td></tr>`; });
+  } else {
+    const a = document.activeElement;
+    for(const tr of [...body.children]){
+      const id = tr.dataset.trow, h = html.get(id); if(TB.html.get(id) === h) continue;
+      const tmp = document.createElement("tbody"); tmp.innerHTML = h; const fresh = tmp.firstElementChild;
+      if(!tr.contains(a)){ tr.replaceWith(fresh); continue; }
+      [...tr.children].forEach((td, i) => { const n = fresh.children[i]; if(!n) return; if(td.contains(a)){ TB.stale = true; skip.add(id); } else if(td.outerHTML !== n.outerHTML) td.replaceWith(n.cloneNode(true)); });
+    }
+  }
+  TB.html = html; for(const id of skip) TB.html.set(id, null); // the cell being edited is redrawn when it's left
+  tbCount();
+}
+
+/* save one cell */
+async function tbCommit(el){
+  const id = el.dataset.tid, col = TBL.BY[el.dataset.tk], c = S.cards.find(x=>x.id===id);
+  if(!c || !col?.edit || tbRO()) return;
+  const put = cur => { if(col.edit==="bool") el.checked = !!cur[col.k]; else el.value = String(TBL.raw(cur, col, tbCtx) ?? ""); };
+  const r = TBL.parse(col, col.edit==="bool" ? el.checked : el.value, tbCtx);
+  if(r.error){ toast(r.error); put(c); return; }
+  if(!TBL.changed(c, col, r.value)){ put(c); return; }
+  const before = col.edit==="bool" ? !!c[col.k] : (c[col.k] ?? ""), name = c.name || "Card";
+  el.closest("td")?.classList.add("saving");
+  const ok = await guard(() => S.db.doc("cards/"+id).update({[col.k]: r.value, updatedAt: nowISO()}));
+  const live = document.getElementById(el.id) || el;
+  live.closest("td")?.classList.remove("saving"); el.closest("td")?.classList.remove("saving");
+  if(!ok){ const cur = S.cards.find(x=>x.id===id); if(cur && live===el) put(cur); return; }
+  if(col.edit!=="bool" && col.edit!=="select"){ if(live!==el || document.activeElement!==el) live.value = r.value; live.defaultValue = r.value; }
+  const td = live.closest("td"); if(td){ td.classList.add("saved"); setTimeout(()=>td.classList.remove("saved"), 1200); }
+  toast(`Saved ${col.k==="name" ? "the name" : col.h.toLowerCase()} of ${col.k==="name" ? before || "the card" : name}`, {label:"Undo", run: async () => { if(await updateCard(id, {[col.k]: before})) toast("Put back"); }});
+}
+/* Enter: the same column in the next row (Shift+Enter: the row above) */
+function tbStep(el, d){
+  const i = TB.rows.indexOf(el.dataset.tid), next = TB.rows[i+d]; if(i<0 || !next) return false;
+  const n = document.getElementById(tbCellId(next, el.dataset.tk)); if(!n) return false;
+  n.focus({preventScroll:true}); n.closest("td")?.scrollIntoView({block:"nearest", inline:"nearest"});
+  if(n.tagName==="INPUT" && n.type!=="checkbox") n.select();
+  return true;
+}
+
+function tbClick(e){
+  const t = e.target; e.stopPropagation();
+  if(TB.colsOpen && !t.closest(".tblcolwrap")){ TB.colsOpen = false; $("#tblCols").hidden = true; $("#tblColsBtn").setAttribute("aria-expanded", false); }
+  if(t.closest("#tblClose")) return closeTable();
+  if(t.closest("#tblColsBtn")){ TB.colsOpen = !TB.colsOpen; $("#tblCols").hidden = !TB.colsOpen; $("#tblColsBtn").setAttribute("aria-expanded", TB.colsOpen); return; }
+  if(t.closest("#tblColsReset")){ TB.cols = {}; tbSave(); $("#tblCols").outerHTML = tbColsPane(); return tbDraw(true); }
+  if(t.closest("#tblClear")){ TB.filt = {}; tbSave(); tbApply(); return tbDraw(true); }
+  const so = t.closest("[data-tsort]");
+  if(so){ const k = so.dataset.tsort, cur = TB.sort.k || "location"; TB.sort = {k, d: cur===k ? -(TB.sort.d||1) : (TBL.BY[k]?.num ? -1 : 1)}; tbSave(); tbApply(); return tbDraw(true); }
+  const op = t.closest("[data-topen]"); if(op){ const a = document.activeElement; if(a && a.closest("#tableRoot")) a.blur(); return openCard(op.dataset.topen); }
+}
+let tbFiltT = 0;
+function tbFilter(el, now){
+  const k = el.dataset.tf; if(el.value) TB.filt[k] = el.value; else delete TB.filt[k];
+  tbSave(); clearTimeout(tbFiltT);
+  const go = () => { tbApply(); tbDraw(true); };
+  if(now) go(); else tbFiltT = setTimeout(go, 200);
+}
+function tbKey(e){
+  const t = e.target;
+  if(e.key==="Escape"){
+    e.stopPropagation();
+    if(TB.colsOpen){ TB.colsOpen = false; $("#tblCols").hidden = true; $("#tblColsBtn").setAttribute("aria-expanded", false); $("#tblColsBtn").focus(); return; }
+    if(t.dataset.tk && "defaultValue" in t && t.tagName!=="SELECT" && t.type!=="checkbox" && t.value!==t.defaultValue){ e.preventDefault(); t.value = t.defaultValue; return; }
+    if(t.dataset.tk || t.dataset.tf){ t.blur(); $("#tblWrap")?.focus({preventScroll:true}); return; }
+    return closeTable();
+  }
+  if(e.key==="Enter" && t.dataset.tk && !e.ctrlKey && !e.metaKey){
+    if(t.tagName==="TEXTAREA" && e.altKey){ e.preventDefault(); t.setRangeText("\n", t.selectionStart, t.selectionEnd, "end"); return; }
+    if(t.tagName==="SELECT" && !e.shiftKey && !e.altKey) return; // let Enter open the list
+    e.preventDefault();
+    if(!tbStep(t, e.shiftKey ? -1 : 1)) t.blur();
+  }
+}
+$("#tableRoot").addEventListener("click", tbClick);
+$("#tableRoot").addEventListener("keydown", tbKey);
+$("#tableRoot").addEventListener("input", e => { e.stopPropagation(); const t = e.target; if(t.dataset.tf && t.tagName==="INPUT") tbFilter(t); });
+$("#tableRoot").addEventListener("change", e => {
+  e.stopPropagation(); const t = e.target;
+  if(t.dataset.tk) return void tbCommit(t);
+  if(t.dataset.tf && t.tagName==="SELECT") return tbFilter(t, true);
+  if(t.dataset.tcol){ TB.cols[t.dataset.tcol] = t.checked; tbSave(); tbDraw(true); }
+});
+$("#tableRoot").addEventListener("focusout", e => { if(TB.stale && e.target.dataset?.tk){ TB.stale = false; setTimeout(() => { if(TB.open && $("#tblGrid")) tbDraw(); }, 0); } });
 
 /* ---------- boot ---------- */
 function pickDefaults(){

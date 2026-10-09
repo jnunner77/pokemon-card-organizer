@@ -130,6 +130,30 @@ To change many cards at once, filter, press and hold a row, *Select all*, then u
 buttons. *Owner* sets the owner of every selected card; for example, to make everything that isn't
 *Both* Justin's, tick Megan and Not set, select all, and choose Justin.
 
+## Table
+
+*Table* (above the pages, next to *Photos*) opens every card (all binders, display cases and loose
+cards) in one table, to change their details like a spreadsheet: owner, notes, name, set, set code,
+number, rarity, variant, language, condition, grader, grade, illustrator, status and placeholder.
+
+- **Locked headers:** the header row and the card's name stay in place while you scroll down or across.
+- **Dropdowns** for owner, status, condition, language and graded by, and a tick box for placeholder;
+  set, set code, rarity, variant and illustrator suggest the values your cards already use.
+- **Saving:** a change saves when you leave the cell, with *Undo*. **Enter** saves and goes down a row
+  (Shift+Enter: up), **Esc** puts the cell back, **Alt+Enter** starts a new line in notes. A card
+  can't be left without a name.
+- **Filters in each header:** pick a value (with how many cards have it, and *(blank)*), or type to
+  match part of the name, number or notes (*(blank)* and *(not blank)* work there too). Filters
+  combine, the count of cards shown is at the top, and *Clear filters* shows them all again. Click a
+  header to sort by it, again to flip it. Rows stay put while you edit, until you change a filter or
+  the sort.
+- **Columns:** Location and Released are shown to read but not edit. Picture, value, paid and the
+  PriceCharting / TCGplayer match are off unless you turn them on in *Columns*.
+- **↗** next to a name opens the card's details (picture, prices, moving it).
+
+Columns, filters and the sort are remembered on this device. View-only accounts can look and filter,
+but not edit.
+
 ## Pricing
 
 *Pricing* (next to *Find a card*) shows what your cards are worth over time, for **All cards**, one
