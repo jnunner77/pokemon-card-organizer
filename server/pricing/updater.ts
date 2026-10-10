@@ -11,6 +11,7 @@ import {
   type Fetcher,
   ProductGone,
   type Quote,
+  Refused,
   type Source,
   SourceError,
   get,
@@ -150,7 +151,14 @@ export interface RunSummary {
   rateDate: string | null;
   counts: Record<CardOutcome, number>;
   errors: { card: string; error: string }[];
+  /** Sites that weren't used for (part of) the run, and why: turned off, refused our requests or kept failing. */
+  sitesOut?: Partial<Record<Source, string>>;
 }
+
+/** The site isn't being asked: turned off under Administration → Prices, or refusing or failing during this update. */
+export class SiteOut extends SourceError {}
+/** How long a site that refused our requests is left alone between updates (each update asks it once more). */
+const REFUSED_MS = 60 * 60_000;
 
 const SOURCE_NAME: Record<Source, string> = { pricecharting: 'PriceCharting', tcgplayer: 'TCGplayer' };
 const SOURCES: readonly string[] = ['pricecharting', 'tcgplayer'];
@@ -191,8 +199,10 @@ export class PriceUpdater {
   private readonly config?: Config;
   private readonly breakerAfter: number;
   private readonly details?: CardDetails;
-  /** During a run: each site's failures in a row, and the sites left alone for the rest of it. */
-  private run: { streak: Record<Source, number>; tripped: Set<Source> } | null = null;
+  /** During a run: each site's failures in a row, and the sites left alone for the rest of it (with why). */
+  private run: { streak: Record<Source, number>; tripped: Map<Source, string> } | null = null;
+  /** When each site last refused our requests (401/403), outside or during a run. */
+  private refused = new Map<Source, { at: number; why: string }>();
 
   constructor(o: UpdaterOptions) {
     this.store = o.store;
@@ -212,7 +222,20 @@ export class PriceUpdater {
   /** Whether the daily run is on, and its hour (administrators can change both). */
   schedule() {
     const c = this.config?.get().pricing;
-    return { enabled: c?.enabled ?? true, hour: c?.hour ?? this.hour, timeZone: this.timeZone };
+    return { enabled: c?.enabled ?? true, hour: c?.hour ?? this.hour, timeZone: this.timeZone, pricecharting: c?.pricecharting !== false };
+  }
+
+  /**
+   * Why a site isn't asked right now, or null when it is: PriceCharting turned off by the
+   * administrators, or a site that refused our requests in the last hour or that kept failing
+   * during this update. Nothing tries to get round a refusal; TCGplayer stands in meanwhile.
+   */
+  siteOut(src: Source): string | null {
+    if (src === 'pricecharting' && !this.schedule().pricecharting) return 'PriceCharting is turned off under Administration → Prices.';
+    const tripped = this.run?.tripped.get(src);
+    if (tripped) return tripped;
+    const r = this.refused.get(src);
+    return r && r.at > this.now().getTime() - REFUSED_MS ? r.why : null;
   }
 
   get running() {
@@ -276,8 +299,10 @@ export class PriceUpdater {
     const counts: Record<CardOutcome, number> = { updated: 0, needsMatch: 0, noPrice: 0, failed: 0, skipped: 0, off: 0 };
     const errors: RunSummary['errors'] = [];
     let done = 0;
-    // A site that keeps failing (down, or blocking us) is left alone for the rest of the run.
-    const run = (this.run = { streak: { pricecharting: 0, tcgplayer: 0 }, tripped: new Set<Source>() });
+    // A site that keeps failing (down, or blocking us) is left alone for the rest of the run. One
+    // that refused us earlier is asked once more: it may have let us back in.
+    this.refused.clear();
+    const run = (this.run = { streak: { pricecharting: 0, tcgplayer: 0 }, tripped: new Map<Source, string>() });
     this.log.info('pricing', `Price update started (${reason}) for ${ids.length} cards at US$1 = C$${rate}`, { reason, cards: ids.length, rate });
     try {
       for (const id of ids) {
@@ -301,31 +326,43 @@ export class PriceUpdater {
         if (outcome !== 'skipped' && outcome !== 'off') await this.pause();
       }
     } finally {
+      const sitesOut: Partial<Record<Source, string>> = {};
+      for (const src of SOURCES as Source[]) {
+        const why = this.siteOut(src);
+        if (why) sitesOut[src] = why;
+      }
       this.run = null;
-      const summary: RunSummary = { reason, date, startedAt, finishedAt: this.now().toISOString(), rate, rateDate, counts, errors: errors.slice(0, 30) };
+      const summary: RunSummary = { reason, date, startedAt, finishedAt: this.now().toISOString(), rate, rateDate, counts, errors: errors.slice(0, 30), ...(Object.keys(sitesOut).length ? { sitesOut } : {}) };
       const history = ((this.status().history as RunSummary[] | undefined) ?? []).slice(0, 29);
       this.setStatus({ running: false, lastRun: summary, history: [{ ...summary, errors: summary.errors.slice(0, 5) }, ...history] });
       const lvl = counts.failed ? 'warn' : 'info';
-      this.log[lvl]('pricing', `Price update finished: ${counts.updated} updated, ${counts.needsMatch} need a match, ${counts.noPrice} without a price, ${counts.failed} failed`, { ...counts, tripped: [...run.tripped] });
+      this.log[lvl]('pricing', `Price update finished: ${counts.updated} updated, ${counts.needsMatch} need a match, ${counts.noPrice} without a price, ${counts.failed} failed`, { ...counts, tripped: [...run.tripped.keys()] });
     }
     return this.status().lastRun as RunSummary;
   }
 
   /**
-   * Ask a site something. During a run, a site that fails `breakerAfter` times in a row isn't asked
-   * again until the next one. A site that answered, even "no such product", isn't failing.
+   * Ask a site something, unless it's out (siteOut). During a run, a site that fails
+   * `breakerAfter` times in a row isn't asked again until the next one, and one that refuses our
+   * requests isn't asked again at all. A site that answered, even "no such product", isn't failing.
    */
   private async ask<T>(src: Source, work: () => Promise<T>): Promise<T> {
+    const out = this.siteOut(src);
+    if (out) throw new SiteOut(out);
     const run = this.run;
-    if (run?.tripped.has(src)) throw new SourceError(`Skipped: ${SOURCE_NAME[src]} kept failing during this update. It will be tried again next time.`);
     try {
-      const out = await work();
+      const result = await work();
       if (run) run.streak[src] = 0;
-      return out;
+      return result;
     } catch (err) {
-      if (run && err instanceof ProductGone) run.streak[src] = 0;
+      if (err instanceof Refused) {
+        const why = `${SOURCE_NAME[src]} refused the binder's requests (${err.message.match(/\d{3}/)?.[0] ?? 'refused'}); ${src === 'pricecharting' ? 'TCGplayer gives prices meanwhile' : 'it will be asked again next update'}.`;
+        this.refused.set(src, { at: this.now().getTime(), why });
+        if (run) run.tripped.set(src, why);
+        this.log.warn('pricing', `${why} Not asking it again ${run ? 'during this update' : 'for an hour'}.`, { source: src });
+      } else if (run && err instanceof ProductGone) run.streak[src] = 0;
       else if (run && !run.tripped.has(src) && ++run.streak[src] >= this.breakerAfter) {
-        run.tripped.add(src);
+        run.tripped.set(src, `Skipped: ${SOURCE_NAME[src]} kept failing during this update. It will be tried again next time.`);
         this.log.warn('pricing', `${SOURCE_NAME[src]} failed ${run.streak[src]} times in a row; skipping it for the rest of this update`, { source: src });
       }
       throw err;
@@ -352,7 +389,7 @@ export class PriceUpdater {
   // ---- one card ----------------------------------------------------------------------
 
   /** Find the card's products if needed, then log today's price (the higher site's) and refresh its image. */
-  async updateCard(id: string, rate?: number, rematched = false): Promise<CardOutcome> {
+  async updateCard(id: string, rate?: number, rematched = false, pcOut = false): Promise<CardOutcome> {
     let card = this.store.get('cards', id) as Card | undefined;
     if (!card) return 'skipped';
     if (card.pricing?.source === 'off') return 'off';
@@ -403,8 +440,12 @@ export class PriceUpdater {
       this.patchLink(id, { source: 'none', id: null, url: null, title: null, set: null, linkedBy: null, candidates: null, error: null }, true);
       return this.updateCard(id, rate, true);
     }
+    // PriceCharting just refused us and the card has no TCGplayer product yet: look for one now.
+    if (mainQ.status === 'rejected' && link.source === 'pricecharting' && !pair && !link.pair?.off && this.siteOut('pricecharting') && !pcOut) {
+      return this.updateCard(id, rate, rematched, true);
+    }
     const main = mainQ.status === 'fulfilled' ? mainQ.value : null;
-    const mainError = mainQ.status === 'rejected' ? message(mainQ.reason) : null;
+    let mainError = mainQ.status === 'rejected' ? message(mainQ.reason) : null;
     const other = pairQ.status === 'fulfilled' ? pairQ.value : null;
     // A pair whose product is gone is looked for again next time.
     let pairPatch: Pair | null | undefined;
@@ -420,9 +461,13 @@ export class PriceUpdater {
     if (pair && other?.usd != null) quotes[pair.source] = other.usd;
     const best = (Object.entries(quotes) as [Source, number][]).reduce<[Source, number] | null>((b, q) => (!b || q[1] > b[1] ? q : b), null);
     if (!best && mainError) {
+      const out = mainQ.status === 'rejected' && !pair && this.siteOut(link.source);
+      if (out && !link.pair?.off) mainError = `${out} ${SOURCE_NAME[otherSite(link.source)]} didn't find this card: choose its product with Change match.`;
       this.patchLink(id, { error: mainError, checkedAt, ...withPair });
       return 'failed';
     }
+    // Priced from the other site while the main one is out: the update's summary says why, once.
+    if (best && mainQ.status === 'rejected' && this.siteOut(link.source)) mainError = null;
 
     const fx = rate ?? (Number(this.store.get('settings', 'main')?.usdToCad) || 1.37);
     const image = main ? await this.fetchImage(card, main.image) : null;
@@ -485,8 +530,11 @@ export class PriceUpdater {
     const card = this.store.get('cards', id) as Card | undefined;
     if (!card || !isLinked(card.pricing)) return;
     const site = otherSite(card.pricing.source);
+    if (this.siteOut(site)) return;
     const p = card.pricing.pair;
-    if (p && p.source === site && (p.off || p.id || Date.parse(p.checkedAt ?? '') > this.now().getTime() - PAIR_RETRY_MS)) return;
+    // While the main site is out, its card is priced from this one: look again straight away.
+    const now = !!this.siteOut(card.pricing.source);
+    if (p && p.source === site && (p.off || p.id || (!now && Date.parse(p.checkedAt ?? '') > this.now().getTime() - PAIR_RETRY_MS))) return;
     let list: Candidate[];
     try {
       const q = searchQuery(card);
@@ -533,11 +581,21 @@ export class PriceUpdater {
   async autoMatch(card: CardForMatch, skip: Source[] = []): Promise<{ match: Candidate | null; candidates: Candidate[]; pair?: Pair }> {
     const q = searchQuery(card);
     const at = this.now().toISOString();
-    const usePc = !skip.includes('pricecharting');
-    const pc: MatchResult = usePc ? chooseMatch(card, await this.ask('pricecharting', () => searchPriceCharting(this.fetcher, q))) : { match: null, candidates: [] };
+    let usePc = !skip.includes('pricecharting') && !this.siteOut('pricecharting');
+    // PriceCharting failing doesn't stop TCGplayer being asked; the card fails only if neither finds it.
+    let pcError: unknown = null;
+    let pc: MatchResult = { match: null, candidates: [] };
+    if (usePc) {
+      try {
+        pc = chooseMatch(card, await this.ask('pricecharting', () => searchPriceCharting(this.fetcher, q)));
+      } catch (err) {
+        pcError = err;
+        usePc = false;
+      }
+    }
     let tg: MatchResult | null = null;
     if (!skip.includes('tcgplayer')) {
-      if (usePc) await this.pause();
+      if (usePc || pcError) await this.pause();
       tg = await this.ask('tcgplayer', () => this.searchTcgplayerFor(card, q)).then(
         (list) => chooseMatch(card, list),
         () => null,
@@ -547,6 +605,10 @@ export class PriceUpdater {
       !r ? undefined : r.match ? { ...productOf(r.match), linkedBy: 'auto', linkedAt: at, checkedAt: at } : { source, id: null, checkedAt: at };
     if (pc.match) return { ...pc, pair: asPair(tg, 'tcgplayer') };
     if (tg?.match) return { ...tg, pair: usePc ? asPair(pc, 'pricecharting') : undefined };
+    // Neither site answered, or PriceCharting failed for a moment (it wasn't refusing us): try the card again next time.
+    if (pcError && (!tg || !(pcError instanceof SiteOut || pcError instanceof Refused))) throw pcError;
+    const pcOut = !skip.includes('pricecharting') && !pcError && !usePc ? this.siteOut('pricecharting') : null;
+    if (pcOut && !tg) throw new SiteOut(pcOut);
     return { match: null, candidates: [...pc.candidates.slice(0, 5), ...(tg?.candidates ?? []).slice(0, 3)] };
   }
 
@@ -563,7 +625,7 @@ export class PriceUpdater {
   /** Products the person can choose from, from both sites. */
   async search(card: CardForMatch, query?: string): Promise<Candidate[]> {
     const q = query?.trim() || searchQuery(card);
-    const [pc, tg] = await Promise.all([searchPriceCharting(this.fetcher, q).catch(() => []), searchTcgplayer(this.fetcher, q).catch(() => [])]);
+    const [pc, tg] = await Promise.all([this.ask('pricecharting', () => searchPriceCharting(this.fetcher, q)).catch(() => []), searchTcgplayer(this.fetcher, q).catch(() => [])]);
     const rank = (list: Candidate[]) => chooseMatch(card, list).candidates.concat(list).filter((c, i, a) => a.findIndex((x) => x.source === c.source && x.id === c.id) === i);
     return [...rank(pc).slice(0, 10), ...rank(tg).slice(0, 6)];
   }

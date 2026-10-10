@@ -59,6 +59,8 @@ const TIMEOUT_MS = 20_000;
 export class SourceError extends Error {}
 /** The product address no longer leads to a product: PriceCharting sends its search page instead. */
 export class ProductGone extends SourceError {}
+/** The site refuses our requests (401 or 403): asking again soon won't help, so the updater stops asking it for a while. */
+export class Refused extends SourceError {}
 
 /**
  * How often a busy or unreachable site is retried: after baseMs, then twice as long each time
@@ -92,6 +94,7 @@ export async function get(fetcher: Fetcher, url: string, init: RequestInit = {})
       await pause(backoff(attempt, res.headers.get('retry-after')));
       continue;
     }
+    if (res.status === 401 || res.status === 403) throw new Refused(`${host} refused the request (${res.status})`);
     if (!res.ok) throw new SourceError(`${host} answered ${res.status}`);
     return res;
   }

@@ -647,9 +647,11 @@ export function createApp(o: AppOptions) {
     res.json({ available: !!updater, schedule: updater?.schedule() ?? null, running: !!st.running, done: st.done ?? 0, total: st.total ?? 0, history: st.history ?? (st.lastRun ? [st.lastRun] : []) });
   });
   admin.put('/pricing', json, (req, res) => {
-    const pricing = pricingConfigSchema.parse(req.body);
+    const pricing = { ...config.get().pricing, ...pricingConfigSchema.parse(req.body) };
+    const was = config.get().pricing.pricecharting !== false;
     config.set({ pricing });
     log.info('admin', `${who(res)} changed the price update schedule`, { ...pricing });
+    if (was !== (pricing.pricecharting !== false)) log.info('admin', `${who(res)} turned PriceCharting ${pricing.pricecharting === false ? 'off' : 'on'} for prices`);
     res.json({ schedule: updater?.schedule() ?? { ...pricing } });
   });
 
