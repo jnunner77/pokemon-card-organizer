@@ -115,6 +115,10 @@ No site's pages are read: every price comes from an API.
 - **TCGdex** and **pokemontcg.io** are free public APIs (`POKEMONTCG_API_KEY`, a free key from
   [dev.pokemontcg.io](https://dev.pokemontcg.io), raises pokemontcg.io's request limits but isn't
   needed).
+  pokemontcg.io often fails at random (a server error that works on the next try), so it's tried
+  three times. It only adds large pictures and blank details, so its failures during an update are
+  logged once, at the end (*pokemontcg.io failed for 18 of the 122 cards it was asked about …*),
+  rather than a warning per card; those cards are tried again in the next update.
 - Links saved before PriceCharting was read through its API (by page address) are moved to their
   API product at the next update; one PriceCharting no longer has is matched again.
 

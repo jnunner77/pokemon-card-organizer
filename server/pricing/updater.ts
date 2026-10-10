@@ -465,6 +465,11 @@ export class PriceUpdater {
     const problem = prior && !prior.recoveredAt ? { ...prior, recoveredAt: summary.finishedAt } : (prior ?? null);
     this.setStatus({ running: false, current: null, lastRun: summary, problem, history: this.withHistory(summary) });
     this.step = null;
+    const ptcg = this.catalog?.ptcgSummary();
+    if (ptcg && ptcg.failed + ptcg.skipped) {
+      const missed = ptcg.failed + ptcg.skipped;
+      this.log.warn('pricing', `pokemontcg.io failed for ${missed} of the ${ptcg.asked} cards it was asked about${ptcg.lastError ? ` (${ptcg.lastError})` : ''}${ptcg.skipped ? `; after failing ${Catalog.breakerAfter} times in a row it wasn't asked about the rest` : ''}. It only adds large pictures and blank details, so prices aren't affected; those cards are tried again in the next update.`, { ...ptcg });
+    }
     const lvl = counts.failed ? 'warn' : 'info';
     this.log[lvl]('pricing', `Price update finished: ${counts.updated} updated, ${counts.needsMatch} need a match, ${counts.noPrice} without a price, ${counts.failed} failed`, { ...counts, tripped: [...run.tripped.keys()] });
     return summary;
@@ -942,7 +947,9 @@ export class PriceUpdater {
     try {
       const blanks = DETAIL_FIELDS.some((f) => blank(card[f]));
       const q = await this.catalog.quote(tcgdexId, { variant: card.variant, rarity: card.rarity, picture: pictureOf(card), blanks }, known, card.setCode as string | undefined);
-      for (const e of q.errors) this.log.warn('pricing', `${label(card)}: ${e}`);
+      // During an update, pokemontcg.io's failures (it only adds pictures and details) are counted
+      // and logged once at the end; a single card priced on its own still warns.
+      for (const e of q.errors) this.log[this.run && e.startsWith('pokemontcg.io:') ? 'info' : 'warn']('pricing', `${label(card)}: ${e}`);
       return q;
     } catch (err) {
       this.log.warn('pricing', `${label(card)}: no prices from TCGdex: ${message(err)}`);

@@ -13,6 +13,7 @@ import { PriceCharting, gradedPrice, oldAddress, parseProduct } from '../server/
 import { type Candidate, type Fetcher, retryPolicy, releaseDate } from '../server/pricing/sources';
 import { PriceUpdater, thinAutoPrices } from '../server/pricing/updater';
 import { Secret } from '../server/secrets';
+import { Logger } from '../server/log';
 import { Store } from '../server/store';
 
 retryPolicy.baseMs = 1; // retries happen at once in tests
@@ -475,6 +476,31 @@ describe('prices and pictures from the card databases', () => {
     now = new Date('2026-10-10T15:00:00Z');
   });
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it('logs pokemontcg.io failing once per update, not once per card, and still prices every card', async () => {
+    for (let i = 1; i <= 5; i++) store.set('cards', `c${i}`, lapras());
+    // pokemontcg.io answering 500 to everything, as it often does (quickly, at random).
+    const down = () => new Response('', { status: 500 });
+    const net = dbNet({ 'api.pokemontcg.io/v2/cards?q=': down, 'api.pokemontcg.io/v2/cards/sv3pt5-131': down });
+    const log = new Logger({ stdout: false });
+    const u = new PriceUpdater({ store, assets, fetcher: net.fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', catalog: new Catalog({ fetcher: net.fetcher, now: () => now }), log });
+    const s = await u.runAll('manual');
+    expect(s.counts.updated).toBe(5);
+    // Tried 3 times for each of 3 cards, then left alone for the rest of the update.
+    expect(net.calls.filter((c) => c.includes('pokemontcg.io'))).toHaveLength(3 * 3);
+    const warnings = log.query({ level: 'warn', cat: 'pricing' }).map((e) => e.msg);
+    expect(warnings).toEqual(["pokemontcg.io failed for 5 of the 5 cards it was asked about (api.pokemontcg.io answered 500); after failing 3 times in a row it wasn't asked about the rest. It only adds large pictures and blank details, so prices aren't affected; those cards are tried again in the next update."]);
+    expect(log.query({ level: 'info', cat: 'pricing', text: 'pokemontcg.io:' })).toHaveLength(5);
+    // The next update starts counting again; nothing to say when it works.
+    const ok = new Logger({ stdout: false });
+    await new PriceUpdater({ store, assets, fetcher: dbNet().fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', catalog: new Catalog({ fetcher: dbNet().fetcher, now: () => now }), log: ok }).runAll('manual');
+    expect(ok.query({ level: 'warn', cat: 'pricing', text: 'pokemontcg.io' })).toHaveLength(0);
+    // A card priced on its own (just added) still warns straight away.
+    const one = new Logger({ stdout: false });
+    store.set('cards', 'new', lapras({ officialImageId: null }));
+    await new PriceUpdater({ store, assets, fetcher: net.fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', catalog: new Catalog({ fetcher: net.fetcher, now: () => now }), log: one }).updateCard('new');
+    expect(one.query({ level: 'warn', cat: 'pricing' }).map((e) => e.msg)).toEqual([expect.stringMatching(/^Lapras 151 131\/165: pokemontcg\.io: api\.pokemontcg\.io answered 500$/)]);
+  });
 
   it("logs the highest of TCGplayer and Cardmarket without reading TCGplayer, with pokemontcg.io's large picture", async () => {
     store.set('cards', 'c1', lapras());

@@ -298,6 +298,9 @@ export interface CatalogOptions {
   now?: () => Date;
 }
 
+/** A database that kept failing isn't asked again until reset(). */
+class Skipped extends SourceError {}
+
 /** Asks TCGdex and pokemontcg.io about cards. A database that keeps failing is left alone until reset(). */
 export class Catalog {
   private readonly fetcher: Fetcher;
@@ -305,6 +308,11 @@ export class Catalog {
   private readonly now: () => Date;
   private streak = { tcgdex: 0, ptcg: 0 };
   static readonly breakerAfter = 3;
+  /**
+   * Since reset(): cards pokemontcg.io was asked about, and those it failed for (or was skipped for
+   * after failing in a row), with its last error. The update logs these once (updater.ts), not per card.
+   */
+  private ptcg = { asked: 0, failed: 0, skipped: 0, lastError: '' };
 
   constructor(o: CatalogOptions = {}) {
     this.fetcher = o.fetcher ?? fetch;
@@ -315,15 +323,22 @@ export class Catalog {
   /** Start of a price update: ask every database again. */
   reset() {
     this.streak = { tcgdex: 0, ptcg: 0 };
+    this.ptcg = { asked: 0, failed: 0, skipped: 0, lastError: '' };
+  }
+
+  /** How pokemontcg.io did since reset(). */
+  ptcgSummary() {
+    return { ...this.ptcg };
   }
 
   private async json<T>(db: 'tcgdex' | 'ptcg', url: string): Promise<T> {
-    if (this.streak[db] >= Catalog.breakerAfter) throw new SourceError(`Skipped: ${db === 'tcgdex' ? 'TCGdex' : 'pokemontcg.io'} kept failing during this update.`);
+    if (this.streak[db] >= Catalog.breakerAfter) throw new Skipped(`Skipped: ${db === 'tcgdex' ? 'TCGdex' : 'pokemontcg.io'} kept failing during this update.`);
     try {
       const headers: Record<string, string> = { Accept: 'application/json' };
       if (db === 'ptcg' && this.ptcgKey) headers['X-Api-Key'] = this.ptcgKey;
-      // pokemontcg.io is slow at times and only adds pictures and details: it isn't waited on long.
-      const patience = db === 'ptcg' ? { timeoutMs: 10_000, attempts: 2 } : {};
+      // pokemontcg.io is slow at times, and often fails quickly at random (a 500 that works on the
+      // next try), so it's tried 3 times but not waited on long: it only adds pictures and details.
+      const patience = db === 'ptcg' ? { timeoutMs: 10_000, attempts: 3 } : {};
       const out = (await (await get(this.fetcher, url, { headers }, patience)).json()) as T;
       this.streak[db] = 0;
       return out;
@@ -366,6 +381,7 @@ export class Catalog {
     let ptcgReadAt = known.ptcgReadAt ?? null;
     let pc: PtcgCard | null = null;
     const stale = older(ptcgSearchedAt);
+    if (needPtcg && (ptcgId || stale)) this.ptcg.asked++;
     try {
       if (!needPtcg) {
         // Nothing pokemontcg.io would add today.
@@ -382,6 +398,11 @@ export class Catalog {
       }
     } catch (err) {
       errors.push(`pokemontcg.io: ${msg(err)}`);
+      if (err instanceof Skipped) this.ptcg.skipped++;
+      else {
+        this.ptcg.failed++;
+        this.ptcg.lastError = msg(err);
+      }
     }
     // pokemontcg.io only prices the plain printings.
     const kindOf = (t: string): Printing['kind'] => (t === 'reverse' ? 'reverse' : t === 'holo' ? 'holo' : 'normal');
