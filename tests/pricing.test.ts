@@ -11,8 +11,9 @@ import { Catalog, choosePtcg, chooseVariant, printingOf, ptcgDetails, ptcgTcgpla
 import { chooseMatch, detailsFromProduct, searchQuery, variantFromProduct } from '../server/pricing/match';
 import { PriceCharting, gradedPrice, oldAddress, parseProduct } from '../server/pricing/pricecharting';
 import { type Candidate, type Fetcher, retryPolicy, releaseDate } from '../server/pricing/sources';
-import { PriceUpdater, thinAutoPrices } from '../server/pricing/updater';
+import { PriceUpdater, pricesDisagree, thinAutoPrices } from '../server/pricing/updater';
 import { Secret } from '../server/secrets';
+import { Logger } from '../server/log';
 import { Store } from '../server/store';
 
 retryPolicy.baseMs = 1; // retries happen at once in tests
@@ -476,6 +477,78 @@ describe('prices and pictures from the card databases', () => {
   });
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
+  it('takes no prices from a TCGdex match in another set than the card is filed under, until the person confirms it', async () => {
+    // Filed under "151", but TCGdex's match is flagged as another set's card (Cards to check).
+    const flagged = { source: 'tcgdex', result: 'complete', id: 'sv03.5-131', checkedAt: '2026-10-01T00:00:00Z', filedUnder: { as: '151', id: 'other', name: 'Another set' } };
+    store.set('cards', 'c', lapras({ details: flagged }));
+    const net = dbNet();
+    expect(await noPc(net).updateCard('c')).not.toBe('updated');
+    expect(net.calls.some((u) => u.includes('api.tcgdex.net/v2/en/cards/sv03.5-131'))).toBe(false);
+    expect(store.get('cards', 'c')!.prices).toEqual([]);
+    // Ignored in Cards to check (the person says it's right): priced again.
+    store.update('cards', 'c', { checksIgnored: 'lapras|131/165' });
+    expect(await noPc(net).updateCard('c')).toBe('updated');
+    // Chosen by the person, or filed under its set since: priced too.
+    store.set('cards', 'd', lapras({ details: { ...flagged, chosen: true } }));
+    store.set('cards', 'e', lapras({ set: 'Scarlet & Violet 151', details: flagged }));
+    expect(await noPc(net).updateCard('d')).toBe('updated');
+    expect(await noPc(net).updateCard('e')).toBe('updated');
+  });
+
+  it('drops the automatic TCGplayer product that came with an earlier TCGdex match, when the new one names none', async () => {
+    // A 30th Classic Collection reprint first taken for its original (Paldea Evolved's), now matched
+    // to the reprint, which TCGdex doesn't price: the original's TCGplayer product goes.
+    const unpriced = () => {
+      const c = JSON.parse(fixture('tcgdex-card.json'));
+      delete c.pricing;
+      for (const v of c.variants_detailed ?? []) delete v.pricing;
+      return Response.json(c);
+    };
+    const earlier = { source: 'pricecharting', id: LAPRAS_30TH, linkedBy: 'user', catalog: { tcgdexId: 'sv02-203' }, pair: { source: 'tcgplayer', id: '497658', title: 'Magikarp', set: 'Paldea Evolved', linkedBy: 'auto' } };
+    store.set('cards', 'moved', lapras({ pricing: earlier }));
+    store.set('cards', 'same', lapras({ pricing: { ...earlier, catalog: { tcgdexId: 'sv03.5-131' } } }));
+    store.set('cards', 'chosen', lapras({ pricing: { ...earlier, pair: { ...earlier.pair, linkedBy: 'user' } } }));
+    const net = dbNet({ 'api.tcgdex.net/v2/en/cards/sv03.5-131': unpriced });
+    for (const id of ['moved', 'same', 'chosen']) await updater(net).updateCard(id);
+    expect(store.get('cards', 'moved')!.pricing).toMatchObject({ source: 'pricecharting', id: LAPRAS_30TH, pair: null, catalog: { tcgdexId: 'sv03.5-131' } });
+    // Same TCGdex card as before (TCGdex just has no price today), or chosen by the person: kept.
+    expect(store.get('cards', 'same')!.pricing).toMatchObject({ pair: { id: '497658' } });
+    expect(store.get('cards', 'chosen')!.pricing).toMatchObject({ pair: { id: '497658', linkedBy: 'user' } });
+  });
+
+  it('calls prices disagreeing when one is over 3 times another and US$5 apart', () => {
+    expect(pricesDisagree({ pricecharting: 4, tcgplayer: 310 })).toBe(true);
+    expect(pricesDisagree({ pricecharting: 10, tcgplayer: 29 })).toBe(false); // under 3×
+    expect(pricesDisagree({ pricecharting: 0.1, tcgplayer: 0.9 })).toBe(false); // 9×, but cents apart
+    expect(pricesDisagree({ pricecharting: 2, tcgplayer: 7.5 })).toBe(true);
+    expect(pricesDisagree({ pricecharting: 300 })).toBe(false);
+  });
+
+  it('logs pokemontcg.io failing once per update, not once per card, and still prices every card', async () => {
+    for (let i = 1; i <= 5; i++) store.set('cards', `c${i}`, lapras());
+    // pokemontcg.io answering 500 to everything, as it often does (quickly, at random).
+    const down = () => new Response('', { status: 500 });
+    const net = dbNet({ 'api.pokemontcg.io/v2/cards?q=': down, 'api.pokemontcg.io/v2/cards/sv3pt5-131': down });
+    const log = new Logger({ stdout: false });
+    const u = new PriceUpdater({ store, assets, fetcher: net.fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', catalog: new Catalog({ fetcher: net.fetcher, now: () => now }), log });
+    const s = await u.runAll('manual');
+    expect(s.counts.updated).toBe(5);
+    // Tried 3 times for each of 3 cards, then left alone for the rest of the update.
+    expect(net.calls.filter((c) => c.includes('pokemontcg.io'))).toHaveLength(3 * 3);
+    const warnings = log.query({ level: 'warn', cat: 'pricing' }).map((e) => e.msg);
+    expect(warnings).toEqual(["pokemontcg.io failed for 5 of the 5 cards it was asked about (api.pokemontcg.io answered 500); after failing 3 times in a row it wasn't asked about the rest. It only adds large pictures and blank details, so prices aren't affected; those cards are tried again in the next update."]);
+    expect(log.query({ level: 'info', cat: 'pricing', text: 'pokemontcg.io:' })).toHaveLength(5);
+    // The next update starts counting again; nothing to say when it works.
+    const ok = new Logger({ stdout: false });
+    await new PriceUpdater({ store, assets, fetcher: dbNet().fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', catalog: new Catalog({ fetcher: dbNet().fetcher, now: () => now }), log: ok }).runAll('manual');
+    expect(ok.query({ level: 'warn', cat: 'pricing', text: 'pokemontcg.io' })).toHaveLength(0);
+    // A card priced on its own (just added) still warns straight away.
+    const one = new Logger({ stdout: false });
+    store.set('cards', 'new', lapras({ officialImageId: null }));
+    await new PriceUpdater({ store, assets, fetcher: net.fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', catalog: new Catalog({ fetcher: net.fetcher, now: () => now }), log: one }).updateCard('new');
+    expect(one.query({ level: 'warn', cat: 'pricing' }).map((e) => e.msg)).toEqual([expect.stringMatching(/^Lapras 151 131\/165: pokemontcg\.io: api\.pokemontcg\.io answered 500$/)]);
+  });
+
   it("logs the highest of TCGplayer and Cardmarket without reading TCGplayer, with pokemontcg.io's large picture", async () => {
     store.set('cards', 'c1', lapras());
     // Without PriceCharting's token.
@@ -516,11 +589,19 @@ describe('prices and pictures from the card databases', () => {
     expect(await updater(net).updateCard('fresh')).toBe('updated');
     const fresh = store.get('cards', 'fresh')!;
     expect(fresh.pricing).toMatchObject({ source: 'pricecharting', pair: { source: 'tcgplayer', id: '516694', linkedBy: 'auto' }, imageUrl: 'https://images.pokemontcg.io/sv3pt5/131_hires.png' });
+    // This card (151's Lapras) is linked to the 30th Celebration Lapras on PriceCharting: its US$13.20
+    // is far from the others' US$2.12 and US$3.44, so the card is flagged and the main product's price used.
     expect((fresh.prices as { where: string; quotes: object; note: string }[])[0]).toMatchObject({
       where: 'PriceCharting',
       quotes: { pricecharting: 13.2, tcgplayer: 2.12, cardmarket: 3.44 },
-      note: expect.stringMatching(/^Daily update · highest of PriceCharting US\$13\.20, TCGplayer US\$2\.12 and Cardmarket €3\.07 \(US\$3\.44\)/),
+      note: expect.stringMatching(/^Daily update · PriceCharting's US\$13\.20: the sources disagree \(PriceCharting US\$13\.20, TCGplayer US\$2\.12, Cardmarket €3\.07 \(US\$3\.44\)\), so the highest wasn't used/),
     });
+    expect(fresh.pricing).toMatchObject({ disagree: { quotes: { pricecharting: 13.2, tcgplayer: 2.12, cardmarket: 3.44 }, sig: `pricecharting:${LAPRAS_30TH}|tcgplayer:516694|sv03.5-131` } });
+    // The person says the prices are right: the highest is used, until the matches change.
+    store.update('cards', 'fresh', { pricesDisagreeIgnored: `pricecharting:${LAPRAS_30TH}|tcgplayer:516694|sv03.5-131` });
+    await updater(net).updateCard('fresh');
+    expect(store.get('cards', 'fresh')!.pricing).toMatchObject({ disagree: null });
+    expect((store.get('cards', 'fresh')!.prices as { note: string }[]).at(-1)!.note).toMatch(/^Daily update · highest of PriceCharting US\$13\.20, TCGplayer US\$2\.12 and Cardmarket €3\.07 \(US\$3\.44\)/);
     // A card with a picture from PriceCharting's pages (before the API) keeps it.
     const pcPicture = assets.put(JPEG)!;
     const pcUrl = 'https://storage.googleapis.com/images.pricecharting.com/asqso2to674mken7/1600.jpg';

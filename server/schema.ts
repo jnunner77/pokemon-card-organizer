@@ -119,6 +119,8 @@ const card = z.looseObject({
   placeholder: z.boolean().nullish(),
   /** Cards to check: the card's name and number when the person chose to ignore its problem. */
   checksIgnored: optText(300),
+  /** Cards to check: the person said the card's disagreeing prices are right, for these matches (updater.ts). */
+  pricesDisagreeIgnored: optText(700),
   /** When the card's set came out, YYYY-MM-DD, from TCGdex (details.ts). */
   released: optText(10),
   /** The last TCGdex lookup of the card's set, set code, rarity, illustrator and release date (details.ts). */

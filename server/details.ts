@@ -66,11 +66,31 @@ export interface DetailsStatus {
   options?: DetailsOption[] | null;
   /** Not found, but a card with that number has a similar name. */
   suggest?: DetailsOption[] | null;
+  /** The person chose this match (from several, or in Cards to check): it's never replaced by a lookup. */
+  chosen?: boolean | null;
   checkedAt: string;
 }
 
-/** Bumped when lookups record something new, so cards looked up before are looked up again once. */
-export const DETAILS_VERSION = 2;
+/**
+ * Bumped when lookups record something new, so cards looked up before are looked up again once.
+ * 3: reprint sub-sets and the card's own set preferred, TCG Pocket left out (an automatic match
+ * from before is looked up again; one the person chose stays).
+ */
+export const DETAILS_VERSION = 3;
+
+/** The card as named and numbered; Ignore in Cards to check holds until either changes. */
+export const checkIdentity = (c: { name?: unknown; number?: unknown }) => `${String(c.name ?? '').trim().toLowerCase()}|${String(c.number ?? '').replace(/\s+/g, '').toLowerCase()}`;
+
+/**
+ * A TCGdex reprint sub-set of a set: its id plus a short suffix ("30th-c" 30th Classic Collection,
+ * "cel25c" Celebrations Classic Collection, "swsh9tg" Trainer Gallery, "swsh12.5gg" Galarian
+ * Gallery). Their cards keep the printed number of the card they reprint, so a number alone
+ * finds the original (Aquapolis Lugia 149/147 for the 30th Celebration one).
+ */
+export const isSubSet = (base: string, id: string) => id !== base && id.startsWith(base) && /^-?[a-z]{1,3}$/.test(id.slice(base.length));
+
+/** TCG Pocket's sets (TCGdex series tcgp): digital-only cards, never a card in a binder. */
+const POCKET_ID = /^(?:[AB]\d+[a-z]?|P-[AB])$/;
 
 /** "Pokémon", "N's", "V Star" → "pokemon", "ns", "vstar": compares names however they're written. */
 const norm = (s: unknown) =>
@@ -189,6 +209,9 @@ interface SetInfo {
   releaseDate?: string;
 }
 
+/** A card id's set: "30th-c-029" → "30th-c", "A4-149" → "A4". */
+const setOf = (c: Brief) => (c.id.endsWith(`-${c.localId}`) ? c.id.slice(0, -c.localId.length - 1) : c.id.replace(/-[^-]+$/, ''));
+
 /** "2026-03-27" or "1999/01/09" → "1999-01-09"; anything else → null. */
 const isoDate = (s: unknown) => {
   const m = /^(\d{4})[-/](\d{2})[-/](\d{2})/.exec(String(s ?? '').trim());
@@ -204,6 +227,7 @@ export class CardDetails {
   private readonly fetcher: Fetcher;
   private readonly now: () => Date;
   private readonly cache = new Map<string, { at: number; value: Promise<unknown> }>();
+  private pocket: { at: number; ids: Set<string> } | null = null;
 
   constructor(o: CardDetailsOptions = {}) {
     this.fetcher = o.fetcher ?? fetch;
@@ -231,7 +255,8 @@ export class CardDetails {
     const own = ownNumber(number);
     if (!word || !own) return [];
     const names = new Set([norm(name), norm(withoutBrackets(name))]);
-    const find = (list: Brief[]) => (Array.isArray(list) ? list : []).filter((c) => names.has(norm(c.name)) && ownNumber(c.localId) === own).slice(0, 12);
+    const isPocket = await this.pocketTest();
+    const find = (list: Brief[]) => (Array.isArray(list) ? list : []).filter((c) => names.has(norm(c.name)) && ownNumber(c.localId) === own && !isPocket(setOf(c))).slice(0, 12);
     let hits = find(await this.json<Brief[]>(`/cards?name=${encodeURIComponent(word)}`));
     // Not found by name (an unusual spelling or accent): every card with that number, then the name.
     if (!hits.length) hits = find(await this.json<Brief[]>(`/cards?localId=${encodeURIComponent(own)}`));
@@ -244,7 +269,41 @@ export class CardDetails {
     if (size != null) narrow((m) => m.total === size);
     if (!isBlank(hints.setCode)) narrow((m) => norm(m.setCode) === norm(hints.setCode));
     if (!isBlank(hints.set)) narrow((m) => norm(m.set).includes(norm(hints.set).replace(/^pokemon/, '')) || norm(hints.set).includes(norm(m.set)));
+    // The set the card is filed under, when TCGdex knows it by that name: its own cards first, then
+    // the same name in its reprint sub-sets (which keep the original's number), rather than a card
+    // from an unrelated set that only shares the number.
+    const named = isBlank(hints.set) ? null : await this.setNamed(hints.set).catch(() => null);
+    if (named) {
+      const family = (setId: string) => setId === named.id || isSubSet(named.id, setId);
+      narrow((m) => family(m.setId));
+      if (!matches.some((m) => family(m.setId))) {
+        const reprints = await this.inSubSets(named.id, names).catch(() => [] as DetailsMatch[]);
+        if (reprints.length) matches = reprints;
+      }
+    }
     return matches.slice(0, 8);
+  }
+
+  /** Whether a set is TCG Pocket's (TCGdex series tcgp, or shaped like its ids when TCGdex doesn't say); asked once a day. */
+  private async pocketTest(): Promise<(setId: string) => boolean> {
+    if (!this.pocket || this.now().getTime() - this.pocket.at > 86_400_000) {
+      const serie = await this.json<{ sets?: { id: string }[] }>('/series/tcgp').catch(() => null);
+      this.pocket = { at: this.now().getTime(), ids: new Set((serie?.sets ?? []).map((x) => x.id)) };
+    }
+    const ids = this.pocket.ids;
+    return (setId) => ids.has(setId) || POCKET_ID.test(setId);
+  }
+
+  /** The cards with one of these names in a set's reprint sub-sets. */
+  private async inSubSets(setId: string, names: Set<string>): Promise<DetailsMatch[]> {
+    const sets = await this.json<{ id: string }[]>('/sets');
+    const subs = (Array.isArray(sets) ? sets : []).filter((x) => isSubSet(setId, x.id));
+    const found: Brief[] = [];
+    for (const sub of subs) {
+      const full = await this.json<{ cards?: Brief[] }>(`/sets/${encodeURIComponent(sub.id)}`).catch(() => null);
+      for (const c of full?.cards ?? []) if (names.has(norm(c.name))) found.push(c);
+    }
+    return Promise.all(found.slice(0, 8).map((c) => this.match(c.id)));
   }
 
   private async match(id: string): Promise<DetailsMatch> {
@@ -289,6 +348,8 @@ export class CardDetails {
     if (!label || norm(label) === norm(m.set)) return { released: m.released, filedUnder: null };
     const named = await this.setNamed(label);
     if (!named || named.id === m.setId) return { released: m.released, filedUnder: null };
+    // A reprint sub-set (30th Classic Collection) is part of the set it's filed under.
+    if (isSubSet(named.id, m.setId)) return { released: m.released ?? named.released, filedUnder: null };
     if (isPromo(m)) return { released: named.released ?? m.released, filedUnder: null };
     return { released: m.released, filedUnder: { as: String(filedUnder), id: named.id, name: named.name } };
   }
@@ -365,8 +426,18 @@ export class CardDetails {
     let patch: Doc = {};
     try {
       const hints = { set: card.set as string, setCode: card.setCode as string };
-      const known = chosen ?? (card.details as DetailsStatus | null | undefined)?.id;
-      const found = known ? [await this.match(known)] : await this.lookup(String(card.name), String(card.number), hints);
+      const prev = card.details as DetailsStatus | null | undefined;
+      // A match the person chose, or one made with the current checks, is fetched by its id. An
+      // automatic match from older checks is looked up again (they could take a card from another set).
+      const known = chosen ?? (prev?.id && (prev.chosen || prev.v === DETAILS_VERSION) ? prev.id : undefined);
+      let found = known ? [await this.match(known)] : await this.lookup(String(card.name), String(card.number), hints);
+      // Looked up again without a sure answer: the older match stays, unless it's from another set
+      // than the one the card is filed under.
+      if (!known && prev?.id && found.length !== 1) {
+        const old = await this.match(prev.id);
+        if (!(await this.checkFiling(old, card.set)).filedUnder) found = [old];
+      }
+      const isChosen = !!chosen || (!!prev?.chosen && found.length === 1 && found[0].id === prev.id);
       if (found.length === 1) {
         const check = await this.checkFiling(found[0], store.get('cards', id)?.set);
         const m = { ...found[0], released: check.released };
@@ -384,6 +455,7 @@ export class CardDetails {
           setCode: m.setCode,
           released: m.released,
           filedUnder: check.filedUnder,
+          ...(isChosen ? { chosen: true } : {}),
         };
       } else if (found.length) status = { ...base, result: 'several', options: found.map(option) };
       else {
