@@ -8,7 +8,8 @@ Google Cloud e2-micro VM at `nunner.duckdns.org`. The ledger runs best right nex
 - **It costs nothing more.** The e2-micro, its 30 GB disk and DuckDNS are already free, and
   the ledger needs about 100 MB of memory and a few hundred MB of disk (photos included).
 - **It has what the daily update needs**: a server that is always on, a disk that keeps the
-  ledger and photos, and outbound internet access to PriceCharting, TCGplayer and the Bank of Canada.
+  ledger and photos, and outbound internet access to PriceCharting's API, the TCGdex and
+  pokemontcg.io card databases and the Bank of Canada.
 - **No new accounts or DNS.** DuckDNS answers for any name under yours, so
   `binder.nunner.duckdns.org` already points at the VM; Boards' Caddy gets its certificate.
 - **Separate from Boards.** Its own address, its own password, its own data volume and its
@@ -69,9 +70,15 @@ On the VM (`gcloud compute ssh boards --zone=us-central1-a --tunnel-through-iap`
    - **Overview:** every check should be *Passing* or a *Note*; anything else says what to do.
 
    Load your collection with **Settings → Restore from backup** (or **Restore from a backup** on
-   the empty first page), choosing the backup file exported from the artifact. Then
+   the empty first page), choosing the backup file exported from the artifact. With a
+   PriceCharting subscription, paste its API token (PriceCharting's *Subscription* page → *API/Download*)
+   under **Administration → Prices → PriceCharting**. Then
    **Administration → Prices → Update all prices now** (about 5 minutes for 120 cards), or wait
    for the morning run.
+
+   The token is kept in its own Docker volume (`binder-secrets`, mounted at `/secrets`), not in the
+   data volume, so backups, `deploy/backup.sh` archives and full backup downloads never contain
+   it; the server never shows or logs it.
 
    *No `BINDER_PASSWORD`?* The first visit shows a setup form instead; it needs the one-time
    code printed by `docker compose logs binder`.
@@ -116,5 +123,6 @@ docker compose --profile caddy up -d --build
 | `PRICE_UPDATE_HOUR` | `5` | Starting hour for the daily update (then set under Administration → Prices) |
 | `PRICE_UPDATES` | `on` | `off` starts with the daily update turned off (Administration → Prices turns it on) |
 | `POKEMONTCG_API_KEY` | | Optional free [pokemontcg.io](https://dev.pokemontcg.io) key: raises its request limits for card pictures |
+| `SECRETS_DIR` | `/secrets` in Docker, else `<DATA_DIR>/secrets` | Where PriceCharting's API token is kept (entered under Administration → Prices) |
 | `DOMAIN` | | Host name, only with `--profile caddy` |
 | `BOARDS_NETWORK` | `agile-development-operations_default` | Boards' Docker network, only with `deploy/with-boards.yml` |

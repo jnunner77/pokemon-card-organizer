@@ -33,6 +33,8 @@ const price = z.looseObject({
   usd: z.number().finite().nullish(),
   /** Each price source's US-dollar price behind it; `usd` is the highest (pricing/updater.ts). */
   quotes: z.partialRecord(z.enum(['pricecharting', 'tcgplayer', 'cardmarket', 'ebay']), z.number().finite()).nullish(),
+  /** A graded card's automatic price: the PriceCharting grade it is for ("PSA 10", "Grade 9"). */
+  grade: optText(40),
 });
 
 /** Which product on a price site this card is, for the daily price and image update. */

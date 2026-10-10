@@ -9,13 +9,17 @@ import { CardDetails } from './details';
 import { Guests } from './guests';
 import { Logger } from './log';
 import { Catalog } from './pricing/catalog';
+import { PriceCharting } from './pricing/pricecharting';
 import { PriceUpdater } from './pricing/updater';
+import { Secret } from './secrets';
 import { Security } from './security';
 import { Store } from './store';
 
 const env = process.env;
 const dataDir = path.resolve(env.DATA_DIR ?? 'data');
 const port = Number(env.PORT ?? 4100);
+// Secrets for outside services, kept out of the data directory's backups (a volume of its own in Docker).
+const secretsDir = path.resolve(env.SECRETS_DIR ?? path.join(dataDir, 'secrets'));
 const trust = env.TRUST_PROXY;
 
 const log = new Logger({ dir: path.join(dataDir, 'logs') });
@@ -43,7 +47,11 @@ guests.start();
 const details = env.CARD_LOOKUPS === 'off' ? undefined : new CardDetails();
 // Prices and large pictures from TCGdex and pokemontcg.io (POKEMONTCG_API_KEY optional: raises its limits).
 const catalog = details ? new Catalog({ ptcgKey: env.POKEMONTCG_API_KEY }) : undefined;
-const updater = new PriceUpdater({ store, assets, log, config, details, catalog, timeZone: env.TZ || 'America/Vancouver' });
+// PriceCharting's API, with the token administrators enter under Administration → Prices.
+const pcToken = new Secret(secretsDir, 'pricecharting-token');
+const pricecharting = new PriceCharting({ token: () => pcToken.read() });
+const updater = new PriceUpdater({ store, assets, log, config, details, catalog, pricecharting, timeZone: env.TZ || 'America/Vancouver' });
+updater.noteToken();
 updater.startScheduler();
 // New cards: details, then price and picture, straight away.
 const autofill = details ? new Autofill({ store, details, updater, log }) : undefined;
@@ -61,6 +69,7 @@ const app = createApp({
   details,
   autofill,
   guests,
+  pricecharting: { token: pcToken, api: pricecharting },
   envPassword: env.BINDER_PASSWORD,
   trustProxy: trust === undefined ? undefined : /^\d+$/.test(trust) ? Number(trust) : trust === 'true',
 });

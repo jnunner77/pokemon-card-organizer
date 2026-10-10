@@ -15,10 +15,12 @@ import { Config, pricingConfigSchema, retentionSchema } from './config';
 import type { CardDetails } from './details';
 import { GUEST_COOKIE, GUEST_IDLE_MS, GuestFeed, type Guests, guestSchemas, isListed, shownImage } from './guests';
 import { CATEGORIES, LEVELS, type Logger, quietLogger } from './log';
-import { SourceError } from './pricing/sources';
+import { NoToken, type PriceCharting } from './pricing/pricecharting';
+import { Refused, SourceError } from './pricing/sources';
 import type { PriceUpdater } from './pricing/updater';
 import { InvalidDoc, collectionSchema, idSchema } from './schema';
 import { HttpError, MUTATING, type Security } from './security';
+import type { Secret } from './secrets';
 import { cardsNeedingAttention, readOffsite, statusText, writeStatus } from './status';
 import { NotFound, type Store } from './store';
 
@@ -49,6 +51,8 @@ export interface AppOptions {
   autofill?: Autofill;
   /** Guests looking through the cards listed for sale; the guest routes answer 404 without it. */
   guests?: Guests;
+  /** PriceCharting's API token (its own secret file, outside the data that's backed up) and its client. */
+  pricecharting?: { token: Secret; api: PriceCharting };
 }
 
 /** Largest restore upload. The reverse proxy may cap it lower; `npm run import-backup` has no cap. */
@@ -644,15 +648,56 @@ export function createApp(o: AppOptions) {
   // Price updates
   admin.get('/pricing', (_req, res) => {
     const st = (store.get('settings', 'pricing') ?? {}) as Record<string, unknown>;
-    res.json({ available: !!updater, schedule: updater?.schedule() ?? null, running: !!st.running, done: st.done ?? 0, total: st.total ?? 0, history: st.history ?? (st.lastRun ? [st.lastRun] : []) });
+    // Whether PriceCharting's token is saved, and when: never the token itself.
+    const pricecharting = o.pricecharting ? o.pricecharting.token.info() : null;
+    res.json({ available: !!updater, schedule: updater?.schedule() ?? null, pricecharting, running: !!st.running, done: st.done ?? 0, total: st.total ?? 0, history: st.history ?? (st.lastRun ? [st.lastRun] : []) });
   });
   admin.put('/pricing', json, (req, res) => {
     const pricing = { ...config.get().pricing, ...pricingConfigSchema.parse(req.body) };
-    const was = config.get().pricing.pricecharting !== false;
     config.set({ pricing });
     log.info('admin', `${who(res)} changed the price update schedule`, { ...pricing });
-    if (was !== (pricing.pricecharting !== false)) log.info('admin', `${who(res)} turned PriceCharting ${pricing.pricecharting === false ? 'off' : 'on'} for prices`);
     res.json({ schedule: updater?.schedule() ?? { ...pricing } });
+  });
+  const needPc = () => {
+    if (!o.pricecharting || !updater) throw new HttpError(400, 'PriceCharting prices are not available on this server.');
+    return o.pricecharting;
+  };
+  // PriceCharting's API token: 40 letters and digits, from PriceCharting's Subscription page → API/Download.
+  const tokenBody = z.object({ token: z.string().trim().regex(/^[A-Za-z0-9]{20,100}$/, "That isn't a PriceCharting API token: copy the 40-character token from PriceCharting's Subscription page (API/Download).") });
+  admin.put('/pricing/pricecharting-token', heavy, json, async (req, res) => {
+    const pc = needPc();
+    const body = tokenBody.safeParse(req.body);
+    if (!body.success) throw new HttpError(400, body.error.issues[0].message);
+    // One call to PriceCharting with it first: a token it doesn't know isn't saved.
+    try {
+      await pc.api.check(body.data.token);
+    } catch (err) {
+      if (err instanceof Refused || err instanceof NoToken) throw new HttpError(400, "PriceCharting didn't accept that token. Check you copied all of it from its Subscription page (API/Download).");
+      throw new HttpError(502, `Couldn't check the token with PriceCharting: ${err instanceof Error ? err.message : err}. Try again.`, 'upstream_error');
+    }
+    pc.token.write(body.data.token);
+    updater!.noteToken();
+    log.info('admin', `${who(res)} saved the PriceCharting API token`);
+    res.json({ pricecharting: pc.token.info() });
+  });
+  admin.delete('/pricing/pricecharting-token', (_req, res) => {
+    const pc = needPc();
+    pc.token.clear();
+    updater!.noteToken();
+    log.info('admin', `${who(res)} removed the PriceCharting API token`);
+    res.json({ pricecharting: pc.token.info() });
+  });
+  // The subscription ended: the token and everything from PriceCharting go, as its terms ask.
+  admin.post('/pricing/purge-pricecharting', heavy, (_req, res) => {
+    const pc = needPc();
+    let summary;
+    try {
+      summary = updater!.purgePriceCharting(() => pc.token.clear());
+    } catch (err) {
+      throw new HttpError(409, err instanceof Error ? err.message : String(err), 'busy');
+    }
+    log.info('admin', `${who(res)} purged PriceCharting's data and removed its token`, summary);
+    res.json({ ...summary, pricecharting: pc.token.info() });
   });
 
   // Security
@@ -813,8 +858,8 @@ function securityHeaders(req: Request, res: Response, next: NextFunction) {
       "script-src 'self'",
       "style-src 'self' 'unsafe-inline'",
       // data: and blob: for pasted and freshly picked photos, which the page reads back.
-      // Price sites' thumbnails, shown when choosing which product a card is.
-      "img-src 'self' data: blob: https://storage.googleapis.com https://tcgplayer-cdn.tcgplayer.com https://assets.tcgdex.net",
+      // TCGplayer's and TCGdex's pictures, shown when choosing which product a card is.
+      "img-src 'self' data: blob: https://tcgplayer-cdn.tcgplayer.com https://assets.tcgdex.net",
       "font-src 'self'",
       "connect-src 'self' data: blob:",
       "object-src 'none'",

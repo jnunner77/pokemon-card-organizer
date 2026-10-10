@@ -8,7 +8,8 @@ DEST="${1:-$HOME/binder-backups}"
 KEEP="${KEEP:-14}"
 mkdir -p "$DEST"
 file="$DEST/binder-$(date -u +%Y%m%d-%H%M%S).tar.gz"
-docker compose exec -T binder tar czf - -C /data . > "$file.partial"
+# Secrets (PriceCharting's token) live in their own volume; never copy them should they be under /data.
+docker compose exec -T binder tar czf - --exclude=./secrets -C /data . > "$file.partial"
 mv "$file.partial" "$file"
 echo "Wrote $file ($(du -h "$file" | cut -f1))"
 ls -1t "$DEST"/binder-*.tar.gz 2>/dev/null | tail -n +"$((KEEP + 1))" | xargs -r rm --
