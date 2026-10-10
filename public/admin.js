@@ -214,17 +214,26 @@
   }
 
   // ---- Prices --------------------------------------------------------------------------
+  let problemLog = null;
   async function prices() {
     const p = await api("GET", "admin/pricing");
     if (!p.available) return `<p class="empty-state">Automatic prices aren't available on this server.</p>`;
     const s = p.schedule;
-    const rows = p.history.map(h => { const c = h.counts || {}; const mins = h.finishedAt && h.startedAt ? Math.max(1, Math.round((Date.parse(h.finishedAt) - Date.parse(h.startedAt)) / 60000)) : "—"; return `<tr><td class="mono">${esc(h.date)}</td><td>${h.reason === "manual" ? "Started by someone" : "Daily"}</td><td class="r mono">${c.updated ?? 0}</td><td class="r mono">${c.needsMatch ?? 0}</td><td class="r mono">${c.noPrice ?? 0}</td><td class="r mono ${c.failed ? "neg" : ""}">${c.failed ?? 0}</td><td class="r mono">${Number(h.rate).toFixed(4)}</td><td class="r mono">${mins} min</td></tr>${h.sitesOut ? `<tr class="errrow"><td colspan="8">${Object.values(h.sitesOut).map(esc).join("<br>")}</td></tr>` : ""}${h.errors && h.errors.length ? `<tr class="errrow"><td colspan="8">${h.errors.map(e => `<b>${esc(e.card)}</b>: ${esc(e.error)}`).join("<br>")}</td></tr>` : ""}`; }).join("");
+    // An update that was interrupted, stalled or failed: the red banner, with the update's log.
+    let problem = "";
+    if (p.problem) {
+      const log = await api("GET", "pricing/log").then(r => ({ entries: r.entries || [] }), e => ({ error: e.message }));
+      problemLog = log;
+      problem = window.BinderRunLog.banner(p.problem, { running: p.running, canEdit: true, log });
+    }
+    const ENDED = { interrupted: "Interrupted", stopped: "Stopped", failed: "Failed" };
+    const rows = p.history.map(h => { const c = h.counts || {}; const mins = h.finishedAt && h.startedAt ? Math.max(1, Math.round((Date.parse(h.finishedAt) - Date.parse(h.startedAt)) / 60000)) : "—"; return `<tr${h.ended ? ` class="ended"` : ""}><td class="mono">${esc(h.date)}${h.ended ? ` ${chip(h.ended === "stopped" ? "warn" : "fail", `${ENDED[h.ended] || h.ended} at ${(h.done ?? 0) + (h.done < h.total ? 1 : 0)} of ${h.total ?? "?"}`)}` : ""}</td><td>${h.reason === "manual" ? "Started by someone" : "Daily"}</td><td class="r mono">${c.updated ?? 0}</td><td class="r mono">${c.needsMatch ?? 0}</td><td class="r mono">${c.noPrice ?? 0}</td><td class="r mono ${c.failed ? "neg" : ""}">${c.failed ?? 0}</td><td class="r mono">${Number(h.rate) ? Number(h.rate).toFixed(4) : "—"}</td><td class="r mono">${mins} min</td></tr>${h.sitesOut ? `<tr class="errrow"><td colspan="8">${Object.values(h.sitesOut).map(esc).join("<br>")}</td></tr>` : ""}${h.errors && h.errors.length ? `<tr class="errrow"><td colspan="8">${h.errors.map(e => `<b>${esc(e.card)}</b>: ${esc(e.error)}`).join("<br>")}</td></tr>` : ""}`; }).join("");
     const pc = p.pricecharting;
-    return `<form class="adminform" id="schedForm"><h3>Daily price update</h3><div class="form">
+    return `${problem}<form class="adminform" id="schedForm"><h3>Daily price update</h3><div class="form">
         <div class="field"><label for="p_on">Runs every day</label><select id="p_on" name="enabled"><option value="1" ${s.enabled ? "selected" : ""}>Yes</option><option value="0" ${s.enabled ? "" : "selected"}>No (only when started by hand)</option></select></div>
         <div class="field"><label for="p_hour">After this hour (${esc(s.timeZone)})</label><input id="p_hour" name="hour" type="number" min="0" max="23" value="${s.hour}" class="mono"></div>
         <div class="field"><label for="p_cm">Compare Cardmarket (Europe)</label><select id="p_cm" name="cardmarket"><option value="1" ${s.cardmarket ? "selected" : ""}>Yes</option><option value="0" ${s.cardmarket ? "" : "selected"}>No</option></select></div>
-      </div><p class="hint">Each card is priced at the highest of PriceCharting's ungraded price, TCGplayer's market price and Cardmarket's trend; a graded card at PriceCharting's price for its grade. PriceCharting's prices come from its API; TCGplayer's and Cardmarket's from the TCGdex card database. No site's pages are read. Pictures come from pokemontcg.io (733×1024), TCGplayer or TCGdex.</p><div class="formfoot"><span class="hint">${p.running ? `Running now: ${p.done} of ${p.total} cards.` : "If the server was off at that hour, it runs when it's back."}</span><span style="display:flex;gap:8px"><button class="btn" type="button" id="runNow" ${p.running ? "disabled" : ""}>Update all prices now</button><button class="btn primary" type="submit">Save</button></span></div></form>
+      </div><p class="hint">Each card is priced at the highest of PriceCharting's ungraded price, TCGplayer's market price and Cardmarket's trend; a graded card at PriceCharting's price for its grade. PriceCharting's prices come from its API; TCGplayer's and Cardmarket's from the TCGdex card database. No site's pages are read. Pictures come from pokemontcg.io (733×1024), TCGplayer or TCGdex.</p><div class="formfoot"><span class="hint">${p.running ? `Running now: ${p.done} of ${p.total} cards${p.current?.card ? ` (now ${esc(p.current.card)})` : ""}.` : "If the server was off at that hour, it runs when it's back."}</span><span style="display:flex;gap:8px">${p.running && !p.problem ? `<button class="btn danger" type="button" data-runprob="stop">Stop the update</button>` : ""}<button class="btn" type="button" id="runNow" ${p.running ? "disabled" : ""}>Update all prices now</button><button class="btn primary" type="submit">Save</button></span></div></form>
       ${pc ? `<form class="adminform" id="pcForm" autocomplete="off"><h3>PriceCharting</h3>
         <p>${pc.set ? `${chip("pass", "API token saved")} <span class="hint">on ${esc(when(pc.savedAt))}</span>` : chip("info", "No API token")}</p>
         <p class="hint">PriceCharting's prices (ungraded, and graded when the subscription includes them) come from its API with your subscription's token: on PriceCharting, <b>Subscription → API/Download</b>. The token is kept in its own file on the server, apart from the ledger: it's never shown here again, logged, or put in backups or exports. PriceCharting is asked at most once a second.${pc.set ? "" : " Without a token, prices come from TCGplayer and Cardmarket only."}</p>
@@ -237,6 +246,17 @@
     const f = $("#schedForm"); if (!f) return;
     f.onsubmit = e => { e.preventDefault(); const d = formData(e.target); act(() => api("PUT", "admin/pricing", { enabled: d.enabled === "1", hour: Number(d.hour), cardmarket: d.cardmarket === "1" }), "Schedule saved"); };
     $("#runNow").onclick = () => act(() => api("POST", "pricing/run"), "Price update started; it takes a few minutes");
+    main.querySelectorAll(".runlog").forEach(pre => { pre.scrollTop = pre.scrollHeight; });
+    main.querySelectorAll("[data-runprob]").forEach(b => b.onclick = async () => {
+      const a = b.dataset.runprob;
+      if (a === "copy") {
+        const txt = window.BinderRunLog.text((await api("GET", "admin/pricing")).problem, problemLog?.entries || []);
+        try { await navigator.clipboard.writeText(txt); toast("Log copied"); } catch { toast("Couldn't copy: select the log and copy it instead."); }
+        return;
+      }
+      b.disabled = true;
+      act(() => api("POST", { stop: "pricing/stop", run: "pricing/run", dismiss: "pricing/dismiss" }[a]), { stop: "Update stopped", run: "Price update started; it takes a few minutes", dismiss: "Dismissed" }[a]);
+    });
     const pc = $("#pcForm"); if (!pc) return;
     pc.onsubmit = e => { e.preventDefault(); const input = e.target.elements.token; const token = input.value.trim(); input.value = ""; act(() => api("PUT", "admin/pricing/pricecharting-token", { token }), "PriceCharting accepted the token; it's saved"); };
     const rm = $("#pcRemove");

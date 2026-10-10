@@ -17,7 +17,7 @@ import { GUEST_COOKIE, GUEST_IDLE_MS, GuestFeed, type Guests, guestSchemas, isLi
 import { CATEGORIES, LEVELS, type Logger, quietLogger } from './log';
 import { NoToken, type PriceCharting } from './pricing/pricecharting';
 import { Refused, SourceError } from './pricing/sources';
-import type { PriceUpdater } from './pricing/updater';
+import type { PriceUpdater, RunProblem, RunSummary } from './pricing/updater';
 import { InvalidDoc, collectionSchema, idSchema } from './schema';
 import { HttpError, MUTATING, type Security } from './security';
 import type { Secret } from './secrets';
@@ -444,6 +444,36 @@ export function createApp(o: AppOptions) {
     if (!already) log.info('pricing', `${who(res)} started a price update`);
     res.status(202).json({ started: !already });
   });
+  // Stop a running update (one that's stuck, say): another can start straight away.
+  api.post('/pricing/stop', need('editor'), (_req, res) => {
+    res.json({ stopped: needUpdater().stop(who(res)) });
+  });
+  // Hide the banner about an update that was interrupted, stalled or failed.
+  api.post('/pricing/dismiss', need('editor'), (_req, res) => {
+    needUpdater().dismiss();
+    log.info('pricing', `${who(res)} dismissed the price update problem`);
+    res.status(204).end();
+  });
+  // The log of the update with a problem (or the running one, or the last one): the pricing and
+  // server lines from its start until the problem was noticed, read from the daily files so it
+  // survives a restart or crash.
+  api.get('/pricing/log', need('editor'), (_req, res) => {
+    const st = (store.get('settings', 'pricing') ?? {}) as { running?: boolean; startedAt?: string; problem?: RunProblem | null; lastRun?: RunSummary | null };
+    const p = st.problem;
+    const nowIso = now().toISOString();
+    const minute = 60_000;
+    const back = (iso: string, ms: number) => new Date(Date.parse(iso) - ms).toISOString();
+    const ahead = (iso: string, ms: number) => new Date(Date.parse(iso) + ms).toISOString();
+    const [from, to] = p
+      ? // until a later update started, or now
+        [back(p.startedAt ?? back(p.at, 60 * minute), minute), st.startedAt && p.startedAt && st.startedAt > p.startedAt ? st.startedAt : nowIso]
+      : st.running && st.startedAt
+        ? [back(st.startedAt, minute), nowIso]
+        : st.lastRun
+          ? [back(st.lastRun.startedAt, minute), ahead(st.lastRun.finishedAt, minute)]
+          : [back(nowIso, 60 * minute), nowIso];
+    res.json({ from, to, entries: log.between(from, to, { cats: ['pricing', 'app'], limit: 400 }) });
+  });
   api.get('/pricing/search', need('editor'), heavy, async (req, res) => {
     const { card } = cardFor(req.query.card);
     const q = typeof req.query.q === 'string' ? req.query.q.slice(0, 120) : undefined;
@@ -531,7 +561,7 @@ export function createApp(o: AppOptions) {
 
   /** The Overview's checks. Without a request (the status file) HTTPS and proxy checks are left out by statusText. */
   const overviewChecks = async (request: { secure: boolean; untrustedProxy: boolean; localRequest: boolean }) => {
-    const pricingStatus = (store.get('settings', 'pricing') ?? {}) as { running?: boolean; lastRun?: { date: string; finishedAt: string; counts: Record<string, number> } };
+    const pricingStatus = (store.get('settings', 'pricing') ?? {}) as { running?: boolean; lastRun?: { date: string; finishedAt: string; counts: Record<string, number> }; problem?: RunProblem | null };
     const sch = updater?.schedule();
     const counts = log.counts(86_400_000);
     const failed = log.query({ cat: 'auth', text: 'failed sign-in', limit: 5000 }).filter((e) => now().getTime() - Date.parse(e.at) < 86_400_000).length;
@@ -548,7 +578,7 @@ export function createApp(o: AppOptions) {
       lastFullBackupAt: config.get().lastFullBackupAt,
       offsite: readOffsite(store.dataDir),
       logs: { fileOk: log.fileOk, dir: log.dir, errors24h: counts.error, warnings24h: counts.warn },
-      pricing: { enabled: !!updater && (sch?.enabled ?? false), hour: sch?.hour ?? 5, timeZone: sch?.timeZone ?? '', lastRun: pricingStatus.lastRun ?? null, running: !!pricingStatus.running, rateDate: (store.get('settings', 'main')?.usdToCadDate as string) ?? null },
+      pricing: { enabled: !!updater && (sch?.enabled ?? false), hour: sch?.hour ?? 5, timeZone: sch?.timeZone ?? '', lastRun: pricingStatus.lastRun ?? null, running: !!pricingStatus.running, problem: pricingStatus.problem ?? null, rateDate: (store.get('settings', 'main')?.usdToCadDate as string) ?? null },
       disk: { freeBytes: freeBytes(store.dataDir), dataBytes: dirBytes(store.dataDir) },
     });
   };
@@ -650,7 +680,7 @@ export function createApp(o: AppOptions) {
     const st = (store.get('settings', 'pricing') ?? {}) as Record<string, unknown>;
     // Whether PriceCharting's token is saved, and when: never the token itself.
     const pricecharting = o.pricecharting ? o.pricecharting.token.info() : null;
-    res.json({ available: !!updater, schedule: updater?.schedule() ?? null, pricecharting, running: !!st.running, done: st.done ?? 0, total: st.total ?? 0, history: st.history ?? (st.lastRun ? [st.lastRun] : []) });
+    res.json({ available: !!updater, schedule: updater?.schedule() ?? null, pricecharting, running: !!st.running, done: st.done ?? 0, total: st.total ?? 0, current: st.current ?? null, problem: st.problem ?? null, history: st.history ?? (st.lastRun ? [st.lastRun] : []) });
   });
   admin.put('/pricing', json, (req, res) => {
     const pricing = { ...config.get().pricing, ...pricingConfigSchema.parse(req.body) };

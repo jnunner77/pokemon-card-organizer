@@ -128,6 +128,38 @@ export class Logger {
     return out;
   }
 
+  /**
+   * Entries from `from` to `to` (ISO times), oldest first, at most the last `limit`: from the daily
+   * files, so a run's lines are still there after the server restarted (or crashed) during it.
+   */
+  between(from: string, to: string, q: { cats?: Category[]; limit?: number } = {}): LogEntry[] {
+    const limit = q.limit ?? 300;
+    const keep = (e: LogEntry) => e.at >= from && e.at <= to && (!q.cats || q.cats.includes(e.cat));
+    if (!this.opts.dir) return this.entries.filter(keep).slice(-limit);
+    const out: LogEntry[] = [];
+    const days = this.files()
+      .filter((f) => f.day >= from.slice(0, 10) && f.day <= to.slice(0, 10))
+      .reverse();
+    for (const f of days) {
+      let text: string;
+      try {
+        text = fs.readFileSync(path.join(this.opts.dir, f.name), 'utf8');
+      } catch {
+        continue;
+      }
+      for (const line of text.split('\n')) {
+        if (!line) continue;
+        try {
+          const e = JSON.parse(line) as LogEntry;
+          if (keep(e)) out.push(e);
+        } catch {
+          // a line cut short when the server stopped
+        }
+      }
+    }
+    return out.slice(-limit);
+  }
+
   /** How many entries of each level since a time (from the in-memory list). */
   counts(sinceMs: number) {
     const since = new Date(this.now().getTime() - sinceMs).toISOString();
