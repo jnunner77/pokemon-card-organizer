@@ -31,8 +31,8 @@ const price = z.looseObject({
   auto: z.boolean().nullish(),
   /** The source's US-dollar price behind an automatic CAD entry. */
   usd: z.number().finite().nullish(),
-  /** Each price site's US-dollar price behind it; `usd` is the higher (pricing/updater.ts). */
-  quotes: z.partialRecord(z.enum(['pricecharting', 'tcgplayer']), z.number().finite()).nullish(),
+  /** Each price source's US-dollar price behind it; `usd` is the highest (pricing/updater.ts). */
+  quotes: z.partialRecord(z.enum(['pricecharting', 'tcgplayer', 'cardmarket', 'ebay']), z.number().finite()).nullish(),
 });
 
 /** Which product on a price site this card is, for the daily price and image update. */

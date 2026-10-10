@@ -8,6 +8,7 @@ import { Config } from './config';
 import { CardDetails } from './details';
 import { Guests } from './guests';
 import { Logger } from './log';
+import { Catalog } from './pricing/catalog';
 import { PriceUpdater } from './pricing/updater';
 import { Security } from './security';
 import { Store } from './store';
@@ -40,7 +41,9 @@ guests.start();
 
 // CARD_LOOKUPS=off: no TCGdex lookups (card details) at all.
 const details = env.CARD_LOOKUPS === 'off' ? undefined : new CardDetails();
-const updater = new PriceUpdater({ store, assets, log, config, details, timeZone: env.TZ || 'America/Vancouver' });
+// Prices and large pictures from TCGdex and pokemontcg.io (POKEMONTCG_API_KEY optional: raises its limits).
+const catalog = details ? new Catalog({ ptcgKey: env.POKEMONTCG_API_KEY }) : undefined;
+const updater = new PriceUpdater({ store, assets, log, config, details, catalog, timeZone: env.TZ || 'America/Vancouver' });
 updater.startScheduler();
 // New cards: details, then price and picture, straight away.
 const autofill = details ? new Autofill({ store, details, updater, log }) : undefined;

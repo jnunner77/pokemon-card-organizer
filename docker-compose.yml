@@ -24,6 +24,7 @@ services:
       TZ: ${TZ:-America/Vancouver}
       PRICE_UPDATE_HOUR: ${PRICE_UPDATE_HOUR:-5}
       PRICE_UPDATES: ${PRICE_UPDATES:-on}
+      POKEMONTCG_API_KEY: ${POKEMONTCG_API_KEY:-}
     volumes:
       - binder-data:/data
     expose:

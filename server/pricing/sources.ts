@@ -187,7 +187,7 @@ export async function quotePriceCharting(fetcher: Fetcher, stored: string): Prom
 
 // ---- TCGplayer --------------------------------------------------------------------
 
-const tcgImage = (id: string | number, size: 200 | 1000) => `https://tcgplayer-cdn.tcgplayer.com/product/${id}_in_${size}x${size}.jpg`;
+export const tcgImage = (id: string | number, size: 200 | 1000) => `https://tcgplayer-cdn.tcgplayer.com/product/${id}_in_${size}x${size}.jpg`;
 
 interface TcgResult {
   productId: number;
@@ -272,11 +272,15 @@ async function tcgplayerInfo(fetcher: Fetcher, id: string): Promise<ProductInfo 
 
 // ---- Exchange rate ----------------------------------------------------------------
 
-/** The Bank of Canada's daily USD to CAD rate (published each business day around 16:30 ET). */
-export async function usdToCad(fetcher: Fetcher): Promise<{ rate: number; date: string }> {
-  const res = await get(fetcher, 'https://www.bankofcanada.ca/valet/observations/FXUSDCAD/json?recent=1');
-  const obs = ((await res.json()) as { observations?: { d: string; FXUSDCAD?: { v: string } }[] }).observations?.[0];
+/**
+ * The Bank of Canada's daily USD to CAD and EUR to CAD rates (published each business day around
+ * 16:30 ET). The euro rate (for Cardmarket's prices) is null if it's missing.
+ */
+export async function exchangeRates(fetcher: Fetcher): Promise<{ rate: number; eur: number | null; date: string }> {
+  const res = await get(fetcher, 'https://www.bankofcanada.ca/valet/observations/FXUSDCAD,FXEURCAD/json?recent=1');
+  const obs = ((await res.json()) as { observations?: { d: string; FXUSDCAD?: { v: string }; FXEURCAD?: { v: string } }[] }).observations?.[0];
   const rate = Number(obs?.FXUSDCAD?.v);
   if (!obs || !(rate > 0.5 && rate < 5)) throw new SourceError('The Bank of Canada rate was missing or out of range');
-  return { rate, date: obs.d };
+  const eur = Number(obs.FXEURCAD?.v);
+  return { rate, eur: eur > 0.5 && eur < 5 ? eur : null, date: obs.d };
 }

@@ -12,20 +12,29 @@ server, so it can update prices every day and keep your data on your own server.
 Every morning (after 5:00 in your time zone, catching up if the server was off) the ledger:
 
 1. **Matches each card** to its product on [PriceCharting](https://www.pricecharting.com)
-   and on [TCGplayer](https://www.tcgplayer.com). A card is linked on its own only when exactly
+   and on [TCGplayer](https://www.tcgplayer.com). A card found in the
+   [TCGdex](https://tcgdex.dev) card database (see *New cards fill themselves in*) is linked to the
+   TCGplayer product TCGdex names for it, without searching. Otherwise a card is linked on its own only when exactly
    one English product has the same number, name, set and variant; otherwise its drawer lists the
    likely products for you to pick (or search for). Typos, "VSTAR"/"V Star" spellings and promos
    filed under other sets are handled. A site that had no certain match is searched again a week
    later.
-2. **Logs today's market price** in CAD: the **higher** of PriceCharting's ungraded price (recent
-   eBay sales) and TCGplayer's market price (recent TCGplayer sales), converted at the Bank of
-   Canada's daily rate. The entry says which site it came from and keeps both prices. If one site
-   has no match, no price or doesn't answer, the other's price is used. Each day adds one
+2. **Logs today's market price** in CAD: the **highest** of PriceCharting's ungraded price (recent
+   eBay sales), TCGplayer's market price (recent TCGplayer sales, the price apps like Collectr
+   show) and Cardmarket's trend (Europe, in euros), converted at the Bank of Canada's daily rates.
+   TCGplayer's and Cardmarket's prices for the card's printing (regular, holo, reverse holo, 1st
+   edition) come from TCGdex's free API, refreshed daily, so TCGplayer's pages are only read for
+   cards TCGdex doesn't price; [pokemontcg.io](https://pokemontcg.io) stands in for TCGplayer's
+   price when TCGdex has none. The entry says which source it came from and keeps every price.
+   If a source has no match, no price or doesn't answer, the others are used, and a card the
+   card database prices is priced even before it's matched on either site. Cardmarket can be
+   left out under **Administration → Prices**. Each day adds one
    entry; the last 30 days are kept, and older automatic entries are thinned to one a week (the
    last of each week) for the Pricing view's longer ranges. Prices you log yourself (what you
    paid, sales, listings, your own market prices) are never changed.
-3. **Downloads the official picture**, the largest the site has (745×1042 from PriceCharting
-   for most cards), and shows it instead of your photo. Your photos are kept; each card has an
+3. **Downloads the official picture**, the largest available: pokemontcg.io's (733×1024) for
+   cards it has, else PriceCharting's (745×1042) or TCGplayer's. A PriceCharting picture a card
+   already has is kept. The picture is shown instead of your photo. Your photos are kept; each card has an
    *Official image / Your photo* switch.
 
 Each card's drawer shows its match on each site, a 30-day price chart, and *Update now*,
@@ -38,8 +47,10 @@ pictured automatically in under 5 minutes; the other two needed a choice (a card
 under the wrong set, and a promo only priced as a holo). Automatic prices were a median 7%
 from the prices logged by hand a week earlier.
 
-> **About the sources.** PriceCharting and TCGplayer are read the way their own pages read
-> them (about three requests per card per day across the two sites, spaced out). Neither offers this for free
+> **About the sources.** TCGdex and pokemontcg.io are free public APIs (`POKEMONTCG_API_KEY`, a
+> free key from [dev.pokemontcg.io](https://dev.pokemontcg.io), raises pokemontcg.io's request
+> limits but isn't needed). PriceCharting, and TCGplayer for cards TCGdex doesn't price, are
+> read the way their own pages read them (spaced out). Neither offers this for free
 > officially and their terms restrict automated access, so use it for your own collection,
 > and expect to adjust `server/pricing/sources.ts` if a site changes its pages. PriceCharting
 > sells an official API if you want to switch to it.
