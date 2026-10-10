@@ -27,9 +27,12 @@ services:
       POKEMONTCG_API_KEY: ${POKEMONTCG_API_KEY:-}
     volumes:
       - binder-data:/data
+      # PriceCharting's API token, entered under Administration → Prices: kept apart from /data so
+      # backups of the data never contain it.
+      - binder-secrets:/secrets
     expose:
       - "4100"
-    # Read-only apart from /data and a small /tmp, no Linux capabilities, capped memory.
+    # Read-only apart from /data, /secrets and a small /tmp, no Linux capabilities, capped memory.
     read_only: true
     tmpfs:
       - /tmp:size=64m,mode=1777
@@ -71,5 +74,6 @@ services:
 
 volumes:
   binder-data:
+  binder-secrets:
   caddy-data:
   caddy-config:

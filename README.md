@@ -11,63 +11,74 @@ server, so it can update prices every day and keep your data on your own server.
 
 Every morning (after 5:00 in your time zone, catching up if the server was off) the ledger:
 
-1. **Matches each card** to its product on [PriceCharting](https://www.pricecharting.com)
-   and on [TCGplayer](https://www.tcgplayer.com). A card found in the
-   [TCGdex](https://tcgdex.dev) card database (see *New cards fill themselves in*) is linked to the
-   TCGplayer product TCGdex names for it, without searching. Otherwise a card is linked on its own only when exactly
-   one English product has the same number, name, set and variant; otherwise its drawer lists the
-   likely products for you to pick (or search for). Typos, "VSTAR"/"V Star" spellings and promos
-   filed under other sets are handled. A site that had no certain match is searched again a week
-   later.
+1. **Matches each card** to its product on [PriceCharting](https://www.pricecharting.com), through
+   its official API, and to the [TCGplayer](https://www.tcgplayer.com) product the
+   [TCGdex](https://tcgdex.dev) card database names for it (see *New cards fill themselves in*). A
+   card is linked to a PriceCharting product on its own only when exactly one English product has
+   the same number, name, set and variant; otherwise its drawer lists the likely products for you to
+   pick (or search for). Typos, "VSTAR"/"V Star" spellings and promos filed under other sets are
+   handled, and a variant (a pattern, stamp, 1st Edition…) is matched to its own product
+   (*Lapras [Master Ball]*). A card PriceCharting had no certain match for is searched again a week later.
 2. **Logs today's market price** in CAD: the **highest** of PriceCharting's ungraded price (recent
    eBay sales), TCGplayer's market price (recent TCGplayer sales, the price apps like Collectr
    show) and Cardmarket's trend (Europe, in euros), converted at the Bank of Canada's daily rates.
+   A **graded card** (its *Graded by* and *Grade* set) is valued at PriceCharting's price for its
+   grader and grade instead (Grade 7, 8, 9, 9.5, PSA 10, BGS 10, CGC 10, SGC 10, TAG 10, ACE 10…),
+   or the nearest grade PriceCharting has; when PriceCharting has no graded price for it, it gets
+   the ungraded price, and its drawer says so.
    TCGplayer's and Cardmarket's prices come from TCGdex's free API, refreshed daily, for the
    card's own variant: TCGdex lists each card's regular, reverse holo and holo printings, patterns
    (Poké Ball, Master Ball, Cosmos…), stamps, 1st Edition and Shadowless separately, each with its
    own TCGplayer and Cardmarket products. The card's **Variant** picks one ("Master Ball",
    "1st Edition Shadowless", "Pokemon Together Stamp"); a variant TCGdex doesn't list, or lists
-   without a price, is never given another printing's price, and is matched on the price sites
-   as before. TCGplayer's pages are only read for cards TCGdex doesn't price; [pokemontcg.io](https://pokemontcg.io) stands in for TCGplayer's
-   price when TCGdex has none. The entry says which source it came from and keeps every price.
-   If a source has no match, no price or doesn't answer, the others are used, and a card the
-   card database prices is priced even before it's matched on either site. Cardmarket can be
-   left out under **Administration → Prices**. Each day adds one
-   entry; the last 30 days are kept, and older automatic entries are thinned to one a week (the
-   last of each week) for the Pricing view's longer ranges. Prices you log yourself (what you
-   paid, sales, listings, your own market prices) are never changed.
+   without a price, is never given another printing's price. [pokemontcg.io](https://pokemontcg.io)
+   stands in for TCGplayer's price when TCGdex has none. The entry says which source it came from
+   and keeps every price. If a source has no match, no price or doesn't answer, the others are
+   used, and a card the card database prices is priced even before it's matched on PriceCharting.
+   Cardmarket can be left out under **Administration → Prices**. Each day adds one entry; the last
+   30 days are kept, and older automatic entries are thinned to one a week (the last of each
+   week) for the Pricing view's longer ranges. Prices you log yourself (what you paid, sales,
+   listings, your own market prices) are never changed.
 3. **Downloads the official picture**, the largest available: pokemontcg.io's (733×1024) for
-   cards it has, else PriceCharting's (745×1042), TCGplayer's, or TCGdex's own (600×825). A
-   pattern or stamped variant gets its own TCGplayer product's picture, which shows it. A
-   PriceCharting or pokemontcg.io picture a card already has is kept, so pokemontcg.io is only
-   asked while a card still needs a picture, or (weekly) details it could fill. The picture is shown instead of your photo. Your photos are kept; each card has an
-   *Official image / Your photo* switch.
+   cards it has, else TCGplayer's, or TCGdex's own (600×825). A pattern or stamped variant gets its
+   own TCGplayer product's picture, which shows it. A picture a card already has from pokemontcg.io
+   (or from PriceCharting, before it was read through its API) is kept, so pokemontcg.io is only
+   asked while a card still needs a picture, or (weekly) details it could fill. The picture is
+   shown instead of your photo. Your photos are kept; each card has an *Official image / Your
+   photo* switch.
 
-Each card's drawer shows its match on each site, a 30-day price chart, and *Update now*,
-*Change match* (choose the product on either site), *Don't use TCGplayer* (or PriceCharting) for
-that card, and *Turn off*. **Settings** shows the last run (updated, needing a match, problems) and
-*Update all prices now*.
+Each card's drawer shows its PriceCharting and TCGplayer products, a 30-day price chart, and
+*Update now*, *Change match* (search PriceCharting, or take the TCGplayer product TCGdex names),
+*Don't use TCGplayer* (or PriceCharting) for that card, and *Turn off*. **Settings** shows the last
+run (updated, needing a match, problems) and *Update all prices now*.
 
 On the first real run against a 122-card collection, 120 cards were matched, priced and
 pictured automatically in under 5 minutes; the other two needed a choice (a card recorded
 under the wrong set, and a promo only priced as a holo). Automatic prices were a median 7%
 from the prices logged by hand a week earlier.
 
-> **About the sources.** TCGdex and pokemontcg.io are free public APIs (`POKEMONTCG_API_KEY`, a
-> free key from [dev.pokemontcg.io](https://dev.pokemontcg.io), raises pokemontcg.io's request
-> limits but isn't needed). PriceCharting, and TCGplayer for cards TCGdex doesn't price, are
-> read the way their own pages read them (spaced out). Neither offers this for free
-> officially and their terms restrict automated access, so use it for your own collection,
-> and expect to adjust `server/pricing/sources.ts` if a site changes its pages. PriceCharting
-> sells an official API if you want to switch to it.
->
-> **When PriceCharting refuses the binder** (it answers 403), the update stops asking it straight
-> away and prices every card from TCGplayer: cards matched on PriceCharting use their TCGplayer
-> product (looked for at once if they have none), new cards are matched on TCGplayer, and pictures
-> already downloaded are kept. Each update asks PriceCharting once more, and *Recent updates* under
-> **Administration → Prices** says when it refused. *Use PriceCharting: No, TCGplayer only* on the
-> same page stops asking it at all until you turn it back on; then PriceCharting matches take over
-> again as before. Nothing tries to get round a site's block.
+### The sources
+
+No site's pages are read: every price comes from an API.
+
+- **PriceCharting** needs a subscription. Paste its API token (PriceCharting's *Subscription*
+  page → *API/Download*) under **Administration → Prices → PriceCharting**; the server checks it
+  with PriceCharting before saving it. It's kept in a file of its own on the server, apart from
+  the ledger (`SECRETS_DIR`, its own volume in Docker), and is never shown again, logged, or put in
+  backups or exports. PriceCharting is asked at most once a second. If it stops accepting the token,
+  that update stops asking it, prices every card from TCGplayer and Cardmarket, and *Recent
+  updates* says why. Without a token, prices come from TCGplayer and Cardmarket only. Guests may
+  see PriceCharting's values: the owner has PriceCharting's written permission. When the subscription ends, *Purge
+  PriceCharting data* on the same page removes the token and everything that came from
+  PriceCharting, as its terms ask: cards' PriceCharting matches, its prices in the daily price log
+  (each day keeps the highest of the other sources, or is removed when there were none) and its
+  pictures (the next update downloads others). Prices you logged yourself stay; copies of the
+  ledger on the server keep PriceCharting's prices until they age out.
+- **TCGdex** and **pokemontcg.io** are free public APIs (`POKEMONTCG_API_KEY`, a free key from
+  [dev.pokemontcg.io](https://dev.pokemontcg.io), raises pokemontcg.io's request limits but isn't
+  needed).
+- Links saved before PriceCharting was read through its API (by page address) are moved to their
+  API product at the next update; one PriceCharting no longer has is matched again.
 
 ## New cards fill themselves in
 
@@ -119,10 +130,10 @@ price site confirms its name and number.
 
 ### Details from the price match
 
-Every price update also reads the card's main product, PriceCharting's when it has one: its set and
-release date, or TCGplayer's set, release date and rarity for cards PriceCharting doesn't list. The
-other site's product only gives a price to compare; it never fills details or the picture. They fill the card's empty fields, after TCGdex
-has filled what it knows (so Classic box cards and new promos get a set and a release date too).
+Every price update also reads the card's PriceCharting product, when it has one: its set (and
+release date, when PriceCharting gives one). The TCGplayer product only gives a price to compare.
+They fill the card's empty fields, after TCGdex and pokemontcg.io have filled what they know (so
+Classic box cards and new promos get a set too).
 When you chose the product yourself and the card is filed under a different set, the card takes
 the product's set: you said that product is your card.
 
@@ -139,8 +150,9 @@ condition's share, the upper end of the usual ranges: **Near Mint 100%, Lightly 
 Moderately Played 60%, Heavily Played 35%, Damaged 15%** (a blank condition counts as Near Mint).
 It's the value everywhere: pocket prices, the List view, totals, sorting by price, quick-sell
 profit and CSV export. The card drawer shows both ("Lightly Played 85% of $10.00 near mint").
-Prices you log yourself are what that copy is worth and stay as entered, and a graded card's grade
-sets its price, so neither is adjusted (`public/condition.js`).
+Prices you log yourself are what that copy is worth and stay as entered, and a graded card is
+priced for its grade (PriceCharting's price for it, see above), so neither is adjusted
+(`public/condition.js`).
 
 ## Owner
 
@@ -450,13 +462,15 @@ To restore without a browser, stop the app and run `npm run import-backup -- bac
 ```bash
 npm run dev          # restarts on changes
 npm run typecheck
-npm test             # server tests, including the price parsers on saved pages
+npm test             # server tests, including the price sources on saved API answers
 DATA_DIR=$(mktemp -d) AUTH=off PRICE_UPDATES=off npm start &
 BASE_URL=http://localhost:4100/ npm run test:e2e    # browser smoke test
 ```
 
-- `server/pricing/`: `sources.ts` (PriceCharting, TCGplayer, Bank of Canada), `match.ts`
-  (which product is this card), `updater.ts` (the daily run and per-card updates).
+- `server/pricing/`: `pricecharting.ts` (PriceCharting's API and graded prices), `catalog.ts`
+  (TCGdex and pokemontcg.io: TCGplayer and Cardmarket prices, pictures), `sources.ts` (requests,
+  Bank of Canada), `match.ts` (which product is this card), `updater.ts` (the daily run, per-card
+  updates and the PriceCharting purge). `server/secrets.ts` keeps PriceCharting's token.
 - `server/details.ts` (card details from TCGdex), `server/autofill.ts` (new cards filling themselves
   in, and Fill in missing details).
 - `server/`: `store.ts` (ledger file and change feed), `assets.ts` (pictures), `backup.ts`

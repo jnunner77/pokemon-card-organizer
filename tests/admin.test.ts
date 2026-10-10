@@ -9,6 +9,7 @@ import { Assets } from '../server/assets';
 import { Backups, isoWeek, retain } from '../server/backups';
 import { Config } from '../server/config';
 import { Logger, redact } from '../server/log';
+import { PriceCharting } from '../server/pricing/pricecharting';
 import { type Fetcher, retryPolicy } from '../server/pricing/sources';
 import { PriceUpdater } from '../server/pricing/updater';
 import { Security } from '../server/security';
@@ -358,14 +359,15 @@ describe('the daily price update under trouble', () => {
       if (String(url).includes('bankofcanada')) return new Response(JSON.stringify({ observations: [{ d: '2026-10-02', FXUSDCAD: { v: '1.4' } }] }));
       return new Response('busy', { status: 503 });
     };
-    for (let i = 0; i < 8; i++) store.set('cards', `c${i}`, { ...card, pricing: { source: 'pricecharting', id: `/game/x/card-${i}` } });
-    const u = new PriceUpdater({ store, assets, fetcher, delayMs: 0, log, breakerAfter: 3 });
+    for (let i = 0; i < 8; i++) store.set('cards', `c${i}`, { ...card, pricing: { source: 'pricecharting', id: String(100 + i) } });
+    const pricecharting = new PriceCharting({ token: () => 'test-token', fetcher, gapMs: 0 });
+    const u = new PriceUpdater({ store, assets, fetcher, delayMs: 0, log, breakerAfter: 3, pricecharting });
     const s = await u.runAll('manual');
     expect(s.counts.failed).toBe(8);
-    // 3 cards tried on both sites (3 attempts each) before the breaker; the other 5 weren't requested at all.
-    expect(calls).toBe(1 + 2 * 3 * retryPolicy.attempts);
+    // 3 cards tried (3 attempts each) before the breaker; the other 5 weren't requested at all.
+    expect(calls).toBe(1 + 3 * retryPolicy.attempts);
     expect(store.get('cards', 'c7')!.pricing).toMatchObject({ error: expect.stringMatching(/kept failing/) });
     expect((store.get('settings', 'pricing') as { history: unknown[] }).history).toHaveLength(1);
-    expect(log.query({ cat: 'pricing', text: 'skipping it' })).toHaveLength(2);
+    expect(log.query({ cat: 'pricing', text: 'skipping it' })).toHaveLength(1);
   });
 });

@@ -168,12 +168,3 @@ const searchName = (card: CardForMatch) =>
 export function searchQuery(card: CardForMatch) {
   return `${searchName(card)} ${cardNumber(card.number)}`.trim();
 }
-
-/**
- * The second try on TCGplayer, whose search ranks by sales: "Charizard 11" lists a dozen other
- * Charizards but not Evolutions' 11/108, while "Charizard Evolutions" does. Empty without a set.
- */
-export function setSearchQuery(card: CardForMatch) {
-  const set = blank(card.set) ? '' : setWords(card.set).join(' ');
-  return set ? `${searchName(card)} ${set}` : '';
-}

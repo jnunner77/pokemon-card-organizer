@@ -5,105 +5,127 @@ import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../server/app';
 import { Assets } from '../server/assets';
+import { makeBackup } from '../server/backup';
 import { Config } from '../server/config';
 import { Catalog, choosePtcg, chooseVariant, printingOf, ptcgDetails, ptcgTcgplayer, variantPrices, tcgdexCardmarket, tcgdexTcgplayer, type PtcgCard, type TcgdexCard } from '../server/pricing/catalog';
 import { chooseMatch, detailsFromProduct, searchQuery, variantFromProduct } from '../server/pricing/match';
-import { type Candidate, type Fetcher, retryPolicy, parsePriceChartingProduct, parsePriceChartingSearch, parseTcgplayerDetails, parseTcgplayerSearch, pickTcgPrice, releaseDate } from '../server/pricing/sources';
+import { PriceCharting, gradedPrice, oldAddress, parseProduct } from '../server/pricing/pricecharting';
+import { type Candidate, type Fetcher, retryPolicy, releaseDate } from '../server/pricing/sources';
 import { PriceUpdater, thinAutoPrices } from '../server/pricing/updater';
+import { Secret } from '../server/secrets';
 import { Store } from '../server/store';
 
 retryPolicy.baseMs = 1; // retries happen at once in tests
 
 const fixture = (f: string) => fs.readFileSync(path.join(__dirname, 'fixtures', f), 'utf8');
 const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('a card image')]);
-const JPEG2 = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('another card image')]);
-
-const tcgSearch = {
-  results: [
-    {
-      results: [
-        { productId: 696683.0, productName: 'Lapras - 131/128', setName: 'ME: 30th Celebration', marketPrice: 7.7312, customAttributes: { number: '131/128' } },
-        { productId: 517045.0, productName: 'Lapras - 131/165', setName: 'SV: Scarlet & Violet 151', marketPrice: 0.21, customAttributes: { number: '131/165' } },
-      ],
-    },
-  ],
-};
-const tcgPoints = [
-  { printingType: 'Normal', marketPrice: null, buylistMarketPrice: null, listedMedianPrice: null },
-  { printingType: 'Foil', marketPrice: 7.73, buylistMarketPrice: null, listedMedianPrice: 11 },
-];
+const PC_SEARCH = JSON.parse(fixture('pricecharting-api-search.json')) as { products: Record<string, unknown>[] };
+/** 30th Celebration Lapras: ungraded US$13.20, with graded prices. */
+const PC_PRODUCT = JSON.parse(fixture('pricecharting-api-product.json')) as Record<string, unknown>;
+const LAPRAS_30TH = '14330011';
 const boc = (v: string, d = '2026-10-02') => ({ observations: [{ d, FXUSDCAD: { v } }] });
 
-/** A stand-in for the internet: answers each URL the price code asks for and records the calls. */
+/**
+ * A stand-in for the internet: answers each URL the price code asks for and records the calls.
+ * PriceCharting's API is asked by POST with the token in the body; its calls are recorded as
+ * ".../api/products?q=Lapras 131" or ".../api/product?id=14330011", and the tokens sent in `tokens`.
+ */
 function fakeNet(overrides: Record<string, () => Response> = {}) {
   const calls: string[] = [];
-  const respond = (body: string | Buffer | object, url: string, type = 'text/html') => {
-    const payload = Buffer.isBuffer(body) ? new Uint8Array(body) : typeof body === 'object' ? JSON.stringify(body) : body;
-    const r = new Response(payload, { headers: { 'Content-Type': type } });
-    Object.defineProperty(r, 'url', { value: url });
-    return r;
-  };
-  const fetcher: Fetcher = async (input) => {
-    const url = String(input);
+  const tokens: (string | null)[] = [];
+  const urls: string[] = [];
+  const fetcher: Fetcher = async (input, init) => {
+    let url = String(input);
+    urls.push(url);
+    if (url.startsWith('https://www.pricecharting.com/api/')) {
+      const body = new URLSearchParams(String(init?.body ?? ''));
+      tokens.push(body.get('t'));
+      url = `${url}?${body.has('q') ? `q=${body.get('q')}` : `id=${body.get('id')}`}`;
+    }
     calls.push(url);
     for (const [k, fn] of Object.entries(overrides)) if (url.includes(k)) return fn();
-    if (url.includes('bankofcanada.ca')) return respond(boc('1.4246'), url);
-    // An exact search lands straight on the product page.
-    if (url.includes('pricecharting.com/search-products') && url.includes('Lapras')) return respond(fixture('pricecharting-product.html'), 'https://www.pricecharting.com/game/pokemon-30th-celebration/lapras-131');
-    if (url.includes('pricecharting.com/search-products')) return respond('<html><table></table></html>', url);
-    if (url.includes('pricecharting.com/game/')) return respond(fixture('pricecharting-product.html'), url);
-    if (url.includes('mp-search-api.tcgplayer.com')) return respond({ results: [{ results: [] }] }, url);
-    if (url.includes('/pricepoints')) return respond(tcgPoints, url);
-    if (url.endsWith('/1600.jpg') || url.endsWith('_in_1000x1000.jpg')) return respond(JPEG, url, 'image/jpeg');
+    if (url.includes('bankofcanada.ca')) return Response.json(boc('1.4246'));
+    if (/pricecharting\.com\/api\/products\?q=lapras/i.test(url)) return Response.json(PC_SEARCH);
+    if (url.includes('pricecharting.com/api/products')) return Response.json({ status: 'success', products: [] });
+    if (url.includes('pricecharting.com/api/product?id=')) {
+      const id = url.split('id=')[1];
+      const p = [PC_PRODUCT, ...PC_SEARCH.products].find((x) => x.id === id);
+      return p ? Response.json({ ...p, status: 'success' }) : Response.json({ status: 'error', 'error-message': 'No such product' }, { status: 404 });
+    }
+    if (url.endsWith('_in_1000x1000.jpg')) return new Response(new Uint8Array(JPEG), { headers: { 'Content-Type': 'image/jpeg' } });
     return new Response('not found', { status: 404 });
   };
-  return { fetcher, calls };
+  return { fetcher, calls, tokens, urls };
 }
+type Net = ReturnType<typeof fakeNet>;
+const pcCalls = (net: Net) => net.calls.filter((u) => u.includes('pricecharting.com'));
+/** PriceCharting's API with a token (or none), asking the fake internet, without waiting a second between calls. */
+const pcApi = (net: Net, token: string | null = 'test-token') => new PriceCharting({ token: () => token, fetcher: net.fetcher, gapMs: 0 });
+const refusedToken = () => Response.json({ status: 'error', error: 'Unknown access token', 'error-message': 'Unknown access token' }, { status: 403 });
 
-describe('reading the price sites', () => {
-  it('reads a PriceCharting product page', () => {
-    const p = parsePriceChartingProduct(fixture('pricecharting-product.html'), '/game/pokemon-30th-celebration/lapras-131');
-    expect(p).toMatchObject({ title: 'Lapras', number: '131', set: 'Pokemon 30th Celebration', usd: 13.2 });
-    expect(p.image).toBe('https://storage.googleapis.com/images.pricecharting.com/asqso2to674mken7/1600.jpg');
-  });
-
-  it("reads a product's set, release date and rarity", () => {
-    expect(parsePriceChartingProduct(fixture('pricecharting-product.html'), '/game/pokemon-30th-celebration/lapras-131').info).toEqual({ set: 'Pokemon 30th Celebration', released: '2026-09-16', rarity: null });
-    expect(parseTcgplayerDetails({ productName: 'Mr. Mime', setName: 'Trading Card Game Classic', rarityName: 'Classic Collection', customAttributes: { releaseDate: '2023-11-17T00:00:00Z', number: '013/034' } })).toEqual({ set: 'Trading Card Game Classic', released: '2023-11-17', rarity: 'Classic Collection' });
-    expect(parseTcgplayerDetails({ results: [] })).toBeNull();
+describe("reading PriceCharting's API", () => {
+  it('reads products: name, number and variant, set, and prices from pennies', () => {
+    const [p] = PC_SEARCH.products.map(parseProduct);
+    expect(p).toMatchObject({ source: 'pricecharting', id: LAPRAS_30TH, url: 'https://www.pricecharting.com/game/14330011', title: 'Lapras', number: '131', set: 'Pokemon 30th Celebration', usd: 13.2, thumb: null, grades: {} });
+    expect(parseProduct(PC_SEARCH.products[2])).toMatchObject({ title: 'Lapras [Reverse Holo]', set: 'Pokemon Scarlet & Violet 151', usd: 2.23 });
+    expect(parseProduct(PC_SEARCH.products[4]).usd).toBeNull(); // no price
+    expect(() => parseProduct({ 'product-name': 'Lapras #131' })).toThrow(/without an id/);
+    const full = parseProduct(PC_PRODUCT);
+    expect(full).toMatchObject({ released: '2026-09-16', grades: { 'Grade 7': 21, 'Grade 8': 26, 'Grade 9': 45, 'Grade 9.5': 60, 'PSA 10': 120, 'BGS 10': 150, 'CGC 10': 90, 'CGC 10 Pristine': 300 } });
     expect([releaseDate('December 1, 2023'), releaseDate('May 9, 1999'), releaseDate('Smarch 1, 2020'), releaseDate('')]).toEqual(['2023-12-01', '1999-05-09', null, null]);
   });
 
-  it('decodes the HTML entities in product links from PriceCharting search ("Scarlet &amp; Violet")', () => {
-    const row = `<table><tr id="product-1"><td class="title"> <a href="https://www.pricecharting.com/game/pokemon-scarlet-&amp;-violet-151/lapras-131">Lapras #131</a></td><td class="console"> <a href="#">Pokemon Scarlet &amp; Violet 151</a></td><td class="price numeric used_price">$1.00</td></tr></table>`;
-    const [c] = parsePriceChartingSearch(row);
-    expect(c).toMatchObject({ id: '/game/pokemon-scarlet-&-violet-151/lapras-131', url: 'https://www.pricecharting.com/game/pokemon-scarlet-&-violet-151/lapras-131', set: 'Pokemon Scarlet & Violet 151' });
+  it("prices a graded card at its grade, or the nearest grade PriceCharting has", () => {
+    const { grades } = parseProduct(PC_PRODUCT);
+    const g = (grader: string, grade: string, list = grades) => gradedPrice(list, grader, grade);
+    expect(g('PSA', '10')).toEqual({ label: 'PSA 10', usd: 120, exact: true });
+    expect(g('BGS', '10')).toEqual({ label: 'BGS 10', usd: 150, exact: true });
+    expect(g('CGC', '10')).toEqual({ label: 'CGC 10', usd: 90, exact: true });
+    expect(g('CGC', 'Pristine 10')).toEqual({ label: 'CGC 10 Pristine', usd: 300, exact: true });
+    expect(g('PSA', '9.5')).toMatchObject({ label: 'Grade 9.5', exact: true });
+    expect(g('CGC', '9')).toMatchObject({ label: 'Grade 9', usd: 45 });
+    expect(g('PSA', '8.5')).toMatchObject({ label: 'Grade 8', usd: 26, exact: true });
+    expect(g('BGS', '7.5')).toMatchObject({ label: 'Grade 7', usd: 21, exact: true });
+    // No price for it: the nearest grade, a 10 by another grader before a 9.5 (PSA's first), the lower of two as near.
+    expect(g('TAG', '10')).toEqual({ label: 'PSA 10', usd: 120, exact: false });
+    expect(g('PSA', '6')).toEqual({ label: 'Grade 7', usd: 21, exact: false });
+    expect(g('PSA', '8.5', { 'Grade 8': 26, 'Grade 9': 45 })).toMatchObject({ label: 'Grade 8' });
+    expect(g('PSA', '8.5', { 'Grade 9': 45 })).toMatchObject({ label: 'Grade 9', exact: false });
+    expect(g('CGC', '10', { 'Grade 9.5': 60, 'CGC 10 Pristine': 300 })).toEqual({ label: 'Grade 9.5', usd: 60, exact: false }); // never a Pristine 10's price
+    // Not graded, or no graded prices (as with a subscription that has none): none.
+    expect(g('Raw', '10')).toBeNull();
+    expect(g('PSA', '')).toBeNull();
+    expect(g('PSA', '10', {})).toBeNull();
   });
 
-  it('reads PriceCharting search results, variants included', () => {
-    const rows = parsePriceChartingSearch(fixture('pricecharting-search.html'));
-    expect(rows.map((r) => [r.title, r.set, r.number, r.usd])).toEqual([
-      ['Lapras', 'Pokemon 30th Celebration', '131', 13.2],
-      ['Lapras', 'Pokemon Japanese Mystery of the Fossils', '131', 18.49],
-      ['Lapras [Reverse Holo]', 'Pokemon Scarlet & Violet 151', '131', 2.23],
-      ['Lapras', 'Pokemon Scarlet & Violet 151', '131', 1.01],
-    ]);
-    expect(rows[0].id).toBe('/game/pokemon-30th-celebration/lapras-131');
+  it('reads the product addresses saved when its pages were read, to find them in the API', () => {
+    const a = oldAddress('/game/pokemon-scarlet-&amp;-violet-151/lapras-reverse-holo-131')!;
+    expect(a.query).toBe('lapras reverse holo 131 pokemon scarlet & violet 151');
+    const list = PC_SEARCH.products.map(parseProduct);
+    expect(list.filter(a.is).map((p) => p.id)).toEqual(['5809712']);
+    expect(list.filter(oldAddress('/game/pokemon-30th-celebration/lapras-131')!.is).map((p) => p.id)).toEqual([LAPRAS_30TH]);
+    expect(oldAddress('14330011')).toBeNull();
   });
 
-  it('reads TCGplayer search results and prices by printing', () => {
-    const [c] = parseTcgplayerSearch(tcgSearch);
-    expect(c).toMatchObject({ source: 'tcgplayer', id: '696683', title: 'Lapras', set: 'ME: 30th Celebration', number: '131', usd: 7.73 });
-    expect(pickTcgPrice(tcgPoints, false)).toBe(7.73); // only the foil printing has a price
-    expect(pickTcgPrice([{ printingType: 'Normal', marketPrice: 1.5 }, { printingType: 'Foil', marketPrice: 4 }], true)).toBe(4);
-    expect(pickTcgPrice([{ printingType: 'Normal', marketPrice: 1.5 }, { printingType: 'Foil', marketPrice: 4 }], false)).toBe(1.5);
-    expect(pickTcgPrice('garbage', false)).toBeNull();
-    expect(pickTcgPrice(tcgPoints, false, true)).toBeNull(); // a common's holo price isn't its price
+  it('sends the token in the request body, one call at a time, at most one a second', async () => {
+    const net = fakeNet();
+    const pc = new PriceCharting({ token: () => 'secret-token', fetcher: net.fetcher, gapMs: 300 });
+    const started = Date.now();
+    const [found, one] = await Promise.all([pc.search('Lapras 131'), pc.product(LAPRAS_30TH)]);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(290);
+    expect(found.map((p) => p.id)).toEqual(['14330011', '3453448', '5809712', '5809512', '8709155']);
+    expect(one).toMatchObject({ id: LAPRAS_30TH, usd: 13.2, grades: { 'PSA 10': 120 } });
+    expect(net.tokens).toEqual(['secret-token', 'secret-token']);
+    expect(net.urls.every((u) => !u.includes('secret-token') && !u.includes('?'))).toBe(true);
+    // A token PriceCharting doesn't know, a product it doesn't have, and no token at all.
+    await expect(new PriceCharting({ token: () => 'bad', fetcher: fakeNet({ 'pricecharting.com': refusedToken }).fetcher, gapMs: 0 }).search('x')).rejects.toThrow(/didn't accept the API token/);
+    await expect(pc.product('999')).rejects.toThrow(/no product 999/);
+    await expect(new PriceCharting({ token: () => null, fetcher: net.fetcher }).search('x')).rejects.toThrow(/no API token/);
   });
 });
 
 describe('matching a card to a product', () => {
-  const pc = parsePriceChartingSearch(fixture('pricecharting-search.html'));
+  const pc = PC_SEARCH.products.map(parseProduct);
   const cand = (title: string, set: string, number: string, source: Candidate['source'] = 'pricecharting'): Candidate => ({ source, id: `${title}|${set}`, url: '', title, set, number, usd: 1, thumb: null });
 
   it('links only the English card from the same set, without a variant', () => {
@@ -167,13 +189,15 @@ describe('matching a card to a product', () => {
   });
 });
 
-describe('the daily update', () => {
+describe('the daily update with PriceCharting', () => {
   let dir: string;
   let store: Store;
   let assets: Assets;
   let now: Date;
   const card = (over: Record<string, unknown> = {}) => ({ name: 'Lapras', set: '30th Celebration', setCode: '30C', number: '131/128', status: 'binder', prices: [], binderId: 'b1', page: 1, slot: 1, ...over });
-  const updater = (fetcher: Fetcher) => new PriceUpdater({ store, assets, fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver' });
+  const updater = (net: Net, o: { token?: string | null; config?: Config } = {}) =>
+    new PriceUpdater({ store, assets, fetcher: net.fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', pricecharting: pcApi(net, o.token === undefined ? 'test-token' : o.token), config: o.config });
+  const linked = (over: Record<string, unknown> = {}) => card({ pricing: { source: 'pricecharting', id: LAPRAS_30TH, linkedBy: 'auto' }, ...over });
 
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'binder-price-'));
@@ -183,28 +207,30 @@ describe('the daily update', () => {
   });
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-  it('links the card, logs today’s price in CAD and downloads the large image', async () => {
+  it('links the card to its PriceCharting product and logs today’s ungraded price in CAD', async () => {
     store.set('cards', 'c1', card());
-    const summary = await updater(fakeNet().fetcher).runAll('manual');
+    const net = fakeNet();
+    const summary = await updater(net).runAll('manual');
     expect(summary.counts.updated).toBe(1);
     expect(summary.rate).toBe(1.4246);
     const c = store.get('cards', 'c1')!;
-    expect(c.pricing).toMatchObject({ source: 'pricecharting', id: '/game/pokemon-30th-celebration/lapras-131', linkedBy: 'auto', error: null });
-    expect(c.prices).toEqual([expect.objectContaining({ type: 'market', currency: 'CAD', amount: 18.8, usd: 13.2, auto: true, date: '2026-10-03', where: 'PriceCharting' })]);
-    expect(assets.find(c.officialImageId as string)).not.toBeNull();
+    expect(c.pricing).toMatchObject({ source: 'pricecharting', id: LAPRAS_30TH, url: 'https://www.pricecharting.com/game/14330011', title: 'Lapras', linkedBy: 'auto', error: null });
+    expect(c.prices).toEqual([expect.objectContaining({ type: 'market', currency: 'CAD', amount: 18.8, usd: 13.2, auto: true, date: '2026-10-03', where: 'PriceCharting', quotes: { pricecharting: 13.2 } })]);
+    // One search, then the product's prices. PriceCharting's API has no pictures (the card databases give them).
+    expect(pcCalls(net)).toEqual(['https://www.pricecharting.com/api/products?q=Lapras 131', 'https://www.pricecharting.com/api/product?id=14330011']);
+    expect(c.officialImageId).toBeUndefined();
     expect(store.get('settings', 'main')).toMatchObject({ usdToCad: 1.4246 });
     expect(store.get('settings', 'pricing')).toMatchObject({ running: false, lastRun: { date: '2026-10-03', counts: { updated: 1 } } });
   });
 
   it('keeps one automatic price a day for 30 days, one a week before that, and never touches the person’s own entries', async () => {
     const old = (date: string, amount: number) => ({ id: date, type: 'market', amount, currency: 'CAD', date, auto: true });
-    store.set('cards', 'c1', card({
-      pricing: { source: 'pricecharting', id: '/game/pokemon-30th-celebration/lapras-131' },
+    store.set('cards', 'c1', linked({
       // 2026-08-24 to 08-30 is one week (Monday to Sunday): only its last entry stays
       prices: [old('2026-08-01', 10), old('2026-08-24', 10.5), old('2026-08-27', 10.7), old('2026-09-02', 11), old('2026-09-03', 12), old('2026-10-03', 13), { id: 'paid', type: 'paid', amount: 5, currency: 'CAD', date: '2025-01-01' }, { id: 'mine', type: 'market', amount: 30, currency: 'CAD', date: '2026-01-01' }],
     }));
-    await updater(fakeNet().fetcher).runAll('manual');
-    await updater(fakeNet().fetcher).runAll('manual'); // a second run the same day replaces today's entry
+    await updater(fakeNet()).runAll('manual');
+    await updater(fakeNet()).runAll('manual'); // a second run the same day replaces today's entry
     const dates = (store.get('cards', 'c1')!.prices as { id: string; date: string; auto?: boolean }[]).map((p) => (p.auto ? p.date : p.id));
     expect(dates).toEqual(['2026-08-01', '2026-08-27', '2026-09-02', '2026-09-03', 'paid', 'mine', '2026-10-03']);
   });
@@ -219,239 +245,123 @@ describe('the daily update', () => {
     store.set('cards', 'sold', card({ status: 'sold' }));
     store.set('cards', 'off', card({ pricing: { source: 'off' } }));
     store.set('cards', 'odd', card({ name: 'Mystery', number: '999/1' }));
-    const s = await updater(fakeNet().fetcher).runAll('manual');
+    const s = await updater(fakeNet()).runAll('manual');
     expect(s.counts).toMatchObject({ skipped: 1, off: 1, needsMatch: 1, updated: 0 });
     expect(store.get('cards', 'sold')!.prices).toEqual([]);
     expect(store.get('cards', 'odd')!.pricing).toMatchObject({ source: 'none' });
   });
 
   it('records a failure and carries on with the next card', async () => {
-    store.set('cards', 'a', card({ pricing: { source: 'pricecharting', id: '/game/x/broken' } }));
+    store.set('cards', 'a', card({ pricing: { source: 'pricecharting', id: '777' } }));
     store.set('cards', 'b', card());
-    const net = fakeNet({ '/game/x/broken': () => new Response('gone', { status: 404 }), 'bankofcanada.ca': () => new Response('down', { status: 400 }) });
+    const net = fakeNet({ 'product?id=777': () => new Response('down', { status: 500 }), 'bankofcanada.ca': () => new Response('down', { status: 400 }) });
     store.set('settings', 'main', { usdToCad: 1.4 });
-    const s = await updater(net.fetcher).runAll('manual');
+    const s = await updater(net).runAll('manual');
     expect(s.counts).toMatchObject({ failed: 1, updated: 1 });
     expect(s.rate).toBe(1.4); // the saved rate when the Bank of Canada is unreachable
-    expect(s.errors[0].error).toMatch(/404/);
-    expect(store.get('cards', 'a')!.pricing).toMatchObject({ error: expect.stringMatching(/404/) });
+    expect(s.errors[0].error).toMatch(/500/);
+    expect(store.get('cards', 'a')!.pricing).toMatchObject({ error: expect.stringMatching(/500/) });
   });
 
-  it('uses TCGplayer for a card PriceCharting doesn’t list, and swaps the image when PriceCharting is chosen', async () => {
-    store.set('cards', 'c1', card());
-    const noPc = { 'pricecharting.com/search-products': () => new Response('<html><table></table></html>'), 'mp-search-api.tcgplayer.com/v1/search': () => Response.json(tcgSearch) };
-    expect(await updater(fakeNet(noPc).fetcher).runAll('manual')).toMatchObject({ counts: { updated: 1 } });
-    let c = store.get('cards', 'c1')!;
-    expect(c.pricing).toMatchObject({ source: 'tcgplayer', id: '696683', linkedBy: 'auto', pair: { source: 'pricecharting', id: null } });
-    expect((c.prices as { where: string; amount: number }[]).at(-1)).toMatchObject({ where: 'TCGplayer', amount: 11.01 });
-    const firstImage = c.officialImageId as string;
-    const net = fakeNet({ '/1600.jpg': () => new Response(new Uint8Array(JPEG2)) });
-    const outcome = await updater(net.fetcher).link('c1', { source: 'pricecharting', id: '/game/pokemon-30th-celebration/lapras-131', url: 'https://www.pricecharting.com/game/pokemon-30th-celebration/lapras-131', title: 'Lapras', set: 'Pokemon 30th Celebration' });
-    expect(outcome).toBe('updated');
-    c = store.get('cards', 'c1')!;
-    // PriceCharting is the main product now; TCGplayer's automatic match stays as its pair.
-    expect(c.pricing).toMatchObject({ source: 'pricecharting', linkedBy: 'user', pair: { source: 'tcgplayer', id: '696683', linkedBy: 'auto' } });
-    expect((c.prices as { where: string; usd: number; quotes: object }[]).at(-1)).toMatchObject({ where: 'PriceCharting', usd: 13.2, quotes: { pricecharting: 13.2, tcgplayer: 7.73 } });
-    expect(c.officialImageId).not.toBe(firstImage);
-    expect(assets.find(firstImage)).toBeNull();
+  it("prices a graded card at PriceCharting's price for its grade, and says when there is none", async () => {
+    store.set('cards', 'psa10', linked({ grader: 'PSA', grade: '10' }));
+    store.set('cards', 'tag9', linked({ grader: 'TAG', grade: '9.5', condition: 'Damaged' }));
+    store.set('cards', 'none', card({ grader: 'CGC', grade: '9', pricing: { source: 'pricecharting', id: '5809512', linkedBy: 'user' } }));
+    const u = updater(fakeNet());
+    for (const id of ['psa10', 'tag9', 'none']) expect(await u.updateCard(id)).toBe('updated');
+    expect((store.get('cards', 'psa10')!.prices as object[])[0]).toMatchObject({ where: 'PriceCharting', usd: 120, amount: 164.4, grade: 'PSA 10', quotes: { pricecharting: 120 }, note: "Daily update · PriceCharting's PSA 10 price US$120.00 at 1.3700" });
+    expect((store.get('cards', 'tag9')!.prices as object[])[0]).toMatchObject({ usd: 60, grade: 'Grade 9.5' });
+    // PriceCharting has no graded price for this one (as when the subscription has none): its ungraded price, saying so.
+    const none = (store.get('cards', 'none')!.prices as { grade?: string; usd: number; note: string }[])[0];
+    expect(none).toMatchObject({ usd: 1.01, note: expect.stringMatching(/no graded price on PriceCharting, so the ungraded price$/) });
+    expect(none.grade).toBeUndefined();
   });
 
-  it('logs the higher of the two sites’ prices, with details and image from PriceCharting', async () => {
-    store.set('cards', 'c1', card());
-    const high = [{ printingType: 'Foil', marketPrice: 20 }];
-    const net = fakeNet({ 'mp-search-api.tcgplayer.com/v1/search': () => Response.json(tcgSearch), '/pricepoints': () => Response.json(high) });
-    expect(await updater(net.fetcher).updateCard('c1')).toBe('updated');
-    const c = store.get('cards', 'c1')!;
-    expect(c.pricing).toMatchObject({ source: 'pricecharting', linkedBy: 'auto', error: null, pair: { source: 'tcgplayer', id: '696683', linkedBy: 'auto', error: null } });
-    expect(c.prices).toEqual([expect.objectContaining({ where: 'TCGplayer', usd: 20, amount: 27.4, quotes: { pricecharting: 13.2, tcgplayer: 20 }, note: 'Daily update · higher of PriceCharting US$13.20 and TCGplayer US$20.00 at 1.3700' })]);
-    // Release date from PriceCharting; TCGplayer's product details weren't asked for.
-    expect(c).toMatchObject({ set: '30th Celebration', released: '2026-09-16' });
-    expect(net.calls.some((u) => u.includes('/details'))).toBe(false);
-    expect(net.calls.filter((u) => u.endsWith('/1600.jpg'))).toHaveLength(1);
-    expect(net.calls.some((u) => u.includes('_in_1000x1000'))).toBe(false);
-  });
-
-  it('uses the site that answered when the other fails or has no price', async () => {
-    const both = (over: Record<string, unknown> = {}) => card({ pricing: { source: 'pricecharting', id: '/game/pokemon-30th-celebration/lapras-131', linkedBy: 'auto', pair: { source: 'tcgplayer', id: '696683', linkedBy: 'auto' } }, ...over });
-    store.set('cards', 'tcgDown', both());
-    expect(await updater(fakeNet({ '/pricepoints': () => new Response('down', { status: 503 }) }).fetcher).updateCard('tcgDown')).toBe('updated');
-    expect(store.get('cards', 'tcgDown')).toMatchObject({ pricing: { error: null, pair: { error: expect.stringMatching(/503/) } }, prices: [expect.objectContaining({ where: 'PriceCharting', usd: 13.2, quotes: { pricecharting: 13.2 } })] });
-    store.set('cards', 'pcDown', both());
-    expect(await updater(fakeNet({ 'pricecharting.com/game/': () => new Response('down', { status: 503 }) }).fetcher).updateCard('pcDown')).toBe('updated');
-    expect(store.get('cards', 'pcDown')).toMatchObject({ pricing: { error: expect.stringMatching(/503/), pair: { error: null } }, prices: [expect.objectContaining({ where: 'TCGplayer', usd: 7.73 })] });
-    store.set('cards', 'pcNoPrice', both());
-    const noPrice = fixture('pricecharting-product.html').replace(/(id="used_price"[\s\S]*?<span class="price js-price">)[\s\S]*?(<\/span>)/, '$1-$2');
-    const r = () => { const x = new Response(noPrice); Object.defineProperty(x, 'url', { value: 'https://www.pricecharting.com/game/pokemon-30th-celebration/lapras-131' }); return x; };
-    expect(await updater(fakeNet({ 'pricecharting.com/game/': r }).fetcher).updateCard('pcNoPrice')).toBe('updated');
-    expect(store.get('cards', 'pcNoPrice')).toMatchObject({ pricing: { error: null }, prices: [expect.objectContaining({ where: 'TCGplayer', quotes: { tcgplayer: 7.73 } })] });
-    // Both down: a failure, as before.
-    store.set('cards', 'allDown', both());
-    expect(await updater(fakeNet({ 'pricecharting.com/game/': () => new Response('down', { status: 503 }), '/pricepoints': () => new Response('down', { status: 503 }) }).fetcher).updateCard('allDown')).toBe('failed');
-    expect(store.get('cards', 'allDown')).toMatchObject({ prices: [], pricing: { error: expect.stringMatching(/pricecharting.*503/) } });
-  });
-
-  it('searches TCGplayer by name and set when name and number don’t find the card', async () => {
-    store.set('cards', 'c1', card({ set: 'Pokemon 30th Celebration' }));
-    const net = fakeNet({ 'q=Lapras%2030th%20celebration': () => Response.json(tcgSearch) });
-    expect(await updater(net.fetcher).updateCard('c1')).toBe('updated');
-    expect(net.calls.filter((u) => u.includes('mp-search-api.tcgplayer.com/v1/search')).map((u) => decodeURIComponent(u.split('q=')[1].split('&')[0]))).toEqual(['Lapras 131', 'Lapras 30th celebration']);
-    expect(store.get('cards', 'c1')!.pricing).toMatchObject({ pair: { source: 'tcgplayer', id: '696683', linkedBy: 'auto' } });
-  });
-
-  it('looks for the other site’s product again only after a week, and moves a card to PriceCharting when it turns up there', async () => {
+  it('looks for the PriceCharting product again only after a week, and makes it the main product when it turns up', async () => {
     const weekAgo = (days: number) => new Date(now.getTime() - days * 86_400_000).toISOString();
-    store.set('cards', 'recent', card({ pricing: { source: 'pricecharting', id: '/game/pokemon-30th-celebration/lapras-131', pair: { source: 'tcgplayer', id: null, checkedAt: weekAgo(3) } } }));
+    store.set('cards', 'recent', card({ pricing: { source: 'tcgplayer', id: '696683', linkedBy: 'user', pair: { source: 'pricecharting', id: null, checkedAt: weekAgo(3) } } }));
     const net = fakeNet();
-    await updater(net.fetcher).updateCard('recent');
-    expect(net.calls.some((u) => u.includes('tcgplayer'))).toBe(false);
+    await updater(net).updateCard('recent');
+    expect(pcCalls(net)).toEqual([]);
     store.set('cards', 'tcgOnly', card({ pricing: { source: 'tcgplayer', id: '696683', linkedBy: 'user', pair: { source: 'pricecharting', id: null, checkedAt: weekAgo(8) } } }));
-    expect(await updater(fakeNet().fetcher).updateCard('tcgOnly')).toBe('updated');
-    expect(store.get('cards', 'tcgOnly')!.pricing).toMatchObject({ source: 'pricecharting', id: '/game/pokemon-30th-celebration/lapras-131', linkedBy: 'auto', pair: { source: 'tcgplayer', id: '696683', linkedBy: 'user' } });
-  });
-
-  it('lets the person choose the other site’s product, stop using it, and keeps their choices when correcting a match', async () => {
-    store.set('cards', 'c1', card());
-    const net = fakeNet({ 'mp-search-api.tcgplayer.com/v1/search': () => Response.json(tcgSearch) });
-    const u = updater(net.fetcher);
-    await u.updateCard('c1');
-    expect(store.get('cards', 'c1')!.pricing).toMatchObject({ source: 'pricecharting', pair: { source: 'tcgplayer', id: '696683', linkedBy: 'auto' } });
-    // Correcting PriceCharting's product drops TCGplayer's automatic match, which is looked for again.
-    const pc2 = { source: 'pricecharting' as const, id: '/game/pokemon-30th-celebration/lapras-131-promo', url: '', title: 'Lapras', set: 'Pokemon 30th Celebration' };
-    net.calls.length = 0;
-    await u.link('c1', pc2);
-    expect(net.calls.filter((x) => x.includes('mp-search-api.tcgplayer.com/v1/search'))).toHaveLength(1);
-    // Choosing TCGplayer's product makes it the pair; correcting PriceCharting's keeps it then.
-    const tg = { source: 'tcgplayer' as const, id: '517045', url: 'https://www.tcgplayer.com/product/517045', title: 'Lapras', set: 'SV: Scarlet & Violet 151' };
-    await u.link('c1', tg);
-    expect(store.get('cards', 'c1')!.pricing).toMatchObject({ source: 'pricecharting', id: pc2.id, pair: { source: 'tcgplayer', id: '517045', linkedBy: 'user' } });
-    await u.link('c1', { ...pc2, id: '/game/pokemon-30th-celebration/lapras-131' });
-    expect(store.get('cards', 'c1')!.pricing).toMatchObject({ pair: { id: '517045', linkedBy: 'user' } });
-    // Turned off: TCGplayer isn't asked, not even when the card is matched again.
-    net.calls.length = 0;
-    expect(await u.link('c1', { pair: 'off' })).toBe('updated');
-    await u.link('c1', { source: 'auto' });
-    expect(net.calls.some((x) => x.includes('tcgplayer'))).toBe(false);
-    expect(store.get('cards', 'c1')).toMatchObject({ pricing: { source: 'pricecharting', pair: { source: 'tcgplayer', off: true } } });
-    expect((store.get('cards', 'c1')!.prices as { quotes: object }[]).at(-1)).toMatchObject({ quotes: { pricecharting: 13.2 } });
-    // Back on: searched again straight away.
-    await u.link('c1', { pair: 'auto' });
-    expect(store.get('cards', 'c1')!.pricing).toMatchObject({ pair: { source: 'tcgplayer', id: '696683', linkedBy: 'auto' } });
+    expect(await updater(fakeNet()).updateCard('tcgOnly')).toBe('updated');
+    expect(store.get('cards', 'tcgOnly')!.pricing).toMatchObject({ source: 'pricecharting', id: LAPRAS_30TH, linkedBy: 'auto', pair: { source: 'tcgplayer', id: '696683', linkedBy: 'user' } });
   });
 
   it("fills a card's details from its product during the update", async () => {
     store.set('cards', 'blank', card({ set: '', setCode: '' }));
     store.set('cards', 'auto', card());
     store.set('cards', 'wrong', card({ set: 'Some Other Set', released: '2001-01-01' }));
-    const u = updater(fakeNet().fetcher);
-    const pc = { source: 'pricecharting' as const, id: '/game/pokemon-30th-celebration/lapras-131', url: 'https://www.pricecharting.com/game/pokemon-30th-celebration/lapras-131', title: 'Lapras', set: 'Pokemon 30th Celebration' };
+    const u = updater(fakeNet());
+    const pc = { source: 'pricecharting' as const, id: LAPRAS_30TH, url: 'https://www.pricecharting.com/game/14330011', title: 'Lapras', set: 'Pokemon 30th Celebration' };
     await u.link('blank', pc);
     await u.updateCard('auto');
     await u.link('wrong', pc);
     expect(store.get('cards', 'blank')).toMatchObject({ set: 'Pokemon 30th Celebration', released: '2026-09-16' });
     expect(store.get('cards', 'auto')).toMatchObject({ set: '30th Celebration', released: '2026-09-16', pricing: { linkedBy: 'auto' } });
     expect(store.get('cards', 'wrong')).toMatchObject({ set: 'Pokemon 30th Celebration', released: '2001-01-01' });
-    // TCGplayer's product details give the rarity too; without them the price still updates.
-    store.set('cards', 'tcg', card({ set: '', rarity: '' }));
-    const details = { productName: 'Lapras', setName: 'ME: 30th Celebration', rarityName: 'Illustration Rare', customAttributes: { releaseDate: '2026-09-16T00:00:00Z' } };
-    const tg = { source: 'tcgplayer' as const, id: '696683', url: 'https://www.tcgplayer.com/product/696683', title: 'Lapras', set: 'ME: 30th Celebration' };
-    await updater(fakeNet({ '/v1/product/696683/details': () => Response.json(details) }).fetcher).link('tcg', tg);
-    expect(store.get('cards', 'tcg')).toMatchObject({ set: 'ME: 30th Celebration', rarity: 'Illustration Rare', released: '2026-09-16' });
     // A variant product fills in the card's variant; the plain one leaves it.
-    store.set('cards', 'ball', card({ variant: '' }));
+    store.set('cards', 'rev', card({ set: '151', variant: '' }));
     store.set('cards', 'stamp', card({ variant: '30th stamp' }));
-    await u.link('ball', { ...pc, id: '/game/pokemon-30th-celebration/lapras-ball-131', title: 'Lapras [Ball]' });
+    await u.link('rev', { source: 'pricecharting', id: '5809712', url: '', title: 'Lapras [Reverse Holo]', set: 'Pokemon Scarlet & Violet 151' });
     await u.link('stamp', pc);
-    expect(store.get('cards', 'ball')).toMatchObject({ variant: 'Ball', pricing: { title: 'Lapras [Ball]', linkedBy: 'user' } });
+    expect(store.get('cards', 'rev')).toMatchObject({ variant: 'Reverse Holo', pricing: { title: 'Lapras [Reverse Holo]', linkedBy: 'user' }, prices: [expect.objectContaining({ usd: 2.23 })] });
     expect(store.get('cards', 'stamp')).toMatchObject({ variant: '30th stamp' });
-    store.set('cards', 'tcg2', card({ set: '' }));
-    expect(await updater(fakeNet({ '/v1/product/696683/details': () => new Response('down', { status: 503 }) }).fetcher).link('tcg2', tg)).toBe('updated');
   });
 
-  it('mends a link saved with "&amp;" in its address, and prices it', async () => {
-    store.set('cards', 'sv', card({ pricing: { source: 'pricecharting', id: '/game/pokemon-scarlet-&amp;-violet-151/lapras-131', linkedBy: 'auto' } }));
+  it('moves links saved by page address (before the API) to their API products', async () => {
+    store.set('cards', 'sv', card({ set: '151', pricing: { source: 'pricecharting', id: '/game/pokemon-scarlet-&amp;-violet-151/lapras-131', linkedBy: 'user' } }));
+    store.set('cards', 'pair', card({ pricing: { source: 'tcgplayer', id: '696683', linkedBy: 'user', pair: { source: 'pricecharting', id: '/game/pokemon-30th-celebration/lapras-131', linkedBy: 'auto' } } }));
     const net = fakeNet();
-    expect(await updater(net.fetcher).updateCard('sv')).toBe('updated');
-    expect(net.calls).toContain('https://www.pricecharting.com/game/pokemon-scarlet-&-violet-151/lapras-131');
-    expect(net.calls.some((u) => u.includes('&amp;'))).toBe(false);
-    expect(store.get('cards', 'sv')!.pricing).toMatchObject({ id: '/game/pokemon-scarlet-&-violet-151/lapras-131', url: 'https://www.pricecharting.com/game/pokemon-scarlet-&-violet-151/lapras-131', error: null });
+    const u = updater(net);
+    expect(await u.updateCard('sv')).toBe('updated');
+    expect(store.get('cards', 'sv')).toMatchObject({ pricing: { source: 'pricecharting', id: '5809512', url: 'https://www.pricecharting.com/game/5809512', linkedBy: 'user', error: null }, prices: [expect.objectContaining({ usd: 1.01 })] });
+    expect(pcCalls(net)).toEqual(['https://www.pricecharting.com/api/products?q=lapras 131 pokemon scarlet & violet 151', 'https://www.pricecharting.com/api/product?id=5809512']);
+    await u.updateCard('pair');
+    expect(store.get('cards', 'pair')!.pricing).toMatchObject({ source: 'tcgplayer', pair: { source: 'pricecharting', id: LAPRAS_30TH } });
+    // An address the API doesn't have: matched again (here, to a product it finds for the card).
+    store.set('cards', 'gone', card({ pricing: { source: 'pricecharting', id: '/game/pokemon-old-name/lapras-131', linkedBy: 'user' } }));
+    expect(await u.updateCard('gone')).toBe('updated');
+    expect(store.get('cards', 'gone')!.pricing).toMatchObject({ id: LAPRAS_30TH, linkedBy: 'auto' });
   });
 
-  it('matches a card again when its product address lands on the search page (renamed or merged)', async () => {
-    const gone = '/game/pokemon-old-name/lapras-131';
-    const searchPage = () => { const r = new Response('<html><table></table></html>', { headers: { 'Content-Type': 'text/html' } }); Object.defineProperty(r, 'url', { value: 'https://www.pricecharting.com/search-products?type=prices&q=lapras+131' }); return r; };
+  it("matches a card again when PriceCharting no longer has its product", async () => {
     for (const linkedBy of ['auto', 'user']) {
-      store.set('cards', linkedBy, card({ pricing: { source: 'pricecharting', id: gone, linkedBy } }));
-      expect(await updater(fakeNet({ [gone]: searchPage }).fetcher).updateCard(linkedBy)).toBe('updated');
-      expect(store.get('cards', linkedBy)!.pricing).toMatchObject({ id: '/game/pokemon-30th-celebration/lapras-131', linkedBy: 'auto', error: null });
+      store.set('cards', linkedBy, card({ pricing: { source: 'pricecharting', id: '424242', linkedBy } }));
+      expect(await updater(fakeNet()).updateCard(linkedBy)).toBe('updated');
+      expect(store.get('cards', linkedBy)!.pricing).toMatchObject({ id: LAPRAS_30TH, linkedBy: 'auto', error: null });
     }
     // Still gone and nothing certain found: the person chooses, and it isn't counted as a site failure.
-    store.set('cards', 'odd', card({ name: 'Mystery', number: '999/1', pricing: { source: 'pricecharting', id: gone, linkedBy: 'user' } }));
-    expect(await updater(fakeNet({ [gone]: searchPage }).fetcher).updateCard('odd')).toBe('needsMatch');
+    store.set('cards', 'odd', card({ name: 'Mystery', number: '999/1', pricing: { source: 'pricecharting', id: '424242', linkedBy: 'user' } }));
+    expect(await updater(fakeNet()).updateCard('odd')).toBe('needsMatch');
     expect(store.get('cards', 'odd')!.pricing).toMatchObject({ source: 'none', error: null });
   });
 
-  it("prices from TCGplayer when PriceCharting refuses the binder's requests, and asks PriceCharting only once", async () => {
-    const pcLapras = '/game/pokemon-30th-celebration/lapras-131';
-    store.set('cards', 'both', card({ pricing: { source: 'pricecharting', id: pcLapras, linkedBy: 'auto', pair: { source: 'tcgplayer', id: '696683', linkedBy: 'auto' } } }));
-    // Matched on PriceCharting only, and TCGplayer was searched 3 days ago: searched again at once.
-    store.set('cards', 'pcOnly', card({ pricing: { source: 'pricecharting', id: pcLapras, linkedBy: 'auto', pair: { source: 'tcgplayer', id: null, checkedAt: '2026-09-30T15:00:00Z' } } }));
-    store.set('cards', 'fresh', card());
-    const net = fakeNet({ 'pricecharting.com': () => new Response('Forbidden', { status: 403 }), 'mp-search-api.tcgplayer.com/v1/search': () => Response.json(tcgSearch) });
-    const s = await updater(net.fetcher).runAll('manual');
-    expect(s.counts).toMatchObject({ updated: 3, failed: 0 });
-    expect(s.errors).toEqual([]);
-    expect(s.sitesOut).toEqual({ pricecharting: expect.stringMatching(/PriceCharting refused the binder's requests \(403\)/) });
-    expect(net.calls.filter((u) => u.includes('pricecharting.com'))).toHaveLength(1);
-    for (const id of ['both', 'pcOnly']) {
-      expect(store.get('cards', id)).toMatchObject({ pricing: { source: 'pricecharting', id: pcLapras, error: null, pair: { source: 'tcgplayer', id: '696683' } }, prices: [expect.objectContaining({ where: 'TCGplayer', usd: 7.73, quotes: { tcgplayer: 7.73 } })] });
-    }
-    // A new card is matched on TCGplayer; PriceCharting is looked for again once it answers.
-    expect(store.get('cards', 'fresh')).toMatchObject({ pricing: { source: 'tcgplayer', id: '696683', error: null }, prices: [expect.objectContaining({ where: 'TCGplayer' })] });
-    expect(store.get('cards', 'fresh')!.pricing).not.toHaveProperty('pair.id');
-    // The next update asks PriceCharting again; it answers, and becomes the new card's main product.
-    const back = fakeNet({ 'mp-search-api.tcgplayer.com/v1/search': () => Response.json(tcgSearch) });
-    now = new Date('2026-10-04T15:00:00Z');
-    expect((await updater(back.fetcher).runAll('manual')).sitesOut).toBeUndefined();
-    expect(store.get('cards', 'fresh')!.pricing).toMatchObject({ source: 'pricecharting', id: pcLapras, pair: { source: 'tcgplayer', id: '696683' } });
+  it("stops asking PriceCharting for the rest of an update when it refuses the token", async () => {
+    store.set('cards', 'a', linked());
+    store.set('cards', 'b', linked());
+    store.set('cards', 'c', card());
+    const net = fakeNet({ 'pricecharting.com': refusedToken });
+    const s = await updater(net).runAll('manual');
+    expect(pcCalls(net)).toHaveLength(1);
+    expect(s.counts).toMatchObject({ failed: 3 });
+    expect(s.sitesOut).toEqual({ pricecharting: expect.stringMatching(/^PriceCharting didn't accept the API token: check it under Administration → Prices\./) });
+    expect(store.get('cards', 'b')!.pricing).toMatchObject({ error: expect.stringMatching(/didn't accept the API token/) });
   });
 
-  it('remembers a refusal for an hour outside the daily update, and says so when TCGplayer has no match', async () => {
-    const pcLapras = '/game/pokemon-30th-celebration/lapras-131';
-    store.set('cards', 'a', card({ pricing: { source: 'pricecharting', id: pcLapras, pair: { source: 'tcgplayer', id: null, checkedAt: '2026-10-02T15:00:00Z' } } }));
-    store.set('cards', 'b', card({ pricing: { source: 'pricecharting', id: pcLapras, pair: { source: 'tcgplayer', id: null, checkedAt: '2026-10-02T15:00:00Z' } } }));
-    const net = fakeNet({ 'pricecharting.com': () => new Response('Forbidden', { status: 403 }) });
-    const u = updater(net.fetcher);
-    expect(await u.updateCard('a')).toBe('failed');
-    expect(store.get('cards', 'a')!.pricing).toMatchObject({ error: expect.stringMatching(/refused.*TCGplayer didn't find this card: choose its product with Change match/) });
-    expect(await u.updateCard('b')).toBe('failed');
-    expect(net.calls.filter((x) => x.includes('pricecharting.com'))).toHaveLength(1);
-    expect(net.calls.filter((x) => x.includes('mp-search-api.tcgplayer.com/v1/search')).length).toBeGreaterThan(0);
-    // The manual search leaves it out too.
-    await u.search(card());
-    expect(net.calls.filter((x) => x.includes('pricecharting.com'))).toHaveLength(1);
-    now = new Date(now.getTime() + 61 * 60_000);
-    await u.updateCard('b');
-    expect(net.calls.filter((x) => x.includes('pricecharting.com'))).toHaveLength(2);
-  });
-
-  it('never asks PriceCharting while administrators have it turned off, and uses it again when turned back on', async () => {
-    const config = new Config(dir);
-    config.set({ pricing: { enabled: true, hour: 5, pricecharting: false } });
-    const u = (f: Fetcher) => new PriceUpdater({ store, assets, fetcher: f, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', config });
-    store.set('cards', 'c1', card());
-    store.set('cards', 'c2', card({ pricing: { source: 'pricecharting', id: '/game/pokemon-30th-celebration/lapras-131', pair: { source: 'tcgplayer', id: '696683' } } }));
-    const net = fakeNet({ 'mp-search-api.tcgplayer.com/v1/search': () => Response.json(tcgSearch) });
-    const s = await u(net.fetcher).runAll('manual');
-    expect(s.counts).toMatchObject({ updated: 2, failed: 0 });
-    expect(s.sitesOut).toEqual({ pricecharting: expect.stringMatching(/turned off/) });
-    expect(net.calls.some((x) => x.includes('pricecharting.com'))).toBe(false);
-    expect(store.get('cards', 'c1')!.pricing).toMatchObject({ source: 'tcgplayer', id: '696683' });
-    expect(store.get('cards', 'c2')).toMatchObject({ pricing: { error: null }, prices: [expect.objectContaining({ where: 'TCGplayer' })] });
-    expect((await u(net.fetcher).search(card())).every((c) => c.source === 'tcgplayer')).toBe(true);
-    expect(net.calls.some((x) => x.includes('pricecharting.com'))).toBe(false);
-    config.set({ pricing: { enabled: true, hour: 5, pricecharting: true } });
-    expect(await u(fakeNet().fetcher).updateCard('c1')).toBe('updated');
-    expect(store.get('cards', 'c1')!.pricing).toMatchObject({ source: 'pricecharting', pair: { source: 'tcgplayer', id: '696683' } });
+  it('never asks PriceCharting without its token', async () => {
+    store.set('cards', 'a', linked());
+    store.set('cards', 'b', card());
+    const net = fakeNet();
+    const u = updater(net, { token: null });
+    const s = await u.runAll('manual');
+    expect(pcCalls(net)).toEqual([]);
+    expect(s.sitesOut).toBeUndefined();
+    expect(s.counts).toMatchObject({ failed: 1, needsMatch: 1 });
+    expect(store.get('cards', 'a')!.pricing).toMatchObject({ error: "PriceCharting isn't set up: add its API token under Administration → Prices." });
+    expect(u.schedule().pricecharting).toBe(false);
+    expect(await u.search(card())).toEqual([]);
+    expect(pcCalls(net)).toEqual([]);
   });
 
   it('runs once a day after the set hour, catching up after downtime', () => {
@@ -553,8 +463,10 @@ describe('prices and pictures from the card databases', () => {
       'bankofcanada.ca': () => Response.json(rates),
       ...over,
     });
-  const updater = (net: ReturnType<typeof fakeNet>, config?: Config) =>
-    new PriceUpdater({ store, assets, fetcher: net.fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', config, catalog: new Catalog({ fetcher: net.fetcher, now: () => now }) });
+  /** With PriceCharting's token unless `token` is null (a binder without a subscription). */
+  const updater = (net: Net, config?: Config, token: string | null = 'test-token') =>
+    new PriceUpdater({ store, assets, fetcher: net.fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', config, catalog: new Catalog({ fetcher: net.fetcher, now: () => now }), pricecharting: pcApi(net, token) });
+  const noPc = (net: Net, config?: Config) => updater(net, config, null);
 
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'binder-catalog-'));
@@ -564,16 +476,16 @@ describe('prices and pictures from the card databases', () => {
   });
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-  it("logs the highest of TCGplayer and Cardmarket without scraping TCGplayer, with pokemontcg.io's large picture", async () => {
+  it("logs the highest of TCGplayer and Cardmarket without reading TCGplayer, with pokemontcg.io's large picture", async () => {
     store.set('cards', 'c1', lapras());
-    // PriceCharting refusing, as it does now.
-    const net = dbNet({ 'pricecharting.com': () => new Response('Forbidden', { status: 403 }) });
-    const s = await updater(net).runAll('manual');
+    // Without PriceCharting's token.
+    const net = dbNet();
+    const s = await noPc(net).runAll('manual');
     expect(s.counts).toMatchObject({ updated: 1, failed: 0 });
     const c = store.get('cards', 'c1')!;
     // Matched to the TCGplayer product TCGdex names, without searching TCGplayer.
     expect(c.pricing).toMatchObject({ source: 'tcgplayer', id: '516694', linkedBy: 'auto', error: null, catalog: { tcgdexId: 'sv03.5-131', ptcgId: 'sv3pt5-131' } });
-    expect(net.calls.some((u) => u.includes('tcgplayer.com'))).toBe(false);
+    expect(net.calls.some((u) => u.includes('tcgplayer.com') || u.includes('pricecharting.com'))).toBe(false);
     // Reverse holo: TCGplayer US$2.12, Cardmarket €3.07 = US$3.44 at the day's rates; Cardmarket is higher.
     expect(c.prices).toEqual([
       expect.objectContaining({ where: 'Cardmarket', usd: 3.44, amount: 4.91, quotes: { tcgplayer: 2.12, cardmarket: 3.44 }, note: 'Daily update · higher of TCGplayer US$2.12 and Cardmarket €3.07 (US$3.44) at 1.4271 (€1 = C$1.5978)' }),
@@ -583,20 +495,20 @@ describe('prices and pictures from the card databases', () => {
     expect(store.get('settings', 'main')).toMatchObject({ usdToCad: 1.4271, eurToCad: 1.5978 });
     // The next day pokemontcg.io isn't asked at all: the card has its picture.
     now = new Date('2026-10-11T15:00:00Z');
-    const next = dbNet({ 'pricecharting.com': () => new Response('Forbidden', { status: 403 }) });
-    await updater(next).runAll('manual');
+    const next = dbNet();
+    await noPc(next).runAll('manual');
     expect(next.calls.filter((u) => u.includes('pokemontcg.io'))).toHaveLength(0);
     expect(store.get('cards', 'c1')!.prices).toHaveLength(2);
     // A week on, a card with blanks left (151 has no set code there) is read again, by its id.
     now = new Date('2026-10-18T15:00:00Z');
-    const week = dbNet({ 'pricecharting.com': () => new Response('Forbidden', { status: 403 }) });
-    await updater(week).runAll('manual');
+    const week = dbNet();
+    await noPc(week).runAll('manual');
     expect(week.calls.filter((u) => u.includes('api.pokemontcg.io/v2/cards?q='))).toHaveLength(0);
     expect(week.calls.filter((u) => u.includes('api.pokemontcg.io/v2/cards/sv3pt5-131'))).toHaveLength(1);
   });
 
-  it('compares PriceCharting too when it answers, keeping a PriceCharting picture the card already has', async () => {
-    const pcLink = { source: 'pricecharting', id: '/game/pokemon-30th-celebration/lapras-131', linkedBy: 'auto' };
+  it('compares PriceCharting too, keeping a PriceCharting picture the card already has', async () => {
+    const pcLink = { source: 'pricecharting', id: LAPRAS_30TH, linkedBy: 'auto' };
     store.set('cards', 'fresh', lapras({ pricing: pcLink }));
     // Outside a daily update, the rates saved by the last one are used.
     store.set('settings', 'main', { usdToCad: 1.4271, eurToCad: 1.5978 });
@@ -609,10 +521,9 @@ describe('prices and pictures from the card databases', () => {
       quotes: { pricecharting: 13.2, tcgplayer: 2.12, cardmarket: 3.44 },
       note: expect.stringMatching(/^Daily update · highest of PriceCharting US\$13\.20, TCGplayer US\$2\.12 and Cardmarket €3\.07 \(US\$3\.44\)/),
     });
-    expect(net.calls.some((u) => u.endsWith('/1600.jpg'))).toBe(false);
-    // A card with a PriceCharting picture keeps it.
+    // A card with a picture from PriceCharting's pages (before the API) keeps it.
     const pcPicture = assets.put(JPEG)!;
-    const pcUrl = parsePriceChartingProduct(fixture('pricecharting-product.html'), pcLink.id).image;
+    const pcUrl = 'https://storage.googleapis.com/images.pricecharting.com/asqso2to674mken7/1600.jpg';
     store.set('cards', 'old', lapras({ pricing: { ...pcLink, imageUrl: pcUrl }, officialImageId: pcPicture.id }));
     const again = dbNet();
     expect(await updater(again).updateCard('old')).toBe('updated');
@@ -622,10 +533,10 @@ describe('prices and pictures from the card databases', () => {
 
   it('leaves Cardmarket out when administrators turn it off', async () => {
     const config = new Config(dir);
-    config.set({ pricing: { enabled: true, hour: 5, pricecharting: false, cardmarket: false } });
+    config.set({ pricing: { enabled: true, hour: 5, cardmarket: false } });
     store.set('cards', 'c1', lapras());
     const net = dbNet();
-    await updater(net, config).runAll('manual');
+    await noPc(net, config).runAll('manual');
     expect(store.get('cards', 'c1')!.prices).toEqual([expect.objectContaining({ where: 'TCGplayer', usd: 2.12, quotes: { tcgplayer: 2.12 }, note: 'Daily update · US$2.12 at 1.4271' })]);
     expect(net.calls.some((u) => u.includes('pricecharting.com'))).toBe(false);
   });
@@ -640,8 +551,8 @@ describe('prices and pictures from the card databases', () => {
       return Response.json(card);
     };
     const ptcgFound = () => Response.json({ data: [JSON.parse(fixture('ptcg-card.json')).data] });
-    const net = dbNet({ 'api.tcgdex.net/v2/en/cards/sv03.5-131': noTcg, 'api.pokemontcg.io/v2/cards?q=': ptcgFound, 'pricecharting.com': () => new Response('Forbidden', { status: 403 }) });
-    expect(await updater(net).updateCard('c1')).toBe('updated');
+    const net = dbNet({ 'api.tcgdex.net/v2/en/cards/sv03.5-131': noTcg, 'api.pokemontcg.io/v2/cards?q=': ptcgFound });
+    expect(await noPc(net).updateCard('c1')).toBe('updated');
     const c = store.get('cards', 'c1')!;
     expect(c.pricing).toMatchObject({ source: 'none' });
     // pokemontcg.io's regular price US$0.23; no Cardmarket price without a saved euro rate (the daily update saves one).
@@ -652,8 +563,8 @@ describe('prices and pictures from the card databases', () => {
     const known = { catalog: { tcgdexId: 'sv03.5-131', ptcgId: 'sv3pt5-131' } };
     store.set('cards', 'blank', lapras({ set: '151', rarity: '', artist: '', released: '', setCode: '', pricing: { source: 'none', ...known } }));
     store.set('cards', 'typed', lapras({ rarity: 'Rare', artist: 'Someone', pricing: { source: 'none', ...known } }));
-    const net = dbNet({ 'pricecharting.com': () => new Response('Forbidden', { status: 403 }) });
-    await updater(net).runAll('manual');
+    const net = dbNet();
+    await noPc(net).runAll('manual');
     // 151 has no set code on pokemontcg.io, so that stays blank.
     expect(store.get('cards', 'blank')).toMatchObject({ set: '151', rarity: 'Uncommon', artist: 'LINNE', released: '2023-09-22', setCode: '' });
     expect(store.get('cards', 'typed')).toMatchObject({ rarity: 'Rare', artist: 'Someone' });
@@ -666,14 +577,14 @@ describe('prices and pictures from the card databases', () => {
     // As the update left it before variants were read: linked to the regular card's TCGplayer product.
     store.set('cards', 'mb', { ...exeggcute, variant: 'Master Ball', pricing: { source: 'tcgplayer', id: '610356', linkedBy: 'auto' } });
     store.set('cards', 'chosen', { ...exeggcute, variant: 'Master Ball', pricing: { source: 'tcgplayer', id: '610356', linkedBy: 'user' } });
-    const net = dbNet({ ...tcgdex('sv08.5-001', 'tcgdex-exeggcute.json'), 'pricecharting.com': () => new Response('Forbidden', { status: 403 }), '/pricepoints': () => Response.json([{ printingType: 'Normal', marketPrice: 0.05 }]) });
-    await updater(net).runAll('manual');
+    const net = dbNet(tcgdex('sv08.5-001', 'tcgdex-exeggcute.json'));
+    await noPc(net).runAll('manual');
     const mb = store.get('cards', 'mb')!;
     expect(mb.pricing).toMatchObject({ source: 'tcgplayer', id: '610637', linkedBy: 'auto', imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/610637_in_1000x1000.jpg' });
     // TCGplayer US$1.27 vs Cardmarket €1.61 = US$1.80.
     expect(mb.prices).toEqual([expect.objectContaining({ where: 'Cardmarket', quotes: { tcgplayer: 1.27, cardmarket: 1.8 }, note: expect.stringMatching(/^Daily update \(Master Ball reverse\) · higher of TCGplayer US\$1\.27 and Cardmarket €1\.61/) })]);
-    // The product the person chose stays (and is priced from TCGplayer as before).
-    expect(store.get('cards', 'chosen')!.pricing).toMatchObject({ source: 'tcgplayer', id: '610356', linkedBy: 'user' });
+    // The product the person chose stays; TCGdex doesn't price it (TCGplayer's pages aren't read), so Cardmarket does, and the card says why.
+    expect(store.get('cards', 'chosen')).toMatchObject({ pricing: { source: 'tcgplayer', id: '610356', linkedBy: 'user', error: expect.stringMatching(/doesn't price this TCGplayer product/) }, prices: [expect.objectContaining({ where: 'Cardmarket', quotes: { cardmarket: 1.8 } })] });
   });
 
   it("never gives a 1st Edition or unlisted variant another printing's price, and pictures it from TCGdex when there's nothing larger", async () => {
@@ -686,50 +597,161 @@ describe('prices and pictures from the card databases', () => {
       'api.tcgdex.net/v2/en/cards/base1-4': () => Response.json(JSON.parse(fixture('tcgdex-charizard.json'))),
       'api.tcgdex.net/v2/en/cards/sv03.5-025': () => Response.json(JSON.parse(fixture('tcgdex-pikachu.json'))),
       'assets.tcgdex.net/en/base/base1/4/high.png': () => new Response(new Uint8Array(TCGDEX_PIC)),
-      'pricecharting.com': () => new Response('Forbidden', { status: 403 }),
     });
-    const s = await updater(net).runAll('manual');
+    const s = await noPc(net).runAll('manual');
     // Cardmarket's 1st Edition Shadowless price only (€3,330.71), not the US$928 unlimited card.
     const first = store.get('cards', 'first')!;
     expect(first.prices).toEqual([expect.objectContaining({ where: 'Cardmarket', quotes: { cardmarket: 3729.11 } })]);
     expect(first.pricing).toMatchObject({ source: 'none', imageUrl: 'https://assets.tcgdex.net/en/base/base1/4/high.png' });
     expect(fs.readFileSync(assets.find(first.officialImageId as string)!.file)).toEqual(TCGDEX_PIC);
-    // A stamp TCGdex doesn't list: no database price at all; left to a match on the price sites.
+    // A stamp TCGdex doesn't list: no database price at all; left to a match on PriceCharting.
     expect(store.get('cards', 'staff')).toMatchObject({ prices: [], pricing: { source: 'none' } });
     expect(s.counts).toMatchObject({ updated: 1, needsMatch: 1 });
   });
 
   it("carries on without the databases when they don't answer", async () => {
-    store.set('cards', 'c1', lapras({ pricing: { source: 'pricecharting', id: '/game/pokemon-30th-celebration/lapras-131', linkedBy: 'auto', pair: { source: 'tcgplayer', id: null, checkedAt: '2026-10-09T00:00:00Z' } } }));
+    store.set('cards', 'c1', lapras({ pricing: { source: 'pricecharting', id: LAPRAS_30TH, linkedBy: 'auto', pair: { source: 'tcgplayer', id: null, checkedAt: '2026-10-09T00:00:00Z' } } }));
     const net = dbNet({ 'api.tcgdex.net/v2/en/cards/sv03.5-131': () => new Response('down', { status: 500 }) });
     expect(await updater(net).updateCard('c1')).toBe('updated');
     expect(store.get('cards', 'c1')!.prices).toEqual([expect.objectContaining({ where: 'PriceCharting', quotes: { pricecharting: 13.2 } })]);
+  });
+  it("matches on TCGplayer through the card databases when PriceCharting doesn't list the card, and makes PriceCharting's product the main one once chosen", async () => {
+    store.set('cards', 'c1', lapras({ name: 'Lapras', number: '131/165', variant: '' }));
+    const net = dbNet({ 'api/products?q=': () => Response.json({ status: 'success', products: [] }) });
+    const u = updater(net);
+    expect(await u.updateCard('c1')).toBe('updated');
+    let c = store.get('cards', 'c1')!;
+    expect(c.pricing).toMatchObject({ source: 'tcgplayer', id: '516694', linkedBy: 'auto', pair: { source: 'pricecharting', id: null } });
+    expect((c.prices as { where: string; quotes: object }[]).at(-1)).toMatchObject({ quotes: { tcgplayer: 0.24 } });
+    // The person chooses its PriceCharting product: the main product now; TCGplayer's stays as its pair.
+    expect(await u.link('c1', { source: 'pricecharting', id: '5809512', url: 'https://www.pricecharting.com/game/5809512', title: 'Lapras', set: 'Pokemon Scarlet & Violet 151' })).toBe('updated');
+    c = store.get('cards', 'c1')!;
+    expect(c.pricing).toMatchObject({ source: 'pricecharting', id: '5809512', linkedBy: 'user', pair: { source: 'tcgplayer', id: '516694', linkedBy: 'auto' } });
+    expect((c.prices as { where: string; quotes: object }[]).at(-1)).toMatchObject({ where: 'PriceCharting', quotes: { pricecharting: 1.01, tcgplayer: 0.24 } });
+  });
+
+  it('uses the sources that answered when PriceCharting fails or has no price', async () => {
+    const both = () => lapras({ variant: '', pricing: { source: 'pricecharting', id: LAPRAS_30TH, linkedBy: 'auto', pair: { source: 'tcgplayer', id: '516694', linkedBy: 'auto' } } });
+    store.set('cards', 'pcDown', both());
+    expect(await updater(dbNet({ 'product?id=': () => new Response('down', { status: 503 }) })).updateCard('pcDown')).toBe('updated');
+    expect(store.get('cards', 'pcDown')).toMatchObject({ pricing: { error: expect.stringMatching(/503/), pair: { error: null } }, prices: [expect.objectContaining({ where: 'TCGplayer', usd: 0.24, quotes: { tcgplayer: 0.24 } })] });
+    store.set('cards', 'pcNoPrice', both());
+    expect(await updater(dbNet({ 'product?id=': () => Response.json({ status: 'success', id: LAPRAS_30TH, 'product-name': 'Lapras #131', 'console-name': 'Pokemon 30th Celebration' }) })).updateCard('pcNoPrice')).toBe('updated');
+    expect(store.get('cards', 'pcNoPrice')).toMatchObject({ pricing: { error: null }, prices: [expect.objectContaining({ where: 'TCGplayer', quotes: { tcgplayer: 0.24 } })] });
+    // PriceCharting and the card databases both down: a failure.
+    store.set('cards', 'allDown', both());
+    expect(await updater(dbNet({ 'product?id=': () => new Response('down', { status: 503 }), 'api.tcgdex.net/v2/en/cards/sv03.5-131': () => new Response('down', { status: 503 }) })).updateCard('allDown')).toBe('failed');
+    expect(store.get('cards', 'allDown')).toMatchObject({ prices: [], pricing: { error: expect.stringMatching(/pricecharting.*503/) } });
+  });
+
+  it("lets the person choose or stop using the card's TCGplayer product, keeping their choices when correcting a match", async () => {
+    store.set('cards', 'c1', lapras({ variant: '', pricing: { source: 'pricecharting', id: LAPRAS_30TH, linkedBy: 'auto' } }));
+    const net = dbNet();
+    const u = updater(net);
+    await u.updateCard('c1');
+    expect(store.get('cards', 'c1')!.pricing).toMatchObject({ pair: { source: 'tcgplayer', id: '516694', linkedBy: 'auto' } });
+    // A TCGplayer product TCGdex doesn't name can be chosen, but has no price (TCGplayer's pages aren't read).
+    await u.link('c1', { source: 'tcgplayer', id: '517045', url: 'https://www.tcgplayer.com/product/517045', title: 'Lapras', set: 'SV: Scarlet & Violet 151' });
+    expect(store.get('cards', 'c1')!.pricing).toMatchObject({ source: 'pricecharting', pair: { id: '517045', linkedBy: 'user', error: expect.stringMatching(/doesn't price this TCGplayer product/) } });
+    // Correcting PriceCharting's product keeps the person's TCGplayer choice.
+    await u.link('c1', { source: 'pricecharting', id: '5809512', url: '', title: 'Lapras', set: 'Pokemon Scarlet & Violet 151' });
+    expect(store.get('cards', 'c1')!.pricing).toMatchObject({ id: '5809512', pair: { id: '517045', linkedBy: 'user' } });
+    // Turned off: TCGplayer's price isn't used, not even when the card is matched again.
+    expect(await u.link('c1', { pair: 'off' })).toBe('updated');
+    await u.link('c1', { source: 'auto' });
+    expect(store.get('cards', 'c1')).toMatchObject({ pricing: { source: 'pricecharting', pair: { source: 'tcgplayer', off: true } } });
+    expect((store.get('cards', 'c1')!.prices as { quotes: Record<string, number> }[]).at(-1)!.quotes.tcgplayer).toBeUndefined();
+    // Back on: the product TCGdex names, straight away.
+    await u.link('c1', { pair: 'auto' });
+    expect(store.get('cards', 'c1')!.pricing).toMatchObject({ pair: { source: 'tcgplayer', id: '516694', linkedBy: 'auto' } });
+  });
+
+  it("values a graded card at PriceCharting's price for its grade only", async () => {
+    store.set('cards', 'g', lapras({ grader: 'PSA', grade: '10', pricing: { source: 'pricecharting', id: LAPRAS_30TH, linkedBy: 'auto' } }));
+    store.set('settings', 'main', { usdToCad: 1.4271, eurToCad: 1.5978 });
+    await updater(dbNet()).updateCard('g');
+    // Not TCGplayer's or Cardmarket's (raw card) prices, though they're known.
+    expect((store.get('cards', 'g')!.prices as object[])[0]).toMatchObject({ where: 'PriceCharting', usd: 120, grade: 'PSA 10', quotes: { pricecharting: 120 } });
+  });
+
+  it('purges everything that came from PriceCharting, and forgets its token', async () => {
+    const pcPicture = assets.put(JPEG)!;
+    const day = (date: string, where: string, usd: number, quotes: Record<string, number>, over: object = {}) => ({ id: date + where, type: 'market', currency: 'CAD', date, auto: true, where, usd, amount: Math.round(usd * 140) / 100, quotes, ...over });
+    store.set('cards', 'pc', lapras({
+      officialImageId: pcPicture.id,
+      pricing: { source: 'pricecharting', id: LAPRAS_30TH, linkedBy: 'user', imageUrl: 'https://storage.googleapis.com/images.pricecharting.com/x/1600.jpg', pair: { source: 'tcgplayer', id: '516694', linkedBy: 'auto' } },
+      prices: [
+        day('2026-10-08', 'PriceCharting', 13.2, { pricecharting: 13.2, tcgplayer: 2.12, cardmarket: 3.44 }),
+        day('2026-10-09', 'TCGplayer', 20, { pricecharting: 13.2, tcgplayer: 20 }, { note: 'Daily update · higher of PriceCharting US$13.20 and TCGplayer US$20.00 at 1.4000' }),
+        day('2026-10-07', 'PriceCharting', 13.2, { pricecharting: 13.2 }),
+        day('2026-10-06', 'PriceCharting', 120, { pricecharting: 120 }, { grade: 'PSA 10' }),
+        { id: 'mine', type: 'market', amount: 15, currency: 'CAD', date: '2026-10-01', where: 'PriceCharting' },
+      ],
+    }));
+    store.set('cards', 'only', lapras({ pricing: { source: 'pricecharting', id: '5809512', linkedBy: 'auto', pair: { source: 'tcgplayer', id: null, checkedAt: '2026-10-01T00:00:00Z' } } }));
+    store.set('cards', 'none', lapras({ pricing: { source: 'none', candidates: [{ source: 'pricecharting', id: '1' }, { source: 'tcgplayer', id: '2' }] } }));
+    store.set('cards', 'tcg', lapras({ pricing: { source: 'tcgplayer', id: '516694', pair: { source: 'pricecharting', id: null, checkedAt: '2026-10-01T00:00:00Z' } }, prices: [day('2026-10-09', 'TCGplayer', 2, { tcgplayer: 2 })] }));
+    const before = JSON.stringify(store.get('cards', 'tcg')!.prices);
+    let forgotten = false;
+    const out = updater(dbNet()).purgePriceCharting(() => (forgotten = true));
+    expect(forgotten).toBe(true);
+    expect(out).toEqual({ cards: 4, prices: 4, removed: 2, pictures: 1 });
+    const pc = store.get('cards', 'pc')!;
+    // Its TCGplayer product is the main one now; the picture is gone (the next update downloads another).
+    expect(pc.pricing).toMatchObject({ source: 'tcgplayer', id: '516694', pair: null, imageUrl: null });
+    expect(pc.officialImageId).toBeNull();
+    expect(assets.find(pcPicture.id)).toBeNull();
+    // Entries PriceCharting set are re-priced from the day's other sources at the same rate, or removed; the person's own stays.
+    expect(pc.prices).toEqual([
+      expect.objectContaining({ date: '2026-10-08', where: 'Cardmarket', usd: 3.44, amount: 4.82, quotes: { tcgplayer: 2.12, cardmarket: 3.44 }, note: "Daily update · Cardmarket US$3.44 (PriceCharting's price removed)" }),
+      expect.objectContaining({ date: '2026-10-09', where: 'TCGplayer', usd: 20, quotes: { tcgplayer: 20 }, note: "Daily update · TCGplayer US$20.00 (PriceCharting's price removed)" }),
+      expect.objectContaining({ id: 'mine', where: 'PriceCharting' }),
+    ]);
+    expect(store.get('cards', 'only')!.pricing).toMatchObject({ source: 'none', id: null, title: null, pair: { source: 'tcgplayer', id: null } });
+    expect(store.get('cards', 'none')!.pricing).toMatchObject({ candidates: [{ source: 'tcgplayer', id: '2' }] });
+    expect(store.get('cards', 'tcg')!.pricing).toMatchObject({ source: 'tcgplayer', pair: null });
+    expect(JSON.stringify(store.get('cards', 'tcg')!.prices)).toBe(before);
+    // Nothing PriceCharting gave is left in what was changed, apart from the person's own entry.
+    expect(JSON.stringify({ ...pc, prices: (pc.prices as { id: string }[]).filter((e) => e.id !== 'mine') })).not.toMatch(/13\.2|PriceCharting US/);
   });
 });
 
 describe('pricing over HTTP', () => {
   let dir: string;
+  let secrets: string;
   let store: Store;
   let assets: Assets;
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'binder-api-'));
+    secrets = fs.mkdtempSync(path.join(os.tmpdir(), 'binder-secrets-'));
     store = new Store(dir);
     assets = new Assets(dir);
   });
-  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(secrets, { recursive: true, force: true });
+  });
+  /** The app as index.ts puts it together: PriceCharting's token in its own secret file. */
+  const setup = (net: Net, o: { token?: string } = {}) => {
+    const token = new Secret(secrets, 'pricecharting-token');
+    if (o.token) token.write(o.token);
+    const api = new PriceCharting({ token: () => token.read(), fetcher: net.fetcher, gapMs: 0 });
+    const config = new Config(dir);
+    const updater = new PriceUpdater({ store, assets, fetcher: net.fetcher, delayMs: 0, config, pricecharting: api });
+    return { token, updater, app: createApp({ store, assets, updater, config, pricecharting: { token, api } }) };
+  };
 
-  it('searches both sites and links a chosen product', async () => {
-    const net = fakeNet({ 'mp-search-api.tcgplayer.com': () => new Response(JSON.stringify(tcgSearch)) });
-    const updater = new PriceUpdater({ store, assets, fetcher: net.fetcher, delayMs: 0 });
-    const app = createApp({ store, assets, updater });
+  it("searches PriceCharting and links a chosen product", async () => {
+    const { app } = setup(fakeNet(), { token: 'a'.repeat(40) });
     store.set('cards', 'c1', { name: 'Lapras', set: '30th Celebration', number: '131/128', status: 'binder', prices: [] });
     const s = await request(app).get('/api/pricing/search?card=c1').expect(200);
-    expect(s.body.candidates.map((c: Candidate) => `${c.source}:${c.title}`)).toEqual(['pricecharting:Lapras', 'tcgplayer:Lapras', 'tcgplayer:Lapras']);
+    expect(s.body.candidates[0]).toMatchObject({ source: 'pricecharting', id: LAPRAS_30TH, title: 'Lapras', usd: 13.2 });
+    expect(s.body.candidates.every((c: Candidate) => c.source === 'pricecharting')).toBe(true);
     const l = await request(app).post('/api/pricing/link/c1').send({ source: 'off' }).expect(200);
     expect(l.body).toMatchObject({ outcome: 'off', card: { pricing: { source: 'off' } } });
     await request(app).post('/api/pricing/link/c1').send({ source: 'ebay', id: 'x' }).expect(400);
     await request(app).post('/api/pricing/link/c1').send({ pair: 'off' }).expect(400); // not matched on either site
-    store.set('cards', 'c2', { name: 'Lapras', number: '131/128', status: 'binder', prices: [], pricing: { source: 'pricecharting', id: '/game/pokemon-30th-celebration/lapras-131' } });
+    store.set('cards', 'c2', { name: 'Lapras', number: '131/128', status: 'binder', prices: [], pricing: { source: 'pricecharting', id: LAPRAS_30TH } });
     const off = await request(app).post('/api/pricing/link/c2').send({ pair: 'off' }).expect(200);
     expect(off.body).toMatchObject({ outcome: 'updated', card: { pricing: { pair: { source: 'tcgplayer', off: true } } } });
     await request(app).post('/api/pricing/link/nope').send({ source: 'off' }).expect(404);
@@ -737,16 +759,48 @@ describe('pricing over HTTP', () => {
     await request(createApp({ store, assets })).post('/api/pricing/run').expect(503);
   });
 
-  it('lets administrators turn PriceCharting off and on, keeping the choice when only the schedule changes', async () => {
-    const config = new Config(dir);
-    const updater = new PriceUpdater({ store, assets, fetcher: fakeNet().fetcher, delayMs: 0, config });
-    const app = createApp({ store, assets, updater, config });
-    expect((await request(app).get('/api/admin/pricing').expect(200)).body.schedule).toMatchObject({ pricecharting: true });
-    expect((await request(app).put('/api/admin/pricing').send({ enabled: true, hour: 5, pricecharting: false }).expect(200)).body.schedule).toMatchObject({ pricecharting: false });
-    expect((await request(app).put('/api/admin/pricing').send({ enabled: true, hour: 7 }).expect(200)).body.schedule).toMatchObject({ hour: 7, pricecharting: false });
-    expect(new Config(dir).get().pricing).toEqual({ enabled: true, hour: 7, pricecharting: false, cardmarket: true });
-    expect(updater.siteOut('pricecharting')).toMatch(/turned off/);
-    await request(app).put('/api/admin/pricing').send({ enabled: true, hour: 7, pricecharting: 'no' }).expect(400);
+  it("keeps PriceCharting's token in its own file, checked with PriceCharting first, and never shows it", async () => {
+    const good = '0123456789abcdef0123456789abcdef01234567';
+    const net = fakeNet({ 'products?q=charizard': () => (net.tokens.at(-1) === good ? Response.json({ status: 'success', products: [] }) : refusedToken()) });
+    const { app, token, updater } = setup(net);
+    expect((await request(app).get('/api/admin/pricing').expect(200)).body).toMatchObject({ schedule: { pricecharting: false }, pricecharting: { set: false, savedAt: null } });
+    await request(app).put('/api/admin/pricing/pricecharting-token').send({ token: 'not a token!' }).expect(400);
+    const bad = await request(app).put('/api/admin/pricing/pricecharting-token').send({ token: 'f'.repeat(40) }).expect(400);
+    expect(bad.body.error).toMatch(/didn't accept that token/);
+    expect(token.info().set).toBe(false);
+    const saved = await request(app).put('/api/admin/pricing/pricecharting-token').send({ token: ` ${good} ` }).expect(200);
+    expect(saved.body).toEqual({ pricecharting: { set: true, savedAt: expect.any(String) } });
+    expect(token.read()).toBe(good);
+    expect(fs.statSync(path.join(secrets, 'pricecharting-token')).mode & 0o777).toBe(0o600);
+    const status = await request(app).get('/api/admin/pricing').expect(200);
+    expect(status.body).toMatchObject({ schedule: { pricecharting: true }, pricecharting: { set: true } });
+    expect(JSON.stringify(status.body)).not.toContain(good);
+    // The page is told PriceCharting is set up; the token is nowhere in the ledger or its backup.
+    expect(store.get('settings', 'pricing')).toMatchObject({ pricecharting: true });
+    expect(JSON.stringify(makeBackup(store, assets))).not.toContain(good);
+    const files = fs.readdirSync(dir, { recursive: true, withFileTypes: true }).filter((f) => f.isFile());
+    expect(files.some((f) => fs.readFileSync(path.join(f.parentPath, f.name), 'utf8').includes(good))).toBe(false);
+    expect(updater.schedule().pricecharting).toBe(true);
+    await request(app).delete('/api/admin/pricing/pricecharting-token').expect(200);
+    expect(token.info().set).toBe(false);
+    expect(store.get('settings', 'pricing')).toMatchObject({ pricecharting: false });
   });
 
+  it('purges PriceCharting from the ledger and removes the token in one action', async () => {
+    const { app, token } = setup(fakeNet(), { token: 'b'.repeat(40) });
+    store.set('cards', 'c1', { name: 'Lapras', status: 'binder', pricing: { source: 'pricecharting', id: LAPRAS_30TH }, prices: [{ id: 'p', type: 'market', amount: 18.8, currency: 'CAD', date: '2026-10-01', auto: true, where: 'PriceCharting', usd: 13.2, quotes: { pricecharting: 13.2 } }] });
+    const r = await request(app).post('/api/admin/pricing/purge-pricecharting').expect(200);
+    expect(r.body).toEqual({ cards: 1, prices: 1, removed: 1, pictures: 0, pricecharting: { set: false, savedAt: null } });
+    expect(token.read()).toBeNull();
+    expect(store.get('cards', 'c1')).toMatchObject({ prices: [], pricing: { source: 'none', id: null } });
+  });
+
+  it('lets administrators change the schedule and leave Cardmarket out, with the old "Use PriceCharting" choice gone', async () => {
+    fs.writeFileSync(path.join(dir, 'admin.json'), JSON.stringify({ pricing: { enabled: true, hour: 5, pricecharting: false, cardmarket: true } }));
+    const { app } = setup(fakeNet(), { token: 'c'.repeat(40) });
+    expect((await request(app).get('/api/admin/pricing').expect(200)).body.schedule).toMatchObject({ pricecharting: true, cardmarket: true });
+    expect((await request(app).put('/api/admin/pricing').send({ enabled: true, hour: 7, cardmarket: false }).expect(200)).body.schedule).toMatchObject({ hour: 7, cardmarket: false });
+    expect(new Config(dir).get().pricing).toEqual({ enabled: true, hour: 7, cardmarket: false });
+    await request(app).put('/api/admin/pricing').send({ enabled: true, hour: 7, pricecharting: false }).expect(400);
+  });
 });
