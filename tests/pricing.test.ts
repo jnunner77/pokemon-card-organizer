@@ -495,6 +495,27 @@ describe('prices and pictures from the card databases', () => {
     expect(await noPc(net).updateCard('e')).toBe('updated');
   });
 
+  it('drops the automatic TCGplayer product that came with an earlier TCGdex match, when the new one names none', async () => {
+    // A 30th Classic Collection reprint first taken for its original (Paldea Evolved's), now matched
+    // to the reprint, which TCGdex doesn't price: the original's TCGplayer product goes.
+    const unpriced = () => {
+      const c = JSON.parse(fixture('tcgdex-card.json'));
+      delete c.pricing;
+      for (const v of c.variants_detailed ?? []) delete v.pricing;
+      return Response.json(c);
+    };
+    const earlier = { source: 'pricecharting', id: LAPRAS_30TH, linkedBy: 'user', catalog: { tcgdexId: 'sv02-203' }, pair: { source: 'tcgplayer', id: '497658', title: 'Magikarp', set: 'Paldea Evolved', linkedBy: 'auto' } };
+    store.set('cards', 'moved', lapras({ pricing: earlier }));
+    store.set('cards', 'same', lapras({ pricing: { ...earlier, catalog: { tcgdexId: 'sv03.5-131' } } }));
+    store.set('cards', 'chosen', lapras({ pricing: { ...earlier, pair: { ...earlier.pair, linkedBy: 'user' } } }));
+    const net = dbNet({ 'api.tcgdex.net/v2/en/cards/sv03.5-131': unpriced });
+    for (const id of ['moved', 'same', 'chosen']) await updater(net).updateCard(id);
+    expect(store.get('cards', 'moved')!.pricing).toMatchObject({ source: 'pricecharting', id: LAPRAS_30TH, pair: null, catalog: { tcgdexId: 'sv03.5-131' } });
+    // Same TCGdex card as before (TCGdex just has no price today), or chosen by the person: kept.
+    expect(store.get('cards', 'same')!.pricing).toMatchObject({ pair: { id: '497658' } });
+    expect(store.get('cards', 'chosen')!.pricing).toMatchObject({ pair: { id: '497658', linkedBy: 'user' } });
+  });
+
   it('calls prices disagreeing when one is over 3 times another and US$5 apart', () => {
     expect(pricesDisagree({ pricecharting: 4, tcgplayer: 310 })).toBe(true);
     expect(pricesDisagree({ pricecharting: 10, tcgplayer: 29 })).toBe(false); // under 3×

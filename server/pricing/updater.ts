@@ -1009,6 +1009,11 @@ export class PriceUpdater {
       if (known && !(p && p.source === site && (p.off || (p.id && (p.linkedBy === 'user' || p.id === known.id))))) {
         const at = this.now().toISOString();
         this.store.update('cards', id, { pricing: { ...card.pricing, pair: { ...productOf(known), linkedBy: 'auto', linkedAt: at, checkedAt: at } } });
+      } else if (!known && cat && p?.source === site && p.id && !p.off && p.linkedBy !== 'user' && card.pricing.catalog?.tcgdexId && card.pricing.catalog.tcgdexId !== cat.tcgdexId) {
+        // Matched to another TCGdex card since (a reprint that was taken for its original), which
+        // names no TCGplayer product: the automatic one that came with the old match goes too.
+        this.log.info('pricing', `${label(card)}: dropped TCGplayer's ${p.title ?? p.id}, which came with its earlier TCGdex match`);
+        this.store.update('cards', id, { pricing: { ...card.pricing, pair: null } });
       }
       return;
     }
