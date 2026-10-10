@@ -156,8 +156,10 @@ priced for its grade (PriceCharting's price for it, see above), so neither is ad
 
 ## Owner
 
-Each card's details have an **Owner**: Megan, Justin or Both (blank until you set it). It's saved
-with *Save changes*, copied by *Duplicate*, and has its own *Owner* column in CSV import and export.
+Each card's details have an **Owner**: Megan, Justin or Both. A card you add starts as Justin's
+(change it before saving if it isn't); cards imported from CSV without an owner, and older cards,
+are blank until you set it. It's saved with *Save changes*, copied by *Duplicate*, and has its own
+*Owner* column in CSV import and export.
 
 ## Filters
 
