@@ -581,7 +581,7 @@ function renderDrawer(force){
         <datalist id="dl_rar">${RARITIES.map(s=>`<option value="${esc(s)}">`).join("")}</datalist>
         <div class="formfoot">
           <button class="btn primary" type="submit" id="btnSave" ${S.dirty?"":"disabled"}>${isNew?"Add card":"Save changes"}</button>
-          ${isNew?"":`<span style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">${held(c)?`<button class="btn sm primary" type="button" id="btnQuickSell" ${c.placeholder?"hidden":""}>Quick sell</button>`:""}<button class="btn sm" type="button" id="btnDup" title="Make another copy of this card">Duplicate</button><span id="delZone">${delZone()}</span></span>`}
+          ${isNew?"":`<span style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">${held(c)?`<button class="btn sm primary" type="button" id="btnQuickSell" ${c.placeholder?"hidden":""}>Quick sell</button>`:""}<button class="btn sm" type="button" id="btnDup" title="Make copies of this card">Duplicate</button><span id="delZone">${delZone()}</span></span>`}
         </div>
       </form>
       ${isNew?"":moveSection(c)}
@@ -940,54 +940,69 @@ async function moveCard(c, bid, page, slot){
     S.binderId = bid; S.page = page; S.moveTouched=false; persistNav(); render(); refreshParts(selCard(),{move:true});
   }
 }
-/* duplicate: same details and photo, market/comp prices carried over; paid, listing and sale entries stay with the original */
-function nextFreeAfter(bid, page, slot, taken){
-  const b = binderById(bid); if(!b) return null; const n = pocketsOf(b);
-  const busy = (p,s) => cardAt(bid,p,s) || taken.has(p+":"+s);
-  const last = maxPage(bid) + Math.ceil((taken.size+1)/n) + 1;
-  for(let p=Math.max(1,page||1); p<=last; p++) for(let s=(p===(page||1)?(slot||0)+1:1); s<=n; s++) if(!busy(p,s)) return {page:p, slot:s};
-  for(let p=1; p<=last; p++) for(let s=1; s<=n; s++) if(!busy(p,s)) return {page:p, slot:s};
-  return {page:last+1, slot:1};
-}
-function dupData(c, spot){
+/* duplicate: same details and photo, market/comp prices carried over; paid, listing and sale entries
+   stay with the original. Several copies at once: each in the next empty pocket (duplicate.js). */
+function dupData(c, loc){
   const {id, createdAt, updatedAt, prices:pr, status, binderId, page, slot, ...rest} = c;
   const keep = (Array.isArray(pr)?pr:[]).filter(p => p.type==="comp" || p.type==="market").map(p => ({...p, id:rid()}));
-  const loc = binderId && binderById(binderId) && spot ? {binderId, page:spot.page, slot:spot.slot} : {binderId:null, page:null, slot:null};
-  return {...rest, ...loc, status:"binder", prices:keep, createdAt:nowISO(), updatedAt:nowISO()};
+  return {...rest, binderId:loc.binderId, page:loc.page, slot:loc.slot, status:"binder", prices:keep, createdAt:nowISO(), updatedAt:nowISO()};
 }
-async function duplicateCards(ids){
+async function duplicateCards(ids, times = 1){
   if(!S.db){ toast("Saving isn't available in this view."); return []; }
   const src = ids.map(id => S.cards.find(c=>c.id===id)).filter(Boolean)
     .sort((a,b)=> SORTS.loc(a) < SORTS.loc(b) ? -1 : SORTS.loc(a) > SORTS.loc(b) ? 1 : 0);
-  const taken = {}, jobs = [];
-  for(const c of src){
-    const inB = c.binderId && binderById(c.binderId);
-    let spot = null;
-    if(inB && isCase(inB)) spot = {page:null, slot:null};
-    else if(inB){ const t = taken[c.binderId] ||= new Set(); spot = nextFreeAfter(c.binderId, c.page, c.slot, t); t.add(spot.page+":"+spot.slot); }
-    const nid = rid(), data = dupData(c, spot);
-    jobs.push({nid, data, name:c.name});
-  }
+  const binder = id => { const b = binderById(id); return b ? {pockets: isCase(b) ? null : pocketsOf(b)} : null; };
+  const spots = window.BinderDuplicate.plan(src, times, binder, cardAt, maxPage);
+  const jobs = spots.map(loc => { const c = src.find(x=>x.id===loc.id); return {nid:rid(), data:dupData(c, loc), name:c.name}; });
   const res = await Promise.allSettled(jobs.map(j => S.db.collection("cards").doc(j.nid).set(j.data)));
   const ok = jobs.filter((_,i)=>res[i].status==="fulfilled"), failed = jobs.length-ok.length;
   if(failed){ const err = res.find(r=>r.status==="rejected")?.reason; console.error(err);
-    toast(ok.length ? `Duplicated ${ok.length}. ${failed} couldn't be copied.` : (err?.code==="invalid_argument"||err?.code==="not_granted" ? "Nothing was copied. You may only have view access." : err?.code==="quota_exceeded" ? "The ledger is full. Delete some cards to add more." : "Couldn't duplicate. Check your connection and try again.")); }
+    toast(ok.length ? `Made ${ok.length} cop${ok.length===1?"y":"ies"}. ${failed} couldn't be made.` : (err?.code==="invalid_argument"||err?.code==="not_granted" ? "Nothing was copied. You may only have view access." : err?.code==="quota_exceeded" ? "The ledger is full. Delete some cards to add more." : "Couldn't duplicate. Check your connection and try again.")); }
   return ok;
 }
-async function duplicateCard(){
+/* "How many copies?" before duplicating: 1 unless changed (Enter makes them). */
+function dupModal(ids, done){
+  const n = ids.length, most = window.BinderDuplicate.most(n), one = n===1 ? S.cards.find(c=>c.id===ids[0]) : null;
+  const what = one ? esc(one.name||"this card") : `${n} cards`;
+  $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard narrow" role="dialog" aria-modal="true" aria-labelledby="dupTitle">
+    <h2 id="dupTitle">Duplicate ${what}</h2>
+    <form id="dupForm" novalidate>
+      <div class="field"><label for="dupN">Copies${n>1?" of each":""}</label><input id="dupN" class="mono" type="number" inputmode="numeric" min="1" max="${most}" step="1" value="1" required></div>
+      <p class="hint" id="dupHint">Each copy goes in the next empty pocket after ${one?"the card":"its card"}, with the same details, photo and market prices. Up to ${most}${n>1?" of each":""}.</p>
+      <div class="mfoot"><button class="btn" type="button" data-mclose>Cancel</button><button class="btn primary" type="submit" id="dupGo">Duplicate</button></div>
+    </form>
+  </div></div>`;
+  const input = $("#dupN"), go = $("#dupGo");
+  const label = () => { const k = window.BinderDuplicate.count(input.value, n); go.disabled = !k; go.textContent = k ? `Make ${k*n} cop${k*n===1?"y":"ies"}` : "Duplicate"; };
+  input.oninput = label; label(); input.select();
+  $("#dupForm").onsubmit = async e => {
+    e.preventDefault();
+    const k = window.BinderDuplicate.count(input.value, n);
+    if(!k){ $("#dupHint").innerHTML = `<span class="autoerr">Choose 1 to ${most} copies.</span>`; return input.focus(); }
+    go.disabled = true; go.textContent = "Copying…";
+    const ok = await duplicateCards(ids, k);
+    closeModal();
+    done(ok, k);
+  };
+}
+function duplicateCard(){
   const c = selCard(); if(!c || S.sel==="__new") return;
   if(S.dirty){ toast("Save or discard your changes first, then duplicate."); return; }
-  const [j] = await duplicateCards([c.id]); if(!j) return;
-  const d = j.data;
-  toast(d.binderId ? `Copy of ${c.name||"card"} added to ${locText(d)}` : `Copy of ${c.name||"card"} added`);
-  S.sel = j.nid; S.draft=null; S.dirty=false; S.editPrice=null; S.confirm=null;
-  if(d.binderId){ S.binderId=d.binderId; if(d.page) S.page=d.page; persistNav(); }
-  render(); renderDrawer(true);
+  dupModal([c.id], (ok, k) => {
+    if(!ok.length) return;
+    const first = ok[0].data, last = ok[ok.length-1].data, inCase = first.binderId && isCase(binderById(first.binderId));
+    // "to Binder 1 · Page 1 · Pocket 4", and for several "… Pocket 4 to Pocket 6" (or "to Page 2 · Pocket 1").
+    const span = !first.binderId ? "" : ` to ${locText(first)}${ok.length>1 && !inCase ? ` to ${last.page===first.page ? "" : `Page ${last.page} · `}Pocket ${last.slot}` : ""}`;
+    if(ok.length===k) toast(k===1 ? `Copy of ${c.name||"card"} added${span}` : `${k} copies of ${c.name||"card"} added${span}`);
+    // One copy opens it, as before; several leave the original open.
+    if(k===1){ S.sel = ok[0].nid; S.draft=null; S.dirty=false; S.editPrice=null; S.confirm=null; }
+    if(first.binderId){ S.binderId=first.binderId; if(first.page) S.page=first.page; persistNav(); }
+    render(); renderDrawer(true);
+  });
 }
-async function duplicatePicked(){
+function duplicatePicked(){
   const ids = [...(S.pick||[])]; if(!ids.length) return;
-  const ok = await duplicateCards(ids);
-  if(ok.length && ok.length===ids.length){ toast(`Duplicated ${ok.length} card${ok.length===1?"":"s"}`); endPick(); }
+  dupModal(ids, (ok, k) => { if(ok.length && ok.length===ids.length*k){ toast(`Made ${ok.length} cop${ok.length===1?"y":"ies"} of ${ids.length} card${ids.length===1?"":"s"}`); endPick(); } });
 }
 async function deleteCard(){
   const c = selCard(); if(!c || S.sel==="__new") return;
