@@ -22,9 +22,13 @@ Every morning (after 5:00 in your time zone, catching up if the server was off) 
 2. **Logs today's market price** in CAD: the **highest** of PriceCharting's ungraded price (recent
    eBay sales), TCGplayer's market price (recent TCGplayer sales, the price apps like Collectr
    show) and Cardmarket's trend (Europe, in euros), converted at the Bank of Canada's daily rates.
-   TCGplayer's and Cardmarket's prices for the card's printing (regular, holo, reverse holo, 1st
-   edition) come from TCGdex's free API, refreshed daily, so TCGplayer's pages are only read for
-   cards TCGdex doesn't price; [pokemontcg.io](https://pokemontcg.io) stands in for TCGplayer's
+   TCGplayer's and Cardmarket's prices come from TCGdex's free API, refreshed daily, for the
+   card's own variant: TCGdex lists each card's regular, reverse holo and holo printings, patterns
+   (Poké Ball, Master Ball, Cosmos…), stamps, 1st Edition and Shadowless separately, each with its
+   own TCGplayer and Cardmarket products. The card's **Variant** picks one ("Master Ball",
+   "1st Edition Shadowless", "Pokemon Together Stamp"); a variant TCGdex doesn't list, or lists
+   without a price, is never given another printing's price, and is matched on the price sites
+   as before. TCGplayer's pages are only read for cards TCGdex doesn't price; [pokemontcg.io](https://pokemontcg.io) stands in for TCGplayer's
    price when TCGdex has none. The entry says which source it came from and keeps every price.
    If a source has no match, no price or doesn't answer, the others are used, and a card the
    card database prices is priced even before it's matched on either site. Cardmarket can be
@@ -33,8 +37,10 @@ Every morning (after 5:00 in your time zone, catching up if the server was off) 
    last of each week) for the Pricing view's longer ranges. Prices you log yourself (what you
    paid, sales, listings, your own market prices) are never changed.
 3. **Downloads the official picture**, the largest available: pokemontcg.io's (733×1024) for
-   cards it has, else PriceCharting's (745×1042) or TCGplayer's. A PriceCharting picture a card
-   already has is kept. The picture is shown instead of your photo. Your photos are kept; each card has an
+   cards it has, else PriceCharting's (745×1042), TCGplayer's, or TCGdex's own (600×825). A
+   pattern or stamped variant gets its own TCGplayer product's picture, which shows it. A
+   PriceCharting or pokemontcg.io picture a card already has is kept, so pokemontcg.io is only
+   asked while a card still needs a picture, or (weekly) details it could fill. The picture is shown instead of your photo. Your photos are kept; each card has an
    *Official image / Your photo* switch.
 
 Each card's drawer shows its match on each site, a 30-day price chart, and *Update now*,

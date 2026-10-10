@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../server/app';
 import { Assets } from '../server/assets';
 import { Config } from '../server/config';
-import { Catalog, choosePtcg, printingOf, ptcgDetails, ptcgTcgplayer, tcgdexCardmarket, tcgdexTcgplayer, type PtcgCard, type TcgdexCard } from '../server/pricing/catalog';
+import { Catalog, choosePtcg, chooseVariant, printingOf, ptcgDetails, ptcgTcgplayer, variantPrices, tcgdexCardmarket, tcgdexTcgplayer, type PtcgCard, type TcgdexCard } from '../server/pricing/catalog';
 import { chooseMatch, detailsFromProduct, searchQuery, variantFromProduct } from '../server/pricing/match';
 import { type Candidate, type Fetcher, retryPolicy, parsePriceChartingProduct, parsePriceChartingSearch, parseTcgplayerDetails, parseTcgplayerSearch, pickTcgPrice, releaseDate } from '../server/pricing/sources';
 import { PriceUpdater, thinAutoPrices } from '../server/pricing/updater';
@@ -490,6 +490,45 @@ describe('the card databases (TCGdex and pokemontcg.io)', () => {
     expect(ptcgDetails({ ...ptcg, rarity: 'Rare Ultra', set: { ...ptcg.set, ptcgoCode: 'MEW' } })).toMatchObject({ setCode: 'MEW', rarity: 'Ultra Rare' });
   });
 
+  it("reads the card's own variant: patterns, stamps, 1st Edition and Shadowless", () => {
+    const ex = JSON.parse(fixture('tcgdex-exeggcute.json')) as TcgdexCard;
+    const cz = JSON.parse(fixture('tcgdex-charizard.json')) as TcgdexCard;
+    const pk = JSON.parse(fixture('tcgdex-pikachu.json')) as TcgdexCard;
+    const pick = (c: TcgdexCard, text: string) => {
+      const r = chooseVariant(c, text);
+      return r.unknown ? 'unknown' : [r.variant!.type, r.variant!.foil, ...(r.variant!.stamp ?? []), r.variant!.subtype].filter(Boolean).join(' ');
+    };
+    expect(pick(ex, '')).toBe('normal');
+    expect(pick(ex, 'Reverse Holo')).toBe('reverse');
+    expect(pick(ex, 'Poke Ball')).toBe('reverse pokeball');
+    expect(pick(ex, 'Poké Ball Reverse Holo')).toBe('reverse pokeball');
+    expect(pick(ex, 'Ball')).toBe('reverse pokeball');
+    expect(pick(ex, 'Master Ball')).toBe('reverse masterball');
+    expect(pick(ex, 'Holo')).toBe('unknown'); // no plain holo Exeggcute: not priced as another printing
+    expect(pick(ex, 'Great Ball')).toBe('unknown');
+    expect(pick(cz, '')).toBe('holo unlimited');
+    expect(pick(cz, 'Holo')).toBe('holo unlimited');
+    expect(pick(cz, 'Shadowless')).toBe('holo shadowless');
+    expect(pick(cz, '1st Edition')).toBe('holo 1st-edition shadowless');
+    expect(pick(cz, '1st Edition Shadowless Holo')).toBe('holo 1st-edition shadowless');
+    expect(pick(pk, 'Pokemon Together Stamp')).toBe('normal pokemon-together');
+    expect(pick(pk, 'Cosmo Holo')).toBe('reverse cosmos');
+    expect(pick(pk, 'Staff Stamp')).toBe('unknown');
+    expect(pick(pk, 'Stamped')).toBe('unknown');
+    // Words describing the card itself don't make it another printing.
+    expect(pick(pk, 'Full Art')).toBe('normal');
+    expect(pick(cz, 'Holo Rare')).toBe('holo unlimited');
+
+    const price = (c: TcgdexCard, text: string) => variantPrices(chooseVariant(c, text).variant!);
+    expect(price(ex, 'Master Ball')).toEqual({ tcgplayer: { usd: 1.27, productId: '610637' }, cardmarketEur: 1.61 });
+    expect(price(ex, 'Poke Ball')).toEqual({ tcgplayer: { usd: 0.34, productId: '610536' }, cardmarketEur: 0.35 });
+    expect(price(ex, '')).toEqual({ tcgplayer: { usd: 0.05, productId: '610356' }, cardmarketEur: 0.02 });
+    expect(price(cz, '')).toEqual({ tcgplayer: { usd: 928.32, productId: '42382' }, cardmarketEur: 432.4 });
+    // No TCGplayer price for a 1st Edition Shadowless Charizard: never the unlimited one's.
+    expect(price(cz, '1st Edition Shadowless')).toEqual({ tcgplayer: null, cardmarketEur: 3330.71 });
+    expect(price(pk, 'Pokemon Together Stamp')).toEqual({ tcgplayer: null, cardmarketEur: 57.24 });
+  });
+
   it('finds the same card on pokemontcg.io by set and number', () => {
     expect(choosePtcg(found, td)?.id).toBe('sv3pt5-131');
     expect(choosePtcg(found, { ...td, set: { id: 'me02.5', name: '30th Celebration', cardCount: { official: 128 } } })?.id).toBe('me55-131');
@@ -542,12 +581,18 @@ describe('prices and pictures from the card databases', () => {
     expect(c.pricing).toMatchObject({ imageUrl: 'https://images.pokemontcg.io/sv3pt5/131_hires.png' });
     expect(fs.readFileSync(assets.find(c.officialImageId as string)!.file)).toEqual(HIRES);
     expect(store.get('settings', 'main')).toMatchObject({ usdToCad: 1.4271, eurToCad: 1.5978 });
-    // The next day pokemontcg.io's card is read by its id, not searched for again.
+    // The next day pokemontcg.io isn't asked at all: the card has its picture.
     now = new Date('2026-10-11T15:00:00Z');
     const next = dbNet({ 'pricecharting.com': () => new Response('Forbidden', { status: 403 }) });
     await updater(next).runAll('manual');
-    expect(next.calls.filter((u) => u.includes('api.pokemontcg.io/v2/cards?q='))).toHaveLength(0);
-    expect(next.calls.filter((u) => u.includes('api.pokemontcg.io/v2/cards/sv3pt5-131'))).toHaveLength(1);
+    expect(next.calls.filter((u) => u.includes('pokemontcg.io'))).toHaveLength(0);
+    expect(store.get('cards', 'c1')!.prices).toHaveLength(2);
+    // A week on, a card with blanks left (151 has no set code there) is read again, by its id.
+    now = new Date('2026-10-18T15:00:00Z');
+    const week = dbNet({ 'pricecharting.com': () => new Response('Forbidden', { status: 403 }) });
+    await updater(week).runAll('manual');
+    expect(week.calls.filter((u) => u.includes('api.pokemontcg.io/v2/cards?q='))).toHaveLength(0);
+    expect(week.calls.filter((u) => u.includes('api.pokemontcg.io/v2/cards/sv3pt5-131'))).toHaveLength(1);
   });
 
   it('compares PriceCharting too when it answers, keeping a PriceCharting picture the card already has', async () => {
@@ -591,6 +636,7 @@ describe('prices and pictures from the card databases', () => {
     const noTcg = () => {
       const card = JSON.parse(fixture('tcgdex-card.json'));
       delete card.pricing.tcgplayer;
+      for (const v of card.variants_detailed) delete v.pricing.tcgplayer;
       return Response.json(card);
     };
     const ptcgFound = () => Response.json({ data: [JSON.parse(fixture('ptcg-card.json')).data] });
@@ -612,6 +658,45 @@ describe('prices and pictures from the card databases', () => {
     expect(store.get('cards', 'blank')).toMatchObject({ set: '151', rarity: 'Uncommon', artist: 'LINNE', released: '2023-09-22', setCode: '' });
     expect(store.get('cards', 'typed')).toMatchObject({ rarity: 'Rare', artist: 'Someone' });
     expect(net.calls.filter((u) => u.includes('api.pokemontcg.io/v2/cards?q='))).toHaveLength(0);
+  });
+
+  it("prices and links a Master Ball card from its own variant, undoing a match to the regular card's product", async () => {
+    const tcgdex = (id: string, f: string) => ({ [`api.tcgdex.net/v2/en/cards/${id}`]: () => Response.json(JSON.parse(fixture(f))) });
+    const exeggcute = { name: 'Exeggcute', set: 'Prismatic Evolutions', number: '001/131', rarity: 'Common', status: 'binder', prices: [], details: { source: 'tcgdex', result: 'complete', id: 'sv08.5-001', checkedAt: '2026-10-01T00:00:00Z' } };
+    // As the update left it before variants were read: linked to the regular card's TCGplayer product.
+    store.set('cards', 'mb', { ...exeggcute, variant: 'Master Ball', pricing: { source: 'tcgplayer', id: '610356', linkedBy: 'auto' } });
+    store.set('cards', 'chosen', { ...exeggcute, variant: 'Master Ball', pricing: { source: 'tcgplayer', id: '610356', linkedBy: 'user' } });
+    const net = dbNet({ ...tcgdex('sv08.5-001', 'tcgdex-exeggcute.json'), 'pricecharting.com': () => new Response('Forbidden', { status: 403 }), '/pricepoints': () => Response.json([{ printingType: 'Normal', marketPrice: 0.05 }]) });
+    await updater(net).runAll('manual');
+    const mb = store.get('cards', 'mb')!;
+    expect(mb.pricing).toMatchObject({ source: 'tcgplayer', id: '610637', linkedBy: 'auto', imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/610637_in_1000x1000.jpg' });
+    // TCGplayer US$1.27 vs Cardmarket €1.61 = US$1.80.
+    expect(mb.prices).toEqual([expect.objectContaining({ where: 'Cardmarket', quotes: { tcgplayer: 1.27, cardmarket: 1.8 }, note: expect.stringMatching(/^Daily update \(Master Ball reverse\) · higher of TCGplayer US\$1\.27 and Cardmarket €1\.61/) })]);
+    // The product the person chose stays (and is priced from TCGplayer as before).
+    expect(store.get('cards', 'chosen')!.pricing).toMatchObject({ source: 'tcgplayer', id: '610356', linkedBy: 'user' });
+  });
+
+  it("never gives a 1st Edition or unlisted variant another printing's price, and pictures it from TCGdex when there's nothing larger", async () => {
+    const charizard = { name: 'Charizard', set: 'Base Set', number: '4/102', rarity: 'Rare', status: 'binder', prices: [], details: { source: 'tcgdex', result: 'complete', id: 'base1-4', checkedAt: '2026-10-01T00:00:00Z' } };
+    const pikachu = { name: 'Pikachu', set: '151', number: '025/165', rarity: 'Common', status: 'binder', prices: [], details: { source: 'tcgdex', result: 'complete', id: 'sv03.5-025', checkedAt: '2026-10-01T00:00:00Z' } };
+    store.set('cards', 'first', { ...charizard, variant: '1st Edition Shadowless' });
+    store.set('cards', 'staff', { ...pikachu, variant: 'Staff Stamp' });
+    const TCGDEX_PIC = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('tcgdex picture')]);
+    const net = dbNet({
+      'api.tcgdex.net/v2/en/cards/base1-4': () => Response.json(JSON.parse(fixture('tcgdex-charizard.json'))),
+      'api.tcgdex.net/v2/en/cards/sv03.5-025': () => Response.json(JSON.parse(fixture('tcgdex-pikachu.json'))),
+      'assets.tcgdex.net/en/base/base1/4/high.png': () => new Response(new Uint8Array(TCGDEX_PIC)),
+      'pricecharting.com': () => new Response('Forbidden', { status: 403 }),
+    });
+    const s = await updater(net).runAll('manual');
+    // Cardmarket's 1st Edition Shadowless price only (€3,330.71), not the US$928 unlimited card.
+    const first = store.get('cards', 'first')!;
+    expect(first.prices).toEqual([expect.objectContaining({ where: 'Cardmarket', quotes: { cardmarket: 3729.11 } })]);
+    expect(first.pricing).toMatchObject({ source: 'none', imageUrl: 'https://assets.tcgdex.net/en/base/base1/4/high.png' });
+    expect(fs.readFileSync(assets.find(first.officialImageId as string)!.file)).toEqual(TCGDEX_PIC);
+    // A stamp TCGdex doesn't list: no database price at all; left to a match on the price sites.
+    expect(store.get('cards', 'staff')).toMatchObject({ prices: [], pricing: { source: 'none' } });
+    expect(s.counts).toMatchObject({ updated: 1, needsMatch: 1 });
   });
 
   it("carries on without the databases when they don't answer", async () => {

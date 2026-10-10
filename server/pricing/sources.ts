@@ -75,14 +75,18 @@ function backoff(attempt: number, retryAfter: string | null) {
   return Math.min(retryPolicy.maxMs, ms) * (1 + Math.random() * 0.25);
 }
 
-/** fetch with a timeout, an honest user agent, and retries with exponential backoff when the site is busy. */
-export async function get(fetcher: Fetcher, url: string, init: RequestInit = {}): Promise<Response> {
+/**
+ * fetch with a timeout, an honest user agent, and retries with exponential backoff when the site is
+ * busy. `patience` shortens both for a source that's only nice to have.
+ */
+export async function get(fetcher: Fetcher, url: string, init: RequestInit = {}, patience: { timeoutMs?: number; attempts?: number } = {}): Promise<Response> {
   const host = new URL(url).host;
+  const attempts = Math.min(patience.attempts ?? retryPolicy.attempts, retryPolicy.attempts);
   for (let attempt = 0; ; attempt++) {
-    const last = attempt >= retryPolicy.attempts - 1;
+    const last = attempt >= attempts - 1;
     let res: Response;
     try {
-      res = await fetcher(url, { ...init, headers: { 'User-Agent': UA, ...(init.headers ?? {}) }, signal: AbortSignal.timeout(TIMEOUT_MS) });
+      res = await fetcher(url, { ...init, headers: { 'User-Agent': UA, ...(init.headers ?? {}) }, signal: AbortSignal.timeout(patience.timeoutMs ?? TIMEOUT_MS) });
     } catch (err) {
       if (!last) {
         await pause(backoff(attempt, null));
