@@ -10,6 +10,7 @@
 
 import { CardDetails, type DetailsStatus } from './details';
 import { type Logger, quietLogger } from './log';
+import { safely } from './recover';
 import type { PriceUpdater } from './pricing/updater';
 import type { Doc } from './schema';
 import type { Store } from './store';
@@ -80,7 +81,7 @@ export class Autofill {
       this.enqueue(id);
     });
     if (this.backfillAfterMs != null) {
-      this.backfillTimer = setTimeout(() => this.backfill(), this.backfillAfterMs);
+      this.backfillTimer = setTimeout(() => safely(this.log, 'pricing', 'Looking up cards again after an update', () => this.backfill()), this.backfillAfterMs);
       this.backfillTimer.unref?.();
     }
   }
@@ -112,9 +113,11 @@ export class Autofill {
 
   private enqueue(id: string) {
     if (!this.queue.includes(id)) this.queue.push(id);
-    this.working ??= this.drain().finally(() => {
-      this.working = null;
-    });
+    this.working ??= this.drain()
+      .catch((err) => void this.log.error('pricing', `Filling in new cards stopped: ${err instanceof Error ? (err.stack ?? err.message) : err}`))
+      .finally(() => {
+        this.working = null;
+      });
   }
 
   private async drain() {

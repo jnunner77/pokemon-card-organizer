@@ -23,7 +23,7 @@ import { InvalidDoc, collectionSchema, idSchema } from './schema';
 import { HttpError, MUTATING, type Security } from './security';
 import type { Secret } from './secrets';
 import { cardsNeedingAttention, readOffsite, statusText, writeStatus } from './status';
-import { NotFound, type Store } from './store';
+import { NotFound, SaveFailed, type Store } from './store';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -245,7 +245,15 @@ export function createApp(o: AppOptions) {
         res.end();
       };
       const unsubscribe = feed.subscribe(send);
-      const heartbeat = setInterval(() => (stillIn() ? res.write(': ping\n\n') : stop()), 25_000);
+      // A connection that broke is closed (the page reconnects), never left to throw.
+      const heartbeat = setInterval(() => {
+        try {
+          if (stillIn()) res.write(': ping\n\n');
+          else stop();
+        } catch {
+          stop();
+        }
+      }, 25_000);
       send(feed.current());
       req.on('close', stop);
     });
@@ -433,7 +441,15 @@ export function createApp(o: AppOptions) {
       res.end();
     };
     const unsubscribe = store.subscribe((e) => (stillAllowed() ? res.write(`data: ${JSON.stringify(e)}\n\n`) : stop()));
-    const heartbeat = setInterval(() => (stillAllowed() ? res.write(': ping\n\n') : stop()), 25_000);
+    // A connection that broke is closed (the page reconnects), never left to throw.
+    const heartbeat = setInterval(() => {
+      try {
+        if (stillAllowed()) res.write(': ping\n\n');
+        else stop();
+      } catch {
+        stop();
+      }
+    }, 25_000);
     req.on('close', () => {
       clearInterval(heartbeat);
       unsubscribe();
@@ -708,7 +724,8 @@ export function createApp(o: AppOptions) {
   admin.get('/pricing', (_req, res) => {
     const st = (store.get('settings', 'pricing') ?? {}) as Record<string, unknown>;
     // Whether PriceCharting's token is saved, and when: never the token itself.
-    const pricecharting = o.pricecharting ? o.pricecharting.token.info() : null;
+    // The token's state (never the token), and how PriceCharting is being used today.
+    const pricecharting = o.pricecharting ? { ...o.pricecharting.token.info(), usage: o.pricecharting.api.usageNow() } : null;
     res.json({ available: !!updater, schedule: updater?.schedule() ?? null, pricecharting, running: !!st.running, done: st.done ?? 0, total: st.total ?? 0, current: st.current ?? null, problem: st.problem ?? null, history: st.history ?? (st.lastRun ? [st.lastRun] : []) });
   });
   admin.put('/pricing', json, (req, res) => {
@@ -742,6 +759,7 @@ export function createApp(o: AppOptions) {
   admin.delete('/pricing/pricecharting-token', (_req, res) => {
     const pc = needPc();
     pc.token.clear();
+    pc.api.forget();
     updater!.noteToken();
     log.info('admin', `${who(res)} removed the PriceCharting API token`);
     res.json({ pricecharting: pc.token.info() });
@@ -751,7 +769,10 @@ export function createApp(o: AppOptions) {
     const pc = needPc();
     let summary;
     try {
-      summary = updater!.purgePriceCharting(() => pc.token.clear());
+      summary = updater!.purgePriceCharting(() => {
+        pc.token.clear();
+        pc.api.forget();
+      });
     } catch (err) {
       throw new HttpError(409, err instanceof Error ? err.message : String(err), 'busy');
     }
@@ -876,6 +897,11 @@ export function createApp(o: AppOptions) {
     else if (err instanceof InvalidDoc || err instanceof RestoreError) [status, message] = [400, err.message];
     else if (err instanceof SourceError) [status, code, message] = [502, 'upstream_error', err.message];
     else if (err instanceof NotFound) [status, code, message] = [404, 'not_found', err.message];
+    else if (err instanceof SaveFailed) {
+      // The disk is full or can't be written: nothing was changed, and it shows in the problems banner.
+      [status, code, message] = [503, 'save_failed', err.message];
+      log.error('app', `${req.method} ${req.path}: ${err.message}`);
+    }
     else if (e?.type === 'entity.too.large') [status, code, message] = [413, 'too_large', 'That upload is too large'];
     else if (e?.type === 'entity.parse.failed') [status, message] = [400, "The request body isn't valid JSON"];
     else log.error('app', `${req.method} ${req.path} failed: ${e?.message ?? err}`, { stack: (err as Error)?.stack?.split('\n').slice(0, 6).join(' | ') });

@@ -218,7 +218,13 @@ export class Security {
   }
 
   start(everyMs = 60_000) {
-    this.timer = setInterval(() => this.sweep(), everyMs);
+    this.timer = setInterval(() => {
+      try {
+        this.sweep();
+      } catch (err) {
+        this.log?.error('security', `Clearing old blocks and counts failed: ${err instanceof Error ? (err.stack ?? err.message) : err}`);
+      }
+    }, everyMs);
     this.timer.unref();
   }
 

@@ -105,9 +105,12 @@ function writeErr(e){
 async function guard(fn){ if(!S.db){ toast("Saving isn't available in this view."); return false; } try{ await fn(); return true; }catch(e){ writeErr(e); return false; } }
 
 /* ---------- rendering ---------- */
+/* Each part on its own: one that fails is reported (and shown in red) while the rest still draw. */
 function render(){
-  renderBanner(); renderTabs(); renderStats(); renderMain(); renderDrawer(); renderPricing(); renderSelling();
-  if(TB.open) renderTable();
+  for(const part of [renderBanner, renderTabs, renderStats, renderMain, renderDrawer, renderPricing, renderSelling, ()=>{ if(TB.open) renderTable(); }]){
+    try{ part(); }
+    catch(e){ if(typeof window.reportError==="function") window.reportError(e); else console.error(e); }
+  }
 }
 function renderBanner(){
   const el = $("#banner");

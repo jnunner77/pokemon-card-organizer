@@ -8,6 +8,7 @@ import { Config } from './config';
 import { CardDetails } from './details';
 import { Guests } from './guests';
 import { Logger } from './log';
+import { every } from './recover';
 import { Catalog } from './pricing/catalog';
 import { PriceCharting } from './pricing/pricecharting';
 import { PriceUpdater } from './pricing/updater';
@@ -23,15 +24,27 @@ const secretsDir = path.resolve(env.SECRETS_DIR ?? path.join(dataDir, 'secrets')
 const trust = env.TRUST_PROXY;
 
 const log = new Logger({ dir: path.join(dataDir, 'logs') });
-const store = new Store(dataDir);
+/** A file the server can't start without is damaged beyond recovery: say so plainly in the log, and stop. */
+const orStop = <T>(what: string, make: () => T): T => {
+  try {
+    return make();
+  } catch (err) {
+    log.error('app', `Couldn't start: ${what}: ${err instanceof Error ? err.message : err}`);
+    process.exit(1);
+  }
+};
+const store = orStop('the ledger', () => new Store(dataDir));
+if (store.recovered) log.error('app', store.recovered.message, { from: store.recovered.from, keptAs: store.recovered.damaged.setAside });
+store.onError = (what, err) => log.error('app', `${what} failed: ${err instanceof Error ? (err.stack ?? err.message) : err}`);
 const assets = new Assets(dataDir);
 // PRICE_UPDATE_HOUR and PRICE_UPDATES are the starting schedule; administrators can change it.
 const config = new Config(dataDir, { pricing: { enabled: env.PRICE_UPDATES !== 'off', hour: Number(env.PRICE_UPDATE_HOUR ?? 5) } });
+if (config.recovered) log.error('admin', config.recovered);
 const backups = new Backups(store, assets, config, log);
 store.onDailyCopy = () => backups.prune();
 
 // AUTH=off is only for running on your own computer: no sign-in at all.
-const accounts = env.AUTH === 'off' ? undefined : new Accounts(dataDir, log);
+const accounts = env.AUTH === 'off' ? undefined : orStop('the accounts', () => new Accounts(dataDir, log));
 if (accounts) await accounts.bootstrap(env.BINDER_PASSWORD);
 else log.warn('security', 'AUTH=off: sign-in is turned off and anyone who can reach this server can use the ledger.');
 
@@ -49,7 +62,8 @@ const details = env.CARD_LOOKUPS === 'off' ? undefined : new CardDetails();
 const catalog = details ? new Catalog({ ptcgKey: env.POKEMONTCG_API_KEY }) : undefined;
 // PriceCharting's API, with the token administrators enter under Administration → Prices.
 const pcToken = new Secret(secretsDir, 'pricecharting-token');
-const pricecharting = new PriceCharting({ token: () => pcToken.read() });
+// PRICECHARTING_DAILY_LIMIT: most PriceCharting calls a day (2000 by default); the count is kept across restarts.
+const pricecharting = new PriceCharting({ token: () => pcToken.read(), log, dailyLimit: Number(env.PRICECHARTING_DAILY_LIMIT) || undefined, usageFile: path.join(dataDir, 'pricecharting-usage.json') });
 const updater = new PriceUpdater({ store, assets, log, config, details, catalog, pricecharting, timeZone: env.TZ || 'America/Vancouver' });
 updater.noteToken();
 // An update the saved status says is running stopped with the server: say so (a red banner) and let it start again.
@@ -100,14 +114,14 @@ const housekeeping = () => {
   }
 };
 housekeeping();
-setInterval(housekeeping, 60 * 60_000).unref();
+every(log, 'backup', 'Housekeeping', 60 * 60_000, housekeeping);
 // status.txt for the server's nightly job (Boards' deploy/ops), which alerts on it. Every five
 // minutes, so the job sees its own off-site copy reflected soon after making it.
 const writeStatus = () => app.writeStatusFile().catch((err) => log.error('app', `Couldn't write the status file: ${err instanceof Error ? err.message : err}`));
 void writeStatus();
-setInterval(writeStatus, 5 * 60_000).unref();
+every(log, 'app', 'Writing the status file', 5 * 60_000, writeStatus);
 // Save sessions' last-seen times once a minute rather than on every request.
-setInterval(() => accounts?.flush(), 60_000).unref();
+every(log, 'auth', 'Saving sessions', 60_000, () => accounts?.flush());
 
 const server = app.listen(port, () => {
   const n = store.all();

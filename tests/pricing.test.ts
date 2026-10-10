@@ -641,7 +641,7 @@ describe('prices and pictures from the card databases', () => {
     // PriceCharting and the card databases both down: a failure.
     store.set('cards', 'allDown', both());
     expect(await updater(dbNet({ 'product?id=': () => new Response('down', { status: 503 }), 'api.tcgdex.net/v2/en/cards/sv03.5-131': () => new Response('down', { status: 503 }) })).updateCard('allDown')).toBe('failed');
-    expect(store.get('cards', 'allDown')).toMatchObject({ prices: [], pricing: { error: expect.stringMatching(/pricecharting.*503/) } });
+    expect(store.get('cards', 'allDown')).toMatchObject({ prices: [], pricing: { error: expect.stringMatching(/PriceCharting answered 503/) } });
   });
 
   it("lets the person choose or stop using the card's TCGplayer product, keeping their choices when correcting a match", async () => {

@@ -51,15 +51,20 @@
 
   const colSnap = col => ({ docs: [...cache[col].entries()].map(([id, d]) => ({ id, data: () => ({ ...d }) })) });
   const docSnap = (col, id) => { const d = cache[col].get(id); return { id, exists: !!d, data: () => (d ? { ...d } : undefined) }; };
+  /* Each watcher hears every change even if one before it fails; the failure is reported like any page error. */
+  function tell(fn, snap) {
+    try { fn(snap); }
+    catch (e) { if (typeof window.reportError === "function") window.reportError(e); else setTimeout(() => { throw e; }); }
+  }
   function notify(col, id) {
-    for (const fn of watchers[col]) fn(colSnap(col));
+    for (const fn of watchers[col]) tell(fn, colSnap(col));
     const set = docWatchers.get(col + "/" + id);
-    if (set) for (const fn of set) fn(docSnap(col, id));
+    if (set) for (const fn of set) tell(fn, docSnap(col, id));
   }
   function notifyAll() {
     for (const col of COLS) {
-      for (const fn of watchers[col]) fn(colSnap(col));
-      for (const [key, set] of docWatchers) if (key.startsWith(col + "/")) for (const fn of set) fn(docSnap(col, key.slice(col.length + 1)));
+      for (const fn of watchers[col]) tell(fn, colSnap(col));
+      for (const [key, set] of docWatchers) if (key.startsWith(col + "/")) for (const fn of set) tell(fn, docSnap(col, key.slice(col.length + 1)));
     }
   }
   function apply(col, id, doc) {

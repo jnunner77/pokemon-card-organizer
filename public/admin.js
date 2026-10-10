@@ -214,6 +214,13 @@
   }
 
   // ---- Prices --------------------------------------------------------------------------
+  /* How PriceCharting is being used today, against its rules: one call a second, a daily budget, and whether it's paused. */
+  function pcUsage(u) {
+    if (!u) return "";
+    const pct = u.limit ? Math.min(100, Math.round(u.calls / u.limit * 100)) : 0;
+    const paused = u.pausedUntil ? `<div class="probs" data-kind="bad" role="alert" style="margin:8px 0"><div class="probs-head"><h2>PriceCharting isn't being asked until ${esc(when(u.pausedUntil))}</h2></div><p>${esc(u.pausedWhy || "")}</p><p class="hint">This protects the subscription: PriceCharting blocks, then revokes, an account that asks too often. Prices come from TCGplayer and Cardmarket meanwhile, and it's asked again by itself afterwards.</p></div>` : "";
+    return `${paused}<p class="pcusage"><span><b>${u.calls}</b> of ${u.limit} calls today (UTC)</span><span class="meter" role="img" aria-label="${pct}% of today's calls used"><span style="width:${pct}%" class="${pct >= 80 ? "hi" : ""}"></span></span><span class="hint">at most one every ${(u.gapMs / 1000).toFixed(2)} s, retries included${u.cached ? ` · ${u.cached} recent answers reused` : ""}${u.failuresInARow ? ` · ${u.failuresInARow} failed in a row` : ""}${u.lastCallAt ? ` · last call ${esc(when(u.lastCallAt))}` : ""}</span></p>`;
+  }
   let problemLog = null;
   async function prices() {
     const p = await api("GET", "admin/pricing");
@@ -236,6 +243,7 @@
       </div><p class="hint">Each card is priced at the highest of PriceCharting's ungraded price, TCGplayer's market price and Cardmarket's trend; a graded card at PriceCharting's price for its grade. PriceCharting's prices come from its API; TCGplayer's and Cardmarket's from the TCGdex card database. No site's pages are read. Pictures come from pokemontcg.io (733×1024), TCGplayer or TCGdex.</p><div class="formfoot"><span class="hint">${p.running ? `Running now: ${p.done} of ${p.total} cards${p.current?.card ? ` (now ${esc(p.current.card)})` : ""}.` : "If the server was off at that hour, it runs when it's back."}</span><span style="display:flex;gap:8px">${p.running && !p.problem ? `<button class="btn danger" type="button" data-runprob="stop">Stop the update</button>` : ""}<button class="btn" type="button" id="runNow" ${p.running ? "disabled" : ""}>Update all prices now</button><button class="btn primary" type="submit">Save</button></span></div></form>
       ${pc ? `<form class="adminform" id="pcForm" autocomplete="off"><h3>PriceCharting</h3>
         <p>${pc.set ? `${chip("pass", "API token saved")} <span class="hint">on ${esc(when(pc.savedAt))}</span>` : chip("info", "No API token")}</p>
+        ${pcUsage(pc.usage)}
         <p class="hint">PriceCharting's prices (ungraded, and graded when the subscription includes them) come from its API with your subscription's token: on PriceCharting, <b>Subscription → API/Download</b>. The token is kept in its own file on the server, apart from the ledger: it's never shown here again, logged, or put in backups or exports. PriceCharting is asked at most once a second.${pc.set ? "" : " Without a token, prices come from TCGplayer and Cardmarket only."}</p>
         <div class="tokenrow"><input name="token" type="password" maxlength="100" spellcheck="false" autocapitalize="off" placeholder="${pc.set ? "Paste a new token to replace it" : "Paste the 40-character token"}" aria-label="PriceCharting API token" required><button class="btn primary" type="submit">${pc.set ? "Replace token" : "Save token"}</button></div>
         <div class="formfoot"><span class="hint">Subscription ended? Purging removes the token and everything that came from PriceCharting: its matches, its prices in the daily price log (each day keeps the other sources' highest, or is removed) and its pictures (others are downloaded at the next update). Prices you logged yourself stay. Copies of the ledger on the server still hold PriceCharting's prices until they age out, as set under Backups.</span><span style="display:flex;gap:8px;flex-wrap:wrap">${pc.set ? `<button class="btn" type="button" id="pcRemove">Remove token</button>` : ""}<button class="btn danger" type="button" id="pcPurge">Purge PriceCharting data</button></span></div></form>` : ""}
