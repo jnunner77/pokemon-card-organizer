@@ -78,6 +78,10 @@ Adding a card only needs its **name and number**:
 - *Settings → Card details → Fill in missing details* does the same for cards already in the
   ledger (illustrators, for instance), and the daily price run fills blanks too. Cards looked up
   are asked about again after a week, in case TCGdex has added them.
+- What TCGdex leaves blank for a card it found (a rarity, an illustrator, a set code or release
+  date) is filled at the next price update from [pokemontcg.io](https://pokemontcg.io), the
+  database the card's large picture comes from. Its older rarity names are put in the binder's
+  words ("Rare Ultra" becomes Ultra Rare). Again, nothing you typed is replaced.
 
 On a 122-card collection, Fill in missing details added 108 illustrators; the cards not found
 were from the *Trading Card Game Classic* box, a brand-new promo, and a misspelled name.
