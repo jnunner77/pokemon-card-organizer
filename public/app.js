@@ -795,8 +795,10 @@ function priceFields(pre, p={}){
 function priceSection(c){
   const list = prices(c), mine = list.filter(p=>!p.auto), daily = list.filter(p=>p.auto);
   const dailyLog = daily.length ? `<details class="autolog" id="autoLog"${S.autoLogOpen?" open":""}><summary>Daily prices · ${daily.length} day${daily.length===1?"":"s"}, latest ${esc(money(daily[0].amount))} on ${esc(daily[0].date||"")}</summary><div class="plog">${daily.map(priceRowView).join("")}</div></details>` : "";
+  // Daily prices from more than one source can be worked out again without one that was the wrong card.
+  const fixPast = daily.length && S.me?.user?.role!=="viewer" && window.BinderPastPrices.sources(list).length > 1 ? `<div class="links" style="margin-top:6px"><button class="btn sm" type="button" data-fixpast="${esc(c.id)}">Fix past daily prices…</button></div>` : "";
   return `<div class="sec" id="priceSec"><h3>Price log <span class="hint" style="letter-spacing:0;text-transform:none;font-weight:400">newest first</span></h3>
-    ${mine.length?`<div class="plog" id="plog">${mine.map(priceRowView).join("")}</div>`:daily.length?"":`<p class="hint" style="margin:0">No prices logged yet.</p>`}${dailyLog}
+    ${mine.length?`<div class="plog" id="plog">${mine.map(priceRowView).join("")}</div>`:daily.length?"":`<p class="hint" style="margin:0">No prices logged yet.</p>`}${dailyLog}${fixPast}
     <datalist id="dl_where">${["eBay","TCGplayer","PriceCharting","Facebook Marketplace","Local card shop","Card show","Collectr","Trade"].map(s=>`<option value="${s}">`).join("")}</datalist>
     <div style="margin-top:14px;border:1px dashed var(--line);border-radius:8px;padding:12px">
       <h3 style="margin-bottom:8px">Add a price</h3>
@@ -1033,6 +1035,47 @@ async function savePrice(pid){
   const list = (c.prices||[]).map(x => x.id===pid ? {...x, ...p} : x);
   if(await updateCard(c.id, {prices:list})){ S.editPrice=null; refreshParts(selCard(),{price:true}); toast("Entry updated"); }
 }
+/* ---------- fixing past daily prices (public/pastprices.js) ----------
+   A source that was matched to the wrong card (a reprint priced as its original) is left out of a
+   card's past daily prices: each day is worked out again from the sources kept, a day with none
+   is removed. Shown before it's saved, and undoable. */
+let FP = null;
+function fixPastModal(id){
+  const c = S.cards.find(x=>x.id===id); if(!c) return;
+  const BP = window.BinderPastPrices;
+  FP = {id, keep:new Set(BP.suggested(c))};
+  const srcs = BP.sources(c.prices);
+  $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard narrow" id="fpCard" role="dialog" aria-modal="true" aria-labelledby="fpTitle">
+    <h2 id="fpTitle">Fix past daily prices</h2>
+    <p class="lead">${esc(c.name||"This card")}'s daily prices are the highest of these sources each day. Untick one that was matched to the wrong card (another printing or set): each day is worked out again from the ones left, and a day with none of them is removed. Prices you logged yourself aren't changed.</p>
+    <div class="fpsrc" role="group" aria-label="Sources to keep">${srcs.map(k=>`<label class="phswitch"><input type="checkbox" data-fpsrc="${esc(k)}" ${FP.keep.has(k)?"checked":""}><span>${esc(BP.NAME[k]||k)}</span></label>`).join("")}</div>
+    <div id="fpPreview"></div>
+    <div class="mfoot"><button class="btn" type="button" data-mclose>Cancel</button><button class="btn primary" type="button" id="fpSave">Fix the prices</button></div>
+  </div></div>`;
+  $("#fpCard").addEventListener("change", e => { const k = e.target.dataset?.fpsrc; if(!k) return; e.target.checked ? FP.keep.add(k) : FP.keep.delete(k); renderFixPast(); });
+  $("#fpSave").onclick = () => void saveFixPast();
+  renderFixPast();
+}
+function renderFixPast(){
+  const c = S.cards.find(x=>x.id===FP?.id), box = $("#fpPreview"); if(!c || !box) return;
+  const r = window.BinderPastPrices.keepOnly(c.prices, [...FP.keep]);
+  $("#fpSave").disabled = !r.rows.length;
+  if(!FP.keep.size){ box.innerHTML = `<p class="hint">Keep at least one source; to stop automatic prices, use <b>Turn off</b> instead.</p>`; $("#fpSave").disabled = true; return; }
+  if(!r.rows.length){ box.innerHTML = `<p class="hint">Nothing changes: no daily price used ${esc([...window.BinderPastPrices.sources(c.prices)].filter(k=>!FP.keep.has(k)).map(k=>window.BinderPastPrices.NAME[k]||k).join(" or ") || "the sources left out")}.</p>`; return; }
+  box.innerHTML = `<p><b>${r.changed} day${r.changed===1?"":"s"} change${r.changed===1?"s":""}${r.removed?`, ${r.removed} removed`:""}.</b></p>
+    <div class="tablewrap fptable"><table><thead><tr><th>Date</th><th class="r">Was</th><th class="r">Becomes</th></tr></thead><tbody>${r.rows.map(x=>`<tr><td class="mono">${esc(x.date)}</td><td class="r mono">${esc(money(x.before))}</td><td class="r mono">${x.after==null?`<span class="neg">removed</span>`:`${esc(money(x.after))} <small class="hint">${esc(x.where)}</small>`}</td></tr>`).join("")}</tbody></table></div>`;
+}
+async function saveFixPast(){
+  const c = S.cards.find(x=>x.id===FP?.id); if(!c) return;
+  const before = c.prices || [];
+  const r = window.BinderPastPrices.keepOnly(before, [...FP.keep]);
+  if(!r.rows.length) return;
+  $("#fpSave").disabled = true;
+  if(!(await updateCard(c.id, {prices:r.prices}))){ $("#fpSave").disabled = false; return; }
+  closeModal(); refreshParts(selCard(), {price:true});
+  toast(`${c.name||"Card"}: ${r.changed} daily price${r.changed===1?"":"s"} fixed${r.removed?`, ${r.removed} removed`:""}`, {label:"Undo", run:() => void updateCard(c.id, {prices:before}).then(ok => { if(ok){ refreshParts(selCard(), {price:true}); toast("Past prices put back"); } })});
+}
+
 async function delPrice(pid){
   const c = selCard();
   if(await updateCard(c.id, {prices:(c.prices||[]).filter(x=>x.id!==pid)})){ S.confirm=null; refreshParts(selCard(),{price:true}); toast("Entry deleted"); }
@@ -1404,6 +1447,7 @@ function renderChecks(){
       if(!viewer && x.k==="name") fix = d.suggest.map((s,i)=>`<button class="btn sm primary" type="button" data-cfix="name" data-cid="${id}" data-copt="${i}">Rename to ${esc(suggestedName(c, s))}</button>`).join("");
       const choices = !viewer && x.k==="several" && d.options?.length ? `<div class="dchoices">${d.options.map(o=>`<button type="button" class="dchoice" data-cfix="pick" data-cid="${id}" data-copt="${esc(o.id)}">${o.thumb?`<img src="${esc(o.thumb)}" alt="" loading="lazy">`:`<span class="thumb"></span>`}<span class="dtxt"><b>${esc(o.set)}</b><span class="mono">${esc([o.setCode, o.number+(o.total?`/${o.total}`:"")].filter(Boolean).join(" "))}</span></span></button>`).join("")}</div>` : "";
       const ign = viewer || x.k==="price" ? "" : x.k==="disagree" ? `<button class="btn sm ghost" type="button" data-cfix="ignoreprices" data-cid="${id}">The prices are right</button>` : `<button class="btn sm ghost" type="button" data-cfix="ignore" data-cid="${id}">Ignore</button>`;
+      if(!viewer && x.k==="disagree" && window.BinderPastPrices.sources(c.prices).length > 1) fix = `<button class="btn sm primary" type="button" data-fixpast="${id}">Fix past daily prices…</button>`;
       return `<li><div class="chkhead">${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="" loading="lazy">`:`<span class="thumb"></span>`}<div><b>${esc(c.name||"Unnamed card")}</b> <span class="mono hint">${esc(metaLine(c))}</span><p>${esc(x.text)}</p><p class="hint">${esc(whereIs(c).label)}</p></div></div>
         ${choices}<div class="chkacts">${fix}<button class="btn sm" type="button" data-cfix="open" data-cid="${id}">Open</button>${ign}</div></li>`;
     }).join("")}</ul></section>`;
@@ -2528,6 +2572,7 @@ document.addEventListener("click", e => {
   const rp = t.closest("[data-runprob]"); if(rp) return void runProblemAction(rp.dataset.runprob, rp);
   const pb = t.closest("[data-probs]"); if(pb) return void problemsAction(pb.dataset.probs);
   if(t.closest("#btnProblems")) return problemsModal();
+  const fpb = t.closest("[data-fixpast]"); if(fpb) return fixPastModal(fpb.dataset.fixpast);
   const perr = t.closest("[data-pageerr]"); if(perr){ if(perr.dataset.pageerr==="reload") location.reload(); else { PAGE_ERRORS.length = 0; renderBanner(); } return; }
   if(t.closest("#sRunPrices")){ t.closest("#sRunPrices").disabled = true; window.ledgerApi.call("POST","api/pricing/run").then(()=>toast("Updating every card's price. This takes a few minutes."), e=>toast(e?.message||"Couldn't start the update.")); return; }
   const oc = t.closest("[data-openc]"); if(oc){ closeModal(); return openCard(oc.dataset.openc); }
