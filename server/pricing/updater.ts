@@ -1,14 +1,14 @@
 import type { Assets } from '../assets';
 import { MAX_IMAGE_BYTES } from '../assets';
 import type { Config } from '../config';
-import type { CardDetails } from '../details';
+import { type CardDetails, type DetailsStatus, checkIdentity } from '../details';
 import { type Logger, quietLogger } from '../log';
 import { safely } from '../recover';
 import type { Doc } from '../schema';
 import type { Store } from '../store';
 import { DETAIL_FIELDS } from '../details';
 import { Catalog, type CatalogQuote } from './catalog';
-import { chooseMatch, detailsFromProduct, searchQuery, variantFromProduct, type CardForMatch, type MatchResult } from './match';
+import { chooseMatch, detailsFromProduct, norm, searchQuery, variantFromProduct, type CardForMatch, type MatchResult } from './match';
 import { type PcProduct, type PriceCharting, gradedPrice, oldAddress, quoteOf } from './pricecharting';
 import { type Candidate, type Fetcher, ProductGone, type Quote, Refused, type Source, SourceError, get, exchangeRates, tcgImage } from './sources';
 
@@ -82,11 +82,27 @@ export interface UpdaterOptions {
   stallMs?: number;
 }
 
+/**
+ * A card's prices disagree when one is more than 3 times another and they're at least US$5 apart
+ * (cheap cards vary a lot in proportion): a sign one of its matches is the wrong card.
+ */
+export const DISAGREE = { ratio: 3, minUsd: 5 };
+export function pricesDisagree(quotes: Partial<Record<string, number>>): boolean {
+  const v = Object.values(quotes).filter((x): x is number => typeof x === 'number' && x > 0);
+  if (v.length < 2) return false;
+  const lo = Math.min(...v);
+  const hi = Math.max(...v);
+  return hi > lo * DISAGREE.ratio && hi - lo >= DISAGREE.minUsd;
+}
+
 type Card = Doc & CardForMatch & {
   status?: string | null;
   prices?: PriceEntry[] | null;
   pricing?: Link | null;
   officialImageId?: string | null;
+  /** The person said the disagreeing prices are right, for these matches (Link.disagree.sig). */
+  pricesDisagreeIgnored?: string | null;
+  checksIgnored?: string | null;
 };
 interface PriceEntry {
   id?: string;
@@ -791,7 +807,18 @@ export class PriceUpdater {
     const pcQuote = link?.source === 'pricecharting' ? main : pair?.source === 'pricecharting' ? other : null;
     const graded = isGraded(card) ? gradedPrice(pcQuote?.grades, card.grader, card.grade) : null;
     if (graded) quotes = { pricecharting: graded.usd };
-    const best = (Object.entries(quotes) as [PriceSource, number][]).reduce<[PriceSource, number] | null>((b, q) => (!b || q[1] > b[1] ? q : b), null);
+    let best = (Object.entries(quotes) as [PriceSource, number][]).reduce<[PriceSource, number] | null>((b, q) => (!b || q[1] > b[1] ? q : b), null);
+    // Sources that disagree wildly usually mean one of the card's matches is another printing or
+    // set (a reprint priced as its original): the highest isn't taken blindly. The main product's
+    // price is logged (the lowest when there's none) and the card shows in Cards to check, until
+    // its matches change or the person says the prices are right.
+    const sig = [link ? `${link.source}:${link.id}` : '', pair ? `${pair.source}:${pair.id}` : '', cat?.tcgdexId ?? ''].join('|');
+    const disagree = !graded && pricesDisagree(quotes) && card.pricesDisagreeIgnored !== sig ? { quotes: { ...quotes }, sig, at: checkedAt } : null;
+    if (disagree && best) {
+      const mainUsd = link ? quotes[link.source] : undefined;
+      best = mainUsd != null ? [link!.source, mainUsd] : (Object.entries(quotes) as [PriceSource, number][]).reduce((b, q) => (q[1] < b[1] ? q : b));
+      this.log.warn('pricing', `${label(card)}: its price sources disagree (${(Object.entries(quotes) as [PriceSource, number][]).map(([s, v]) => `${SOURCE_NAME[s]} US$${v.toFixed(2)}`).join(', ')}); ${SOURCE_NAME[best[0]]}'s price was logged. One of its matches may be another printing: see Cards to check.`, { quotes });
+    }
     if (!best && unmatched) {
       if (cat) this.patchLink(id, { catalog: catalogOf(cat) });
       return unmatched;
@@ -836,7 +863,7 @@ export class PriceUpdater {
           currency: 'CAD',
           date,
           where: SOURCE_NAME[src],
-          note: `Daily update${cat?.variant ? ` (${cat.variant})` : ''} · ${list} at ${fx.toFixed(4)}${quotes.cardmarket != null ? ` (€1 = C$${eur!.toFixed(4)})` : ''}${ungraded}`,
+          note: `Daily update${cat?.variant ? ` (${cat.variant})` : ''} · ${disagree ? `${SOURCE_NAME[src]}'s US$${usd.toFixed(2)}: the sources disagree (${each.join(', ')}), so the highest wasn't used` : list} at ${fx.toFixed(4)}${quotes.cardmarket != null ? ` (€1 = C$${eur!.toFixed(4)})` : ''}${ungraded}`,
           auto: true,
           usd,
           quotes,
@@ -853,6 +880,7 @@ export class PriceUpdater {
         checkedAt,
         error: link ? (mainError ?? (best ? null : noPrice)) : (fresh.pricing?.error ?? null),
         ...withPair,
+        disagree,
         ...(image ? { imageUrl: image.url } : {}),
         ...(cat ? { catalog: catalogOf(cat) } : {}),
       },
@@ -940,13 +968,20 @@ export class PriceUpdater {
 
   /** What the card databases say about the card today, or null when it isn't matched to TCGdex (or they didn't answer). */
   private async catalogQuote(card: Card): Promise<CatalogQuote | null> {
-    const tcgdexId = (card.details as { id?: string | null } | null | undefined)?.id;
+    const d = card.details as DetailsStatus | null | undefined;
+    const tcgdexId = d?.id;
     if (!this.catalog || !tcgdexId) return null;
+    // A TCGdex match from another set than the one the card is filed under (flagged in Cards to
+    // check) gives no prices or picture until the person files it there, chooses it, or ignores the
+    // check: a card that only shares a number would otherwise be priced as this one.
+    if (d.filedUnder && norm(card.set) === norm(d.filedUnder.as) && !d.chosen && card.checksIgnored !== checkIdentity(card)) return null;
+    const switched = !!card.pricing?.catalog?.tcgdexId && card.pricing.catalog.tcgdexId !== tcgdexId;
     const known = card.pricing?.catalog?.tcgdexId === tcgdexId ? card.pricing.catalog : {};
     if (this.run) this.step = 'asking the card databases (TCGdex, pokemontcg.io)';
     try {
       const blanks = DETAIL_FIELDS.some((f) => blank(card[f]));
-      const q = await this.catalog.quote(tcgdexId, { variant: card.variant, rarity: card.rarity, picture: pictureOf(card), blanks }, known, card.setCode as string | undefined);
+      // Matched to another TCGdex card than before: its picture is fetched again too.
+      const q = await this.catalog.quote(tcgdexId, { variant: card.variant, rarity: card.rarity, picture: switched ? null : pictureOf(card), blanks }, known, card.setCode as string | undefined);
       // During an update, pokemontcg.io's failures (it only adds pictures and details) are counted
       // and logged once at the end; a single card priced on its own still warns.
       for (const e of q.errors) this.log[this.run && e.startsWith('pokemontcg.io:') ? 'info' : 'warn']('pricing', `${label(card)}: ${e}`);

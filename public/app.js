@@ -990,7 +990,7 @@ function undoDetails(){
 /* Settings: what new cards get, and Fill in missing details for the cards already here */
 const lookedUpThisWeek = c => c.details?.checkedAt && Date.now()-Date.parse(c.details.checkedAt) < 7*86400000;
 /* cards looked up before the current checks are looked up again straight away (same rule as the server) */
-const DETAILS_VERSION = 2;
+const DETAILS_VERSION = 3;
 const detailsOutdated = c => { const d = c.details; return !!d?.checkedAt && d.v!==DETAILS_VERSION && (!!d.id || d.result==="notFound" || d.result==="several"); };
 const wantsDetails = c => c.name && c.number && (!c.language || /^en/i.test(c.language)) && (detailsOutdated(c) || [...DETAIL_FIELDS,"released"].some(f=>!String(c[f]??"").trim()) && !lookedUpThisWeek(c));
 function detailsSettingsHTML(){
@@ -1341,7 +1341,8 @@ const CHECK_KINDS = [
   {k:"name", h:"Name may be misspelled"},
   {k:"several", h:"Several cards match"},
   {k:"missing", h:"Not in the card database"},
-  {k:"price", h:"No certain price match"}
+  {k:"price", h:"No certain price match"},
+  {k:"disagree", h:"Price sources disagree"}
 ];
 function cardChecks(c){
   const out = [], d = c.details;
@@ -1355,6 +1356,11 @@ function cardChecks(c){
   if(p && c.status!=="sold" && c.status!=="traded"){
     if(p.source==="none" && !p.error && Array.isArray(p.candidates)) out.push({k:"price", title:"No certain price match", text:"The price sites had no certain match. Open it and choose the product."});
     else if(typeof p.error==="string" && p.error.includes("has no price for this printing")) out.push({k:"price", title:"No price yet", text:p.error});
+    if(p.disagree?.quotes && c.pricesDisagreeIgnored!==p.disagree.sig){
+      const SRC = {pricecharting:"PriceCharting", tcgplayer:"TCGplayer", cardmarket:"Cardmarket"};
+      const list = Object.entries(p.disagree.quotes).map(([k,v])=>`${SRC[k]||k} US$${Number(v).toFixed(2)}`).join(", ");
+      out.push({k:"disagree", title:"Price sources disagree", text:`${list}. One of its matches may be another printing or set (a reprint priced as its original, say), so the highest wasn't used. Open it to check its products (Change match), or ignore this if the prices are right.`});
+    }
   }
   return out;
 }
@@ -1397,7 +1403,7 @@ function renderChecks(){
       if(!viewer && x.k==="set"){ const l = labelForSet(c); fix = `<button class="btn sm primary" type="button" data-cfix="set" data-cid="${id}">File under ${esc(l.set)}</button>`; }
       if(!viewer && x.k==="name") fix = d.suggest.map((s,i)=>`<button class="btn sm primary" type="button" data-cfix="name" data-cid="${id}" data-copt="${i}">Rename to ${esc(suggestedName(c, s))}</button>`).join("");
       const choices = !viewer && x.k==="several" && d.options?.length ? `<div class="dchoices">${d.options.map(o=>`<button type="button" class="dchoice" data-cfix="pick" data-cid="${id}" data-copt="${esc(o.id)}">${o.thumb?`<img src="${esc(o.thumb)}" alt="" loading="lazy">`:`<span class="thumb"></span>`}<span class="dtxt"><b>${esc(o.set)}</b><span class="mono">${esc([o.setCode, o.number+(o.total?`/${o.total}`:"")].filter(Boolean).join(" "))}</span></span></button>`).join("")}</div>` : "";
-      const ign = !viewer && x.k!=="price" ? `<button class="btn sm ghost" type="button" data-cfix="ignore" data-cid="${id}">Ignore</button>` : "";
+      const ign = viewer || x.k==="price" ? "" : x.k==="disagree" ? `<button class="btn sm ghost" type="button" data-cfix="ignoreprices" data-cid="${id}">The prices are right</button>` : `<button class="btn sm ghost" type="button" data-cfix="ignore" data-cid="${id}">Ignore</button>`;
       return `<li><div class="chkhead">${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="" loading="lazy">`:`<span class="thumb"></span>`}<div><b>${esc(c.name||"Unnamed card")}</b> <span class="mono hint">${esc(metaLine(c))}</span><p>${esc(x.text)}</p><p class="hint">${esc(whereIs(c).label)}</p></div></div>
         ${choices}<div class="chkacts">${fix}<button class="btn sm" type="button" data-cfix="open" data-cid="${id}">Open</button>${ign}</div></li>`;
     }).join("")}</ul></section>`;
@@ -1417,8 +1423,9 @@ async function checkAction(e){
     catch(err){ toast(err?.message || "Couldn't use that card. Try again."); }
   }
   if(kind==="ignore"){ ok = await updateCard(c.id, {checksIgnored:checkIdentity(c)}); msg = `${c.name} won't be flagged unless its name or number changes`; }
+  if(kind==="ignoreprices"){ ok = await updateCard(c.id, {pricesDisagreeIgnored:c.pricing.disagree.sig}); msg = `${c.name}: the highest price is used again from the next update, unless its matches change`; }
   if(!ok){ b.disabled = false; return; }
-  for(const x of cardChecks(c)) if(kind==="ignore" ? x.k!=="price" : x.k===k) CHK.done.add(c.id+"|"+x.k);
+  for(const x of cardChecks(c)) if(kind==="ignore" ? x.k!=="price" && x.k!=="disagree" : kind==="ignoreprices" ? x.k==="disagree" : x.k===k) CHK.done.add(c.id+"|"+x.k);
   toast(msg); renderChecks(); renderStats();
 }
 

@@ -11,7 +11,7 @@ import { Catalog, choosePtcg, chooseVariant, printingOf, ptcgDetails, ptcgTcgpla
 import { chooseMatch, detailsFromProduct, searchQuery, variantFromProduct } from '../server/pricing/match';
 import { PriceCharting, gradedPrice, oldAddress, parseProduct } from '../server/pricing/pricecharting';
 import { type Candidate, type Fetcher, retryPolicy, releaseDate } from '../server/pricing/sources';
-import { PriceUpdater, thinAutoPrices } from '../server/pricing/updater';
+import { PriceUpdater, pricesDisagree, thinAutoPrices } from '../server/pricing/updater';
 import { Secret } from '../server/secrets';
 import { Logger } from '../server/log';
 import { Store } from '../server/store';
@@ -477,6 +477,32 @@ describe('prices and pictures from the card databases', () => {
   });
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
+  it('takes no prices from a TCGdex match in another set than the card is filed under, until the person confirms it', async () => {
+    // Filed under "151", but TCGdex's match is flagged as another set's card (Cards to check).
+    const flagged = { source: 'tcgdex', result: 'complete', id: 'sv03.5-131', checkedAt: '2026-10-01T00:00:00Z', filedUnder: { as: '151', id: 'other', name: 'Another set' } };
+    store.set('cards', 'c', lapras({ details: flagged }));
+    const net = dbNet();
+    expect(await noPc(net).updateCard('c')).not.toBe('updated');
+    expect(net.calls.some((u) => u.includes('api.tcgdex.net/v2/en/cards/sv03.5-131'))).toBe(false);
+    expect(store.get('cards', 'c')!.prices).toEqual([]);
+    // Ignored in Cards to check (the person says it's right): priced again.
+    store.update('cards', 'c', { checksIgnored: 'lapras|131/165' });
+    expect(await noPc(net).updateCard('c')).toBe('updated');
+    // Chosen by the person, or filed under its set since: priced too.
+    store.set('cards', 'd', lapras({ details: { ...flagged, chosen: true } }));
+    store.set('cards', 'e', lapras({ set: 'Scarlet & Violet 151', details: flagged }));
+    expect(await noPc(net).updateCard('d')).toBe('updated');
+    expect(await noPc(net).updateCard('e')).toBe('updated');
+  });
+
+  it('calls prices disagreeing when one is over 3 times another and US$5 apart', () => {
+    expect(pricesDisagree({ pricecharting: 4, tcgplayer: 310 })).toBe(true);
+    expect(pricesDisagree({ pricecharting: 10, tcgplayer: 29 })).toBe(false); // under 3×
+    expect(pricesDisagree({ pricecharting: 0.1, tcgplayer: 0.9 })).toBe(false); // 9×, but cents apart
+    expect(pricesDisagree({ pricecharting: 2, tcgplayer: 7.5 })).toBe(true);
+    expect(pricesDisagree({ pricecharting: 300 })).toBe(false);
+  });
+
   it('logs pokemontcg.io failing once per update, not once per card, and still prices every card', async () => {
     for (let i = 1; i <= 5; i++) store.set('cards', `c${i}`, lapras());
     // pokemontcg.io answering 500 to everything, as it often does (quickly, at random).
@@ -542,11 +568,19 @@ describe('prices and pictures from the card databases', () => {
     expect(await updater(net).updateCard('fresh')).toBe('updated');
     const fresh = store.get('cards', 'fresh')!;
     expect(fresh.pricing).toMatchObject({ source: 'pricecharting', pair: { source: 'tcgplayer', id: '516694', linkedBy: 'auto' }, imageUrl: 'https://images.pokemontcg.io/sv3pt5/131_hires.png' });
+    // This card (151's Lapras) is linked to the 30th Celebration Lapras on PriceCharting: its US$13.20
+    // is far from the others' US$2.12 and US$3.44, so the card is flagged and the main product's price used.
     expect((fresh.prices as { where: string; quotes: object; note: string }[])[0]).toMatchObject({
       where: 'PriceCharting',
       quotes: { pricecharting: 13.2, tcgplayer: 2.12, cardmarket: 3.44 },
-      note: expect.stringMatching(/^Daily update · highest of PriceCharting US\$13\.20, TCGplayer US\$2\.12 and Cardmarket €3\.07 \(US\$3\.44\)/),
+      note: expect.stringMatching(/^Daily update · PriceCharting's US\$13\.20: the sources disagree \(PriceCharting US\$13\.20, TCGplayer US\$2\.12, Cardmarket €3\.07 \(US\$3\.44\)\), so the highest wasn't used/),
     });
+    expect(fresh.pricing).toMatchObject({ disagree: { quotes: { pricecharting: 13.2, tcgplayer: 2.12, cardmarket: 3.44 }, sig: `pricecharting:${LAPRAS_30TH}|tcgplayer:516694|sv03.5-131` } });
+    // The person says the prices are right: the highest is used, until the matches change.
+    store.update('cards', 'fresh', { pricesDisagreeIgnored: `pricecharting:${LAPRAS_30TH}|tcgplayer:516694|sv03.5-131` });
+    await updater(net).updateCard('fresh');
+    expect(store.get('cards', 'fresh')!.pricing).toMatchObject({ disagree: null });
+    expect((store.get('cards', 'fresh')!.prices as { note: string }[]).at(-1)!.note).toMatch(/^Daily update · highest of PriceCharting US\$13\.20, TCGplayer US\$2\.12 and Cardmarket €3\.07 \(US\$3\.44\)/);
     // A card with a picture from PriceCharting's pages (before the API) keeps it.
     const pcPicture = assets.put(JPEG)!;
     const pcUrl = 'https://storage.googleapis.com/images.pricecharting.com/asqso2to674mken7/1600.jpg';

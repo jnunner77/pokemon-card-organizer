@@ -159,7 +159,7 @@ describe('filling in a stored card', () => {
     const fetcher = replay();
     const d = new CardDetails({ fetcher: (u, i) => (urls.push(String(u)), fetcher(u, i)), now: () => now });
     const done = { set: 'Base Set', setCode: 'BS', rarity: 'Uncommon', artist: 'Keiji Kinebuchi' };
-    // Looked up yesterday, before release dates: wanted anyway, and fetched by id, not searched.
+    // Looked up yesterday, before release dates: wanted anyway.
     store.set('cards', 'a', { name: 'Pokedex', number: '87/102', ...done, details: { source: 'tcgdex', result: 'filled', id: 'base1-87', checkedAt: '2026-10-02T00:00:00Z' } });
     // Looked up since: has its date, or TCGdex had none for it; either way not asked again this week.
     store.set('cards', 'b', { name: 'Pokedex', number: '87/102', ...done, released: '1999-01-09', details: { source: 'tcgdex', result: 'complete', v: DETAILS_VERSION, id: 'base1-87', released: '1999-01-09', checkedAt: '2026-10-02T00:00:00Z' } });
@@ -174,8 +174,50 @@ describe('filling in a stored card', () => {
     expect(store.get('cards', 'd')!.details).toMatchObject({ v: DETAILS_VERSION, setId: 'base1', set: 'Base Set', setCode: 'BS', filedUnder: null });
     expect(await d.fill(store, 'a')).toBe('filled');
     expect(store.get('cards', 'a')).toMatchObject({ ...done, released: '1999-01-09', details: { result: 'filled', id: 'base1-87', filled: ['released'], released: '1999-01-09' } });
-    expect(urls.some((u) => u.includes('/cards?'))).toBe(false);
+    // An automatic match from before the current checks is looked up again (it could be from
+    // another set); here it's the same card.
+    expect(urls.some((u) => u.includes('/cards?'))).toBe(true);
     expect(d.wants(store.get('cards', 'a'))).toBe(false);
+  });
+
+  it('finds a reprint in its set’s Classic Collection, not the card it reprints from another set', async () => {
+    const d = new CardDetails({ fetcher: replay() });
+    // The 30th Celebration Lugia reprints the Aquapolis one and keeps its printed number, 149/147.
+    store.set('cards', 'mine', { name: 'Lugia', number: '149/147', set: '30th Celebration' });
+    expect(await d.fill(store, 'mine')).toBe('filled');
+    expect(store.get('cards', 'mine')).toMatchObject({ set: '30th Celebration', details: { id: '30th-c-029', setId: '30th-c', set: '30th Classic Collection', filedUnder: null } });
+    // Numbered as TCGdex numbers it in the Classic Collection: its own set first, not Unseen Forces' Lugia 29.
+    store.set('cards', 'byTcgdex', { name: 'Lugia', number: '029', set: '30th Celebration' });
+    expect(await d.fill(store, 'byTcgdex')).toBe('filled');
+    expect(store.get('cards', 'byTcgdex')!.details).toMatchObject({ id: '30th-c-029' });
+    // Filed under Aquapolis (or nowhere), the number finds the Aquapolis card as before.
+    store.set('cards', 'aquapolis', { name: 'Lugia', number: '149/147', set: 'Aquapolis' });
+    store.set('cards', 'bare', { name: 'Lugia', number: '149/147' });
+    for (const id of ['aquapolis', 'bare']) expect(await d.fill(store, id)).toBe('filled');
+    expect(store.get('cards', 'aquapolis')!.details).toMatchObject({ id: 'ecard2-149', filedUnder: null });
+    expect(store.get('cards', 'bare')!.details).toMatchObject({ id: 'ecard2-149' });
+  });
+
+  it('never matches TCG Pocket’s digital cards', async () => {
+    // Lugia 131 is Unbroken Bonds' and TCG Pocket's (B2-131): only the real card.
+    const d = new CardDetails({ fetcher: replay() });
+    expect((await d.lookup('Lugia', '131')).map((m) => m.id)).toEqual(['sm9-131']);
+  });
+
+  it('looks an older automatic match up again, replacing one from another set, but keeps what the person chose', async () => {
+    const d = new CardDetails({ fetcher: replay() });
+    const old = { source: 'tcgdex', result: 'filled', v: 2, id: 'ecard2-149', setId: 'ecard2', set: 'Aquapolis', checkedAt: '2026-10-01T00:00:00Z' };
+    store.set('cards', 'auto', { name: 'Lugia', number: '149/147', set: '30th Celebration', details: old });
+    store.set('cards', 'chose', { name: 'Lugia', number: '149/147', set: '30th Celebration', details: { ...old, chosen: true } });
+    expect(d.wants(store.get('cards', 'auto'))).toBe(true);
+    await d.fill(store, 'auto');
+    await d.fill(store, 'chose');
+    expect(store.get('cards', 'auto')!.details).toMatchObject({ v: DETAILS_VERSION, id: '30th-c-029' });
+    expect(store.get('cards', 'auto')!.details).not.toHaveProperty('chosen');
+    expect(store.get('cards', 'chose')!.details).toMatchObject({ v: DETAILS_VERSION, id: 'ecard2-149', chosen: true });
+    // Choosing from Cards to check is remembered.
+    await d.fill(store, 'auto', true, 'ecard2-149');
+    expect(store.get('cards', 'auto')!.details).toMatchObject({ id: 'ecard2-149', chosen: true });
   });
 
   it("dates a promo by the set it's filed under, when TCGdex knows that set", async () => {

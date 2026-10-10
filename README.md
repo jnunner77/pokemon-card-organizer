@@ -156,7 +156,9 @@ in the summary bar opens the list, flagged pockets show a **!**, and the nightly
   and number belong to another (Bill 118/130 filed under Base Set is from Base Set 2). One tap
   files it under the right set, with your own label for that set when another card has one. Your
   own naming (PBS, "Scarlet & Violet Base") is never flagged, and nor is a promo filed under the
-  set it came with.
+  set it came with. Until it's dealt with (filed under the right set, or *Ignore*), the card gets
+  no prices or picture from that match: a card that only shares its number would be priced
+  instead.
 - **Name may be misspelled**: not found, but a card with that number has a close name in the same
   set (Mega Eelktross EX → Mega Eelektross ex). One tap renames it, keeping how you write "EX";
   its details, price and picture then fill in.
@@ -165,6 +167,18 @@ in the summary bar opens the list, flagged pockets show a **!**, and the nightly
   *Ignore* it if it's right; it comes back only if its name or number changes, and it's checked
   again weekly in case TCGdex adds it.
 - **No certain price match**: open it and choose the product.
+- **Price sources disagree**: one of its prices is more than 3 times another and at least US$5
+  apart (PriceCharting US$8.50, TCGplayer US$310), which usually means one of its matches is
+  another printing or set. The highest isn't used: the card's main product's price is logged until
+  its matches change, or you tap *The prices are right*.
+
+How a card is matched in TCGdex: by its name and number, then the set size ("149/147") and the set
+it's filed under. When it's filed under a set TCGdex knows, that set's cards come first, then the
+same name in its **reprint sub-sets** (30th Classic Collection, Celebrations Classic Collection,
+Trainer Galleries, Galarian Gallery), whose cards keep the printed number of the card they
+reprint: a 30th Celebration Lugia 149/147 is the Classic Collection's, not Aquapolis's. TCG
+Pocket's digital cards are never matched. A match you chose is kept; automatic ones made before
+these rules are looked up once more.
 
 Nothing is changed by itself: what you typed only changes when you tap a fix. A card TCGdex
 doesn't have, but that a price site matched (for certain, or as you chose), isn't flagged: the

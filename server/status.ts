@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import type { Check } from './checks';
-import { DETAILS_VERSION, type DetailsStatus } from './details';
+import { DETAILS_VERSION, type DetailsStatus, checkIdentity } from './details';
 import { NO_PRICE } from './pricing/updater';
 
 // A plain-text status file for the server's nightly job (Boards' deploy/ops/nightly.sh), which
@@ -35,14 +35,14 @@ interface CardLike {
   setCode?: unknown;
   number?: unknown;
   status?: unknown;
-  pricing?: { source?: unknown; id?: unknown; error?: unknown; candidates?: unknown } | null;
+  pricing?: { source?: unknown; id?: unknown; error?: unknown; candidates?: unknown; disagree?: { quotes?: Record<string, number>; sig?: string } | null } | null;
+  pricesDisagreeIgnored?: unknown;
   details?: Partial<DetailsStatus> | null;
   checksIgnored?: unknown;
 }
 
 const norm = (s: unknown) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
-/** The card as named and numbered; Ignore in Cards to check holds until either changes. */
-export const checkIdentity = (c: CardLike) => `${String(c.name ?? '').trim().toLowerCase()}|${String(c.number ?? '').replace(/\s+/g, '').toLowerCase()}`;
+export { checkIdentity };
 
 /** The card is linked to a product on a price site, which then fills its set and release date. */
 export const pricedFromProduct = (c: CardLike) => (c.pricing?.source === 'pricecharting' || c.pricing?.source === 'tcgplayer') && !!c.pricing.id;
@@ -79,6 +79,8 @@ export function cardsNeedingAttention(cards: CardLike[]): string[] {
     if (c.status === 'sold' || c.status === 'traded' || !c.pricing) continue;
     if (c.pricing.source === 'none' && !c.pricing.error && Array.isArray(c.pricing.candidates)) out.push(`${label}: no certain match. Open the card and choose the product.`);
     else if (typeof c.pricing.error === 'string' && c.pricing.error.includes(NO_PRICE)) out.push(`${label}: ${c.pricing.error}`);
+    const dis = c.pricing.disagree;
+    if (dis?.quotes && c.pricesDisagreeIgnored !== dis.sig) out.push(`${label}: its price sources disagree (${Object.entries(dis.quotes).map(([k, v]) => `${k} US$${Number(v).toFixed(2)}`).join(', ')}); one of its matches may be the wrong card. Open Cards to check in the binder.`);
   }
   if (out.length <= MAX_LISTED) return out;
   return [...out.slice(0, MAX_LISTED), `…and ${out.length - MAX_LISTED} more. Open Cards to check in the binder.`];
