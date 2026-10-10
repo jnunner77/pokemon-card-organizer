@@ -171,6 +171,15 @@ in the summary bar opens the list, flagged pockets show a **!**, and the nightly
   apart (PriceCharting US$8.50, TCGplayer US$310), which usually means one of its matches is
   another printing or set. The highest isn't used: the card's main product's price is logged until
   its matches change, or you tap *The prices are right*.
+  *Fix past daily prices…* cleans up the days already logged (below).
+
+**Fixing past daily prices.** When a source was matched to the wrong card for a while (a 30th
+Celebration reprint priced as its Aquapolis or Paldea Evolved original), *Fix past daily prices…*
+in the card's price log (or in *Cards to check*) takes it out of the card's history: untick the
+sources that were wrong, and each daily price is worked out again as the highest of the ones left
+at that day's rate, or removed when none is left. It shows each day's before and after first,
+and *Undo* puts them back. Prices you logged yourself are never changed; a single daily price can
+also be deleted with its ✕.
 
 How a card is matched in TCGdex: by its name and number, then the set size ("149/147") and the set
 it's filed under. When it's filed under a set TCGdex knows, that set's cards come first, then the
