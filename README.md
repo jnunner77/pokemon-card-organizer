@@ -331,6 +331,11 @@ when you've rearranged the binder and want to keep the new layout instead.
   flipping through all the matches. Arrow keys and Enter (Shift+Enter for full screen) work too.
 - **Your photos**: choose, take, browse, paste or drop one; or photograph a whole binder page
   and slice it into one photo per pocket. Flip through pictures full screen.
+- **Duplicate** a card (in its details) or several (press and hold to select): choose how many
+  copies, 1 to 50 in all (fewer of each when several are selected). Each copy goes in the next
+  empty pocket after its card, with the same details, photo and market prices; what you paid,
+  listings and sales stay with the original. One copy opens it; several leave the original open
+  and say where they went.
 - **Quick sell** one or many cards (press and hold to select), with profit against what you
   paid (or the market price). A **Sales** tab totals it, and a sale can be undone.
   Several cards sold together for one price (3 cards for $18) are a **bundle**: choose *One price
