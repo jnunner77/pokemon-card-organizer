@@ -708,7 +708,8 @@ export function createApp(o: AppOptions) {
   admin.get('/pricing', (_req, res) => {
     const st = (store.get('settings', 'pricing') ?? {}) as Record<string, unknown>;
     // Whether PriceCharting's token is saved, and when: never the token itself.
-    const pricecharting = o.pricecharting ? o.pricecharting.token.info() : null;
+    // The token's state (never the token), and how PriceCharting is being used today.
+    const pricecharting = o.pricecharting ? { ...o.pricecharting.token.info(), usage: o.pricecharting.api.usageNow() } : null;
     res.json({ available: !!updater, schedule: updater?.schedule() ?? null, pricecharting, running: !!st.running, done: st.done ?? 0, total: st.total ?? 0, current: st.current ?? null, problem: st.problem ?? null, history: st.history ?? (st.lastRun ? [st.lastRun] : []) });
   });
   admin.put('/pricing', json, (req, res) => {
@@ -742,6 +743,7 @@ export function createApp(o: AppOptions) {
   admin.delete('/pricing/pricecharting-token', (_req, res) => {
     const pc = needPc();
     pc.token.clear();
+    pc.api.forget();
     updater!.noteToken();
     log.info('admin', `${who(res)} removed the PriceCharting API token`);
     res.json({ pricecharting: pc.token.info() });
@@ -751,7 +753,10 @@ export function createApp(o: AppOptions) {
     const pc = needPc();
     let summary;
     try {
-      summary = updater!.purgePriceCharting(() => pc.token.clear());
+      summary = updater!.purgePriceCharting(() => {
+        pc.token.clear();
+        pc.api.forget();
+      });
     } catch (err) {
       throw new HttpError(409, err instanceof Error ? err.message : String(err), 'busy');
     }

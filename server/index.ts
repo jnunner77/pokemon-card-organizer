@@ -49,7 +49,8 @@ const details = env.CARD_LOOKUPS === 'off' ? undefined : new CardDetails();
 const catalog = details ? new Catalog({ ptcgKey: env.POKEMONTCG_API_KEY }) : undefined;
 // PriceCharting's API, with the token administrators enter under Administration → Prices.
 const pcToken = new Secret(secretsDir, 'pricecharting-token');
-const pricecharting = new PriceCharting({ token: () => pcToken.read() });
+// PRICECHARTING_DAILY_LIMIT: most PriceCharting calls a day (2000 by default); the count is kept across restarts.
+const pricecharting = new PriceCharting({ token: () => pcToken.read(), log, dailyLimit: Number(env.PRICECHARTING_DAILY_LIMIT) || undefined, usageFile: path.join(dataDir, 'pricecharting-usage.json') });
 const updater = new PriceUpdater({ store, assets, log, config, details, catalog, pricecharting, timeZone: env.TZ || 'America/Vancouver' });
 updater.noteToken();
 // An update the saved status says is running stopped with the server: say so (a red banner) and let it start again.

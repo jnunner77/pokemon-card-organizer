@@ -25,6 +25,7 @@ services:
       PRICE_UPDATE_HOUR: ${PRICE_UPDATE_HOUR:-5}
       PRICE_UPDATES: ${PRICE_UPDATES:-on}
       POKEMONTCG_API_KEY: ${POKEMONTCG_API_KEY:-}
+      PRICECHARTING_DAILY_LIMIT: ${PRICECHARTING_DAILY_LIMIT:-2000}
     volumes:
       - binder-data:/data
       # PriceCharting's API token, entered under Administration → Prices: kept apart from /data so

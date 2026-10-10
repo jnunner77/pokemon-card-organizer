@@ -291,6 +291,9 @@ export class PriceUpdater {
    */
   siteOut(src: Source): string | null {
     if (src === 'pricecharting' && !this.pc?.ready) return NO_TOKEN;
+    // Cooling down after "too many requests", the breaker open, or today's call budget spent.
+    const paused = src === 'pricecharting' ? this.pc?.out() : null;
+    if (paused) return `${paused} TCGplayer and Cardmarket give prices meanwhile.`;
     return this.run?.tripped.get(src) ?? null;
   }
 

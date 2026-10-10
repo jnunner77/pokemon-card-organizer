@@ -85,7 +85,25 @@ No site's pages are read: every price comes from an API.
   page → *API/Download*) under **Administration → Prices → PriceCharting**; the server checks it
   with PriceCharting before saving it. It's kept in a file of its own on the server, apart from
   the ledger (`SECRETS_DIR`, its own volume in Docker), and is never shown again, logged, or put in
-  backups or exports. PriceCharting is asked at most once a second. If it stops accepting the token,
+  backups or exports. PriceCharting's API allows one call a second and blocks, then revokes, an
+  account that makes more, so every call goes through a guard:
+  - **one at a time, 1.25 s apart**, retries included, whether from the daily update, *Change
+    match* or checking the token;
+  - **too many requests (429): every call stops** for 10 minutes (or as long as PriceCharting's
+    *Retry-After* asks), logged as an error, remembered across a restart;
+  - **a breaker:** 5 calls failing in a row (after their retries) stop calls for 10 minutes;
+  - **a daily budget** of 2000 calls (`PRICECHARTING_DAILY_LIMIT`; a 122-card binder needs about
+    250): a warning at 80%, an error and no more calls until the next day (UTC) at 100%, counted
+    across restarts;
+  - **recent answers reused** for 10 minutes, so the same product or search isn't asked twice in a
+    row (forgotten when the token is removed or PriceCharting's data purged);
+  - **retries only when it's busy or unreachable** (408, 425, 5xx, no answer): twice more, with
+    growing waits and its *Retry-After* (in seconds or as a date), within 90 seconds; never for an
+    answer that won't change (400, 401, 403, 404).
+
+  While PriceCharting is paused, the update prices from TCGplayer and Cardmarket and asks it again
+  afterwards by itself. *Administration → Prices* shows the calls made today against the budget,
+  and a red notice while it's paused and why. If it stops accepting the token,
   that update stops asking it, prices every card from TCGplayer and Cardmarket, and *Recent
   updates* says why. Without a token, prices come from TCGplayer and Cardmarket only. Guests may
   see PriceCharting's values: the owner has PriceCharting's written permission. When the subscription ends, *Purge
@@ -478,6 +496,7 @@ the existing free Google Cloud VM, at `binder.nunner.duckdns.org`).
 | `SECURITY_ALLOWLIST` | | IPs or IPv4 ranges never rate limited or blocked |
 | `TZ` | `America/Vancouver` | Calendar for the price log and the daily run |
 | `PRICE_UPDATE_HOUR` | `5` | Daily update starts after this hour |
+| `PRICECHARTING_DAILY_LIMIT` | `2000` | Most PriceCharting API calls a day (UTC), counted across restarts |
 | `PRICE_UPDATES` | `on` | `off` turns automatic prices and pictures off |
 | `CARD_LOOKUPS` | `on` | `off` turns card details lookups (TCGdex) off |
 | `TRUST_PROXY` | _(unset)_ | Set behind a reverse proxy (`1`) |
