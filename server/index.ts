@@ -52,7 +52,22 @@ const pcToken = new Secret(secretsDir, 'pricecharting-token');
 const pricecharting = new PriceCharting({ token: () => pcToken.read() });
 const updater = new PriceUpdater({ store, assets, log, config, details, catalog, pricecharting, timeZone: env.TZ || 'America/Vancouver' });
 updater.noteToken();
+// An update the saved status says is running stopped with the server: say so (a red banner) and let it start again.
+updater.recover();
 updater.startScheduler();
+
+// A crash is written to the log (and a running price update marked as interrupted, with the error)
+// before the server stops; Docker then starts it again.
+const crash = (kind: string) => (err: unknown) => {
+  try {
+    log.error('app', `The server crashed (${kind}): ${err instanceof Error && err.stack ? err.stack : String(err)}`);
+    updater.crashed(err);
+  } finally {
+    process.exit(1);
+  }
+};
+process.on('uncaughtException', crash('uncaught exception'));
+process.on('unhandledRejection', crash('unhandled promise rejection'));
 // New cards: details, then price and picture, straight away.
 const autofill = details ? new Autofill({ store, details, updater, log }) : undefined;
 autofill?.start();
@@ -107,6 +122,7 @@ server.maxHeadersCount = 100;
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, () => {
     updater.stopScheduler();
+    updater.shutdown(`The server was stopped (${sig}: a restart or an update)`);
     autofill?.stop();
     security.stop();
     guests.stop();

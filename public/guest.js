@@ -13,6 +13,12 @@
   const money = n => n == null ? "" : dollars.format(n);
   let toastT;
   const toast = msg => { const r = $("toastRoot"); r.innerHTML = `<div class="toast" role="status">${esc(msg)}</div>`; clearTimeout(toastT); toastT = setTimeout(() => r.innerHTML = "", 3200); };
+  // Errors in this page are reported to the server (logged for the owner) and said here.
+  window.BinderProblems?.catcher(window, {
+    page: "guest",
+    send: r => fetch("api/guest/client-error", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(r) }),
+    show: () => toast("Something went wrong on this page. Reloading it usually helps."),
+  });
 
   // The QR code's key: kept for this tab (to sign in again after a time-out) and taken out of the
   // address bar, so a copied or shared link doesn't carry it.

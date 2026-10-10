@@ -73,6 +73,56 @@ button{cursor:pointer}
 
 .banner{border:1px solid var(--line);background:var(--surface);border-radius:var(--r);padding:10px 14px;color:var(--ink-2);margin-bottom:12px}
 .banner[data-kind="warn"]{background:var(--warn-soft);border-color:transparent;color:var(--ink)}
+/* a price update that was interrupted, stalled or failed (runlog.js): hard to miss, with its log */
+.runprob{border:2px solid var(--bad);background:var(--bad-soft);color:var(--ink);border-radius:var(--r);padding:14px 16px;margin-bottom:14px;box-shadow:var(--shadow)}
+.runprob[data-kind="warn"]{border-color:var(--warn);background:var(--warn-soft)}
+.runprob-head{display:flex;gap:12px;align-items:flex-start}
+.runprob-icon{flex:none;width:28px;height:28px;color:var(--bad);margin-top:1px}
+.runprob[data-kind="warn"] .runprob-icon{color:var(--warn)}
+.runprob h2{font-size:17px;margin:0 0 4px;color:var(--bad);line-height:1.25}
+.runprob[data-kind="warn"] h2{color:var(--warn)}
+.runprob p{margin:0 0 4px;line-height:1.45}
+.runprob .runprob-ok{font-weight:600}
+.runprob .runprob-when{font-size:12px;color:var(--ink-2)}
+.runprob .links{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 0 40px}
+.runlog-box{margin:12px 0 0}
+.runlog-box summary{cursor:pointer;font-weight:600;font-size:13px}
+.runlog{margin:8px 0 0;max-height:260px;overflow:auto;background:var(--page);color:#D6DEE6;border-radius:8px;padding:10px 12px;font:12px/1.5 var(--f-mono);white-space:pre-wrap;overflow-wrap:anywhere}
+.runlog .ll-error{color:#FF9C92;font-weight:600}
+.runlog .ll-warn{color:#F5C46B}
+tr.ended td{background:var(--bad-soft)}
+/* every warning and error in the app (problems.js): administrators' banner, the list, the header count */
+.probs{border:2px solid var(--bad);background:var(--bad-soft);color:var(--ink);border-radius:var(--r);padding:12px 16px;margin-bottom:14px;box-shadow:var(--shadow)}
+.probs[data-kind="warn"]{border-color:var(--warn);background:var(--warn-soft)}
+.probs-head{display:flex;gap:10px;align-items:center;margin-bottom:6px}
+.probs-icon{flex:none;width:24px;height:24px;color:var(--bad)}
+.probs[data-kind="warn"] .probs-icon{color:var(--warn)}
+.probs h2{font-size:16px;margin:0;color:var(--bad);line-height:1.25}
+.probs[data-kind="warn"] h2{color:var(--warn)}
+.probs p{margin:0 0 4px}
+.probs .links{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.pblist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.pblist li{display:grid;grid-template-columns:auto 1fr auto;gap:4px 10px;align-items:baseline;background:var(--surface);border-radius:8px;padding:6px 10px;border-left:4px solid var(--warn);font-size:13px}
+.pblist li.pb-error{border-left-color:var(--bad)}
+.pblist .pb-lv{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--warn)}
+.pblist .pb-error .pb-lv{color:var(--bad)}
+.pblist .pb-msg{overflow-wrap:anywhere;min-width:0}
+.pblist .pb-n{font-family:var(--f-mono);font-weight:700}
+.pblist .pb-meta{font-size:12px;color:var(--ink-3);white-space:nowrap}
+.pblist details summary{cursor:pointer;font-size:12px;color:var(--ink-2)}
+.pblist pre{font:11px/1.4 var(--f-mono);white-space:pre-wrap;overflow-wrap:anywhere;margin:4px 0 0;max-height:200px;overflow:auto}
+.pblist.full{max-height:min(60vh,520px);overflow:auto}
+.probpill{border-color:var(--bad);background:var(--bad-soft);color:var(--bad);font-weight:700}
+.probpill[data-kind="warn"]{border-color:var(--warn);background:var(--warn-soft);color:var(--warn)}
+@media (max-width:640px){
+  .probs{padding:12px}
+  .pblist li{grid-template-columns:1fr;gap:2px}
+  .pblist .pb-meta{white-space:normal}
+  .runprob{padding:12px}
+  .runprob .links{margin-left:0}
+  .runprob .links .btn{flex:1 1 auto}
+  .runlog{max-height:200px;font-size:11px}
+}
 
 /* binder tabs */
 .tabs{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;scrollbar-width:thin}
@@ -452,6 +502,8 @@ tbody tr.sel{background:var(--accent-soft)}
 /* automatic prices */
 .statbtn{border:none;background:none;padding:0;text-align:left;cursor:pointer;color:inherit;font:inherit}
 .statbtn:hover .v{text-decoration:underline;text-decoration-thickness:1px}
+.statbtn.bad{border:1px solid var(--bad);background:var(--bad-soft);border-radius:8px;padding:4px 10px;margin:-5px 0}
+.statbtn.bad .k,.statbtn.bad .v{color:var(--bad)}
 .autoline{margin:0;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .autoline a{color:var(--info);font-weight:600;text-decoration:none;overflow-wrap:anywhere}
 .autoline+.autoline,.pairline{margin:4px 0 0}

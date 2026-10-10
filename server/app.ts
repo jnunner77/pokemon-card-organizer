@@ -17,7 +17,8 @@ import { GUEST_COOKIE, GUEST_IDLE_MS, GuestFeed, type Guests, guestSchemas, isLi
 import { CATEGORIES, LEVELS, type Logger, quietLogger } from './log';
 import { NoToken, type PriceCharting } from './pricing/pricecharting';
 import { Refused, SourceError } from './pricing/sources';
-import type { PriceUpdater } from './pricing/updater';
+import type { PriceUpdater, RunProblem, RunSummary } from './pricing/updater';
+import { problemFeed } from './problems';
 import { InvalidDoc, collectionSchema, idSchema } from './schema';
 import { HttpError, MUTATING, type Security } from './security';
 import type { Secret } from './secrets';
@@ -263,6 +264,34 @@ export function createApp(o: AppOptions) {
     });
   }
 
+  // ---- errors in the pages themselves --------------------------------------------------
+  // A script error or failed promise in a page is reported here and logged, so it shows in the
+  // problems banner like any other. At most 30 a minute, so a page stuck in a loop can't flood the log.
+  const pageErrorSchema = z.object({
+    kind: z.enum(['error', 'rejection']).catch('error'),
+    message: z.string().max(500),
+    page: z.string().max(200).optional(),
+    source: z.string().max(300).optional(),
+    line: z.number().int().min(0).max(1e7).optional(),
+    col: z.number().int().min(0).max(1e7).optional(),
+    stack: z.string().max(2000).optional(),
+  });
+  const pageErrors = { windowStart: 0, count: 0, warned: false };
+  const pageError = (req: Request, res: Response, by: Record<string, unknown>) => {
+    const t = now().getTime();
+    if (t - pageErrors.windowStart > 60_000) Object.assign(pageErrors, { windowStart: t, count: 0, warned: false });
+    if (++pageErrors.count > 30) {
+      if (!pageErrors.warned) log.warn('app', 'More than 30 page errors in a minute; not logging more until the minute is up');
+      pageErrors.warned = true;
+      return void res.status(204).end();
+    }
+    const e = pageErrorSchema.parse(req.body);
+    log.error('app', `Page error${e.page ? ` on ${e.page}` : ''}: ${e.message}`, { kind: e.kind, ...(e.source ? { at: `${e.source}:${e.line ?? '?'}:${e.col ?? '?'}` } : {}), ...(e.stack ? { stack: e.stack } : {}), ...by });
+    res.status(204).end();
+  };
+  api.post('/client-error', need('viewer'), express.json({ limit: '16kb' }), (req, res) => pageError(req, res, { user: who(res) }));
+  if (guests) api.post('/guest/client-error', (_req, res, next) => (res.locals.guest ? next() : next(new HttpError(401, 'Please sign in', 'signin'))), express.json({ limit: '16kb' }), (req, res) => pageError(req, res, { guest: true }));
+
   // ---- binders, cards and settings ----------------------------------------------------
   api.get('/data', need('viewer'), (_req, res) => {
     res.json(store.all());
@@ -444,6 +473,36 @@ export function createApp(o: AppOptions) {
     if (!already) log.info('pricing', `${who(res)} started a price update`);
     res.status(202).json({ started: !already });
   });
+  // Stop a running update (one that's stuck, say): another can start straight away.
+  api.post('/pricing/stop', need('editor'), (_req, res) => {
+    res.json({ stopped: needUpdater().stop(who(res)) });
+  });
+  // Hide the banner about an update that was interrupted, stalled or failed.
+  api.post('/pricing/dismiss', need('editor'), (_req, res) => {
+    needUpdater().dismiss();
+    log.info('pricing', `${who(res)} dismissed the price update problem`);
+    res.status(204).end();
+  });
+  // The log of the update with a problem (or the running one, or the last one): the pricing and
+  // server lines from its start until the problem was noticed, read from the daily files so it
+  // survives a restart or crash.
+  api.get('/pricing/log', need('editor'), (_req, res) => {
+    const st = (store.get('settings', 'pricing') ?? {}) as { running?: boolean; startedAt?: string; problem?: RunProblem | null; lastRun?: RunSummary | null };
+    const p = st.problem;
+    const nowIso = now().toISOString();
+    const minute = 60_000;
+    const back = (iso: string, ms: number) => new Date(Date.parse(iso) - ms).toISOString();
+    const ahead = (iso: string, ms: number) => new Date(Date.parse(iso) + ms).toISOString();
+    const [from, to] = p
+      ? // until a later update started, or now
+        [back(p.startedAt ?? back(p.at, 60 * minute), minute), st.startedAt && p.startedAt && st.startedAt > p.startedAt ? st.startedAt : nowIso]
+      : st.running && st.startedAt
+        ? [back(st.startedAt, minute), nowIso]
+        : st.lastRun
+          ? [back(st.lastRun.startedAt, minute), ahead(st.lastRun.finishedAt, minute)]
+          : [back(nowIso, 60 * minute), nowIso];
+    res.json({ from, to, entries: log.between(from, to, { cats: ['pricing', 'app'], limit: 400 }) });
+  });
   api.get('/pricing/search', need('editor'), heavy, async (req, res) => {
     const { card } = cardFor(req.query.card);
     const q = typeof req.query.q === 'string' ? req.query.q.slice(0, 120) : undefined;
@@ -531,7 +590,7 @@ export function createApp(o: AppOptions) {
 
   /** The Overview's checks. Without a request (the status file) HTTPS and proxy checks are left out by statusText. */
   const overviewChecks = async (request: { secure: boolean; untrustedProxy: boolean; localRequest: boolean }) => {
-    const pricingStatus = (store.get('settings', 'pricing') ?? {}) as { running?: boolean; lastRun?: { date: string; finishedAt: string; counts: Record<string, number> } };
+    const pricingStatus = (store.get('settings', 'pricing') ?? {}) as { running?: boolean; lastRun?: { date: string; finishedAt: string; counts: Record<string, number> }; problem?: RunProblem | null };
     const sch = updater?.schedule();
     const counts = log.counts(86_400_000);
     const failed = log.query({ cat: 'auth', text: 'failed sign-in', limit: 5000 }).filter((e) => now().getTime() - Date.parse(e.at) < 86_400_000).length;
@@ -548,7 +607,7 @@ export function createApp(o: AppOptions) {
       lastFullBackupAt: config.get().lastFullBackupAt,
       offsite: readOffsite(store.dataDir),
       logs: { fileOk: log.fileOk, dir: log.dir, errors24h: counts.error, warnings24h: counts.warn },
-      pricing: { enabled: !!updater && (sch?.enabled ?? false), hour: sch?.hour ?? 5, timeZone: sch?.timeZone ?? '', lastRun: pricingStatus.lastRun ?? null, running: !!pricingStatus.running, rateDate: (store.get('settings', 'main')?.usdToCadDate as string) ?? null },
+      pricing: { enabled: !!updater && (sch?.enabled ?? false), hour: sch?.hour ?? 5, timeZone: sch?.timeZone ?? '', lastRun: pricingStatus.lastRun ?? null, running: !!pricingStatus.running, problem: pricingStatus.problem ?? null, rateDate: (store.get('settings', 'main')?.usdToCadDate as string) ?? null },
       disk: { freeBytes: freeBytes(store.dataDir), dataBytes: dirBytes(store.dataDir) },
     });
   };
@@ -650,7 +709,7 @@ export function createApp(o: AppOptions) {
     const st = (store.get('settings', 'pricing') ?? {}) as Record<string, unknown>;
     // Whether PriceCharting's token is saved, and when: never the token itself.
     const pricecharting = o.pricecharting ? o.pricecharting.token.info() : null;
-    res.json({ available: !!updater, schedule: updater?.schedule() ?? null, pricecharting, running: !!st.running, done: st.done ?? 0, total: st.total ?? 0, history: st.history ?? (st.lastRun ? [st.lastRun] : []) });
+    res.json({ available: !!updater, schedule: updater?.schedule() ?? null, pricecharting, running: !!st.running, done: st.done ?? 0, total: st.total ?? 0, current: st.current ?? null, problem: st.problem ?? null, history: st.history ?? (st.lastRun ? [st.lastRun] : []) });
   });
   admin.put('/pricing', json, (req, res) => {
     const pricing = { ...config.get().pricing, ...pricingConfigSchema.parse(req.body) };
@@ -758,6 +817,18 @@ export function createApp(o: AppOptions) {
   });
   admin.delete('/guests/log', (_req, res) => {
     res.json({ removed: needGuests().clearLog(who(res)) });
+  });
+
+  // Problems: every warning and error since an administrator last marked them as seen, grouped.
+  admin.get('/problems', (req, res) => {
+    res.json(problemFeed(log, config.get().problemsSeenAt ?? null, { all: req.query.all === '1' }));
+  });
+  admin.post('/problems/seen', json, (req, res) => {
+    const { upTo } = z.object({ upTo: z.iso.datetime().optional() }).parse(req.body ?? {});
+    // Up to the newest one the page showed, so one logged meanwhile still counts as new.
+    const at = upTo && upTo < now().toISOString() ? upTo : now().toISOString();
+    config.set({ problemsSeenAt: at });
+    res.json(problemFeed(log, at));
   });
 
   // Logs

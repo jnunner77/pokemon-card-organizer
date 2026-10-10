@@ -50,13 +50,45 @@ export class Logger {
   private currentDay = '';
   /** Whether the last write to the daily file worked (shown on the Checks page). */
   fileOk: boolean | null = null;
+  /** Warnings and errors for the problems feed (problems.ts): read from the daily files at start, then as they're logged. */
+  private readonly problemList: LogEntry[] = [];
+  private static readonly PROBLEMS_KEPT = 3000;
 
   constructor(readonly opts: LoggerOptions = {}) {
     this.keepDays = opts.keepDays ?? 14;
     this.max = opts.recent ?? 5000;
     this.stdout = opts.stdout ?? true;
     this.now = opts.now ?? (() => new Date());
-    if (opts.dir) fs.mkdirSync(opts.dir, { recursive: true });
+    if (opts.dir) {
+      fs.mkdirSync(opts.dir, { recursive: true });
+      this.loadProblems();
+    }
+  }
+
+  /** The warnings and errors still in the daily files (the last two weeks), so they outlast a restart. */
+  private loadProblems() {
+    for (const f of this.files().reverse()) {
+      let text: string;
+      try {
+        text = fs.readFileSync(path.join(this.opts.dir!, f.name), 'utf8');
+      } catch {
+        continue;
+      }
+      for (const line of text.split('\n')) {
+        if (!/"level":\s*"(?:warn|error)"/.test(line)) continue;
+        try {
+          this.problemList.push(JSON.parse(line) as LogEntry);
+        } catch {
+          // a line cut short when the server stopped
+        }
+      }
+    }
+    if (this.problemList.length > Logger.PROBLEMS_KEPT) this.problemList.splice(0, this.problemList.length - Logger.PROBLEMS_KEPT);
+  }
+
+  /** Warnings and errors logged after `since` (an ISO time; all kept when null), oldest first. */
+  problems(since: string | null = null): LogEntry[] {
+    return since ? this.problemList.filter((e) => e.at > since) : this.problemList.slice();
   }
 
   get dir() {
@@ -67,6 +99,10 @@ export class Logger {
     const entry: LogEntry = { id: this.nextId++, at: this.now().toISOString(), level, cat, msg, ...(data ? { data: redact(data) as Record<string, unknown> } : {}) };
     this.entries.push(entry);
     if (this.entries.length > this.max) this.entries.splice(0, this.entries.length - this.max);
+    if (level !== 'info') {
+      this.problemList.push(entry);
+      if (this.problemList.length > Logger.PROBLEMS_KEPT) this.problemList.splice(0, this.problemList.length - Logger.PROBLEMS_KEPT);
+    }
     const line = JSON.stringify(entry);
     if (this.stdout) (level === 'error' ? process.stderr : process.stdout).write(line + '\n');
     this.toFile(entry.at.slice(0, 10), line);
@@ -126,6 +162,38 @@ export class Logger {
       out.push(e);
     }
     return out;
+  }
+
+  /**
+   * Entries from `from` to `to` (ISO times), oldest first, at most the last `limit`: from the daily
+   * files, so a run's lines are still there after the server restarted (or crashed) during it.
+   */
+  between(from: string, to: string, q: { cats?: Category[]; limit?: number } = {}): LogEntry[] {
+    const limit = q.limit ?? 300;
+    const keep = (e: LogEntry) => e.at >= from && e.at <= to && (!q.cats || q.cats.includes(e.cat));
+    if (!this.opts.dir) return this.entries.filter(keep).slice(-limit);
+    const out: LogEntry[] = [];
+    const days = this.files()
+      .filter((f) => f.day >= from.slice(0, 10) && f.day <= to.slice(0, 10))
+      .reverse();
+    for (const f of days) {
+      let text: string;
+      try {
+        text = fs.readFileSync(path.join(this.opts.dir, f.name), 'utf8');
+      } catch {
+        continue;
+      }
+      for (const line of text.split('\n')) {
+        if (!line) continue;
+        try {
+          const e = JSON.parse(line) as LogEntry;
+          if (keep(e)) out.push(e);
+        } catch {
+          // a line cut short when the server stopped
+        }
+      }
+    }
+    return out.slice(-limit);
   }
 
   /** How many entries of each level since a time (from the in-memory list). */

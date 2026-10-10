@@ -30,7 +30,7 @@ export interface CheckInputs {
   /** The server's nightly job copied a backup off the server (offsite.json in the data directory). */
   offsite: { at: string; where: string } | null;
   logs: { fileOk: boolean | null; dir: string | undefined; errors24h: number; warnings24h: number };
-  pricing: { enabled: boolean; hour: number; timeZone: string; lastRun: { date: string; finishedAt: string; counts: Record<string, number> } | null; running: boolean; rateDate: string | null };
+  pricing: { enabled: boolean; hour: number; timeZone: string; lastRun: { date: string; finishedAt: string; counts: Record<string, number> } | null; running: boolean; rateDate: string | null; problem?: { title: string; message: string; recoveredAt?: string | null } | null };
   disk: { freeBytes: number | null; dataBytes: number };
 }
 
@@ -133,6 +133,8 @@ export function runChecks(i: CheckInputs): Check[] {
       fix: ran > 30 ? 'It should run every day. Check the Logs page (category pricing).' : failed ? 'See the problems under Prices; the sites may have changed or blocked the server.' : undefined,
     });
   }
+  // An update that was interrupted, stalled or failed (its banner hasn't been dismissed yet).
+  if (p.problem) add({ id: 'pricing-problem', group: 'Prices', title: 'Price update problem', status: p.problem.recoveredAt ? 'warn' : 'fail', detail: `${p.problem.title}. ${p.problem.message}`, fix: 'See the red banner under Prices: it shows the update’s log. Start it again or dismiss it there.' });
   if (p.enabled && p.rateDate) {
     const days = hoursSince(`${p.rateDate}T21:00:00Z`, i.now) / 24;
     add({ id: 'fx', group: 'Prices', title: 'Exchange rate', status: days > 5 ? 'warn' : 'pass', detail: `Bank of Canada rate from ${p.rateDate}.`, fix: days > 5 ? 'The Bank of Canada rate is out of date; check the Logs page (category pricing).' : undefined });

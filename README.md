@@ -50,7 +50,27 @@ Every morning (after 5:00 in your time zone, catching up if the server was off) 
 Each card's drawer shows its PriceCharting and TCGplayer products, a 30-day price chart, and
 *Update now*, *Change match* (search PriceCharting, or take the TCGplayer product TCGdex names),
 *Don't use TCGplayer* (or PriceCharting) for that card, and *Turn off*. **Settings** shows the last
-run (updated, needing a match, problems) and *Update all prices now*.
+run (updated, needing a match, problems), *Update all prices now*, and *Stop the update* while
+one is running.
+
+When an update goes wrong, a **red banner** across the top of the binder (and of Administration →
+Prices, and a failing check on the Overview) says what happened, which card it stopped at, and
+shows the update's log, with *Start it again* (or *Stop the update*), *Copy log* and *Dismiss*:
+
+- **Interrupted:** the server restarted, was updated or crashed during it. A crash's error is
+  written to the log before the server stops, and a server that was killed outright is noticed
+  when it starts again. Either way *Update all prices now* works again straight away. After a
+  restart or an update the daily run starts again by itself; after a crash it waits to be
+  started, so a run that crashes the server doesn't do it all day.
+- **Stuck:** no card finished for 10 minutes (a site that never answers). It names the card and
+  what it was doing (asking PriceCharting, the card databases, downloading the picture); stop it
+  and start it again.
+- **Failed:** the update ended with an error partway; the cards before it were priced.
+
+The *Prices updated* figure turns red too (*Interrupted 24/40*, *Stuck 24/40*). The banner stays
+until someone dismisses it, turning amber once a later update has gone through, so a problem in
+the night isn't missed. The log is read from the server's daily log files, so it's there after a
+restart.
 
 On the first real run against a 122-card collection, 120 cards were matched, priced and
 pictured automatically in under 5 minutes; the other two needed a choice (a card recorded
@@ -398,8 +418,27 @@ including Administration), **editor** (changes the ledger) and **viewer** (looks
   monthly) and snapshots, each downloadable or restorable; how long copies are kept.
 - **Prices:** daily schedule (on/off, hour), update now, recent runs with their problems.
 - **Security:** blocked addresses (unblock), limits, recent security events.
+- **Problems:** every warning and error since they were last marked as seen, repeats grouped
+  ("12× PriceCharting answered 500"), with *Include ones already seen* (the last two weeks) and
+  *Copy*.
 - **Logs:** requests, sign-ins, administration, security, prices and backups, filtered by level
   and category, with a file per day to download.
+
+### Nothing fails quietly
+
+Everything the server logs as a warning or an error (requests that fail, price sites, backups,
+sign-in, security, and errors in the pages themselves) shows up for administrators straight away:
+
+- a **red banner** (amber when there are only warnings) at the top of the binder and of
+  Administration, with the newest problems, *Show all*, *Copy*, *Mark as seen* and a link to the
+  Logs page;
+- a **count in the binder's header** (*3 errors*) until they're marked as seen;
+- the **Problems** list, which keeps them across restarts (read from the daily log files).
+
+An error in a page (a script error, a promise that failed) is shown on that page in red, with
+*Reload the page*, and reported to the server, where it's logged and joins the problems (at most
+30 a minute, so a page stuck in a loop can't flood the log). The page checks for new problems
+every minute.
 
 ## Security on the public internet
 

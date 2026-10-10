@@ -34,6 +34,8 @@ export interface AdminConfig {
   pricing: PricingConfig;
   /** When someone last downloaded a full backup (a copy that leaves the server). */
   lastFullBackupAt: string | null;
+  /** When an administrator last marked the problems (warnings and errors) as seen (problems.ts). */
+  problemsSeenAt?: string | null;
 }
 
 export class Config {

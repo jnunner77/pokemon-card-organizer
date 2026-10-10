@@ -77,6 +77,8 @@ export interface UpdaterOptions {
   catalog?: Catalog;
   /** PriceCharting's API (pricecharting.ts); without it, or without its token, PriceCharting isn't asked. */
   pricecharting?: PriceCharting;
+  /** How long a run may go without finishing a card before it's flagged as stalled. */
+  stallMs?: number;
 }
 
 type Card = Doc & CardForMatch & {
@@ -155,6 +157,35 @@ export interface RunSummary {
   errors: { card: string; error: string }[];
   /** Sites that weren't used for (part of) the run, and why: they refused our requests or kept failing. */
   sitesOut?: Partial<Record<Source, string>>;
+  /** A run that didn't get through every card, and how far it got. */
+  ended?: 'interrupted' | 'stopped' | 'failed';
+  done?: number;
+  total?: number;
+}
+
+/**
+ * Something that went wrong with an update: the server stopped or crashed during it, it stopped
+ * making progress, or it failed partway. Kept in the status (so every page shows it, in red) until
+ * someone dismisses it, even after a later update goes fine, so it isn't missed.
+ */
+export interface RunProblem {
+  kind: 'interrupted' | 'stalled' | 'failed';
+  title: string;
+  message: string;
+  /** When it was noticed. */
+  at: string;
+  /** The run it happened to (its log is the pricing log from then to `at`). */
+  startedAt: string | null;
+  reason: RunSummary['reason'] | null;
+  done: number;
+  total: number;
+  /** The card it was on, and what it was doing. */
+  card: string | null;
+  step: string | null;
+  /** The server was shut down on purpose (a restart or an update), so the daily run may start again. */
+  graceful?: boolean;
+  /** A stalled run that moved on, or a later update that went through every card. */
+  recoveredAt?: string | null;
 }
 
 /** The site isn't being asked: PriceCharting without its token, or a site refusing or failing during this update. */
@@ -219,6 +250,15 @@ export class PriceUpdater {
   private eur: number | null = null;
   /** During a run: each site's failures in a row, and the sites left alone for the rest of it (with why). */
   private run: { streak: Record<Source, number>; tripped: Map<Source, string> } | null = null;
+  /** Which run is current: a stopped run's loop sees this change and ends without writing anything. */
+  private gen = 0;
+  private readonly stallMs: number;
+  /** During a run: when the last card started, what it's doing now, and whether it's been flagged as stalled. */
+  private progressAt = 0;
+  private step: string | null = null;
+  private stalled = false;
+  private counts: Record<CardOutcome, number> | null = null;
+  private watchdog: NodeJS.Timeout | null = null;
 
   constructor(o: UpdaterOptions) {
     this.store = o.store;
@@ -235,6 +275,7 @@ export class PriceUpdater {
     this.details = o.details;
     this.catalog = o.catalog;
     this.pc = o.pricecharting;
+    this.stallMs = o.stallMs ?? 10 * 60_000;
   }
 
   /** Whether the daily run is on, and its hour (administrators can change both); whether PriceCharting has its token. */
@@ -286,13 +327,26 @@ export class PriceUpdater {
     const tick = () => {
       const sch = this.schedule();
       if (!sch.enabled || this.running || this.localHour() < sch.hour) return;
-      const last = this.status().lastRun as RunSummary | undefined;
-      if (last?.date === this.today()) return;
+      if (!this.dueToday()) return;
       this.runAll('schedule').catch((err) => this.log.error('pricing', `Daily price update failed: ${message(err)}`));
     };
     this.timer = setInterval(tick, everyMs);
     this.timer.unref();
     setTimeout(tick, 30_000).unref();
+  }
+
+  /**
+   * Whether the daily run hasn't happened yet today: no update finished today, and none started
+   * today except one the server's restart cut short (that one starts again). One that crashed the
+   * server or was stopped isn't started again by itself, so a run that crashes doesn't do it all day.
+   */
+  dueToday(): boolean {
+    const st = this.status();
+    if ((st.lastRun as RunSummary | undefined)?.date === this.today()) return false;
+    const startedAt = st.startedAt as string | undefined;
+    if (!startedAt || this.today(new Date(startedAt)) !== this.today()) return true;
+    const p = st.problem as RunProblem | null | undefined;
+    return !!p && p.kind === 'interrupted' && !!p.graceful && p.startedAt === startedAt;
   }
 
   stopScheduler() {
@@ -304,58 +358,279 @@ export class PriceUpdater {
 
   /** Update every card. A second call while one is running joins it. */
   runAll(reason: RunSummary['reason']): Promise<RunSummary> {
-    this.current ??= this.doRunAll(reason).finally(() => {
-      this.current = null;
-    });
+    if (!this.current) {
+      const p: Promise<RunSummary> = this.doRunAll(reason).finally(() => {
+        if (this.current === p) this.current = null;
+      });
+      this.current = p;
+    }
     return this.current;
   }
 
   private async doRunAll(reason: RunSummary['reason']): Promise<RunSummary> {
+    const gen = ++this.gen;
+    // False once the run is stopped (stop, shutdown): it then ends without writing anything.
+    const live = () => this.gen === gen;
     const startedAt = this.now().toISOString();
     const date = this.today();
     const ids = this.store.all().cards.map((c) => c.id);
-    this.setStatus({ running: true, startedAt, done: 0, total: ids.length });
+    this.setStatus({ running: true, startedAt, reason, done: 0, total: ids.length, current: null });
+    this.progressAt = this.now().getTime();
+    this.stalled = false;
+    this.step = 'getting the exchange rate from the Bank of Canada';
+    const watchdog = (this.watchdog = setInterval(() => live() && this.checkStall(), Math.min(30_000, Math.max(1000, this.stallMs / 4))));
+    watchdog.unref();
     const { rate, rateDate } = await this.rate();
     const counts: Record<CardOutcome, number> = { updated: 0, needsMatch: 0, noPrice: 0, failed: 0, skipped: 0, off: 0 };
+    this.counts = counts;
     const errors: RunSummary['errors'] = [];
     let done = 0;
+    let failure: unknown = null;
     // A site that keeps failing (down, or refusing the token) is left alone for the rest of the run.
     this.catalog?.reset();
     const run = (this.run = { streak: { pricecharting: 0, tcgplayer: 0 }, tripped: new Map<Source, string>() });
     this.log.info('pricing', `Price update started (${reason}) for ${ids.length} cards at US$1 = C$${rate}`, { reason, cards: ids.length, rate });
     try {
       for (const id of ids) {
+        if (!live()) break;
         const card = this.store.get('cards', id) as Card | undefined;
         let outcome: CardOutcome = 'skipped';
         if (card) {
+          this.progress(label(card));
           try {
             // Blanks first, release date included (it only asks TCGdex about cards with blanks, at
             // most once a week each): a known set helps find the right product.
+            this.step = 'filling in its details from TCGdex';
             if (this.details) await this.details.fill(this.store, id).catch(() => {});
+            this.step = 'pricing it';
             outcome = await this.updateCard(id, rate);
           } catch (err) {
             outcome = 'failed';
             this.log.error('pricing', `Price update for ${label(card)} failed: ${message(err)}`);
           }
+          if (!live()) break;
           const after = this.store.get('cards', id) as Card | undefined;
           if (outcome === 'failed' || outcome === 'noPrice') errors.push({ card: label(card), error: after?.pricing?.error ?? 'Failed' });
         }
         counts[outcome]++;
         this.setStatus({ done: ++done });
-        if (outcome !== 'skipped' && outcome !== 'off') await this.pause();
+        if (outcome !== 'skipped' && outcome !== 'off') {
+          this.step = 'pausing between cards';
+          await this.pause();
+        }
       }
+    } catch (err) {
+      failure = err;
     } finally {
-      const sitesOut: Partial<Record<Source, string>> = {};
-      for (const [src, why] of run.tripped) sitesOut[src] = why;
-      this.run = null;
-      this.eur = null;
-      const summary: RunSummary = { reason, date, startedAt, finishedAt: this.now().toISOString(), rate, rateDate, counts, errors: errors.slice(0, 30), ...(Object.keys(sitesOut).length ? { sitesOut } : {}) };
-      const history = ((this.status().history as RunSummary[] | undefined) ?? []).slice(0, 29);
-      this.setStatus({ running: false, lastRun: summary, history: [{ ...summary, errors: summary.errors.slice(0, 5) }, ...history] });
-      const lvl = counts.failed ? 'warn' : 'info';
-      this.log[lvl]('pricing', `Price update finished: ${counts.updated} updated, ${counts.needsMatch} need a match, ${counts.noPrice} without a price, ${counts.failed} failed`, { ...counts, tripped: [...run.tripped.keys()] });
+      clearInterval(watchdog);
     }
-    return this.status().lastRun as RunSummary;
+    const sitesOut: Partial<Record<Source, string>> = {};
+    for (const [src, why] of run.tripped) sitesOut[src] = why;
+    const summary: RunSummary = { reason, date, startedAt, finishedAt: this.now().toISOString(), rate, rateDate, counts, errors: errors.slice(0, 30), ...(Object.keys(sitesOut).length ? { sitesOut } : {}) };
+    // Stopped (or the server shutting down): stop() or shutdown() already wrote down how far it got.
+    if (!live()) return { ...summary, ended: 'stopped', done, total: ids.length };
+    this.run = null;
+    this.eur = null;
+    this.counts = null;
+    const st = this.status();
+    if (failure) {
+      const at = this.now().toISOString();
+      const card = (st.current as { card?: string } | null)?.card ?? null;
+      const problem: RunProblem = {
+        kind: 'failed',
+        title: `The price update failed at card ${Math.min(done + 1, ids.length)} of ${ids.length}`,
+        message: `It stopped with an error: ${message(failure)}. The cards before it were priced. Start it again; if it fails the same way, the log below shows where.`,
+        at,
+        startedAt,
+        reason,
+        done,
+        total: ids.length,
+        card,
+        step: this.step,
+      };
+      this.log.error('pricing', `Price update failed after ${done} of ${ids.length} cards${card ? ` (on ${card})` : ''}: ${failure instanceof Error && failure.stack ? failure.stack : message(failure)}`, { done, total: ids.length });
+      // Written as the day's update so the daily run doesn't start it again and again; the banner says what happened.
+      const failed: RunSummary = { ...summary, ended: 'failed', done, total: ids.length };
+      this.setStatus({ running: false, current: null, lastRun: failed, problem, history: this.withHistory(failed) });
+      this.step = null;
+      return failed;
+    }
+    const prior = st.problem as RunProblem | null | undefined;
+    // An earlier problem stays shown (until dismissed), saying that this update went through.
+    const problem = prior && !prior.recoveredAt ? { ...prior, recoveredAt: summary.finishedAt } : (prior ?? null);
+    this.setStatus({ running: false, current: null, lastRun: summary, problem, history: this.withHistory(summary) });
+    this.step = null;
+    const lvl = counts.failed ? 'warn' : 'info';
+    this.log[lvl]('pricing', `Price update finished: ${counts.updated} updated, ${counts.needsMatch} need a match, ${counts.noPrice} without a price, ${counts.failed} failed`, { ...counts, tripped: [...run.tripped.keys()] });
+    return summary;
+  }
+
+  /** The run history with a new run first (its error list shortened). */
+  private withHistory(s: RunSummary): RunSummary[] {
+    const history = ((this.status().history as RunSummary[] | undefined) ?? []).slice(0, 29);
+    return [{ ...s, errors: s.errors.slice(0, 5) }, ...history];
+  }
+
+  /** A card started: progress, so the run isn't stalled (and if it had been, it moved on). */
+  private progress(card: string) {
+    this.progressAt = this.now().getTime();
+    const patch: Doc = { current: { card, since: this.now().toISOString() } };
+    if (this.stalled) {
+      this.stalled = false;
+      const p = this.status().problem as RunProblem | null | undefined;
+      if (p?.kind === 'stalled' && p.startedAt === this.status().startedAt) {
+        patch.problem = { ...p, recoveredAt: this.now().toISOString(), message: `${p.message} It moved on by itself afterwards.` };
+        this.log.info('pricing', `Price update moved on after stalling on ${p.card ?? 'a card'}`);
+      }
+    }
+    this.setStatus(patch);
+  }
+
+  /**
+   * During a run, when no card has started for `stallMs` (a request that never ends, a site that
+   * never answers): flag it as stalled, in the status and the log, naming the card and what it
+   * was doing. Checked every half minute; it can then be stopped and started again.
+   */
+  checkStall(): RunProblem | null {
+    if (!this.current || this.stalled) return null;
+    const idleMs = this.now().getTime() - this.progressAt;
+    if (idleMs < this.stallMs) return null;
+    const st = this.status();
+    const done = Number(st.done) || 0;
+    const total = Number(st.total) || 0;
+    const card = (st.current as { card?: string } | null)?.card ?? null;
+    const mins = Math.round(idleMs / 60_000);
+    this.stalled = true;
+    const problem: RunProblem = {
+      kind: 'stalled',
+      title: `The price update is stuck at card ${Math.min(done + 1, total)} of ${total}`,
+      message: `Nothing has happened for ${mins} minute${mins === 1 ? '' : 's'}${card ? ` while ${this.step ?? 'pricing'} for ${card}` : this.step ? ` while ${this.step}` : ''}. Stop it and start it again; the log below shows its last steps.`,
+      at: this.now().toISOString(),
+      startedAt: (st.startedAt as string) ?? null,
+      reason: (st.reason as RunSummary['reason']) ?? null,
+      done,
+      total,
+      card,
+      step: this.step,
+    };
+    this.log.error('pricing', `Price update stalled: no progress for ${mins} minutes at card ${Math.min(done + 1, total)} of ${total}${card ? ` (${card}, ${this.step ?? 'pricing'})` : ''}`, { done, total, card, step: this.step, minutes: mins });
+    this.setStatus({ problem });
+    return problem;
+  }
+
+  /**
+   * Stop the running update: it's written down as stopped (with how far it got) straight away and
+   * another can start, even while a request it's waiting on never ends; its loop sees it was
+   * stopped and ends without writing anything else.
+   */
+  stop(by: string): boolean {
+    if (!this.current) return false;
+    const st = this.status();
+    const p = st.problem as RunProblem | null | undefined;
+    const wasStalled = this.stalled && p?.kind === 'stalled' && p.startedAt === st.startedAt;
+    this.endRun('stopped');
+    this.log.warn('pricing', `${by} stopped the price update at ${st.done ?? 0} of ${st.total ?? 0} cards${wasStalled ? ' after it stalled' : ''}`);
+    if (wasStalled) this.setStatus({ problem: { ...p, message: `${p.message} ${by} stopped it.` } });
+    return true;
+  }
+
+  /** The server is shutting down (a restart or an update): a running update is written down as interrupted. */
+  shutdown(why = 'The server was restarted or updated'): RunProblem | null {
+    if (!this.current) return null;
+    return this.interrupted(`${why} during the update.`, true);
+  }
+
+  /** The server crashed: a running update is written down as interrupted, with the error. */
+  crashed(err: unknown): RunProblem | null {
+    if (!this.current) return null;
+    return this.interrupted(`The server crashed during the update: ${message(err)}.`, false);
+  }
+
+  /**
+   * At startup: the saved status says an update is running, but this server just started, so the
+   * last one stopped without saying (killed, out of memory, the machine restarted). It's written
+   * down as interrupted, and Update all prices now works again.
+   */
+  recover(): RunProblem | null {
+    const st = this.status();
+    if (!st.running || this.current) return null;
+    const problem = this.problemFor('interrupted', st, 'The server stopped unexpectedly during the update (it crashed, ran out of memory, or was killed).', false);
+    const history = this.historyEntry(st, 'interrupted');
+    this.setStatus({ running: false, current: null, problem, ...(history ? { history: this.withHistory(history) } : {}) });
+    this.log.error('pricing', `${problem.title}: ${problem.message}`, { done: problem.done, total: problem.total, card: problem.card });
+    return problem;
+  }
+
+  /** Hide the problem banner. */
+  dismiss() {
+    if (this.status().problem) this.setStatus({ problem: null });
+  }
+
+  private interrupted(why: string, graceful: boolean): RunProblem {
+    const st = this.status();
+    const problem = this.problemFor('interrupted', st, why, graceful);
+    this.endRun('interrupted');
+    this.setStatus({ problem });
+    this.log.error('pricing', `${problem.title}: ${problem.message}`, { done: problem.done, total: problem.total, card: problem.card });
+    return problem;
+  }
+
+  private problemFor(kind: RunProblem['kind'], st: Doc, why: string, graceful: boolean): RunProblem {
+    const done = Number(st.done) || 0;
+    const total = Number(st.total) || 0;
+    const card = (st.current as { card?: string } | null)?.card ?? null;
+    const step = this.current ? this.step : null;
+    const at = Math.min(done + 1, total);
+    return {
+      kind,
+      title: `The price update was interrupted at card ${at} of ${total}`,
+      message: `${why}${card ? (step ? ` It was ${step} for ${card}.` : ` It was on ${card}.`) : ''} ${done} card${done === 1 ? ' was' : 's were'} priced before that. ${graceful ? 'The daily update starts again by itself once the server is back, or start it again now.' : 'Start it again; the log below shows its last lines.'}`,
+      at: this.now().toISOString(),
+      startedAt: (st.startedAt as string) ?? null,
+      reason: (st.reason as RunSummary['reason']) ?? null,
+      done,
+      total,
+      card,
+      step,
+      ...(graceful ? { graceful: true } : {}),
+    };
+  }
+
+  /** A history row for a run that didn't finish (from the saved status: its counts are only known while it runs). */
+  private historyEntry(st: Doc, ended: RunSummary['ended']): RunSummary | null {
+    const startedAt = st.startedAt as string | undefined;
+    if (!startedAt) return null;
+    const main = this.store.get('settings', 'main') ?? {};
+    const zero: Record<CardOutcome, number> = { updated: 0, needsMatch: 0, noPrice: 0, failed: 0, skipped: 0, off: 0 };
+    return {
+      reason: (st.reason as RunSummary['reason']) ?? 'schedule',
+      date: this.today(new Date(startedAt)),
+      startedAt,
+      finishedAt: this.now().toISOString(),
+      rate: Number(main.usdToCad) || 0,
+      rateDate: (main.usdToCadDate as string) ?? null,
+      counts: this.current && this.counts ? { ...this.counts } : zero,
+      errors: [],
+      ended,
+      done: Number(st.done) || 0,
+      total: Number(st.total) || 0,
+    };
+  }
+
+  /** End the running update now: its loop sees the change and ends without writing anything. */
+  private endRun(ended: RunSummary['ended']) {
+    const st = this.status();
+    const history = this.historyEntry(st, ended);
+    this.gen++;
+    if (this.watchdog) clearInterval(this.watchdog);
+    this.watchdog = null;
+    this.current = null;
+    this.run = null;
+    this.eur = null;
+    this.counts = null;
+    this.stalled = false;
+    this.step = null;
+    this.setStatus({ running: false, current: null, ...(history ? { history: this.withHistory(history) } : {}) });
   }
 
   /**
@@ -367,6 +642,7 @@ export class PriceUpdater {
     const out = this.siteOut(src);
     if (out) throw new SiteOut(out);
     const run = this.run;
+    if (run) this.step = `asking ${SOURCE_NAME[src]}`;
     try {
       const result = await work();
       if (run) run.streak[src] = 0;
@@ -657,6 +933,7 @@ export class PriceUpdater {
     const tcgdexId = (card.details as { id?: string | null } | null | undefined)?.id;
     if (!this.catalog || !tcgdexId) return null;
     const known = card.pricing?.catalog?.tcgdexId === tcgdexId ? card.pricing.catalog : {};
+    if (this.run) this.step = 'asking the card databases (TCGdex, pokemontcg.io)';
     try {
       const blanks = DETAIL_FIELDS.some((f) => blank(card[f]));
       const q = await this.catalog.quote(tcgdexId, { variant: card.variant, rarity: card.rarity, picture: pictureOf(card), blanks }, known, card.setCode as string | undefined);
@@ -713,6 +990,7 @@ export class PriceUpdater {
   private async fetchImage(card: Card, url: string | null): Promise<{ id: string; url: string } | null> {
     if (!url) return null;
     if (card.officialImageId && card.pricing?.imageUrl === url && this.assets.find(card.officialImageId)) return null;
+    if (this.run) this.step = 'downloading its picture';
     try {
       const res = await get(this.fetcher, url);
       const buf = Buffer.from(await res.arrayBuffer());

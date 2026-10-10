@@ -214,17 +214,26 @@
   }
 
   // ---- Prices --------------------------------------------------------------------------
+  let problemLog = null;
   async function prices() {
     const p = await api("GET", "admin/pricing");
     if (!p.available) return `<p class="empty-state">Automatic prices aren't available on this server.</p>`;
     const s = p.schedule;
-    const rows = p.history.map(h => { const c = h.counts || {}; const mins = h.finishedAt && h.startedAt ? Math.max(1, Math.round((Date.parse(h.finishedAt) - Date.parse(h.startedAt)) / 60000)) : "—"; return `<tr><td class="mono">${esc(h.date)}</td><td>${h.reason === "manual" ? "Started by someone" : "Daily"}</td><td class="r mono">${c.updated ?? 0}</td><td class="r mono">${c.needsMatch ?? 0}</td><td class="r mono">${c.noPrice ?? 0}</td><td class="r mono ${c.failed ? "neg" : ""}">${c.failed ?? 0}</td><td class="r mono">${Number(h.rate).toFixed(4)}</td><td class="r mono">${mins} min</td></tr>${h.sitesOut ? `<tr class="errrow"><td colspan="8">${Object.values(h.sitesOut).map(esc).join("<br>")}</td></tr>` : ""}${h.errors && h.errors.length ? `<tr class="errrow"><td colspan="8">${h.errors.map(e => `<b>${esc(e.card)}</b>: ${esc(e.error)}`).join("<br>")}</td></tr>` : ""}`; }).join("");
+    // An update that was interrupted, stalled or failed: the red banner, with the update's log.
+    let problem = "";
+    if (p.problem) {
+      const log = await api("GET", "pricing/log").then(r => ({ entries: r.entries || [] }), e => ({ error: e.message }));
+      problemLog = log;
+      problem = window.BinderRunLog.banner(p.problem, { running: p.running, canEdit: true, log });
+    }
+    const ENDED = { interrupted: "Interrupted", stopped: "Stopped", failed: "Failed" };
+    const rows = p.history.map(h => { const c = h.counts || {}; const mins = h.finishedAt && h.startedAt ? Math.max(1, Math.round((Date.parse(h.finishedAt) - Date.parse(h.startedAt)) / 60000)) : "—"; return `<tr${h.ended ? ` class="ended"` : ""}><td class="mono">${esc(h.date)}${h.ended ? ` ${chip(h.ended === "stopped" ? "warn" : "fail", `${ENDED[h.ended] || h.ended} at ${(h.done ?? 0) + (h.done < h.total ? 1 : 0)} of ${h.total ?? "?"}`)}` : ""}</td><td>${h.reason === "manual" ? "Started by someone" : "Daily"}</td><td class="r mono">${c.updated ?? 0}</td><td class="r mono">${c.needsMatch ?? 0}</td><td class="r mono">${c.noPrice ?? 0}</td><td class="r mono ${c.failed ? "neg" : ""}">${c.failed ?? 0}</td><td class="r mono">${Number(h.rate) ? Number(h.rate).toFixed(4) : "—"}</td><td class="r mono">${mins} min</td></tr>${h.sitesOut ? `<tr class="errrow"><td colspan="8">${Object.values(h.sitesOut).map(esc).join("<br>")}</td></tr>` : ""}${h.errors && h.errors.length ? `<tr class="errrow"><td colspan="8">${h.errors.map(e => `<b>${esc(e.card)}</b>: ${esc(e.error)}`).join("<br>")}</td></tr>` : ""}`; }).join("");
     const pc = p.pricecharting;
-    return `<form class="adminform" id="schedForm"><h3>Daily price update</h3><div class="form">
+    return `${problem}<form class="adminform" id="schedForm"><h3>Daily price update</h3><div class="form">
         <div class="field"><label for="p_on">Runs every day</label><select id="p_on" name="enabled"><option value="1" ${s.enabled ? "selected" : ""}>Yes</option><option value="0" ${s.enabled ? "" : "selected"}>No (only when started by hand)</option></select></div>
         <div class="field"><label for="p_hour">After this hour (${esc(s.timeZone)})</label><input id="p_hour" name="hour" type="number" min="0" max="23" value="${s.hour}" class="mono"></div>
         <div class="field"><label for="p_cm">Compare Cardmarket (Europe)</label><select id="p_cm" name="cardmarket"><option value="1" ${s.cardmarket ? "selected" : ""}>Yes</option><option value="0" ${s.cardmarket ? "" : "selected"}>No</option></select></div>
-      </div><p class="hint">Each card is priced at the highest of PriceCharting's ungraded price, TCGplayer's market price and Cardmarket's trend; a graded card at PriceCharting's price for its grade. PriceCharting's prices come from its API; TCGplayer's and Cardmarket's from the TCGdex card database. No site's pages are read. Pictures come from pokemontcg.io (733×1024), TCGplayer or TCGdex.</p><div class="formfoot"><span class="hint">${p.running ? `Running now: ${p.done} of ${p.total} cards.` : "If the server was off at that hour, it runs when it's back."}</span><span style="display:flex;gap:8px"><button class="btn" type="button" id="runNow" ${p.running ? "disabled" : ""}>Update all prices now</button><button class="btn primary" type="submit">Save</button></span></div></form>
+      </div><p class="hint">Each card is priced at the highest of PriceCharting's ungraded price, TCGplayer's market price and Cardmarket's trend; a graded card at PriceCharting's price for its grade. PriceCharting's prices come from its API; TCGplayer's and Cardmarket's from the TCGdex card database. No site's pages are read. Pictures come from pokemontcg.io (733×1024), TCGplayer or TCGdex.</p><div class="formfoot"><span class="hint">${p.running ? `Running now: ${p.done} of ${p.total} cards${p.current?.card ? ` (now ${esc(p.current.card)})` : ""}.` : "If the server was off at that hour, it runs when it's back."}</span><span style="display:flex;gap:8px">${p.running && !p.problem ? `<button class="btn danger" type="button" data-runprob="stop">Stop the update</button>` : ""}<button class="btn" type="button" id="runNow" ${p.running ? "disabled" : ""}>Update all prices now</button><button class="btn primary" type="submit">Save</button></span></div></form>
       ${pc ? `<form class="adminform" id="pcForm" autocomplete="off"><h3>PriceCharting</h3>
         <p>${pc.set ? `${chip("pass", "API token saved")} <span class="hint">on ${esc(when(pc.savedAt))}</span>` : chip("info", "No API token")}</p>
         <p class="hint">PriceCharting's prices (ungraded, and graded when the subscription includes them) come from its API with your subscription's token: on PriceCharting, <b>Subscription → API/Download</b>. The token is kept in its own file on the server, apart from the ledger: it's never shown here again, logged, or put in backups or exports. PriceCharting is asked at most once a second.${pc.set ? "" : " Without a token, prices come from TCGplayer and Cardmarket only."}</p>
@@ -237,6 +246,17 @@
     const f = $("#schedForm"); if (!f) return;
     f.onsubmit = e => { e.preventDefault(); const d = formData(e.target); act(() => api("PUT", "admin/pricing", { enabled: d.enabled === "1", hour: Number(d.hour), cardmarket: d.cardmarket === "1" }), "Schedule saved"); };
     $("#runNow").onclick = () => act(() => api("POST", "pricing/run"), "Price update started; it takes a few minutes");
+    main.querySelectorAll(".runlog").forEach(pre => { pre.scrollTop = pre.scrollHeight; });
+    main.querySelectorAll("[data-runprob]").forEach(b => b.onclick = async () => {
+      const a = b.dataset.runprob;
+      if (a === "copy") {
+        const txt = window.BinderRunLog.text((await api("GET", "admin/pricing")).problem, problemLog?.entries || []);
+        try { await navigator.clipboard.writeText(txt); toast("Log copied"); } catch { toast("Couldn't copy: select the log and copy it instead."); }
+        return;
+      }
+      b.disabled = true;
+      act(() => api("POST", { stop: "pricing/stop", run: "pricing/run", dismiss: "pricing/dismiss" }[a]), { stop: "Update stopped", run: "Price update started; it takes a few minutes", dismiss: "Dismissed" }[a]);
+    });
     const pc = $("#pcForm"); if (!pc) return;
     pc.onsubmit = e => { e.preventDefault(); const input = e.target.elements.token; const token = input.value.trim(); input.value = ""; act(() => api("PUT", "admin/pricing/pricecharting-token", { token }), "PriceCharting accepted the token; it's saved"); };
     const rm = $("#pcRemove");
@@ -273,6 +293,53 @@
     main.querySelectorAll("[data-unban]").forEach(b => b.onclick = () => act(() => api("DELETE", `admin/security/bans/${encodeURIComponent(b.dataset.unban)}`), `${b.dataset.unban} unblocked`));
   }
 
+  // ---- Problems: every warning and error since they were last marked as seen -------------
+  let probFeed = null, probAll = false, pageErrors = [];
+  async function loadProblems() {
+    try { probFeed = await api("GET", "admin/problems"); } catch (e) { console.warn("Couldn't load the problems", e); }
+    renderProbsBanner();
+  }
+  function renderProbsBanner() {
+    const el = $("#probsBanner");
+    const pe = pageErrors.length ? `<section class="probs" data-kind="bad" role="alert"><div class="probs-head"><h2>Something went wrong in this page${pageErrors.length > 1 ? ` (${pageErrors.length} times)` : ""}</h2></div><p>${esc(pageErrors[pageErrors.length - 1])}</p><p class="hint">It was logged. Reloading the page usually clears it.</p><div class="links"><button class="btn sm primary" type="button" data-pageerr="reload">Reload the page</button><button class="btn sm ghost" type="button" data-pageerr="dismiss">Dismiss</button></div></section>` : "";
+    // On the Problems tab the list itself is the banner.
+    const h = pe + (location.hash === "#problems" ? "" : window.BinderProblems.banner(probFeed, { logsHref: "#logs" }));
+    if (el.dataset.html === h) return;
+    el.innerHTML = h; el.dataset.html = h;
+  }
+  async function problemsAct(a) {
+    if (a === "all") { location.hash = "#problems"; return; }
+    const feed = probAll ? await api("GET", "admin/problems?all=1") : probFeed;
+    if (a === "copy") {
+      try { await navigator.clipboard.writeText(window.BinderProblems.text(feed)); toast("Copied"); } catch { toast("Couldn't copy: use the Logs page's daily files instead."); }
+      return;
+    }
+    if (a === "seen") {
+      try { probFeed = await api("POST", "admin/problems/seen", { upTo: probFeed?.latest || undefined }); toast("Marked as seen"); } catch (e) { toast(e.message); }
+      renderProbsBanner();
+      if (location.hash === "#problems") show();
+    }
+  }
+  async function problems() {
+    const feed = probAll ? await api("GET", "admin/problems?all=1") : (probFeed = await api("GET", "admin/problems"));
+    renderProbsBanner();
+    return `<div class="adminhead"><p class="hint" style="margin:0">${feed.errors + feed.warnings ? `<b>${esc(window.BinderProblems.counts(feed))}</b> ${probAll ? "in the last two weeks" : feed.seenAt ? `since they were last marked as seen (${esc(when(feed.seenAt))})` : "logged"}.` : "Nothing has failed or warned" + (probAll ? " in the last two weeks." : " since they were last marked as seen.")} Repeats are grouped; the Logs page has every line.</p>
+        <span class="links"><label class="phswitch"><input type="checkbox" id="probAll" ${probAll ? "checked" : ""}><span>Include ones already seen</span></label><button class="btn sm" type="button" data-probs="copy">Copy</button>${probAll ? "" : `<button class="btn sm primary" type="button" data-probs="seen" ${feed.errors + feed.warnings ? "" : "disabled"}>Mark as seen</button>`}</span></div>
+      <div class="pad">${window.BinderProblems.list(feed)}</div>`;
+  }
+  function wireProblems() {
+    $("#probAll").onchange = e => { probAll = e.target.checked; show(); };
+  }
+  document.addEventListener("click", e => {
+    const b = e.target.closest("[data-probs]"); if (b) return void problemsAct(b.dataset.probs);
+    const pe = e.target.closest("[data-pageerr]"); if (pe) { if (pe.dataset.pageerr === "reload") location.reload(); else { pageErrors = []; renderProbsBanner(); } }
+  });
+  window.BinderProblems.catcher(window, {
+    page: "admin",
+    send: r => api("POST", "client-error", r),
+    show: m => { pageErrors.push(m); renderProbsBanner(); },
+  });
+
   // ---- Logs ----------------------------------------------------------------------------
   const logQ = { level: "", cat: "", q: "" };
   let logEntries = [];
@@ -298,7 +365,7 @@
   }
 
   // ---- routing -------------------------------------------------------------------------
-  const VIEWS = { overview: [overview], people: [people, wirePeople], signin: [signin, wireSignin], tokens: [tokens, wireTokens], sessions: [sessions, wireSessions], guests: [guests, wireGuests], backups: [backups, wireBackups], prices: [prices, wirePrices], security: [security, wireSecurity], logs: [logs, wireLogs] };
+  const VIEWS = { overview: [overview], people: [people, wirePeople], signin: [signin, wireSignin], tokens: [tokens, wireTokens], sessions: [sessions, wireSessions], guests: [guests, wireGuests], backups: [backups, wireBackups], prices: [prices, wirePrices], security: [security, wireSecurity], problems: [problems, wireProblems], logs: [logs, wireLogs] };
   async function show() {
     const key = (location.hash.slice(1) in VIEWS) ? location.hash.slice(1) : "overview";
     document.querySelectorAll(".admintabs .tab").forEach(t => t.setAttribute("aria-selected", t.getAttribute("href") === "#" + key));
@@ -307,11 +374,13 @@
     catch (e) { main.innerHTML = `<div class="empty-state">${esc(e.message)}</div>`; }
     main.querySelector("[data-refresh]")?.addEventListener("click", show);
   }
-  window.addEventListener("hashchange", show);
+  window.addEventListener("hashchange", () => { show(); renderProbsBanner(); });
   fetch("api/auth/me", { credentials: "same-origin" }).then(r => r.json()).then(me => {
     if (!me.user) return location.replace("login.html");
     if (me.user.role !== "admin") return location.replace("./");
     $("#who").textContent = `Signed in as ${me.user.name} (${me.user.username})`;
     show();
+    loadProblems();
+    setInterval(() => { if (document.visibilityState === "visible") loadProblems(); }, 60_000);
   });
 })();

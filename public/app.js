@@ -111,10 +111,122 @@ function render(){
 }
 function renderBanner(){
   const el = $("#banner");
-  if(S.mode==="loading") el.innerHTML = `<div class="banner">Opening your binders…</div>`;
-  else if(S.mode==="nodb") el.innerHTML = `<div class="banner" data-kind="warn">Can't reach the ledger's server, so nothing you enter here will be kept. Check your connection and reload the page.</div>`;
-  else if(S.me?.user?.role==="viewer") el.innerHTML = `<div class="banner">You have view-only access. Ask an administrator if you need to make changes.</div>`;
-  else el.innerHTML = "";
+  let h = "";
+  if(S.mode==="loading") h = `<div class="banner">Opening your binders…</div>`;
+  else if(S.mode==="nodb") h = `<div class="banner" data-kind="warn">Can't reach the ledger's server, so nothing you enter here will be kept. Check your connection and reload the page.</div>`;
+  else if(S.me?.user?.role==="viewer") h = `<div class="banner">You have view-only access. Ask an administrator if you need to make changes.</div>`;
+  h += pageErrorsHTML() + runProblemHTML() + problemsHTML();
+  // Only when it changed, so the log keeps its scroll position while the page re-renders.
+  if(el.dataset.html === h) return;
+  el.innerHTML = h; el.dataset.html = h;
+  scrollRunLog(el);
+}
+
+/* ---------- every warning and error in the app (administrators), and errors in this page ---------- */
+const isAdmin = () => S.me?.user?.role==="admin";
+const PB = {feed:null, busy:false, all:null, timer:0};
+function problemsHTML(){
+  if(!isAdmin() || S.mode!=="ready") return "";
+  return window.BinderProblems.banner(PB.feed, {logsHref:"admin.html#logs"});
+}
+function renderProblemsPill(){
+  const b = $("#btnProblems"); if(!b) return;
+  const p = isAdmin() ? window.BinderProblems.pill(PB.feed) : null;
+  b.hidden = !p;
+  if(p){ b.dataset.kind = p.kind; b.title = p.title; b.querySelector("span").textContent = p.label; }
+}
+async function loadProblems(){
+  if(!isAdmin() || PB.busy || !window.ledgerApi) return;
+  PB.busy = true;
+  try{ PB.feed = await window.ledgerApi.call("GET","api/admin/problems"); }
+  catch(e){ console.warn("Couldn't load the problems", e); }
+  finally{ PB.busy = false; renderBanner(); renderProblemsPill(); if($("#pbCard")) renderProblemsList(); }
+}
+/* Every minute while the page is open (and as soon as it's looked at again). */
+function watchProblems(){
+  if(!isAdmin() || PB.timer) return;
+  loadProblems();
+  PB.timer = setInterval(()=>{ if(document.visibilityState==="visible") loadProblems(); }, 60_000);
+  document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible") loadProblems(); });
+}
+function problemsModal(){
+  PB.all = null;
+  $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard" id="pbCard" role="dialog" aria-modal="true" aria-labelledby="pbTitle">
+    <h2 id="pbTitle">Problems</h2>
+    <p class="lead">Everything that failed or warned anywhere in the binder (the server, price sites, backups, sign-in, and errors in the pages themselves), repeats grouped.</p>
+    <label class="phswitch" style="margin:0 0 10px"><input type="checkbox" id="pbAll"><span>Include the ones already marked as seen (the last two weeks)</span></label>
+    <div id="pbList"></div>
+    <div class="mfoot"><a class="btn ghost" href="admin.html#logs">Open the Logs page</a><button class="btn" type="button" data-probs="copy">Copy</button><button class="btn primary" type="button" data-probs="seen">Mark as seen</button><button class="btn" type="button" data-mclose>Close</button></div>
+  </div></div>`;
+  $("#pbAll").onchange = async e => {
+    if(!e.target.checked){ PB.all = null; return renderProblemsList(); }
+    try{ PB.all = await window.ledgerApi.call("GET","api/admin/problems?all=1"); }catch(err){ toast(err?.message||"Couldn't load them."); }
+    renderProblemsList();
+  };
+  renderProblemsList();
+}
+function renderProblemsList(){ const l=$("#pbList"); if(l) l.innerHTML = window.BinderProblems.list(PB.all || PB.feed); }
+async function problemsAction(act){
+  if(act==="all") return problemsModal();
+  if(act==="copy"){
+    try{ await navigator.clipboard.writeText(window.BinderProblems.text(PB.all || PB.feed)); toast("Copied"); }catch(_){ toast("Couldn't copy: open the Logs page instead."); }
+    return;
+  }
+  if(act==="seen"){
+    try{ PB.feed = await window.ledgerApi.call("POST","api/admin/problems/seen", {upTo: PB.feed?.latest || undefined}); PB.all = null; toast("Marked as seen"); }
+    catch(e){ toast(e?.message||"That didn't work. Try again."); }
+    renderBanner(); renderProblemsPill(); if($("#pbCard")) renderProblemsList();
+  }
+}
+/* Errors in this page: shown in red at the top (and logged on the server, where they join the problems). */
+const PAGE_ERRORS = [];
+function pageErrorsHTML(){
+  if(!PAGE_ERRORS.length) return "";
+  const last = PAGE_ERRORS[PAGE_ERRORS.length-1];
+  return `<section class="probs" data-kind="bad" role="alert"><div class="probs-head"><svg class="probs-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v6"/><path d="M12 16.5h.01"/></svg><h2>Something went wrong in this page${PAGE_ERRORS.length>1?` (${PAGE_ERRORS.length} times)`:""}</h2></div>
+    <p>${esc(last)}</p><p class="hint">It was logged for the administrator. What you saved before is safe; reloading the page usually clears it.</p>
+    <div class="links"><button class="btn sm primary" type="button" data-pageerr="reload">Reload the page</button><button class="btn sm ghost" type="button" data-pageerr="dismiss">Dismiss</button></div></section>`;
+}
+window.BinderProblems.catcher(window, {
+  page: "binder",
+  send: r => window.ledgerApi?.call("POST","api/client-error", r),
+  show: m => { PAGE_ERRORS.push(m); try{ renderBanner(); }catch(_){ toast("Something went wrong in this page: "+m); } },
+});
+
+/* ---------- a price update that was interrupted, stalled or failed: a red banner with its log ---------- */
+const canEdit = () => !!S.me && S.me.user?.role!=="viewer";
+const RL = {key:"", log:null, at:0, busy:false};
+function runProblemHTML(){
+  const p = pricingStatus().problem;
+  if(!p || S.mode!=="ready") return "";
+  if(canEdit()) loadRunLog();
+  return window.BinderRunLog.banner(p, {running:!!pricingStatus().running, canEdit:canEdit(), log: canEdit() ? RL.log : undefined});
+}
+/* The log of the update with the problem; again when the problem changes, and every half minute while it's still running. */
+function loadRunLog(force){
+  const k = window.BinderRunLog.key(pricingStatus().problem);
+  const stale = k!==RL.key || force || (pricingStatus().running && Date.now()-RL.at > 30_000);
+  if(!stale || RL.busy || !window.ledgerApi) return;
+  if(k!==RL.key) RL.log = null;
+  RL.key = k; RL.at = Date.now(); RL.busy = true;
+  window.ledgerApi.call("GET","api/pricing/log").then(r=>{ RL.log = {entries:r.entries||[]}; }, e=>{ RL.log = {error:e?.message||"the server didn't answer"}; })
+    .finally(()=>{ RL.busy = false; renderBanner(); const sp=$("#sPricing"); if(sp){ sp.outerHTML = pricingSettingsHTML(); scrollRunLog($("#sPricing")); } });
+}
+function scrollRunLog(el){ el?.querySelectorAll(".runlog").forEach(pre=>{ pre.scrollTop = pre.scrollHeight; }); }
+async function runProblemAction(act, btn){
+  const p = pricingStatus().problem;
+  if(act==="copy"){
+    const txt = window.BinderRunLog.text(p, RL.log?.entries || []);
+    try{ await navigator.clipboard.writeText(txt); toast("Log copied"); }
+    catch(_){ const w = window.open("", "_blank"); if(w){ w.document.body.innerHTML = "<pre></pre>"; w.document.querySelector("pre").textContent = txt; } else toast("Couldn't copy the log."); }
+    return;
+  }
+  if(btn) btn.disabled = true;
+  const call = {stop:"api/pricing/stop", run:"api/pricing/run", dismiss:"api/pricing/dismiss"}[act];
+  try{
+    await window.ledgerApi.call("POST", call);
+    toast(act==="stop" ? "Update stopped. Start it again when you're ready." : act==="run" ? "Updating every card's price again. This takes a few minutes." : "Dismissed");
+  }catch(e){ toast(e?.message || "That didn't work. Try again."); if(btn) btn.disabled = false; }
 }
 function renderTabs(){
   const loose = looseCards().length;
@@ -800,8 +912,9 @@ async function pickSearch(c){
 const pricingStatus = () => S.pricing || {};
 function pricingStat(){
   const st = pricingStatus(), last = st.lastRun, need = S.cards.filter(c=>held(c) && c.pricing && c.pricing.source==="none").length;
-  const v = st.running ? `Updating <small>${st.done||0}/${st.total||0}</small>` : last ? `${esc(String(last.date).slice(5))} <small>${need?`${need} need a match`:"daily"}</small>` : `— <small>not run yet</small>`;
-  return `<button type="button" class="stat statbtn" id="btnPriceStatus" title="Automatic prices"><span class="k">Prices updated</span><span class="v">${v}</span></button>`;
+  const bad = window.BinderRunLog.stat(st);
+  const v = bad ? `${esc(bad.label)} <small>${esc(bad.count)}</small>` : st.running ? `Updating <small>${st.done||0}/${st.total||0}</small>` : last ? `${esc(String(last.date).slice(5))} <small>${need?`${need} need a match`:"daily"}</small>` : `— <small>not run yet</small>`;
+  return `<button type="button" class="stat statbtn${bad?" bad":""}" id="btnPriceStatus" title="${bad?"The price update has a problem: see the red banner":"Automatic prices"}"><span class="k">Prices updated</span><span class="v">${v}</span></button>`;
 }
 function pricingSettingsHTML(){
   const st = pricingStatus(), last = st.lastRun, c = last?.counts || {};
@@ -809,10 +922,11 @@ function pricingSettingsHTML(){
   return `<div class="sec" style="margin-top:18px;border-top:1px solid var(--line-2);padding-top:14px" id="sPricing">
     <h3>Automatic prices</h3>
     <p class="hint" style="margin:0 0 8px">Every morning each card is priced at the highest of PriceCharting's ungraded price, TCGplayer's market price and Cardmarket's trend (a graded card at PriceCharting's price for its grade), converted to Canadian dollars at the Bank of Canada's rate, and added to its price log. The last 30 days are kept. Prices you log yourself are never changed.</p>
-    ${st.running?`<p><b>Updating now:</b> ${st.done||0} of ${st.total||0} cards…</p>`:last?`<p style="margin:0 0 6px">Last update <b>${esc(last.date)}</b> (${esc(last.reason==="manual"?"started by you":"daily")}) · ${c.updated||0} updated${c.needsMatch?` · ${c.needsMatch} need a match`:""}${c.noPrice?` · ${c.noPrice} without a price`:""}${c.failed?` · ${c.failed} failed`:""} · US$1 = C$${Number(last.rate).toFixed(4)}</p>`:`<p class="hint">Not run yet.</p>`}
+    ${st.problem?window.BinderRunLog.banner(st.problem, {running:!!st.running, canEdit:canEdit(), log: canEdit() ? RL.log : undefined}):""}
+    ${st.running?`<p><b>Updating now:</b> ${st.done||0} of ${st.total||0} cards${st.current?.card?` (now ${esc(st.current.card)})`:""}…</p>`:last?`<p style="margin:0 0 6px">Last update <b>${esc(last.date)}</b> (${esc(last.reason==="manual"?"started by you":"daily")}) · ${c.updated||0} updated${c.needsMatch?` · ${c.needsMatch} need a match`:""}${c.noPrice?` · ${c.noPrice} without a price`:""}${c.failed?` · ${c.failed} failed`:""} · US$1 = C$${Number(last.rate).toFixed(4)}</p>`:`<p class="hint">Not run yet.</p>`}
     ${last && last.errors && last.errors.length?`<details class="autolog"><summary>Problems (${last.errors.length})</summary><ul class="errs">${last.errors.map(e=>`<li><b>${esc(e.card)}</b>: ${esc(e.error)}</li>`).join("")}</ul></details>`:""}
     ${need.length?`<p style="margin:8px 0 4px">These cards need you to choose their match:</p><div class="links">${need.map(x=>`<button class="btn sm" type="button" data-openc="${esc(x.id)}">${esc(x.name||"Unnamed card")} ${esc(metaLine(x))}</button>`).join("")}</div>`:""}
-    <div class="links" style="margin-top:10px"><button class="btn sm primary" type="button" id="sRunPrices" ${st.running?"disabled":""}>Update all prices now</button></div>
+    <div class="links" style="margin-top:10px"><button class="btn sm primary" type="button" id="sRunPrices" ${st.running?"disabled":""}>Update all prices now</button>${st.running && canEdit() && !st.problem?`<button class="btn sm danger" type="button" data-runprob="stop">Stop the update</button>`:""}</div>
   </div>`;
 }
 
@@ -2401,6 +2515,10 @@ document.addEventListener("click", e => {
   if(t.closest("#btnExport")) return void exportCSV();
   if(t.closest("#btnSettings") || t.closest("#btnFirstRestore") || t.closest("#btnPriceStatus")) return settingsModal();
   if(t.closest("#sFillDetails")){ t.closest("#sFillDetails").disabled = true; window.ledgerApi.call("POST","api/cards/fill-details").then(r=>toast(r.cards ? `Looking up ${r.cards} card${r.cards===1?"":"s"} in TCGdex. This takes about a second each.` : "Nothing to fill in."), e=>toast(e?.message||"Couldn't start it.")); return; }
+  const rp = t.closest("[data-runprob]"); if(rp) return void runProblemAction(rp.dataset.runprob, rp);
+  const pb = t.closest("[data-probs]"); if(pb) return void problemsAction(pb.dataset.probs);
+  if(t.closest("#btnProblems")) return problemsModal();
+  const perr = t.closest("[data-pageerr]"); if(perr){ if(perr.dataset.pageerr==="reload") location.reload(); else { PAGE_ERRORS.length = 0; renderBanner(); } return; }
   if(t.closest("#sRunPrices")){ t.closest("#sRunPrices").disabled = true; window.ledgerApi.call("POST","api/pricing/run").then(()=>toast("Updating every card's price. This takes a few minutes."), e=>toast(e?.message||"Couldn't start the update.")); return; }
   const oc = t.closest("[data-openc]"); if(oc){ closeModal(); return openCard(oc.dataset.openc); }
   if(t.closest("#btnBinderSettings")){ const b=curBinder(); if(b) binderModal(b.id); return; }
@@ -3365,7 +3483,7 @@ async function boot(){
     window.claude?.use?.("db") ?? null, window.claude?.use?.("assets") ?? null, window.claude?.use?.("downloads") ?? null
   ].map(p => Promise.resolve(p).catch(()=>null)));
   S.db=db; S.assets=assets; S.downloads=downloads;
-  window.ledgerApi?.call("GET","api/auth/me").then(r=>{ S.me=r; renderBanner(); }, ()=>{});
+  window.ledgerApi?.call("GET","api/auth/me").then(r=>{ S.me=r; renderBanner(); watchProblems(); }, ()=>{});
   if(!db){ S.mode="nodb"; pickDefaults(); render(); return; }
   const done = () => { if(got.b && got.c && S.mode==="loading"){ S.mode="ready"; } pickDefaults(); render(); };
   const onErr = e => { console.error(e); if(e?.code==="revoked"||e?.code==="not_granted"){ S.mode="nodb"; render(); } };
@@ -3373,7 +3491,7 @@ async function boot(){
   db.collection("cards").onSnapshot(s => { S.cards = s.docs.map(d=>({id:d.id, ...d.data()})); got.c=true; if(S.sel && S.sel!=="__new" && !S.cards.some(c=>c.id===S.sel)) { S.sel=null; } done(); if($("#chkCard")) renderChecks(); }, onErr);
   db.doc("settings/main").onSnapshot(s => { if(s.exists) S.settings = {...S.settings, ...s.data()}; if(S.mode==="ready") render(); }, onErr);
   db.doc("settings/details").onSnapshot(s => { S.detailsRun = s.exists ? s.data() : {}; const sd=$("#sDetails"); if(sd) sd.outerHTML = detailsSettingsHTML(); }, onErr);
-  db.doc("settings/pricing").onSnapshot(s => { S.pricing = s.exists ? s.data() : {}; if(S.mode==="ready"){ renderStats(); const sp=$("#sPricing"); if(sp) sp.outerHTML = pricingSettingsHTML(); } }, onErr);
+  db.doc("settings/pricing").onSnapshot(s => { S.pricing = s.exists ? s.data() : {}; if(S.mode==="ready"){ renderBanner(); renderStats(); const sp=$("#sPricing"); if(sp){ sp.outerHTML = pricingSettingsHTML(); scrollRunLog($("#sPricing")); } } }, onErr);
 }
 boot();
 })();

@@ -10,6 +10,8 @@
 <link rel="stylesheet" href="fonts/jetbrains-mono/latin-400.css">
 <link rel="stylesheet" href="fonts/jetbrains-mono/latin-600.css">
 <link rel="stylesheet" href="styles.css">
+<script src="runlog.js" defer></script>
+<script src="problems.js" defer></script>
 <script src="admin.js" defer></script>
 </head>
 <body>
@@ -20,6 +22,7 @@
       <p><a href="./">← Back to the ledger</a> · <span id="who"></span></p>
     </div></div>
   </header>
+  <div id="probsBanner"></div>
   <nav class="tabs admintabs" role="tablist" aria-label="Administration">
     <a class="tab" role="tab" href="#overview">Overview</a>
     <a class="tab" role="tab" href="#people">People</a>
@@ -30,6 +33,7 @@
     <a class="tab" role="tab" href="#backups">Backups</a>
     <a class="tab" role="tab" href="#prices">Prices</a>
     <a class="tab" role="tab" href="#security">Security</a>
+    <a class="tab" role="tab" href="#problems">Problems</a>
     <a class="tab" role="tab" href="#logs">Logs</a>
   </nav>
   <section class="sheet adminsheet" id="main" aria-live="polite"><div class="empty-state">Loading…</div></section>
