@@ -193,6 +193,14 @@ again with it.
   PriceCharting's price.
 - **PriceCharting first**: PriceCharting's price, else TCGplayer's, else Cardmarket's.
 - A **graded card** is always PriceCharting's price for its grade.
+- **PriceCharting knows every set and variant; the card databases don't.** TCGplayer's and
+  Cardmarket's prices come through TCGdex, which has subsets of them. So when a card has a
+  PriceCharting product, they count only when TCGdex's card is from the same set as PriceCharting's
+  product (a reprint sub-set like the 30th Classic Collection counts as 30th Celebration) and, for
+  a product of a variant beyond the plain printings (a stamp, a Poké Ball pattern), the card is
+  priced for that variant. Otherwise PriceCharting's price stands alone, and the day's note says
+  why (*TCGplayer and Cardmarket left out: the card database's card is from Paldea Evolved,
+  PriceCharting's product from 30th Celebration*). The rebuild applies this to past days too.
 
 The weights and the tolerance can be changed there too. Each daily price's note shows the working
 (*blend of PriceCharting US$100.00 (40%), TCGplayer US$110.00 (40%), Cardmarket US$90.00 (20%)*,

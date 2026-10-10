@@ -8,7 +8,7 @@ import { Assets } from '../server/assets';
 import { makeBackup } from '../server/backup';
 import { Config } from '../server/config';
 import { Catalog, choosePtcg, chooseVariant, printingOf, ptcgDetails, ptcgTcgplayer, variantPrices, tcgdexCardmarket, tcgdexTcgplayer, type PtcgCard, type TcgdexCard } from '../server/pricing/catalog';
-import { chooseMatch, detailsFromProduct, searchQuery, variantFromProduct } from '../server/pricing/match';
+import { catalogMismatch, chooseMatch, detailsFromProduct, searchQuery, variantFromProduct } from '../server/pricing/match';
 import { PriceCharting, gradedPrice, oldAddress, parseProduct } from '../server/pricing/pricecharting';
 import { type Candidate, type Fetcher, retryPolicy, releaseDate } from '../server/pricing/sources';
 import { PriceUpdater, pricesDisagree, thinAutoPrices } from '../server/pricing/updater';
@@ -514,6 +514,40 @@ describe('prices and pictures from the card databases', () => {
     // Same TCGdex card as before (TCGdex just has no price today), or chosen by the person: kept.
     expect(store.get('cards', 'same')!.pricing).toMatchObject({ pair: { id: '497658' } });
     expect(store.get('cards', 'chosen')!.pricing).toMatchObject({ pair: { id: '497658', linkedBy: 'user' } });
+  });
+
+  it('judges the card databases’ card against PriceCharting’s product, which knows every set and variant', () => {
+    const pc = (set: string, title = 'Lugia') => ({ title, set });
+    // Another set: the 30th Celebration Magikarp priced as Paldea Evolved's.
+    expect(catalogMismatch({ number: '203/193' }, pc('Pokemon 30th Celebration'), 'Paldea Evolved')).toBe("the card database's card is from Paldea Evolved, PriceCharting's product from 30th Celebration");
+    expect(catalogMismatch({ number: '118/130' }, pc('Pokemon Base Set'), 'Base Set 2')).toMatch(/from Base Set 2/);
+    // The same set, however each names it, sub-sets through the set they belong to, and promos.
+    expect(catalogMismatch({ number: '131/165' }, pc('Pokemon Scarlet & Violet 151'), '151')).toBeNull();
+    expect(catalogMismatch({ number: '149/147' }, pc('Pokemon 30th Celebration'), '30th Classic Collection', '30th Celebration')).toBeNull();
+    expect(catalogMismatch({ number: 'GG69/GG70' }, pc('Pokemon Crown Zenith'), 'Crown Zenith Galarian Gallery')).toBeNull();
+    expect(catalogMismatch({ number: '4/102' }, pc('Pokemon Celebrations'), 'Celebrations Classic Collection')).toBeNull();
+    expect(catalogMismatch({ number: 'SWSH298' }, pc('Pokemon Promo'), 'SWSH Black Star Promos')).toBeNull();
+    // A variant product: only when the card is priced for that variant; plain printings are fine.
+    expect(catalogMismatch({ number: '1', variant: '' }, pc('Pokemon Prismatic Evolutions', 'Exeggcute [Master Ball]'), 'Prismatic Evolutions')).toBe("PriceCharting's product is the Master Ball variant, which the card database doesn't price for this card");
+    expect(catalogMismatch({ number: '1', variant: 'Master Ball' }, pc('Pokemon Prismatic Evolutions', 'Exeggcute [Master Ball]'), 'Prismatic Evolutions')).toBeNull();
+    expect(catalogMismatch({ number: '1', variant: '' }, pc('Pokemon Prismatic Evolutions', 'Exeggcute [Reverse Holo]'), 'Prismatic Evolutions')).toBeNull();
+    // Nothing to judge by.
+    expect(catalogMismatch({}, null, 'Paldea Evolved')).toBeNull();
+    expect(catalogMismatch({}, pc('Pokemon 30th Celebration'), null)).toBeNull();
+  });
+
+  it('leaves TCGplayer and Cardmarket out of a day when their card is another set than PriceCharting’s product', async () => {
+    // A 151 Lapras matched in TCGdex (151), but linked to PriceCharting's 30th Celebration Lapras.
+    store.set('cards', 'c', lapras({ set: '30th Celebration', pricing: { source: 'pricecharting', id: LAPRAS_30TH, title: 'Lapras', set: 'Pokemon 30th Celebration', linkedBy: 'user' } }));
+    await updater(dbNet()).updateCard('c');
+    const e = (store.get('cards', 'c')!.prices as { usd: number; where: string; quotes: object; note: string }[])[0];
+    expect(e).toMatchObject({ usd: 13.2, where: 'PriceCharting', quotes: { pricecharting: 13.2 } });
+    expect(e.note).toMatch(/· TCGplayer left out: the card database's card is from 151, PriceCharting's product from 30th Celebration$/);
+    // The rebuild leaves them out of past days the same way.
+    const day = { id: 'd', date: '2026-10-09', type: 'market', currency: 'CAD', auto: true, usd: 300, amount: 420, where: 'TCGplayer', quotes: { pricecharting: 13, tcgplayer: 300 } };
+    store.update('cards', 'c', { prices: [day], details: { source: 'tcgdex', result: 'complete', id: 'sv03.5-131', set: '151', checkedAt: '2026-10-01T00:00:00Z' } });
+    updater(dbNet()).rebuildPrices(true);
+    expect(store.get('cards', 'c')!.prices).toEqual([expect.objectContaining({ usd: 13, amount: 18.2, where: 'PriceCharting', note: expect.stringMatching(/TCGplayer and Cardmarket left out: the card database's card is from 151/) })]);
   });
 
   it('calls prices disagreeing when one is over 3 times another and US$5 apart', () => {

@@ -9,7 +9,7 @@ import type { Doc } from '../schema';
 import type { Store } from '../store';
 import { DETAIL_FIELDS } from '../details';
 import { Catalog, type CatalogQuote } from './catalog';
-import { chooseMatch, detailsFromProduct, norm, searchQuery, variantFromProduct, type CardForMatch, type MatchResult } from './match';
+import { catalogMismatch, chooseMatch, detailsFromProduct, norm, searchQuery, variantFromProduct, type CardForMatch, type MatchResult } from './match';
 import { type PcProduct, type PriceCharting, gradedPrice, oldAddress, quoteOf } from './pricecharting';
 import { type Candidate, type Fetcher, ProductGone, type Quote, Refused, type Source, SourceError, get, exchangeRates, tcgImage } from './sources';
 
@@ -844,6 +844,13 @@ export class PriceUpdater {
     const tcgOff = link?.pair?.source === 'tcgplayer' && !!link.pair.off;
     if (cat?.tcgplayer && quotes.tcgplayer == null && !tcgOff && (!ownTcg || fromCatalog(ownTcg))) quotes.tcgplayer = cat.tcgplayer.usd;
     if (useCardmarket && cat?.cardmarketEur != null) quotes.cardmarket = round2((cat.cardmarketEur * eur!) / fx);
+    // PriceCharting knows every set and variant; the card databases (TCGplayer's and Cardmarket's
+    // prices) have subsets of them. Their prices count only when their card is PriceCharting's
+    // product's set and printing; otherwise PriceCharting's price stands alone.
+    const pcProduct = link?.source === 'pricecharting' ? link : pair?.source === 'pricecharting' ? pair : null;
+    const mismatch = quotes.pricecharting != null && cat ? catalogMismatch(card, pcProduct, cat.set, (card.details as DetailsStatus | null | undefined)?.parentSet) : null;
+    const leftOut = mismatch ? (['tcgplayer', 'cardmarket'] as const).filter((k) => quotes[k] != null) : [];
+    for (const k of leftOut) delete quotes[k];
     // A graded card is worth PriceCharting's price for its grade (the others price raw cards). When
     // PriceCharting has no graded price for it, it gets the raw card's price, as before.
     const pcQuote = link?.source === 'pricecharting' ? main : pair?.source === 'pricecharting' ? other : null;
@@ -906,7 +913,7 @@ export class PriceUpdater {
           currency: 'CAD',
           date,
           where,
-          note: `Daily update${cat?.variant ? ` (${cat.variant})` : ''} · ${list} at ${fx.toFixed(4)}${quotes.cardmarket != null ? ` (Cardmarket €${cat!.cardmarketEur!.toFixed(2)}, €1 = C$${eur!.toFixed(4)})` : ''}${ungraded}`,
+          note: `Daily update${cat?.variant ? ` (${cat.variant})` : ''} · ${list} at ${fx.toFixed(4)}${quotes.cardmarket != null ? ` (Cardmarket €${cat!.cardmarketEur!.toFixed(2)}, €1 = C$${eur!.toFixed(4)})` : ''}${leftOut.length ? ` · ${leftOut.map((k) => SOURCE_NAME[k]).join(' and ')} left out: ${mismatch}` : ''}${ungraded}`,
           auto: true,
           usd,
           quotes,
@@ -1158,10 +1165,17 @@ export class PriceUpdater {
     for (const c of this.store.all().cards as (Card & { id: string; placeholder?: boolean | null })[]) {
       const prices = c.prices ?? [];
       let changed = 0;
+      // The card databases' prices that aren't this card's (another set or printing than its
+      // PriceCharting product) are left out of every day, as the daily update does now.
+      const l = c.pricing;
+      const pcProduct = l && l.source === 'pricecharting' ? l : l?.pair && l.pair.source === 'pricecharting' && !l.pair.off ? l.pair : null;
+      const d = c.details as DetailsStatus | null | undefined;
+      const mismatch = catalogMismatch(c, pcProduct, d?.set, d?.parentSet);
       const next = prices.map((e) => {
-        const quotes = e.quotes && typeof e.quotes === 'object' ? e.quotes : null;
+        let quotes = e.quotes && typeof e.quotes === 'object' ? e.quotes : null;
         if (!e.auto || e.grade || !quotes || !Object.values(quotes).some((v) => typeof v === 'number' && v > 0)) return e;
-        const again = repriced(e, quotes, method, `rebuilt: ${name}`);
+        if (mismatch && quotes.pricecharting != null) quotes = { pricecharting: quotes.pricecharting };
+        const again = repriced(e, quotes, method, `rebuilt: ${name}${mismatch && Object.keys(e.quotes!).length > 1 ? `; TCGplayer and Cardmarket left out: ${mismatch}` : ''}`);
         if (!again || Math.abs(again.amount - e.amount) < 0.005) return e;
         changed++;
         return again;
