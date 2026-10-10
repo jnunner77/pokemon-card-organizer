@@ -524,7 +524,8 @@ function openNew(loc){
   const bid = loc?.binderId ?? (curBinder()?.id || null);
   const spot = loc?.slot ? loc : (bid ? firstFree(bid) : null);
   S.sel="__new"; S.dirty=true; S.editPrice=null; S.confirm=null;
-  S.draft = {id:"__new", name:"", set:"", setCode:"", number:"", rarity:"", variant:"", language:"English", condition:"Near Mint", grader:"Raw", grade:"", artist:"", notes:"", status:"binder", prices:[], imageId:null, binderId: bid, page: spot?.page||null, slot: spot?.slot||null};
+  // Most cards added are Justin's: he's the owner unless changed before saving.
+  S.draft = {id:"__new", name:"", set:"", setCode:"", number:"", rarity:"", variant:"", language:"English", condition:"Near Mint", grader:"Raw", grade:"", artist:"", notes:"", status:"binder", owner:"Justin", prices:[], imageId:null, binderId: bid, page: spot?.page||null, slot: spot?.slot||null};
   renderMain(); renderDrawer(true);
 }
 function closeDrawer(){ S.pricePick=null; S.pickRes=null; S.sel=null; S.draft=null; S.dirty=false; S.editPrice=null; S.confirm=null; renderMain(); renderDrawer(true); }
