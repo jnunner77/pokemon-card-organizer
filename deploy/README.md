@@ -115,5 +115,6 @@ docker compose --profile caddy up -d --build
 | `TZ` | `America/Vancouver` | Time zone for "today" in the price log and for the daily run |
 | `PRICE_UPDATE_HOUR` | `5` | Starting hour for the daily update (then set under Administration → Prices) |
 | `PRICE_UPDATES` | `on` | `off` starts with the daily update turned off (Administration → Prices turns it on) |
+| `POKEMONTCG_API_KEY` | | Optional free [pokemontcg.io](https://dev.pokemontcg.io) key: raises its request limits for card pictures |
 | `DOMAIN` | | Host name, only with `--profile caddy` |
 | `BOARDS_NETWORK` | `agile-development-operations_default` | Boards' Docker network, only with `deploy/with-boards.yml` |

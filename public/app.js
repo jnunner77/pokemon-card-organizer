@@ -701,11 +701,11 @@ function readForm(){
 
 
 /* ---------- automatic prices and official images ---------- */
-const SRC = {pricecharting:"PriceCharting", tcgplayer:"TCGplayer"};
+const SRC = {pricecharting:"PriceCharting", tcgplayer:"TCGplayer", cardmarket:"Cardmarket"};
 const isLinked = p => !!p && (p.source==="pricecharting" || p.source==="tcgplayer") && !!p.id;
 const dailyPrices = c => (Array.isArray(c.prices)?c.prices:[]).filter(p=>p.auto && typeof p.amount==="number").sort((a,b)=>(a.date||"").localeCompare(b.date||""));
 const picChoice = c => !c.officialImageId
-  ? `<p class="hint" style="margin:0">The official high-resolution picture is added automatically once the card is matched to a price site.</p>`
+  ? `<p class="hint" style="margin:0">The official high-resolution picture is added automatically once the card is found in the card database or on a price site.</p>`
   : `<div class="seg" role="group" aria-label="Picture to show"><button type="button" data-pic="official" aria-pressed="${shown(c)===c.officialImageId}">Official image</button><button type="button" data-pic="photo" aria-pressed="${shown(c)!==c.officialImageId}" ${c.imageId?"":"disabled title=\"Add a photo below first\""}>Your photo</button></div>`;
 function sparkline(list){
   if(list.length < 2) return "";
@@ -729,7 +729,7 @@ function pairInfo(p){
   if(q) return `<p class="hint pairline">${esc(name)}: no certain match, so only ${esc(SRC[p.source])}'s price is used. Choose its product with Change match to compare both. ${off}</p>`;
   return `<p class="hint pairline">${esc(name)} is searched at the next update, to compare its price.</p>`;
 }
-/** "US$20.00 from TCGplayer; PriceCharting US$13.20": which site's price an automatic entry is, and the other's. */
+/** "US$20.00 from TCGplayer; PriceCharting US$13.20, Cardmarket US$3.44": which source's price an automatic entry is, and the others'. */
 function quoteText(e){
   if(e.usd==null) return "";
   const others = Object.entries(e.quotes||{}).filter(([s])=>SRC[s]!==e.where).map(([s,v])=>`${SRC[s]} US$${Number(v).toFixed(2)}`);
@@ -739,12 +739,12 @@ function autoInfo(c){
   const p = c.pricing || null, daily = dailyPrices(c), last = daily[daily.length-1];
   const busy = S.priceBusy===c.id ? `<p class="hint">Working…</p>` : "";
   if(isLinked(p)) return `${productLine(p)}${pairInfo(p)}
-    ${last?`<p class="hint" style="margin:4px 0 0">Latest ${esc(money(last.amount))} near mint on ${esc(last.date)}${esc(quoteText(last))}${window.BinderCondition.factor(c)!==1?`, so ${esc(money(window.BinderCondition.adjust(c, last)))} for this ${esc(c.condition)} copy (${Math.round(window.BinderCondition.factor(c)*100)}%)`:""}. The higher of the two sites' prices is used, updated every day; the last 30 days are kept.</p>`:`<p class="hint" style="margin:4px 0 0">No price yet.</p>`}
+    ${last?`<p class="hint" style="margin:4px 0 0">Latest ${esc(money(last.amount))} near mint on ${esc(last.date)}${esc(quoteText(last))}${window.BinderCondition.factor(c)!==1?`, so ${esc(money(window.BinderCondition.adjust(c, last)))} for this ${esc(c.condition)} copy (${Math.round(window.BinderCondition.factor(c)*100)}%)`:""}. The highest of PriceCharting's, TCGplayer's and Cardmarket's prices is used, updated every day; the last 30 days are kept.</p>`:`<p class="hint" style="margin:4px 0 0">No price yet.</p>`}
     ${p.error?`<p class="autoerr">${esc(p.error)}</p>`:""}${sparkline(daily)}${busy}
     <div class="links"><button class="btn sm" type="button" data-pr="refresh">Update now</button><button class="btn sm" type="button" data-pr="pick">Change match</button>${p.pair&&p.pair.id&&!p.pair.off?`<button class="btn sm ghost" type="button" data-pr="pairoff">Don't use ${esc(SRC[p.pair.source])}</button>`:""}<button class="btn sm ghost" type="button" data-pr="off">Turn off</button></div>`;
   if(p && p.source==="off") return `<p class="hint" style="margin:0">Automatic pricing is off for this card, so its value comes from the prices you log.</p>${busy}<div class="links"><button class="btn sm" type="button" data-pr="auto">Turn it back on</button></div>`;
-  if(p && p.source==="none") return `<p class="autoerr">No certain match on PriceCharting or TCGplayer. If one of these is the card, choose it.</p>${p.error?`<p class="autoerr">${esc(p.error)}</p>`:""}${candList(p.candidates||[], "stored")}${busy}<div class="links"><button class="btn sm" type="button" data-pr="pick">Search</button><button class="btn sm ghost" type="button" data-pr="off">Turn off</button></div>`;
-  return `<p class="hint" style="margin:0">This card is matched to PriceCharting and TCGplayer at the next daily update, and priced at the higher of the two. You can do it now.</p>${p&&p.error?`<p class="autoerr">${esc(p.error)}</p>`:""}${busy}<div class="links"><button class="btn sm primary" type="button" data-pr="refresh">Find its price now</button><button class="btn sm" type="button" data-pr="pick">Choose the match</button></div>`;
+  if(p && p.source==="none") return `${last?`<p class="hint" style="margin:0 0 4px">Latest ${esc(money(last.amount))} near mint on ${esc(last.date)}${esc(quoteText(last))}, from the card database's prices.</p>${sparkline(daily)}`:""}<p class="autoerr">No certain match on PriceCharting or TCGplayer. If one of these is the card, choose it.</p>${p.error?`<p class="autoerr">${esc(p.error)}</p>`:""}${candList(p.candidates||[], "stored")}${busy}<div class="links"><button class="btn sm" type="button" data-pr="pick">Search</button><button class="btn sm ghost" type="button" data-pr="off">Turn off</button></div>`;
+  return `<p class="hint" style="margin:0">This card is matched to PriceCharting and TCGplayer at the next daily update, and priced at the highest of their prices and Cardmarket's. You can do it now.</p>${p&&p.error?`<p class="autoerr">${esc(p.error)}</p>`:""}${busy}<div class="links"><button class="btn sm primary" type="button" data-pr="refresh">Find its price now</button><button class="btn sm" type="button" data-pr="pick">Choose the match</button></div>`;
 }
 const pickerQuery = c => S.pickQ ?? [c.name, String(c.number||"").split("/")[0]].filter(Boolean).join(" ");
 function pickerHTML(c){
