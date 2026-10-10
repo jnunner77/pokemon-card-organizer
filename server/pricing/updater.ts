@@ -6,7 +6,7 @@ import { type Logger, quietLogger } from '../log';
 import type { Doc } from '../schema';
 import type { Store } from '../store';
 import { DETAIL_FIELDS } from '../details';
-import { Catalog, type CatalogQuote, printingOf } from './catalog';
+import { Catalog, type CatalogQuote } from './catalog';
 import { chooseMatch, detailsFromProduct, searchQuery, setSearchQuery, variantFromProduct, type CardForMatch, type MatchResult } from './match';
 import {
   type Candidate,
@@ -126,7 +126,7 @@ interface Link {
   /** The card's product on the other site; the higher of the two sites' prices is logged. */
   pair?: Pair | null;
   /** The card's ids in the card databases (catalog.ts): TCGdex's, and pokemontcg.io's or when it was last looked for there. */
-  catalog?: { tcgdexId?: string | null; ptcgId?: string | null; ptcgSearchedAt?: string | null } | null;
+  catalog?: { tcgdexId?: string | null; ptcgId?: string | null; ptcgSearchedAt?: string | null; ptcgReadAt?: string | null } | null;
 }
 /**
  * The card's product on the other price site. No `id`: that site was searched (at checkedAt)
@@ -199,7 +199,9 @@ function catalogProduct(cat: CatalogQuote | null): Candidate | null {
   return { source: 'tcgplayer', id, url: `https://www.tcgplayer.com/product/${id}`, title: cat.name, set: cat.set, number: cat.number, usd: cat.tcgplayer!.usd, thumb: tcgImage(id, 200) };
 }
 /** The card's database ids as kept on its link (catalog.ts). */
-const catalogOf = (q: CatalogQuote) => ({ tcgdexId: q.tcgdexId, ptcgId: q.ptcgId, ptcgSearchedAt: q.ptcgSearchedAt });
+const catalogOf = (q: CatalogQuote) => ({ tcgdexId: q.tcgdexId, ptcgId: q.ptcgId, ptcgSearchedAt: q.ptcgSearchedAt, ptcgReadAt: q.ptcgReadAt });
+/** The card's official picture: a large one (pokemontcg.io's or PriceCharting's), another, or none. */
+const pictureOf = (c: Card): 'large' | 'other' | null => (!c.officialImageId ? null : /pokemontcg\.io|pricecharting/i.test(c.pricing?.imageUrl ?? '') ? 'large' : 'other');
 const blank = (v: unknown) => v == null || String(v).trim() === '';
 const foilWanted = (c: Card) => /reverse|foil/i.test(String(c.variant ?? ''));
 
@@ -430,6 +432,7 @@ export class PriceUpdater {
     const eur = this.eur ?? (Number(this.store.get('settings', 'main')?.eurToCad) || null);
     const useCardmarket = this.schedule().cardmarket && !!eur;
     const catPriced = !!cat && (!!cat.tcgplayer || (useCardmarket && cat.cardmarketEur != null));
+    card = this.unlinkPlainProduct(id, card, cat);
 
     // Without a product yet: find one. If there's none, a card the databases price is still priced.
     let unmatched: CardOutcome | null = null;
@@ -529,8 +532,13 @@ export class PriceUpdater {
     // The largest picture: a PriceCharting picture the card already has is kept (it's as large);
     // otherwise pokemontcg.io's, then PriceCharting's, then the main product's.
     const pcPicture = link?.source === 'pricecharting' ? (main?.image ?? null) : null;
-    const hasPcPicture = !!card.officialImageId && /pricecharting/i.test(card.pricing?.imageUrl ?? '');
-    const picture = hasPcPicture ? pcPicture : (cat?.image ?? pcPicture ?? main?.image ?? null);
+    const current = card.officialImageId ? (card.pricing?.imageUrl ?? '') : '';
+    // A special variant (a Poké Ball pattern, say) is pictured by its own TCGplayer product, which shows it.
+    const variantPicture = cat?.special && link?.source === 'tcgplayer' ? (main?.image ?? null) : null;
+    const tcgdexPicture = card.officialImageId ? null : (cat?.fallbackImage ?? null);
+    const picture = /pricecharting/i.test(current)
+      ? pcPicture
+      : (variantPicture ?? (/pokemontcg\.io/i.test(current) ? (cat?.image ?? null) : (cat?.image ?? pcPicture ?? main?.image ?? tcgdexPicture)));
     const image = picture ? await this.fetchImage(card, picture) : null;
 
     // Network work is done: re-read the card so nothing the person changed meanwhile is lost.
@@ -554,7 +562,7 @@ export class PriceUpdater {
           currency: 'CAD',
           date,
           where: SOURCE_NAME[src],
-          note: `Daily update · ${list} at ${fx.toFixed(4)}${quotes.cardmarket != null ? ` (€1 = C$${eur!.toFixed(4)})` : ''}`,
+          note: `Daily update${cat?.variant ? ` (${cat.variant})` : ''} · ${list} at ${fx.toFixed(4)}${quotes.cardmarket != null ? ` (€1 = C$${eur!.toFixed(4)})` : ''}`,
           auto: true,
           usd,
           quotes,
@@ -597,13 +605,33 @@ export class PriceUpdater {
     return best ? 'updated' : 'noPrice';
   }
 
+  /**
+   * A card of a special variant (a Poké Ball pattern, a stamp, 1st Edition…) automatically linked to
+   * the TCGplayer product of the plain card (as the databases named it before variants were read):
+   * the link is dropped so the card's own product is found. Products the person chose stay.
+   */
+  private unlinkPlainProduct(id: string, card: Card, cat: CatalogQuote | null): Card {
+    if (!cat?.special || !card.pricing) return card;
+    const wrong = (l: { source?: string; id?: string | null; linkedBy?: string | null } | null | undefined) =>
+      !!l && l.source === 'tcgplayer' && !!l.id && l.linkedBy !== 'user' && cat.plainProducts.includes(l.id) && l.id !== cat.tcgplayer?.productId;
+    if (wrong(card.pricing)) {
+      this.log.info('pricing', `${label(card)}: was matched to the regular card's TCGplayer product; matching its ${card.variant} variant instead`);
+      this.patchLink(id, { source: 'none', id: null, url: null, title: null, set: null, linkedBy: null, candidates: null, error: null }, true);
+    } else if (wrong(card.pricing.pair)) {
+      this.log.info('pricing', `${label(card)}: its TCGplayer match was the regular card's product; looking for its ${card.variant} variant instead`);
+      this.patchLink(id, { pair: null });
+    } else return card;
+    return this.store.get('cards', id) as Card;
+  }
+
   /** What the card databases say about the card today, or null when it isn't matched to TCGdex (or they didn't answer). */
   private async catalogQuote(card: Card): Promise<CatalogQuote | null> {
     const tcgdexId = (card.details as { id?: string | null } | null | undefined)?.id;
     if (!this.catalog || !tcgdexId) return null;
     const known = card.pricing?.catalog?.tcgdexId === tcgdexId ? card.pricing.catalog : {};
     try {
-      const q = await this.catalog.quote(tcgdexId, printingOf(card.variant, card.rarity), known, card.setCode as string | undefined);
+      const blanks = DETAIL_FIELDS.some((f) => blank(card[f]));
+      const q = await this.catalog.quote(tcgdexId, { variant: card.variant, rarity: card.rarity, picture: pictureOf(card), blanks }, known, card.setCode as string | undefined);
       for (const e of q.errors) this.log.warn('pricing', `${label(card)}: ${e}`);
       return q;
     } catch (err) {
