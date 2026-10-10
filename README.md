@@ -411,8 +411,27 @@ including Administration), **editor** (changes the ledger) and **viewer** (looks
   monthly) and snapshots, each downloadable or restorable; how long copies are kept.
 - **Prices:** daily schedule (on/off, hour), update now, recent runs with their problems.
 - **Security:** blocked addresses (unblock), limits, recent security events.
+- **Problems:** every warning and error since they were last marked as seen, repeats grouped
+  ("12× PriceCharting answered 500"), with *Include ones already seen* (the last two weeks) and
+  *Copy*.
 - **Logs:** requests, sign-ins, administration, security, prices and backups, filtered by level
   and category, with a file per day to download.
+
+### Nothing fails quietly
+
+Everything the server logs as a warning or an error (requests that fail, price sites, backups,
+sign-in, security, and errors in the pages themselves) shows up for administrators straight away:
+
+- a **red banner** (amber when there are only warnings) at the top of the binder and of
+  Administration, with the newest problems, *Show all*, *Copy*, *Mark as seen* and a link to the
+  Logs page;
+- a **count in the binder's header** (*3 errors*) until they're marked as seen;
+- the **Problems** list, which keeps them across restarts (read from the daily log files).
+
+An error in a page (a script error, a promise that failed) is shown on that page in red, with
+*Reload the page*, and reported to the server, where it's logged and joins the problems (at most
+30 a minute, so a page stuck in a loop can't flood the log). The page checks for new problems
+every minute.
 
 ## Security on the public internet
 

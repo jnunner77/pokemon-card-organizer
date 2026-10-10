@@ -115,12 +115,83 @@ function renderBanner(){
   if(S.mode==="loading") h = `<div class="banner">Opening your binders…</div>`;
   else if(S.mode==="nodb") h = `<div class="banner" data-kind="warn">Can't reach the ledger's server, so nothing you enter here will be kept. Check your connection and reload the page.</div>`;
   else if(S.me?.user?.role==="viewer") h = `<div class="banner">You have view-only access. Ask an administrator if you need to make changes.</div>`;
-  h += runProblemHTML();
+  h += pageErrorsHTML() + runProblemHTML() + problemsHTML();
   // Only when it changed, so the log keeps its scroll position while the page re-renders.
   if(el.dataset.html === h) return;
   el.innerHTML = h; el.dataset.html = h;
   scrollRunLog(el);
 }
+
+/* ---------- every warning and error in the app (administrators), and errors in this page ---------- */
+const isAdmin = () => S.me?.user?.role==="admin";
+const PB = {feed:null, busy:false, all:null, timer:0};
+function problemsHTML(){
+  if(!isAdmin() || S.mode!=="ready") return "";
+  return window.BinderProblems.banner(PB.feed, {logsHref:"admin.html#logs"});
+}
+function renderProblemsPill(){
+  const b = $("#btnProblems"); if(!b) return;
+  const p = isAdmin() ? window.BinderProblems.pill(PB.feed) : null;
+  b.hidden = !p;
+  if(p){ b.dataset.kind = p.kind; b.title = p.title; b.querySelector("span").textContent = p.label; }
+}
+async function loadProblems(){
+  if(!isAdmin() || PB.busy || !window.ledgerApi) return;
+  PB.busy = true;
+  try{ PB.feed = await window.ledgerApi.call("GET","api/admin/problems"); }
+  catch(e){ console.warn("Couldn't load the problems", e); }
+  finally{ PB.busy = false; renderBanner(); renderProblemsPill(); if($("#pbCard")) renderProblemsList(); }
+}
+/* Every minute while the page is open (and as soon as it's looked at again). */
+function watchProblems(){
+  if(!isAdmin() || PB.timer) return;
+  loadProblems();
+  PB.timer = setInterval(()=>{ if(document.visibilityState==="visible") loadProblems(); }, 60_000);
+  document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible") loadProblems(); });
+}
+function problemsModal(){
+  PB.all = null;
+  $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard" id="pbCard" role="dialog" aria-modal="true" aria-labelledby="pbTitle">
+    <h2 id="pbTitle">Problems</h2>
+    <p class="lead">Everything that failed or warned anywhere in the binder (the server, price sites, backups, sign-in, and errors in the pages themselves), repeats grouped.</p>
+    <label class="phswitch" style="margin:0 0 10px"><input type="checkbox" id="pbAll"><span>Include the ones already marked as seen (the last two weeks)</span></label>
+    <div id="pbList"></div>
+    <div class="mfoot"><a class="btn ghost" href="admin.html#logs">Open the Logs page</a><button class="btn" type="button" data-probs="copy">Copy</button><button class="btn primary" type="button" data-probs="seen">Mark as seen</button><button class="btn" type="button" data-mclose>Close</button></div>
+  </div></div>`;
+  $("#pbAll").onchange = async e => {
+    if(!e.target.checked){ PB.all = null; return renderProblemsList(); }
+    try{ PB.all = await window.ledgerApi.call("GET","api/admin/problems?all=1"); }catch(err){ toast(err?.message||"Couldn't load them."); }
+    renderProblemsList();
+  };
+  renderProblemsList();
+}
+function renderProblemsList(){ const l=$("#pbList"); if(l) l.innerHTML = window.BinderProblems.list(PB.all || PB.feed); }
+async function problemsAction(act){
+  if(act==="all") return problemsModal();
+  if(act==="copy"){
+    try{ await navigator.clipboard.writeText(window.BinderProblems.text(PB.all || PB.feed)); toast("Copied"); }catch(_){ toast("Couldn't copy: open the Logs page instead."); }
+    return;
+  }
+  if(act==="seen"){
+    try{ PB.feed = await window.ledgerApi.call("POST","api/admin/problems/seen", {upTo: PB.feed?.latest || undefined}); PB.all = null; toast("Marked as seen"); }
+    catch(e){ toast(e?.message||"That didn't work. Try again."); }
+    renderBanner(); renderProblemsPill(); if($("#pbCard")) renderProblemsList();
+  }
+}
+/* Errors in this page: shown in red at the top (and logged on the server, where they join the problems). */
+const PAGE_ERRORS = [];
+function pageErrorsHTML(){
+  if(!PAGE_ERRORS.length) return "";
+  const last = PAGE_ERRORS[PAGE_ERRORS.length-1];
+  return `<section class="probs" data-kind="bad" role="alert"><div class="probs-head"><svg class="probs-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v6"/><path d="M12 16.5h.01"/></svg><h2>Something went wrong in this page${PAGE_ERRORS.length>1?` (${PAGE_ERRORS.length} times)`:""}</h2></div>
+    <p>${esc(last)}</p><p class="hint">It was logged for the administrator. What you saved before is safe; reloading the page usually clears it.</p>
+    <div class="links"><button class="btn sm primary" type="button" data-pageerr="reload">Reload the page</button><button class="btn sm ghost" type="button" data-pageerr="dismiss">Dismiss</button></div></section>`;
+}
+window.BinderProblems.catcher(window, {
+  page: "binder",
+  send: r => window.ledgerApi?.call("POST","api/client-error", r),
+  show: m => { PAGE_ERRORS.push(m); try{ renderBanner(); }catch(_){ toast("Something went wrong in this page: "+m); } },
+});
 
 /* ---------- a price update that was interrupted, stalled or failed: a red banner with its log ---------- */
 const canEdit = () => !!S.me && S.me.user?.role!=="viewer";
@@ -2429,6 +2500,9 @@ document.addEventListener("click", e => {
   if(t.closest("#btnSettings") || t.closest("#btnFirstRestore") || t.closest("#btnPriceStatus")) return settingsModal();
   if(t.closest("#sFillDetails")){ t.closest("#sFillDetails").disabled = true; window.ledgerApi.call("POST","api/cards/fill-details").then(r=>toast(r.cards ? `Looking up ${r.cards} card${r.cards===1?"":"s"} in TCGdex. This takes about a second each.` : "Nothing to fill in."), e=>toast(e?.message||"Couldn't start it.")); return; }
   const rp = t.closest("[data-runprob]"); if(rp) return void runProblemAction(rp.dataset.runprob, rp);
+  const pb = t.closest("[data-probs]"); if(pb) return void problemsAction(pb.dataset.probs);
+  if(t.closest("#btnProblems")) return problemsModal();
+  const perr = t.closest("[data-pageerr]"); if(perr){ if(perr.dataset.pageerr==="reload") location.reload(); else { PAGE_ERRORS.length = 0; renderBanner(); } return; }
   if(t.closest("#sRunPrices")){ t.closest("#sRunPrices").disabled = true; window.ledgerApi.call("POST","api/pricing/run").then(()=>toast("Updating every card's price. This takes a few minutes."), e=>toast(e?.message||"Couldn't start the update.")); return; }
   const oc = t.closest("[data-openc]"); if(oc){ closeModal(); return openCard(oc.dataset.openc); }
   if(t.closest("#btnBinderSettings")){ const b=curBinder(); if(b) binderModal(b.id); return; }
@@ -3393,7 +3467,7 @@ async function boot(){
     window.claude?.use?.("db") ?? null, window.claude?.use?.("assets") ?? null, window.claude?.use?.("downloads") ?? null
   ].map(p => Promise.resolve(p).catch(()=>null)));
   S.db=db; S.assets=assets; S.downloads=downloads;
-  window.ledgerApi?.call("GET","api/auth/me").then(r=>{ S.me=r; renderBanner(); }, ()=>{});
+  window.ledgerApi?.call("GET","api/auth/me").then(r=>{ S.me=r; renderBanner(); watchProblems(); }, ()=>{});
   if(!db){ S.mode="nodb"; pickDefaults(); render(); return; }
   const done = () => { if(got.b && got.c && S.mode==="loading"){ S.mode="ready"; } pickDefaults(); render(); };
   const onErr = e => { console.error(e); if(e?.code==="revoked"||e?.code==="not_granted"){ S.mode="nodb"; render(); } };

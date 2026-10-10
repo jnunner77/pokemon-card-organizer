@@ -293,6 +293,53 @@
     main.querySelectorAll("[data-unban]").forEach(b => b.onclick = () => act(() => api("DELETE", `admin/security/bans/${encodeURIComponent(b.dataset.unban)}`), `${b.dataset.unban} unblocked`));
   }
 
+  // ---- Problems: every warning and error since they were last marked as seen -------------
+  let probFeed = null, probAll = false, pageErrors = [];
+  async function loadProblems() {
+    try { probFeed = await api("GET", "admin/problems"); } catch (e) { console.warn("Couldn't load the problems", e); }
+    renderProbsBanner();
+  }
+  function renderProbsBanner() {
+    const el = $("#probsBanner");
+    const pe = pageErrors.length ? `<section class="probs" data-kind="bad" role="alert"><div class="probs-head"><h2>Something went wrong in this page${pageErrors.length > 1 ? ` (${pageErrors.length} times)` : ""}</h2></div><p>${esc(pageErrors[pageErrors.length - 1])}</p><p class="hint">It was logged. Reloading the page usually clears it.</p><div class="links"><button class="btn sm primary" type="button" data-pageerr="reload">Reload the page</button><button class="btn sm ghost" type="button" data-pageerr="dismiss">Dismiss</button></div></section>` : "";
+    // On the Problems tab the list itself is the banner.
+    const h = pe + (location.hash === "#problems" ? "" : window.BinderProblems.banner(probFeed, { logsHref: "#logs" }));
+    if (el.dataset.html === h) return;
+    el.innerHTML = h; el.dataset.html = h;
+  }
+  async function problemsAct(a) {
+    if (a === "all") { location.hash = "#problems"; return; }
+    const feed = probAll ? await api("GET", "admin/problems?all=1") : probFeed;
+    if (a === "copy") {
+      try { await navigator.clipboard.writeText(window.BinderProblems.text(feed)); toast("Copied"); } catch { toast("Couldn't copy: use the Logs page's daily files instead."); }
+      return;
+    }
+    if (a === "seen") {
+      try { probFeed = await api("POST", "admin/problems/seen", { upTo: probFeed?.latest || undefined }); toast("Marked as seen"); } catch (e) { toast(e.message); }
+      renderProbsBanner();
+      if (location.hash === "#problems") show();
+    }
+  }
+  async function problems() {
+    const feed = probAll ? await api("GET", "admin/problems?all=1") : (probFeed = await api("GET", "admin/problems"));
+    renderProbsBanner();
+    return `<div class="adminhead"><p class="hint" style="margin:0">${feed.errors + feed.warnings ? `<b>${esc(window.BinderProblems.counts(feed))}</b> ${probAll ? "in the last two weeks" : feed.seenAt ? `since they were last marked as seen (${esc(when(feed.seenAt))})` : "logged"}.` : "Nothing has failed or warned" + (probAll ? " in the last two weeks." : " since they were last marked as seen.")} Repeats are grouped; the Logs page has every line.</p>
+        <span class="links"><label class="phswitch"><input type="checkbox" id="probAll" ${probAll ? "checked" : ""}><span>Include ones already seen</span></label><button class="btn sm" type="button" data-probs="copy">Copy</button>${probAll ? "" : `<button class="btn sm primary" type="button" data-probs="seen" ${feed.errors + feed.warnings ? "" : "disabled"}>Mark as seen</button>`}</span></div>
+      <div class="pad">${window.BinderProblems.list(feed)}</div>`;
+  }
+  function wireProblems() {
+    $("#probAll").onchange = e => { probAll = e.target.checked; show(); };
+  }
+  document.addEventListener("click", e => {
+    const b = e.target.closest("[data-probs]"); if (b) return void problemsAct(b.dataset.probs);
+    const pe = e.target.closest("[data-pageerr]"); if (pe) { if (pe.dataset.pageerr === "reload") location.reload(); else { pageErrors = []; renderProbsBanner(); } }
+  });
+  window.BinderProblems.catcher(window, {
+    page: "admin",
+    send: r => api("POST", "client-error", r),
+    show: m => { pageErrors.push(m); renderProbsBanner(); },
+  });
+
   // ---- Logs ----------------------------------------------------------------------------
   const logQ = { level: "", cat: "", q: "" };
   let logEntries = [];
@@ -318,7 +365,7 @@
   }
 
   // ---- routing -------------------------------------------------------------------------
-  const VIEWS = { overview: [overview], people: [people, wirePeople], signin: [signin, wireSignin], tokens: [tokens, wireTokens], sessions: [sessions, wireSessions], guests: [guests, wireGuests], backups: [backups, wireBackups], prices: [prices, wirePrices], security: [security, wireSecurity], logs: [logs, wireLogs] };
+  const VIEWS = { overview: [overview], people: [people, wirePeople], signin: [signin, wireSignin], tokens: [tokens, wireTokens], sessions: [sessions, wireSessions], guests: [guests, wireGuests], backups: [backups, wireBackups], prices: [prices, wirePrices], security: [security, wireSecurity], problems: [problems, wireProblems], logs: [logs, wireLogs] };
   async function show() {
     const key = (location.hash.slice(1) in VIEWS) ? location.hash.slice(1) : "overview";
     document.querySelectorAll(".admintabs .tab").forEach(t => t.setAttribute("aria-selected", t.getAttribute("href") === "#" + key));
@@ -327,11 +374,13 @@
     catch (e) { main.innerHTML = `<div class="empty-state">${esc(e.message)}</div>`; }
     main.querySelector("[data-refresh]")?.addEventListener("click", show);
   }
-  window.addEventListener("hashchange", show);
+  window.addEventListener("hashchange", () => { show(); renderProbsBanner(); });
   fetch("api/auth/me", { credentials: "same-origin" }).then(r => r.json()).then(me => {
     if (!me.user) return location.replace("login.html");
     if (me.user.role !== "admin") return location.replace("./");
     $("#who").textContent = `Signed in as ${me.user.name} (${me.user.username})`;
     show();
+    loadProblems();
+    setInterval(() => { if (document.visibilityState === "visible") loadProblems(); }, 60_000);
   });
 })();

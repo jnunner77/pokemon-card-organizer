@@ -18,6 +18,7 @@ import { CATEGORIES, LEVELS, type Logger, quietLogger } from './log';
 import { NoToken, type PriceCharting } from './pricing/pricecharting';
 import { Refused, SourceError } from './pricing/sources';
 import type { PriceUpdater, RunProblem, RunSummary } from './pricing/updater';
+import { problemFeed } from './problems';
 import { InvalidDoc, collectionSchema, idSchema } from './schema';
 import { HttpError, MUTATING, type Security } from './security';
 import type { Secret } from './secrets';
@@ -262,6 +263,34 @@ export function createApp(o: AppOptions) {
       res.type(hit.type).sendFile(hit.file);
     });
   }
+
+  // ---- errors in the pages themselves --------------------------------------------------
+  // A script error or failed promise in a page is reported here and logged, so it shows in the
+  // problems banner like any other. At most 30 a minute, so a page stuck in a loop can't flood the log.
+  const pageErrorSchema = z.object({
+    kind: z.enum(['error', 'rejection']).catch('error'),
+    message: z.string().max(500),
+    page: z.string().max(200).optional(),
+    source: z.string().max(300).optional(),
+    line: z.number().int().min(0).max(1e7).optional(),
+    col: z.number().int().min(0).max(1e7).optional(),
+    stack: z.string().max(2000).optional(),
+  });
+  const pageErrors = { windowStart: 0, count: 0, warned: false };
+  const pageError = (req: Request, res: Response, by: Record<string, unknown>) => {
+    const t = now().getTime();
+    if (t - pageErrors.windowStart > 60_000) Object.assign(pageErrors, { windowStart: t, count: 0, warned: false });
+    if (++pageErrors.count > 30) {
+      if (!pageErrors.warned) log.warn('app', 'More than 30 page errors in a minute; not logging more until the minute is up');
+      pageErrors.warned = true;
+      return void res.status(204).end();
+    }
+    const e = pageErrorSchema.parse(req.body);
+    log.error('app', `Page error${e.page ? ` on ${e.page}` : ''}: ${e.message}`, { kind: e.kind, ...(e.source ? { at: `${e.source}:${e.line ?? '?'}:${e.col ?? '?'}` } : {}), ...(e.stack ? { stack: e.stack } : {}), ...by });
+    res.status(204).end();
+  };
+  api.post('/client-error', need('viewer'), express.json({ limit: '16kb' }), (req, res) => pageError(req, res, { user: who(res) }));
+  if (guests) api.post('/guest/client-error', (_req, res, next) => (res.locals.guest ? next() : next(new HttpError(401, 'Please sign in', 'signin'))), express.json({ limit: '16kb' }), (req, res) => pageError(req, res, { guest: true }));
 
   // ---- binders, cards and settings ----------------------------------------------------
   api.get('/data', need('viewer'), (_req, res) => {
@@ -788,6 +817,18 @@ export function createApp(o: AppOptions) {
   });
   admin.delete('/guests/log', (_req, res) => {
     res.json({ removed: needGuests().clearLog(who(res)) });
+  });
+
+  // Problems: every warning and error since an administrator last marked them as seen, grouped.
+  admin.get('/problems', (req, res) => {
+    res.json(problemFeed(log, config.get().problemsSeenAt ?? null, { all: req.query.all === '1' }));
+  });
+  admin.post('/problems/seen', json, (req, res) => {
+    const { upTo } = z.object({ upTo: z.iso.datetime().optional() }).parse(req.body ?? {});
+    // Up to the newest one the page showed, so one logged meanwhile still counts as new.
+    const at = upTo && upTo < now().toISOString() ? upTo : now().toISOString();
+    config.set({ problemsSeenAt: at });
+    res.json(problemFeed(log, at));
   });
 
   // Logs
