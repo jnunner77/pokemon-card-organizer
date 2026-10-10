@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../server/app';
 import { Assets } from '../server/assets';
 import { Config } from '../server/config';
-import { Catalog, choosePtcg, printingOf, ptcgTcgplayer, tcgdexCardmarket, tcgdexTcgplayer, type PtcgCard, type TcgdexCard } from '../server/pricing/catalog';
+import { Catalog, choosePtcg, printingOf, ptcgDetails, ptcgTcgplayer, tcgdexCardmarket, tcgdexTcgplayer, type PtcgCard, type TcgdexCard } from '../server/pricing/catalog';
 import { chooseMatch, detailsFromProduct, searchQuery, variantFromProduct } from '../server/pricing/match';
 import { type Candidate, type Fetcher, retryPolicy, parsePriceChartingProduct, parsePriceChartingSearch, parseTcgplayerDetails, parseTcgplayerSearch, pickTcgPrice, releaseDate } from '../server/pricing/sources';
 import { PriceUpdater, thinAutoPrices } from '../server/pricing/updater';
@@ -485,6 +485,11 @@ describe('the card databases (TCGdex and pokemontcg.io)', () => {
     expect(ptcgTcgplayer(ptcg, printingOf('Reverse Holo', 'Uncommon'))).toBe(2.14);
   });
 
+  it("reads pokemontcg.io's details in the binder's words", () => {
+    expect(ptcgDetails(ptcg)).toEqual({ set: '151', setCode: null, rarity: 'Uncommon', artist: 'LINNE', released: '2023-09-22' });
+    expect(ptcgDetails({ ...ptcg, rarity: 'Rare Ultra', set: { ...ptcg.set, ptcgoCode: 'MEW' } })).toMatchObject({ setCode: 'MEW', rarity: 'Ultra Rare' });
+  });
+
   it('finds the same card on pokemontcg.io by set and number', () => {
     expect(choosePtcg(found, td)?.id).toBe('sv3pt5-131');
     expect(choosePtcg(found, { ...td, set: { id: 'me02.5', name: '30th Celebration', cardCount: { official: 128 } } })?.id).toBe('me55-131');
@@ -595,6 +600,18 @@ describe('prices and pictures from the card databases', () => {
     expect(c.pricing).toMatchObject({ source: 'none' });
     // pokemontcg.io's regular price US$0.23; no Cardmarket price without a saved euro rate (the daily update saves one).
     expect((c.prices as { where: string; usd: number }[])[0]).toMatchObject({ where: 'TCGplayer', usd: 0.23 });
+  });
+
+  it('fills what TCGdex left blank from pokemontcg.io, never what the person typed', async () => {
+    const known = { catalog: { tcgdexId: 'sv03.5-131', ptcgId: 'sv3pt5-131' } };
+    store.set('cards', 'blank', lapras({ set: '151', rarity: '', artist: '', released: '', setCode: '', pricing: { source: 'none', ...known } }));
+    store.set('cards', 'typed', lapras({ rarity: 'Rare', artist: 'Someone', pricing: { source: 'none', ...known } }));
+    const net = dbNet({ 'pricecharting.com': () => new Response('Forbidden', { status: 403 }) });
+    await updater(net).runAll('manual');
+    // 151 has no set code on pokemontcg.io, so that stays blank.
+    expect(store.get('cards', 'blank')).toMatchObject({ set: '151', rarity: 'Uncommon', artist: 'LINNE', released: '2023-09-22', setCode: '' });
+    expect(store.get('cards', 'typed')).toMatchObject({ rarity: 'Rare', artist: 'Someone' });
+    expect(net.calls.filter((u) => u.includes('api.pokemontcg.io/v2/cards?q='))).toHaveLength(0);
   });
 
   it("carries on without the databases when they don't answer", async () => {

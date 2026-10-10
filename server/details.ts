@@ -150,6 +150,13 @@ const RARITIES: Record<string, string> = {
   'shiny rare': 'Shiny Rare',
   'shiny ultra rare': 'Shiny Rare',
   'secret rare': 'Secret Rare',
+  // pokemontcg.io's older names (catalog.ts)
+  'rare ultra': 'Ultra Rare',
+  'rare secret': 'Secret Rare',
+  'rare rainbow': 'Secret Rare',
+  'rare shiny': 'Shiny Rare',
+  'rare shiny gx': 'Shiny Rare',
+  'rare ace': 'ACE SPEC Rare',
   promo: 'Promo',
 };
 export function mapRarity(r: unknown): string | null {

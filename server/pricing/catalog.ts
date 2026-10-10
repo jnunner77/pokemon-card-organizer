@@ -5,12 +5,13 @@
 //   the TCGplayer product id, and Cardmarket's prices in euros, both refreshed daily.
 // - pokemontcg.io (https://pokemontcg.io, free; a key, POKEMONTCG_API_KEY, raises its limits),
 //   whose card pictures are the largest official ones (733×1024). Its TCGplayer prices stand in when
-//   TCGdex has none; its Cardmarket prices are left alone (they stopped updating in 2025).
+//   TCGdex has none; its Cardmarket prices are left alone (they stopped updating in 2025). Its
+//   rarity, illustrator, set code and release date fill what TCGdex left blank.
 //
 // The updater (updater.ts) compares these with PriceCharting's price and logs the highest.
 
-import { similarity } from '../details';
-import { type Fetcher, SourceError, get } from './sources';
+import { type DetailField, mapRarity, similarity } from '../details';
+import { type Fetcher, SourceError, get, releaseDate } from './sources';
 
 const TCGDEX = 'https://api.tcgdex.net/v2/en';
 const PTCG = 'https://api.pokemontcg.io/v2';
@@ -101,7 +102,9 @@ export interface PtcgCard {
   id: string;
   name: string;
   number: string;
-  set: { id: string; name: string; ptcgoCode?: string; printedTotal?: number };
+  set: { id: string; name: string; ptcgoCode?: string; printedTotal?: number; releaseDate?: string };
+  rarity?: string;
+  artist?: string;
   images?: { small?: string; large?: string };
   tcgplayer?: { prices?: Record<string, { market?: number | null }> } | null;
 }
@@ -141,6 +144,12 @@ export function ptcgTcgplayer(p: PtcgCard, want: Printing): number | null {
   return hit ? usd(hit.market) : null;
 }
 
+/** A pokemontcg.io card's details, in the binder's words ("Rare Ultra" → "Ultra Rare", "2023/09/22" → "2023-09-22"). */
+export function ptcgDetails(p: PtcgCard): Record<DetailField, string | null> {
+  const t = (s: unknown) => (typeof s === 'string' && s.trim() ? s.trim() : null);
+  return { set: t(p.set.name), setCode: t(p.set.ptcgoCode), rarity: mapRarity(p.rarity), artist: t(p.artist), released: releaseDate(String(p.set.releaseDate ?? '').replace(/\//g, '-')) };
+}
+
 // ---- one card -----------------------------------------------------------------------
 
 /** What the card databases say about one card today. */
@@ -156,6 +165,8 @@ export interface CatalogQuote {
   cardmarketEur: number | null;
   /** The largest official picture: pokemontcg.io's. */
   image: string | null;
+  /** pokemontcg.io's set, set code, rarity, illustrator and release date, for filling blanks. */
+  details: Record<DetailField, string | null> | null;
   /** The card's name and set as TCGdex has them, for naming a TCGplayer product found this way. */
   name: string;
   set: string;
@@ -219,7 +230,7 @@ export class Catalog {
     try {
       if (!ptcgId && stale) {
         const q = `name:"${td.name.replace(/["\\]/g, '')}" number:${ownNumber(td.localId) || td.localId}`;
-        const found = await this.json<{ data?: PtcgCard[] }>('ptcg', `${PTCG}/cards?q=${encodeURIComponent(q)}&select=id,name,number,set,images,tcgplayer`);
+        const found = await this.json<{ data?: PtcgCard[] }>('ptcg', `${PTCG}/cards?q=${encodeURIComponent(q)}&select=id,name,number,set,images,tcgplayer,rarity,artist`);
         pc = choosePtcg(found.data ?? [], td, setCode);
         ptcgId = pc?.id ?? null;
         ptcgSearchedAt = this.now().toISOString();
@@ -238,6 +249,7 @@ export class Catalog {
       tcgplayer: fromTcgdex ?? (fromPtcg != null ? { usd: fromPtcg, productId: null } : null),
       cardmarketEur: tcgdexCardmarket(td, want),
       image: pc?.images?.large ?? null,
+      details: pc ? ptcgDetails(pc) : null,
       name: td.name,
       set: td.set.name,
       number: td.localId,

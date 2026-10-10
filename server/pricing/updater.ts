@@ -5,6 +5,7 @@ import type { CardDetails } from '../details';
 import { type Logger, quietLogger } from '../log';
 import type { Doc } from '../schema';
 import type { Store } from '../store';
+import { DETAIL_FIELDS } from '../details';
 import { Catalog, type CatalogQuote, printingOf } from './catalog';
 import { chooseMatch, detailsFromProduct, searchQuery, setSearchQuery, variantFromProduct, type CardForMatch, type MatchResult } from './match';
 import {
@@ -199,6 +200,7 @@ function catalogProduct(cat: CatalogQuote | null): Candidate | null {
 }
 /** The card's database ids as kept on its link (catalog.ts). */
 const catalogOf = (q: CatalogQuote) => ({ tcgdexId: q.tcgdexId, ptcgId: q.ptcgId, ptcgSearchedAt: q.ptcgSearchedAt });
+const blank = (v: unknown) => v == null || String(v).trim() === '';
 const foilWanted = (c: Card) => /reverse|foil/i.test(String(c.variant ?? ''));
 
 export class PriceUpdater {
@@ -574,10 +576,16 @@ export class PriceUpdater {
       updatedAt: checkedAt,
     };
     if (image) patch.officialImageId = image.id;
+    // What TCGdex left blank (details.ts), from pokemontcg.io: rarity, illustrator, set code, release date.
+    if (cat?.details) {
+      const filled = DETAIL_FIELDS.filter((f) => blank(fresh[f]) && !blank(cat.details![f]));
+      for (const f of filled) patch[f] = cat.details[f];
+      if (filled.length) this.log.info('pricing', `${label(fresh)}: ${filled.map((f) => `${f} ${patch[f]}`).join(', ')} from pokemontcg.io`);
+    }
     // The product's set, release date and rarity, for cards that lack them (or that the person
     // matched to a product from another set).
     if (link && main?.info) {
-      const d = detailsFromProduct(fresh, main.info, link.linkedBy === 'user');
+      const d = detailsFromProduct({ ...fresh, ...patch } as Card, main.info, link.linkedBy === 'user');
       if (d.filled.length) {
         Object.assign(patch, d.patch);
         const was = d.patch.set && !String(fresh.set ?? '').trim() ? '' : d.patch.set ? ` (was ${fresh.set})` : '';
