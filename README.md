@@ -43,6 +43,14 @@ from the prices logged by hand a week earlier.
 > officially and their terms restrict automated access, so use it for your own collection,
 > and expect to adjust `server/pricing/sources.ts` if a site changes its pages. PriceCharting
 > sells an official API if you want to switch to it.
+>
+> **When PriceCharting refuses the binder** (it answers 403), the update stops asking it straight
+> away and prices every card from TCGplayer: cards matched on PriceCharting use their TCGplayer
+> product (looked for at once if they have none), new cards are matched on TCGplayer, and pictures
+> already downloaded are kept. Each update asks PriceCharting once more, and *Recent updates* under
+> **Administration → Prices** says when it refused. *Use PriceCharting: No, TCGplayer only* on the
+> same page stops asking it at all until you turn it back on; then PriceCharting matches take over
+> again as before. Nothing tries to get round a site's block.
 
 ## New cards fill themselves in
 

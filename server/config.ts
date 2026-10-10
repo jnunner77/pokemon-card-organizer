@@ -21,6 +21,8 @@ export const pricingConfigSchema = z
     enabled: z.boolean(),
     /** Hour of the day (0-23) after which the daily price update runs. */
     hour: z.number().int().min(0).max(23),
+    /** Whether prices, matches and searches use PriceCharting; off, only TCGplayer is asked. */
+    pricecharting: z.boolean().optional(),
   })
   .strict();
 
@@ -40,7 +42,7 @@ export class Config {
 
   constructor(dataDir: string, defaults: Partial<AdminConfig> = {}) {
     this.file = path.join(dataDir, 'admin.json');
-    const base: AdminConfig = { backups: { daily: 14, weekly: 8, monthly: 12 }, pricing: { enabled: true, hour: 5 }, lastFullBackupAt: null, ...defaults };
+    const base: AdminConfig = { backups: { daily: 14, weekly: 8, monthly: 12 }, pricing: { enabled: true, hour: 5, pricecharting: true }, lastFullBackupAt: null, ...defaults };
     const saved = fs.existsSync(this.file) ? (JSON.parse(fs.readFileSync(this.file, 'utf8')) as Partial<AdminConfig>) : {};
     this.data = { ...base, ...saved, backups: { ...base.backups, ...saved.backups }, pricing: { ...base.pricing, ...saved.pricing } };
   }
