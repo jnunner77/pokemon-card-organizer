@@ -214,6 +214,33 @@
   }
 
   // ---- Prices --------------------------------------------------------------------------
+  /* How a card's daily price is worked out from its sources (public/blend.js), and rebuilding past prices with it. */
+  function methodForm(m) {
+    if (!m) return "";
+    const w = m.weights;
+    return `<form class="adminform" id="methodForm"><h3>How a card's daily price is worked out</h3>
+      <div class="form">
+        <div class="field"><label for="m_method">Method</label><select id="m_method" name="method">${[["blend", "Blended (weighted)"], ["highest", "Highest"], ["pricecharting", "PriceCharting first"]].map(([v, l]) => `<option value="${v}" ${m.method === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+        <div class="field"><label for="m_tol">Leave out a source more than this far from PriceCharting (%)</label><input id="m_tol" name="tolerance" type="number" min="1" max="1000" step="1" value="${esc(m.tolerance)}" class="mono"></div>
+        <div class="field"><label for="m_pc">PriceCharting weight</label><input id="m_pc" name="pricecharting" type="number" min="0" max="100" step="1" value="${esc(w.pricecharting)}" class="mono"></div>
+        <div class="field"><label for="m_tcg">TCGplayer weight</label><input id="m_tcg" name="tcgplayer" type="number" min="0" max="100" step="1" value="${esc(w.tcgplayer)}" class="mono"></div>
+        <div class="field"><label for="m_cm">Cardmarket weight</label><input id="m_cm" name="cardmarket" type="number" min="0" max="100" step="1" value="${esc(w.cardmarket)}" class="mono"></div>
+      </div>
+      <p class="hint"><b>PriceCharting</b> (eBay sold prices) is the anchor; TCGplayer when PriceCharting has no price, then Cardmarket. A source further from it than the tolerance is taken to be another card's price.<br>
+        <b>Blended</b>: the weighted average of the sources; one left out gives its weight to the anchor, one with no price that day shares its weight among the others.
+        <b>Highest</b>: the highest source, unless it's beyond the tolerance, then the anchor's price.
+        <b>PriceCharting first</b>: PriceCharting's price, else TCGplayer's, else Cardmarket's. A graded card is always PriceCharting's price for its grade.</p>
+      <div class="formfoot"><span class="hint">New daily prices use it from the next update. Past ones change only when you rebuild them.</span><span style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" type="button" id="rebuildPreview">Rebuild past daily prices…</button><button class="btn primary" type="submit">Save</button></span></div>
+      <div id="rebuildBox"></div></form>`;
+  }
+  function rebuildHTML(r) {
+    const money = n => `C$${Number(n).toFixed(2)}`;
+    if (!r.prices) return `<p class="hint pad">Nothing to rebuild: every past daily price already matches this method (or was logged before each source's price was kept).</p>`;
+    return `<div class="rebuild"><p><b>${r.prices} daily price${r.prices === 1 ? "" : "s"} on ${r.cards} card${r.cards === 1 ? "" : "s"} change.</b> Collection value ${money(r.valueBefore)} → <b>${money(r.valueAfter)}</b> (each card's latest daily price). A copy of the ledger is taken first (Backups), so it can be undone.</p>
+      ${r.biggest.length ? `<div class="tablewrap"><table><thead><tr><th>Card</th><th class="r">Latest now</th><th class="r">Becomes</th></tr></thead><tbody>${r.biggest.map(b => `<tr><td>${esc(b.card)}</td><td class="r mono">${money(b.before)}</td><td class="r mono">${money(b.after)}</td></tr>`).join("")}</tbody></table></div>` : ""}
+      <div class="formfoot"><span class="hint">Graded prices, prices you logged yourself, and daily prices from before each source's price was kept stay as they are.</span><button class="btn primary" type="button" id="rebuildApply">Rebuild ${r.prices} price${r.prices === 1 ? "" : "s"}</button></div></div>`;
+  }
+
   /* How PriceCharting is being used today, against its rules: one call a second, a daily budget, and whether it's paused. */
   function pcUsage(u) {
     if (!u) return "";
@@ -240,7 +267,8 @@
         <div class="field"><label for="p_on">Runs every day</label><select id="p_on" name="enabled"><option value="1" ${s.enabled ? "selected" : ""}>Yes</option><option value="0" ${s.enabled ? "" : "selected"}>No (only when started by hand)</option></select></div>
         <div class="field"><label for="p_hour">After this hour (${esc(s.timeZone)})</label><input id="p_hour" name="hour" type="number" min="0" max="23" value="${s.hour}" class="mono"></div>
         <div class="field"><label for="p_cm">Compare Cardmarket (Europe)</label><select id="p_cm" name="cardmarket"><option value="1" ${s.cardmarket ? "selected" : ""}>Yes</option><option value="0" ${s.cardmarket ? "" : "selected"}>No</option></select></div>
-      </div><p class="hint">Each card is priced at the highest of PriceCharting's ungraded price, TCGplayer's market price and Cardmarket's trend; a graded card at PriceCharting's price for its grade. PriceCharting's prices come from its API; TCGplayer's and Cardmarket's from the TCGdex card database. No site's pages are read. Pictures come from pokemontcg.io (733×1024), TCGplayer or TCGdex.</p><div class="formfoot"><span class="hint">${p.running ? `Running now: ${p.done} of ${p.total} cards${p.current?.card ? ` (now ${esc(p.current.card)})` : ""}.` : "If the server was off at that hour, it runs when it's back."}</span><span style="display:flex;gap:8px">${p.running && !p.problem ? `<button class="btn danger" type="button" data-runprob="stop">Stop the update</button>` : ""}<button class="btn" type="button" id="runNow" ${p.running ? "disabled" : ""}>Update all prices now</button><button class="btn primary" type="submit">Save</button></span></div></form>
+      </div><p class="hint">Each card is priced from PriceCharting's ungraded price, TCGplayer's market price and Cardmarket's trend, as set below; a graded card at PriceCharting's price for its grade. PriceCharting's prices come from its API; TCGplayer's and Cardmarket's from the TCGdex card database. No site's pages are read. Pictures come from pokemontcg.io (733×1024), TCGplayer or TCGdex.</p><div class="formfoot"><span class="hint">${p.running ? `Running now: ${p.done} of ${p.total} cards${p.current?.card ? ` (now ${esc(p.current.card)})` : ""}.` : "If the server was off at that hour, it runs when it's back."}</span><span style="display:flex;gap:8px">${p.running && !p.problem ? `<button class="btn danger" type="button" data-runprob="stop">Stop the update</button>` : ""}<button class="btn" type="button" id="runNow" ${p.running ? "disabled" : ""}>Update all prices now</button><button class="btn primary" type="submit">Save</button></span></div></form>
+      ${methodForm(s.priceMethod)}
       ${pc ? `<form class="adminform" id="pcForm" autocomplete="off"><h3>PriceCharting</h3>
         <p>${pc.set ? `${chip("pass", "API token saved")} <span class="hint">on ${esc(when(pc.savedAt))}</span>` : chip("info", "No API token")}</p>
         ${pcUsage(pc.usage)}
@@ -254,6 +282,23 @@
     const f = $("#schedForm"); if (!f) return;
     f.onsubmit = e => { e.preventDefault(); const d = formData(e.target); act(() => api("PUT", "admin/pricing", { enabled: d.enabled === "1", hour: Number(d.hour), cardmarket: d.cardmarket === "1" }), "Schedule saved"); };
     $("#runNow").onclick = () => act(() => api("POST", "pricing/run"), "Price update started; it takes a few minutes");
+    const mf = $("#methodForm");
+    if (mf) {
+      const read = () => { const d = formData(mf); return { method: d.method, tolerance: Number(d.tolerance), weights: { pricecharting: Number(d.pricecharting), tcgplayer: Number(d.tcgplayer), cardmarket: Number(d.cardmarket) } }; };
+      mf.onsubmit = e => { e.preventDefault(); act(() => api("PUT", "admin/pricing/method", read()), "Saved: new daily prices use it from the next update"); };
+      $("#rebuildPreview").onclick = async () => {
+        const box = $("#rebuildBox");
+        try {
+          // The method on screen is saved first, so the preview is what will be applied.
+          await api("PUT", "admin/pricing/method", read());
+          box.innerHTML = `<p class="hint pad">Working it out…</p>`;
+          box.innerHTML = rebuildHTML(await api("POST", "admin/pricing/rebuild", {}));
+          box.scrollIntoView({ block: "nearest" });
+        } catch (e) { box.innerHTML = ""; toast(e.message); return; }
+        const go = $("#rebuildApply");
+        if (go) go.onclick = () => { go.disabled = true; act(async () => { const r = await api("POST", "admin/pricing/rebuild", { apply: true }); toast(`Rebuilt ${r.prices} daily prices. A copy from before is under Backups (${r.copy}).`); return r; }); };
+      };
+    }
     main.querySelectorAll(".runlog").forEach(pre => { pre.scrollTop = pre.scrollHeight; });
     main.querySelectorAll("[data-runprob]").forEach(b => b.onclick = async () => {
       const a = b.dataset.runprob;

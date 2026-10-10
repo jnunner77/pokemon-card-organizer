@@ -185,7 +185,7 @@ describe('filling in a stored card', () => {
     // The 30th Celebration Lugia reprints the Aquapolis one and keeps its printed number, 149/147.
     store.set('cards', 'mine', { name: 'Lugia', number: '149/147', set: '30th Celebration' });
     expect(await d.fill(store, 'mine')).toBe('filled');
-    expect(store.get('cards', 'mine')).toMatchObject({ set: '30th Celebration', details: { id: '30th-c-029', setId: '30th-c', set: '30th Classic Collection', filedUnder: null } });
+    expect(store.get('cards', 'mine')).toMatchObject({ set: '30th Celebration', details: { id: '30th-c-029', setId: '30th-c', set: '30th Classic Collection', parentSet: '30th Celebration', filedUnder: null } });
     // Numbered as TCGdex numbers it in the Classic Collection: its own set first, not Unseen Forces' Lugia 29.
     store.set('cards', 'byTcgdex', { name: 'Lugia', number: '029', set: '30th Celebration' });
     expect(await d.fill(store, 'byTcgdex')).toBe('filled');

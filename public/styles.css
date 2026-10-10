@@ -95,6 +95,8 @@ tr.ended td{background:var(--bad-soft)}
 .pcusage .meter{display:inline-block;width:140px;height:8px;border-radius:4px;background:var(--muted-soft);overflow:hidden}
 .pcusage .meter span{display:block;height:100%;background:var(--good)}
 .pcusage .meter span.hi{background:var(--warn)}
+.rebuild{border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;margin-top:10px;background:var(--surface-2)}
+.rebuild p{margin:0 0 8px}
 .fpsrc{display:flex;flex-wrap:wrap;gap:6px 16px;margin:4px 0 12px}
 .fptable{max-height:min(45vh,360px);overflow:auto}
 .fptable small{margin-left:4px}

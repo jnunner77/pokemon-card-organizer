@@ -165,6 +165,30 @@ const searchName = (card: CardForMatch) =>
     .trim();
 
 /** What to type into a site's search box for this card. */
+/** A bracket that only names a plain printing ("Reverse Holo", "Holo"), which TCGdex prices per card. */
+const PLAIN_BRACKET = /^(?:reverse(?:\s*holo(?:foil)?)?|holo(?:foil)?|normal|non[-\s]?holo|unlimited)$/i;
+
+/**
+ * Why the card databases' prices (TCGplayer's and Cardmarket's, through TCGdex) aren't this card's,
+ * judged against its PriceCharting product, which knows every set and variant; null when they are.
+ * TCGdex's card must be from the same set as PriceCharting's product (a 30th Celebration reprint
+ * isn't Paldea Evolved's card), and a product for a variant beyond the plain printings (a stamp, a
+ * Poké Ball pattern) must be the variant the card is priced for.
+ */
+export function catalogMismatch(card: CardForMatch, pc: { title?: string | null; set?: string | null } | null | undefined, tcgdexSet: string | null | undefined, parentSet?: string | null): string | null {
+  if (!pc) return null;
+  // A reprint sub-set (30th Classic Collection) agrees through the set it belongs to (30th Celebration).
+  const agrees = (s: string | null | undefined) => !!s && (setMatches({ ...card, set: pc.set }, s) >= 2 || setMatches({ ...card, set: s }, pc.set!) >= 2);
+  if (pc.set && tcgdexSet && !agrees(tcgdexSet) && !agrees(parentSet)) {
+    return `the card database's card is from ${tcgdexSet}, PriceCharting's product from ${pc.set.replace(/^Pokemon\s+/i, '')}`;
+  }
+  const br = bracket(String(pc.title ?? ''));
+  if (br && !PLAIN_BRACKET.test(br) && !variantAgrees(String(card.variant ?? ''), String(pc.title))) {
+    return `PriceCharting's product is the ${br} variant, which the card database doesn't price for this card`;
+  }
+  return null;
+}
+
 export function searchQuery(card: CardForMatch) {
   return `${searchName(card)} ${cardNumber(card.number)}`.trim();
 }

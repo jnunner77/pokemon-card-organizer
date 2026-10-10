@@ -1,8 +1,9 @@
 /* Fixing a card's past daily prices after one of its sources was matched to the wrong card (a
    reprint priced as its original): each automatic daily price is worked out again from the
-   sources the person keeps, the highest of them at that day's rate, and a day with none of them
-   left is removed. Prices the person logged themselves are never touched. A plain script: the
-   page uses window.BinderPastPrices, and the tests load it the same way. */
+   sources the person keeps, by the price method (public/blend.js: blended, highest or
+   PriceCharting first) at that day's rate, and a day with none of them left is removed. Prices
+   the person logged themselves are never touched. A plain script, after blend.js: the page uses
+   window.BinderPastPrices, and the tests load it the same way. */
 (function (root) {
   "use strict";
 
@@ -33,7 +34,7 @@
    * list and what happened to each daily price that changed: {date, before, after} (after null
    * when it's removed), newest first.
    */
-  function keepOnly(prices, keep) {
+  function keepOnly(prices, keep, method) {
     const kept = new Set(keep);
     const rows = [];
     const out = [];
@@ -46,21 +47,21 @@
       const dropped = all.filter(k => !kept.has(k)).map(k => NAME[k] || k);
       // A graded price is PriceCharting's for the grade; others need that day's rate to recompute.
       const rate = Number(e.usd) > 0 ? Number(e.amount) / Number(e.usd) : null;
-      const priced = left.filter(k => q[k] != null).map(k => [k, q[k]]).sort((a, b) => b[1] - a[1]);
-      if (!priced.length || rate == null || !(rate > 0) || (e.grade && !left.includes("pricecharting"))) {
+      const quotes = Object.fromEntries(left.filter(k => q[k] != null).map(k => [k, q[k]]));
+      const p = Object.keys(quotes).length ? root.BinderBlend.price(quotes, method) : null;
+      if (!p || rate == null || !(rate > 0) || (e.grade && !left.includes("pricecharting"))) {
         rows.push({ date: e.date || "", before: e.amount, after: null, where: e.where || "" });
         continue;
       }
-      const [src, usd] = priced[0];
-      const quotes = Object.fromEntries(left.filter(k => q[k] != null).map(k => [k, q[k]]));
-      const list = priced.map(([k, v]) => `${NAME[k] || k} US$${v.toFixed(2)}`);
+      // A graded price stays PriceCharting's price for the grade.
+      const usd = e.grade ? quotes.pricecharting : p.usd;
       const next = {
         ...e,
         amount: round2(usd * rate),
         usd,
-        where: NAME[src] || src,
+        where: e.grade ? NAME.pricecharting : p.where,
         quotes,
-        note: `Daily update · ${list.length > 1 ? `higher of ${list.join(" and ")}` : list[0]} at ${rate.toFixed(4)} · ${dropped.join(" and ")} left out (matched to the wrong card)`,
+        note: `Daily update · ${e.grade ? `PriceCharting US$${usd.toFixed(2)}` : p.summary} at ${rate.toFixed(4)} · ${dropped.join(" and ")} left out (matched to the wrong card)`,
       };
       out.push(next);
       rows.push({ date: e.date || "", before: e.amount, after: next.amount, where: next.where });
