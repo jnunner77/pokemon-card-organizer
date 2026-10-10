@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
+import { damagedMessage, readJson } from './recover';
 
 // Settings only administrators change, kept in <data>/admin.json. They live outside db.json
 // so restoring a backup of the ledger never changes how the server itself is run.
@@ -41,11 +42,15 @@ export interface AdminConfig {
 export class Config {
   private readonly file: string;
   private data: AdminConfig;
+  /** admin.json was damaged at start and the defaults were used (index.ts logs it). */
+  readonly recovered: string | null = null;
 
   constructor(dataDir: string, defaults: Partial<AdminConfig> = {}) {
     this.file = path.join(dataDir, 'admin.json');
     const base: AdminConfig = { backups: { daily: 14, weekly: 8, monthly: 12 }, pricing: { enabled: true, hour: 5, cardmarket: true }, lastFullBackupAt: null, ...defaults };
-    const saved = fs.existsSync(this.file) ? (JSON.parse(fs.readFileSync(this.file, 'utf8')) as Partial<AdminConfig>) : {};
+    let recovered: string | null = null;
+    const saved = readJson<Partial<AdminConfig>>(this.file, (d) => (recovered = damagedMessage(d, 'The default settings are used (backup retention, the price update schedule); check them under Administration.'))) ?? {};
+    this.recovered = recovered;
     // "Use PriceCharting" (from when its pages refused the binder) is gone: its API token decides now.
     const { pricecharting: _, ...pricing } = (saved.pricing ?? {}) as Partial<PricingConfig> & { pricecharting?: unknown };
     this.data = { ...base, ...saved, backups: { ...base.backups, ...saved.backups }, pricing: { ...base.pricing, ...pricing } };

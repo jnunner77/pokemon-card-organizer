@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import type { Logger } from './log';
+import { damagedMessage, readJson } from './recover';
 import { HttpError } from './security';
 
 // People who can use the ledger, their sign-in sessions and API tokens (modelled on Boards).
@@ -168,13 +169,15 @@ export class Accounts {
     this.file = path.join(dataDir, 'auth.json');
     this.sessionFile = path.join(dataDir, 'sessions.json');
     this.data = { settings: { ...DEFAULT_SETTINGS }, users: [], tokens: [] };
-    if (fs.existsSync(this.file)) {
-      const raw = JSON.parse(fs.readFileSync(this.file, 'utf8')) as Partial<AuthFile>;
-      this.data = { settings: { ...DEFAULT_SETTINGS, ...raw.settings }, users: raw.users ?? [], tokens: raw.tokens ?? [] };
-    }
-    if (fs.existsSync(this.sessionFile)) {
-      for (const s of (JSON.parse(fs.readFileSync(this.sessionFile, 'utf8')) as { sessions?: Session[] }).sessions ?? []) this.sessions.set(s.hash, s);
-    }
+    // Damaged people and passwords: stop, rather than start with nobody (or a new "admin" from
+    // BINDER_PASSWORD) and lock everyone else out. The file stays where it is to be rescued.
+    const raw = readJson<Partial<AuthFile>>(this.file, (d) => {
+      throw new Error(`${damagedMessage(d, '')}The server won't start without its accounts: restore auth.json from a copy of the server's data, or move it away to create "admin" again from BINDER_PASSWORD (everyone else then needs adding again).`);
+    }, { keep: true });
+    if (raw) this.data = { settings: { ...DEFAULT_SETTINGS, ...raw.settings }, users: raw.users ?? [], tokens: raw.tokens ?? [] };
+    // Damaged sessions: set aside, and everyone signs in again.
+    const saved = readJson<{ sessions?: Session[] }>(this.sessionFile, (d) => this.log.error('auth', damagedMessage(d, 'Everyone needs to sign in again.')));
+    for (const s of saved?.sessions ?? []) this.sessions.set(s.hash, s);
   }
 
   /** On start: create the first administrator from BINDER_PASSWORD, or issue a setup code. */

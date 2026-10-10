@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import { z } from 'zod';
 import type { Logger } from './log';
+import { damagedMessage, every, readJson } from './recover';
 import type { Doc } from './schema';
 import { HttpError } from './security';
 import type { Event, Store } from './store';
@@ -228,7 +229,13 @@ export class GuestFeed {
       const json = JSON.stringify(this.cards());
       if (json === this.last) return;
       this.last = json;
-      for (const fn of [...this.listeners]) fn(json);
+      // One guest's broken connection doesn't keep the others from hearing.
+      for (const fn of [...this.listeners])
+        try {
+          fn(json);
+        } catch {
+          // that page reconnects by itself
+        }
     }, this.delayMs);
   }
 }
@@ -254,8 +261,8 @@ export class Guests {
     this.file = path.join(dataDir, 'guests.json');
     const at = new Date(this.now()).toISOString();
     this.data = { settings: { enabled: false, key: newKey(), keyCreatedAt: at }, log: [] };
-    if (fs.existsSync(this.file)) {
-      const raw = JSON.parse(fs.readFileSync(this.file, 'utf8')) as Partial<GuestFile>;
+    const raw = readJson<Partial<GuestFile>>(this.file, (d) => this.log.error('app', damagedMessage(d, 'Guest viewing starts closed, with a new QR code, and the guest log starts empty.')));
+    if (raw) {
       this.data = { settings: { ...this.data.settings, ...raw.settings }, log: raw.log ?? [] };
       // Sessions don't survive a restart; close the visits that were open.
       const open = this.data.log.filter((v) => !v.endedAt);
@@ -271,8 +278,7 @@ export class Guests {
   }
 
   start(everyMs = 60_000) {
-    this.timer = setInterval(() => this.sweep(), everyMs);
-    this.timer.unref();
+    this.timer = every(this.log, 'app', 'Closing idle guest visits', everyMs, () => this.sweep());
   }
 
   stop() {

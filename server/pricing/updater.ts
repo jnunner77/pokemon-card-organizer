@@ -3,6 +3,7 @@ import { MAX_IMAGE_BYTES } from '../assets';
 import type { Config } from '../config';
 import type { CardDetails } from '../details';
 import { type Logger, quietLogger } from '../log';
+import { safely } from '../recover';
 import type { Doc } from '../schema';
 import type { Store } from '../store';
 import { DETAIL_FIELDS } from '../details';
@@ -333,9 +334,10 @@ export class PriceUpdater {
       if (!this.dueToday()) return;
       this.runAll('schedule').catch((err) => this.log.error('pricing', `Daily price update failed: ${message(err)}`));
     };
-    this.timer = setInterval(tick, everyMs);
+    const guarded = () => safely(this.log, 'pricing', 'Checking whether the daily price update is due', tick);
+    this.timer = setInterval(guarded, everyMs);
     this.timer.unref();
-    setTimeout(tick, 30_000).unref();
+    setTimeout(guarded, 30_000).unref();
   }
 
   /**
@@ -381,7 +383,7 @@ export class PriceUpdater {
     this.progressAt = this.now().getTime();
     this.stalled = false;
     this.step = 'getting the exchange rate from the Bank of Canada';
-    const watchdog = (this.watchdog = setInterval(() => live() && this.checkStall(), Math.min(30_000, Math.max(1000, this.stallMs / 4))));
+    const watchdog = (this.watchdog = setInterval(() => live() && safely(this.log, 'pricing', 'Checking the price update for progress', () => this.checkStall()), Math.min(30_000, Math.max(1000, this.stallMs / 4))));
     watchdog.unref();
     const { rate, rateDate } = await this.rate();
     const counts: Record<CardOutcome, number> = { updated: 0, needsMatch: 0, noPrice: 0, failed: 0, skipped: 0, off: 0 };
