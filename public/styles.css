@@ -467,7 +467,8 @@ tbody tr.sel{background:var(--accent-soft)}
 .spark figcaption span:last-child{text-align:right}
 .spark figcaption b{color:var(--ink);font-weight:600}
 .picker{margin-top:12px;border:1px dashed var(--line);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:8px;align-items:flex-start}
-.picker .search{width:100%;padding-right:4px}
+/* The picker is a column: .search's flex basis (220px, a width in rows) would set its height here. */
+.picker .search{width:100%;padding-right:4px;flex:none}
 .cands{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;width:100%}
 .cands li{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:10px;align-items:center;border:1px solid var(--line-2);border-radius:8px;padding:6px 8px}
 .cands img,.cands .thumb{width:40px;height:56px;object-fit:cover;border-radius:3px;background:var(--pocket)}
