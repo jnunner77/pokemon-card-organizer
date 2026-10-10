@@ -19,9 +19,10 @@ Every morning (after 5:00 in your time zone, catching up if the server was off) 
    pick (or search for). Typos, "VSTAR"/"V Star" spellings and promos filed under other sets are
    handled, and a variant (a pattern, stamp, 1st Edition…) is matched to its own product
    (*Lapras [Master Ball]*). A card PriceCharting had no certain match for is searched again a week later.
-2. **Logs today's market price** in CAD: the **highest** of PriceCharting's ungraded price (recent
-   eBay sales), TCGplayer's market price (recent TCGplayer sales, the price apps like Collectr
-   show) and Cardmarket's trend (Europe, in euros), converted at the Bank of Canada's daily rates.
+2. **Logs today's market price** in CAD, worked out from PriceCharting's ungraded price (recent
+   eBay sales), TCGplayer's market price (recent TCGplayer sales) and Cardmarket's trend (Europe,
+   in euros), converted at the Bank of Canada's daily rates. By default it's a **blend**, as apps
+   like Collectr do (see [How a card's daily price is worked out](#how-a-cards-daily-price-is-worked-out)).
    A **graded card** (its *Graded by* and *Grade* set) is valued at PriceCharting's price for its
    grader and grade instead (Grade 7, 8, 9, 9.5, PSA 10, BGS 10, CGC 10, SGC 10, TAG 10, ACE 10…),
    or the nearest grade PriceCharting has; when PriceCharting has no graded price for it, it gets
@@ -109,7 +110,8 @@ No site's pages are read: every price comes from an API.
   see PriceCharting's values: the owner has PriceCharting's written permission. When the subscription ends, *Purge
   PriceCharting data* on the same page removes the token and everything that came from
   PriceCharting, as its terms ask: cards' PriceCharting matches, its prices in the daily price log
-  (each day keeps the highest of the other sources, or is removed when there were none) and its
+  (each day PriceCharting set or was part of is worked out again from the other sources, or
+  removed when there were none) and its
   pictures (the next update downloads others). Prices you logged yourself stay; copies of the
   ledger on the server keep PriceCharting's prices until they age out.
 - **TCGdex** and **pokemontcg.io** are free public APIs (`POKEMONTCG_API_KEY`, a free key from
@@ -169,15 +171,44 @@ in the summary bar opens the list, flagged pockets show a **!**, and the nightly
 - **No certain price match**: open it and choose the product.
 - **Price sources disagree**: one of its prices is more than 3 times another and at least US$5
   apart (PriceCharting US$8.50, TCGplayer US$310), which usually means one of its matches is
-  another printing or set. The highest isn't used: the card's main product's price is logged until
-  its matches change, or you tap *The prices are right*.
+  another printing or set. It stays flagged until its matches change, or you tap *The prices are
+  right* (the blend already leaves out a source too far from PriceCharting's price).
   *Fix past daily prices…* cleans up the days already logged (below).
+
+### How a card's daily price is worked out
+
+*Administration → Prices → How a card's daily price is worked out* chooses the method; daily
+prices use it from the next update, and *Rebuild past daily prices…* works the past ones out
+again with it.
+
+- **PriceCharting is the anchor** (eBay sold prices: what collectors pay each other); TCGplayer
+  when PriceCharting has no price that day, then Cardmarket. A source further from it than the
+  **tolerance** (25%) is taken to be another card's price.
+- **Blended** (the default): the weighted average of the sources, **PriceCharting 40%,
+  TCGplayer 40%, Cardmarket 20%**. A source left out gives its weight to PriceCharting; one with no
+  price that day shares its weight among the others. PriceCharting US$100, TCGplayer US$110,
+  Cardmarket US$90 → US$102; PriceCharting US$102.71, TCGplayer US$352.67 (another card's) →
+  US$102.71.
+- **Highest**: the highest source, unless it's more than the tolerance from PriceCharting; then
+  PriceCharting's price.
+- **PriceCharting first**: PriceCharting's price, else TCGplayer's, else Cardmarket's.
+- A **graded card** is always PriceCharting's price for its grade.
+
+The weights and the tolerance can be changed there too. Each daily price's note shows the working
+(*blend of PriceCharting US$100.00 (40%), TCGplayer US$110.00 (40%), Cardmarket US$90.00 (20%)*,
+or what was left out and why), and the card's drawer says which method is used.
+
+**Rebuild past daily prices…** shows what would change first (how many daily prices on how many
+cards, the collection's value before and after, the cards that change most), takes a copy of the
+ledger (under *Backups*, to undo it by restoring), then works every automatic daily price out
+again from the sources' prices it kept, at its own day's rate. Graded prices, prices you logged
+yourself, and daily prices from before each source's price was kept stay as they are.
 
 **Fixing past daily prices.** When a source was matched to the wrong card for a while (a 30th
 Celebration reprint priced as its Aquapolis or Paldea Evolved original), *Fix past daily prices…*
 in the card's price log (or in *Cards to check*) takes it out of the card's history: untick the
-sources that were wrong, and each daily price is worked out again as the highest of the ones left
-at that day's rate, or removed when none is left. It shows each day's before and after first,
+sources that were wrong, and each daily price is worked out again from the ones left (by the
+price method below) at that day's rate, or removed when none is left. It shows each day's before and after first,
 and *Undo* puts them back. Prices you logged yourself are never changed; a single daily price can
 also be deleted with its ✕.
 

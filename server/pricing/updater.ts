@@ -3,6 +3,7 @@ import { MAX_IMAGE_BYTES } from '../assets';
 import type { Config } from '../config';
 import { type CardDetails, type DetailsStatus, checkIdentity } from '../details';
 import { type Logger, quietLogger } from '../log';
+import { type BlendSettings, blend } from '../blend';
 import { safely } from '../recover';
 import type { Doc } from '../schema';
 import type { Store } from '../store';
@@ -80,6 +81,38 @@ export interface UpdaterOptions {
   pricecharting?: PriceCharting;
   /** How long a run may go without finishing a card before it's flagged as stalled. */
   stallMs?: number;
+}
+
+/** What rebuilding the past daily prices changes (or changed). */
+export interface RebuildSummary {
+  method: string;
+  /** Cards and daily prices that change. */
+  cards: number;
+  prices: number;
+  /** The collection's value (each card held: its latest daily price, CAD) before and after. */
+  valueBefore: number;
+  valueAfter: number;
+  /** The cards whose latest price changes most. */
+  biggest: { card: string; before: number; after: number }[];
+  /** The copy of the ledger taken first (Administration → Backups), when applied. */
+  copy: string | null;
+}
+
+/**
+ * An automatic daily price worked out again from `quotes` by `method`, at that day's own rate (its
+ * CAD amount over its US$ price), with a note saying so; null when no source is left or the entry
+ * has no US$ price to take the rate from.
+ */
+export function repriced<E extends { amount: number; usd?: number | null; where?: string; quotes?: Partial<Record<PriceSource, number>> | null; note?: string }>(
+  e: E,
+  quotes: Partial<Record<PriceSource, number>>,
+  method: BlendSettings,
+  why: string,
+): E | null {
+  const rate = Number(e.usd) > 0 ? e.amount / Number(e.usd) : null;
+  const p = blend().price(quotes, method);
+  if (!p || !rate) return null;
+  return { ...e, quotes, usd: p.usd, where: p.where, amount: round2(p.usd * rate), note: `Daily update · ${p.summary} at ${rate.toFixed(4)} (${why})` };
 }
 
 /**
@@ -298,7 +331,7 @@ export class PriceUpdater {
   /** Whether the daily run is on, and its hour (administrators can change both); whether PriceCharting has its token. */
   schedule() {
     const c = this.config?.get().pricing;
-    return { enabled: c?.enabled ?? true, hour: c?.hour ?? this.hour, timeZone: this.timeZone, pricecharting: !!this.pc?.ready, cardmarket: c?.cardmarket !== false };
+    return { enabled: c?.enabled ?? true, hour: c?.hour ?? this.hour, timeZone: this.timeZone, pricecharting: !!this.pc?.ready, cardmarket: c?.cardmarket !== false, priceMethod: this.priceMethod() };
   }
 
   /**
@@ -314,9 +347,18 @@ export class PriceUpdater {
     return this.run?.tripped.get(src) ?? null;
   }
 
-  /** Tell the page whether PriceCharting has its token (settings/pricing, which every page follows). */
+  /** How a card's daily price is worked out (blend.ts), as administrators set it. */
+  priceMethod(): BlendSettings {
+    return blend().settings(this.config?.get().priceMethod ?? null);
+  }
+
+  /**
+   * Tell the page whether PriceCharting has its token, and how daily prices are worked out
+   * (settings/pricing, which every page follows: Fix past daily prices uses the same method).
+   */
   noteToken() {
-    if (this.status().pricecharting !== !!this.pc?.ready) this.setStatus({ pricecharting: !!this.pc?.ready });
+    const priceMethod = this.priceMethod();
+    if (this.status().pricecharting !== !!this.pc?.ready || JSON.stringify(this.status().priceMethod) !== JSON.stringify(priceMethod)) this.setStatus({ pricecharting: !!this.pc?.ready, priceMethod });
   }
 
   get running() {
@@ -807,17 +849,19 @@ export class PriceUpdater {
     const pcQuote = link?.source === 'pricecharting' ? main : pair?.source === 'pricecharting' ? other : null;
     const graded = isGraded(card) ? gradedPrice(pcQuote?.grades, card.grader, card.grade) : null;
     if (graded) quotes = { pricecharting: graded.usd };
-    let best = (Object.entries(quotes) as [PriceSource, number][]).reduce<[PriceSource, number] | null>((b, q) => (!b || q[1] > b[1] ? q : b), null);
+    // The day's price, by the chosen method (blend.ts): a blend of the sources by default, leaving
+    // out one too far from PriceCharting's price. A graded card: PriceCharting's price for its grade.
+    const picked = graded ? null : blend().price(quotes, this.priceMethod());
+    const best: { usd: number; where: string; summary: string } | null = graded
+      ? { usd: graded.usd, where: SOURCE_NAME.pricecharting, summary: '' }
+      : picked && { usd: picked.usd, where: picked.where, summary: picked.summary };
     // Sources that disagree wildly usually mean one of the card's matches is another printing or
-    // set (a reprint priced as its original): the highest isn't taken blindly. The main product's
-    // price is logged (the lowest when there's none) and the card shows in Cards to check, until
-    // its matches change or the person says the prices are right.
+    // set (a reprint priced as its original): the card shows in Cards to check until its matches
+    // change or the person says the prices are right.
     const sig = [link ? `${link.source}:${link.id}` : '', pair ? `${pair.source}:${pair.id}` : '', cat?.tcgdexId ?? ''].join('|');
     const disagree = !graded && pricesDisagree(quotes) && card.pricesDisagreeIgnored !== sig ? { quotes: { ...quotes }, sig, at: checkedAt } : null;
     if (disagree && best) {
-      const mainUsd = link ? quotes[link.source] : undefined;
-      best = mainUsd != null ? [link!.source, mainUsd] : (Object.entries(quotes) as [PriceSource, number][]).reduce((b, q) => (q[1] < b[1] ? q : b));
-      this.log.warn('pricing', `${label(card)}: its price sources disagree (${(Object.entries(quotes) as [PriceSource, number][]).map(([s, v]) => `${SOURCE_NAME[s]} US$${v.toFixed(2)}`).join(', ')}); ${SOURCE_NAME[best[0]]}'s price was logged. One of its matches may be another printing: see Cards to check.`, { quotes });
+      this.log.warn('pricing', `${label(card)}: its price sources disagree (${(Object.entries(quotes) as [PriceSource, number][]).map(([s, v]) => `${SOURCE_NAME[s]} US$${v.toFixed(2)}`).join(', ')}); logged ${best.where} US$${best.usd.toFixed(2)}. One of its matches may be another printing: see Cards to check.`, { quotes });
     }
     if (!best && unmatched) {
       if (cat) this.patchLink(id, { catalog: catalogOf(cat) });
@@ -847,11 +891,10 @@ export class PriceUpdater {
     const cutoff = this.today(new Date(Date.parse(`${date}T12:00:00Z`) - this.keepDays * 86_400_000));
     let prices = thinAutoPrices(fresh.prices ?? [], date, cutoff);
     if (best) {
-      const [src, usd] = best;
-      const each = (Object.entries(quotes) as [PriceSource, number][]).map(([s, v]) => `${SOURCE_NAME[s]} ${s === 'cardmarket' ? `€${cat!.cardmarketEur!.toFixed(2)} (US$${v.toFixed(2)})` : `US$${v.toFixed(2)}`}`);
+      const { usd, where } = best;
       const list = graded
         ? `PriceCharting's ${graded.label} price US$${usd.toFixed(2)}${graded.exact ? '' : ` (the nearest it has to ${String(card.grader).trim()} ${String(card.grade).trim()})`}`
-        : each.length > 2 ? `highest of ${each.slice(0, -1).join(', ')} and ${each.at(-1)}` : each.length > 1 ? `higher of ${each.join(' and ')}` : src === 'cardmarket' ? each[0] : `US$${usd.toFixed(2)}`;
+        : best.summary;
       const ungraded = isGraded(card) && !graded ? ' · no graded price on PriceCharting, so the ungraded price' : '';
       prices = [
         ...prices,
@@ -862,8 +905,8 @@ export class PriceUpdater {
           amount: round2(usd * fx),
           currency: 'CAD',
           date,
-          where: SOURCE_NAME[src],
-          note: `Daily update${cat?.variant ? ` (${cat.variant})` : ''} · ${disagree ? `${SOURCE_NAME[src]}'s US$${usd.toFixed(2)}: the sources disagree (${each.join(', ')}), so the highest wasn't used` : list} at ${fx.toFixed(4)}${quotes.cardmarket != null ? ` (€1 = C$${eur!.toFixed(4)})` : ''}${ungraded}`,
+          where,
+          note: `Daily update${cat?.variant ? ` (${cat.variant})` : ''} · ${list} at ${fx.toFixed(4)}${quotes.cardmarket != null ? ` (Cardmarket €${cat!.cardmarketEur!.toFixed(2)}, €1 = C$${eur!.toFixed(4)})` : ''}${ungraded}`,
           auto: true,
           usd,
           quotes,
@@ -1098,9 +1141,58 @@ export class PriceUpdater {
    * other sources that day, or removed when there were none), its pictures are deleted (the next
    * update downloads others) and the token is forgotten. Prices people logged themselves stay.
    */
+  /**
+   * Work every card's past automatic daily prices out again with the current price method, from
+   * the sources' prices each one kept, at its own day's rate. Graded prices (PriceCharting's for
+   * the grade) and entries from before each source's price was kept are left as they are. With
+   * `apply`, saves them (call `beforeApply` first to keep a copy of the ledger); otherwise only
+   * says what would change.
+   */
+  rebuildPrices(apply: boolean, beforeApply?: () => string | null): RebuildSummary {
+    if (apply && this.running) throw new SourceError('A price update is running. Try again when it has finished.');
+    const method = this.priceMethod();
+    const name = blend().METHODS[method.method];
+    const out: RebuildSummary = { method: method.method, cards: 0, prices: 0, valueBefore: 0, valueAfter: 0, biggest: [], copy: null };
+    const patches: { id: string; patch: Doc }[] = [];
+    const latest = (list: PriceEntry[]) => list.filter((e) => e.auto && e.date).sort((a, b) => (a.date! < b.date! ? 1 : a.date! > b.date! ? -1 : 0))[0];
+    for (const c of this.store.all().cards as (Card & { id: string; placeholder?: boolean | null })[]) {
+      const prices = c.prices ?? [];
+      let changed = 0;
+      const next = prices.map((e) => {
+        const quotes = e.quotes && typeof e.quotes === 'object' ? e.quotes : null;
+        if (!e.auto || e.grade || !quotes || !Object.values(quotes).some((v) => typeof v === 'number' && v > 0)) return e;
+        const again = repriced(e, quotes, method, `rebuilt: ${name}`);
+        if (!again || Math.abs(again.amount - e.amount) < 0.005) return e;
+        changed++;
+        return again;
+      });
+      const counts = c.status !== 'sold' && c.status !== 'traded' && !c.placeholder;
+      const [before, after] = [latest(prices), latest(next)];
+      if (counts) {
+        out.valueBefore += before?.amount ?? 0;
+        out.valueAfter += after?.amount ?? 0;
+      }
+      if (!changed) continue;
+      out.cards++;
+      out.prices += changed;
+      if (before && after && before.amount !== after.amount) out.biggest.push({ card: label(c), before: before.amount, after: after.amount });
+      patches.push({ id: c.id, patch: { prices: next } });
+    }
+    out.valueBefore = round2(out.valueBefore);
+    out.valueAfter = round2(out.valueAfter);
+    out.biggest = out.biggest.sort((a, b) => Math.abs(b.after - b.before) - Math.abs(a.after - a.before)).slice(0, 8);
+    if (apply && patches.length) {
+      out.copy = beforeApply?.() ?? null;
+      this.store.updateMany('cards', patches);
+      this.log.info('pricing', `Past daily prices rebuilt (${name}): ${out.prices} prices on ${out.cards} cards; collection value C$${out.valueBefore.toFixed(2)} → C$${out.valueAfter.toFixed(2)}`, { ...out, biggest: undefined });
+    }
+    return out;
+  }
+
   purgePriceCharting(forget: () => void): { cards: number; prices: number; removed: number; pictures: number } {
     if (this.running) throw new SourceError('A price update is running. Try again when it has finished.');
     forget();
+    const method = this.priceMethod();
     const out = { cards: 0, prices: 0, removed: 0, pictures: 0 };
     const pictures: string[] = [];
     const patches: { id: string; patch: Doc }[] = [];
@@ -1131,15 +1223,13 @@ export class PriceUpdater {
         if (!e.auto || (e.quotes?.pricecharting == null && e.where !== 'PriceCharting')) return [e];
         changed++;
         const { pricecharting: _, ...rest } = e.quotes ?? {};
-        // The note named PriceCharting's price too: it's written again without it.
-        const note = (src: string, usd: number) => `Daily update · ${src} US$${usd.toFixed(2)} (PriceCharting's price removed)`;
-        if (e.where !== 'PriceCharting') return [{ ...e, quotes: rest, note: e.usd != null ? note(e.where ?? 'Market', Number(e.usd)) : undefined }];
-        // PriceCharting set this entry: the highest of the day's other prices, at the same rate.
-        const left = (Object.entries(rest) as [PriceSource, number][]).filter(([, v]) => typeof v === 'number').sort((x, y) => y[1] - x[1]);
-        if (e.grade || !left.length || !(Number(e.usd) > 0)) return [];
-        const [src, usd] = left[0];
-        const { grade: _g, ...entry } = e;
-        return [{ ...entry, quotes: rest, usd, where: SOURCE_NAME[src], amount: round2((e.amount / Number(e.usd)) * usd), note: note(SOURCE_NAME[src], usd) }];
+        // Another source's price alone: it stays, without PriceCharting's in its note.
+        if (e.where !== 'PriceCharting' && e.where !== 'Blend') return [{ ...e, quotes: rest, note: e.usd != null ? `Daily update · ${e.where ?? 'Market'} US$${Number(e.usd).toFixed(2)} (PriceCharting's price removed)` : undefined }];
+        // PriceCharting set this entry, or was part of its blend: worked out again from the day's
+        // other prices, at the same rate (a graded price was PriceCharting's alone, so it goes).
+        if (e.grade) return [];
+        const again = repriced(e, rest, method, "PriceCharting's price removed");
+        return again ? [again] : [];
       });
       if (changed) {
         patch.prices = kept;

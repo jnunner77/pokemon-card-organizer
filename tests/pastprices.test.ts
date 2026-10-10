@@ -7,11 +7,13 @@ import { describe, expect, it } from 'vitest';
 type Entry = { id: string; date?: string; amount: number; currency?: string; type?: string; auto?: boolean; usd?: number; where?: string; quotes?: Record<string, number>; note?: string; grade?: string };
 type Past = {
   sources: (prices: Entry[]) => string[];
-  keepOnly: (prices: Entry[], keep: string[]) => { prices: Entry[]; rows: { date: string; before: number; after: number | null; where: string }[]; changed: number; removed: number };
+  keepOnly: (prices: Entry[], keep: string[], method?: object) => { prices: Entry[]; rows: { date: string; before: number; after: number | null; where: string }[]; changed: number; removed: number };
   suggested: (card: { prices?: Entry[]; pricing?: { source?: string; disagree?: object | null } }) => string[];
 };
+// After blend.js, as the page loads them: each day is worked out by the price method.
 const sandbox = { window: {} as { BinderPastPrices: Past }, Object, Math, Number, Set, String };
-vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../public/pastprices.js'), 'utf8'), sandbox);
+vm.createContext(sandbox);
+for (const f of ['blend.js', 'pastprices.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '../public', f), 'utf8'), sandbox);
 const P = sandbox.window.BinderPastPrices;
 
 // The 30th Celebration Magikarp (a Classic Collection reprint) priced as Paldea Evolved's: from
@@ -53,11 +55,16 @@ describe('fixing past daily prices', () => {
     expect(byId.old).toBe(magikarp[4]);
   });
 
-  it('takes the higher of the sources left', () => {
-    const r = P.keepOnly(magikarp, ['pricecharting', 'cardmarket']);
-    const e = r.prices.find((x) => x.id === '2026-10-08')!;
-    expect(e).toMatchObject({ usd: 393.61, where: 'Cardmarket', quotes: { pricecharting: 102.1, cardmarket: 393.61 } });
-    expect(e.note).toMatch(/^Daily update · higher of Cardmarket US\$393\.61 and PriceCharting US\$102\.10 at 1\.4000 · TCGplayer left out/);
+  it('works the sources left out by the price method', () => {
+    const near: Entry[] = [day('2026-10-08', { pricecharting: 100, tcgplayer: 400, cardmarket: 110 }, 'TCGplayer')];
+    // Blended (the default): PriceCharting 40 and Cardmarket 20 of the 60 left.
+    const b = P.keepOnly(near, ['pricecharting', 'cardmarket']).prices[0];
+    expect(b).toMatchObject({ usd: 103.33, where: 'Blend', quotes: { pricecharting: 100, cardmarket: 110 } });
+    expect(b.note).toBe('Daily update · blend of PriceCharting US$100.00 (67%), Cardmarket US$110.00 (33%) at 1.4000 · TCGplayer left out (matched to the wrong card)');
+    // Highest: Cardmarket's, within 25% of PriceCharting's.
+    expect(P.keepOnly(near, ['pricecharting', 'cardmarket'], { method: 'highest' }).prices[0]).toMatchObject({ usd: 110, where: 'Cardmarket' });
+    // The Magikarp's Cardmarket price is the other card's too: more than 25% away, so PriceCharting's.
+    expect(P.keepOnly(magikarp, ['pricecharting', 'cardmarket']).prices.find((x) => x.id === '2026-10-08')).toMatchObject({ usd: 102.1, where: 'PriceCharting' });
     expect(P.keepOnly(magikarp, ['pricecharting', 'tcgplayer', 'cardmarket'])).toMatchObject({ changed: 0, removed: 0 });
   });
 
