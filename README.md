@@ -41,8 +41,12 @@ Every morning (after 5:00 in your time zone, catching up if the server was off) 
    week) for the Pricing view's longer ranges. Prices you log yourself (what you paid, sales,
    listings, your own market prices) are never changed.
 3. **Downloads the official picture**, the largest available: pokemontcg.io's (733×1024) for
-   cards it has, else TCGplayer's, or TCGdex's own (600×825). A pattern or stamped variant gets its
-   own TCGplayer product's picture, which shows it. A picture a card already has from pokemontcg.io
+   cards it has, else the card's TCGplayer product's (717×1000; also on days TCGplayer has no price
+   for it), or TCGdex's own (600×825). One that won't download gives way to the next, and
+   pokemontcg.io's replaces the others once it answers, so a card isn't left without a picture
+   while pokemontcg.io is failing or TCGdex has none (it has no Trainer Gallery pictures, like
+   Lost Origin's Snorlax TG10). A pattern or stamped variant gets its own TCGplayer product's
+   picture, which shows it. A picture a card already has from pokemontcg.io
    (or from PriceCharting, before it was read through its API) is kept, so pokemontcg.io is only
    asked while a card still needs a picture, or (weekly) details it could fill. The picture is
    shown instead of your photo. Your photos are kept; each card has an *Official image / Your
@@ -147,6 +151,21 @@ Adding a card only needs its **name and number**:
 On a 122-card collection, Fill in missing details added 108 illustrators; the cards not found
 were from the *Trading Card Game Classic* box, a brand-new promo, and a misspelled name.
 Only English cards are looked up.
+
+### Search Google for what's still missing
+
+When the databases and price sites come up empty, the card's drawer offers a Google search for
+exactly what's missing, naming the card as you have it (name, set, number, variant, a language
+other than English, and the grade of a graded card), opening in a new tab:
+
+- **No picture:** *Search Google Images* in the empty picture box (and *Find photo on Google* next to
+  the photo buttons). Save the picture you find and add it with *Choose photo*, or copy it and paste it.
+- **No price:** *Search Google for its price* under Current value. *Look up prices* always has
+  *Google* next to TCGplayer, PriceCharting and eBay.
+- **Blank details:** under Number, *Missing rarity, illustrator* (whichever of set, set code,
+  rarity and illustrator are blank) with *Search Google* for them.
+
+Each one goes away once the card has it.
 
 ## Cards to check
 

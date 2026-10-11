@@ -882,13 +882,19 @@ export class PriceUpdater {
     if (best && link && mainQ.status === 'rejected' && this.siteOut(link.source)) mainError = null;
 
     // The largest picture: a PriceCharting picture the card already has is kept (it's as large);
-    // otherwise pokemontcg.io's, then the main product's, then TCGdex's own.
+    // otherwise pokemontcg.io's, then the main product's, then the card's TCGplayer product's (717×1000:
+    // TCGdex has no pictures of some sets, Trainer Galleries among them, and pokemontcg.io often
+    // fails), then TCGdex's own. pokemontcg.io's replaces the others once it answers.
     const current = card.officialImageId ? (card.pricing?.imageUrl ?? '') : '';
     // A special variant (a Poké Ball pattern, say) is pictured by its own TCGplayer product, which shows it.
     const variantPicture = cat?.special && link?.source === 'tcgplayer' ? (main?.image ?? null) : null;
+    // The databases' product only for a plain printing (they sometimes name one product for several
+    // special ones), and not when the person turned TCGplayer off for the card.
+    const tcgId = ownTcg?.id ?? (cat?.special || (card.pricing?.pair?.source === 'tcgplayer' && card.pricing.pair.off) ? null : (cat?.tcgplayerProduct ?? null));
+    const tcgPicture = tcgId ? tcgImage(tcgId, 1000) : null;
     const tcgdexPicture = card.officialImageId ? null : (cat?.fallbackImage ?? null);
-    const picture = /pricecharting/i.test(current) ? null : (variantPicture ?? (/pokemontcg\.io/i.test(current) ? (cat?.image ?? null) : (cat?.image ?? main?.image ?? tcgdexPicture)));
-    const image = picture ? await this.fetchImage(card, picture) : null;
+    const pictures = /pricecharting/i.test(current) ? [] : variantPicture ? [variantPicture] : /pokemontcg\.io/i.test(current) ? [cat?.image] : [cat?.image, main?.image, tcgPicture, tcgdexPicture];
+    const image = await this.fetchImage(card, pictures);
 
     // Network work is done: re-read the card so nothing the person changed meanwhile is lost.
     const fresh = this.store.get('cards', id) as Card | undefined;
@@ -1088,22 +1094,29 @@ export class PriceUpdater {
     }
   }
 
-  /** Download the product image when the card has none yet or the match changed. */
-  private async fetchImage(card: Card, url: string | null): Promise<{ id: string; url: string } | null> {
-    if (!url) return null;
-    if (card.officialImageId && card.pricing?.imageUrl === url && this.assets.find(card.officialImageId)) return null;
-    if (this.run) this.step = 'downloading its picture';
-    try {
-      const res = await get(this.fetcher, url);
-      const buf = Buffer.from(await res.arrayBuffer());
-      if (buf.length > MAX_IMAGE_BYTES) throw new SourceError('image too large');
-      const saved = this.assets.put(buf);
-      if (!saved) throw new SourceError("the image isn't a JPG, PNG, WebP or GIF");
-      return { id: saved.id, url };
-    } catch (err) {
-      this.log.warn('pricing', `No new image for ${label(card)}: ${message(err)}`);
-      return null;
+  /**
+   * Download the first of `urls` (best first) that comes, when the card doesn't have it yet; one that
+   * fails gives way to the next. Null when the card already has the best that comes, or none did.
+   */
+  private async fetchImage(card: Card, urls: (string | null | undefined)[]): Promise<{ id: string; url: string } | null> {
+    const errors: string[] = [];
+    for (const url of [...new Set(urls.filter((u): u is string => !!u))]) {
+      if (card.officialImageId && card.pricing?.imageUrl === url && this.assets.find(card.officialImageId)) return null;
+      if (this.run) this.step = 'downloading its picture';
+      try {
+        const res = await get(this.fetcher, url);
+        const buf = Buffer.from(await res.arrayBuffer());
+        if (buf.length > MAX_IMAGE_BYTES) throw new SourceError('image too large');
+        const saved = this.assets.put(buf);
+        if (!saved) throw new SourceError("the image isn't a JPG, PNG, WebP or GIF");
+        if (errors.length) this.log.info('pricing', `${label(card)}: picture from ${new URL(url).host} (${errors.join('; ')})`);
+        return { id: saved.id, url };
+      } catch (err) {
+        errors.push(`${new URL(url).host}: ${message(err)}`);
+      }
     }
+    if (errors.length) this.log.warn('pricing', `No new image for ${label(card)}: ${errors.join('; ')}`);
+    return null;
   }
 
   /**
