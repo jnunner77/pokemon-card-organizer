@@ -127,6 +127,25 @@ export class Store {
     return next.length;
   }
 
+  /** Create or replace several documents as one change: all of them are saved, or none is (a master set's cards). */
+  setMany(collection: Collection, docs: { id: string; doc: Doc }[]): number {
+    const next = docs.map(({ id, doc }) => ({ id, doc: validateDoc(collection, doc) }));
+    if (!next.length) return 0;
+    const before = next.map(({ id }) => ({ id, doc: this.data[collection][id] }));
+    for (const { id, doc } of next) this.data[collection][id] = doc;
+    try {
+      this.save();
+    } catch (err) {
+      for (const { id, doc } of before) {
+        if (doc) this.data[collection][id] = doc;
+        else delete this.data[collection][id];
+      }
+      throw err;
+    }
+    for (const { id, doc } of next) this.emit({ type: 'change', change: { collection, id, doc } });
+    return next.length;
+  }
+
   delete(collection: Collection, id: string) {
     if (!this.data[collection][id]) return;
     this.commit({ collection, id, doc: null });

@@ -15,11 +15,12 @@ import { Config, priceMethodSchema, pricingConfigSchema, retentionSchema } from 
 import type { CardDetails } from './details';
 import { GUEST_COOKIE, GUEST_IDLE_MS, GuestFeed, type Guests, guestSchemas, isListed, shownImage } from './guests';
 import { CATEGORIES, LEVELS, type Logger, quietLogger } from './log';
+import { MasterSets, placeholderCards } from './masterset';
 import { NoToken, type PriceCharting } from './pricing/pricecharting';
 import { Refused, SourceError } from './pricing/sources';
 import type { PriceUpdater, RunProblem, RunSummary } from './pricing/updater';
 import { problemFeed } from './problems';
-import { InvalidDoc, collectionSchema, idSchema } from './schema';
+import { InvalidDoc, collectionSchema, idSchema, validateDoc } from './schema';
 import { HttpError, MUTATING, type Security } from './security';
 import type { Secret } from './secrets';
 import { cardsNeedingAttention, readOffsite, statusText, writeStatus } from './status';
@@ -586,6 +587,57 @@ export function createApp(o: AppOptions) {
     const cards = o.autofill.fillAll(req.query.force === '1');
     if (!already) log.info('pricing', `${who(res)} started Fill in missing details (${cards} cards)`);
     res.status(202).json({ started: !already, cards });
+  });
+
+  // ---- master sets (masterset.ts) ----------------------------------------------------
+  // Every card of a Pokémon in every variant, from TCGdex: previewed first, then created as a new
+  // binder of placeholders. The preview's TCGdex answers are remembered for an hour, so creating
+  // it straight after is quick.
+  const masterSets = o.details ? new MasterSets(o.details) : null;
+  const findMasterSet = async (pokemon: string) => {
+    if (!masterSets) throw new HttpError(503, 'Card lookups are turned off on this server.');
+    try {
+      const found = await masterSets.find(pokemon);
+      if (!found.entries.length) throw new HttpError(404, `No cards of “${pokemon}” were found. Check the spelling (the Pokémon's English name).`, 'not_found');
+      return found;
+    } catch (err) {
+      if (err instanceof SourceError) throw new HttpError(502, "The card database (TCGdex) didn't answer. Try again in a minute.", 'upstream_error');
+      throw err;
+    }
+  };
+  const pokemonName = z.string().trim().min(1).max(60);
+  api.get('/master-sets/preview', need('editor'), heavy, async (req, res) => {
+    const q = pokemonName.safeParse(req.query.pokemon);
+    if (!q.success) throw new HttpError(400, 'Type the Pokémon.');
+    res.json(await findMasterSet(q.data));
+  });
+  const masterSetBody = z.object({
+    pokemon: pokemonName,
+    owner: z.string().max(20),
+    name: z.string().trim().min(1).max(40),
+    color: z.string().max(40).optional(),
+    pockets: z.union([z.literal(4), z.literal(9), z.literal(12), z.literal(16)]),
+  });
+  api.post('/master-sets', need('editor'), heavy, json, async (req, res) => {
+    const body = masterSetBody.safeParse(req.body);
+    if (!body.success) throw new HttpError(400, 'Give the Pokémon, its owner, a binder name and the pockets per page.');
+    const { pokemon, owner, name, color, pockets } = body.data;
+    const found = await findMasterSet(pokemon);
+    const at = now().toISOString();
+    const binderId = crypto.randomBytes(8).toString('hex');
+    const order = Math.max(0, ...store.all().binders.map((b) => Number((b as { order?: unknown }).order) || 0)) + 1;
+    const cards = placeholderCards(found.entries, { binderId, pockets, owner, now: at }).map((doc) => ({ id: crypto.randomBytes(8).toString('hex'), doc }));
+    // Every card is checked before anything is saved (an owner the ledger doesn't know, say).
+    for (const c of cards) validateDoc('cards', c.doc);
+    store.set('binders', binderId, { name, color: color ?? null, pockets, kind: 'binder', order, createdAt: at });
+    try {
+      store.setMany('cards', cards);
+    } catch (err) {
+      store.delete('binders', binderId);
+      throw err;
+    }
+    log.info('app', `${who(res)} made a ${found.pokemon} master set: ${name}, ${cards.length} placeholders (${found.cards} cards)`);
+    res.status(201).json({ binderId, cards: cards.length, pages: Math.ceil(cards.length / pockets) });
   });
 
   // ---- full backups (with photos) -----------------------------------------------------
