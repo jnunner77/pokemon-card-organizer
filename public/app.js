@@ -947,10 +947,9 @@ function pricingSettingsHTML(){
     <h3>Automatic prices</h3>
     <p class="hint" style="margin:0 0 8px">Every morning each card is priced from PriceCharting's ungraded price, TCGplayer's market price and Cardmarket's trend (a graded card at PriceCharting's price for its grade), converted to Canadian dollars at the Bank of Canada's rate, and added to its price log. ${esc(methodText())} The last 30 days are kept. Prices you log yourself are never changed.</p>
     ${st.problem?window.BinderRunLog.banner(st.problem, {running:!!st.running, canEdit:canEdit(), log: canEdit() ? RL.log : undefined}):""}
-    ${st.running?`<p><b>Updating now:</b> ${st.done||0} of ${st.total||0} cards${st.current?.card?` (now ${esc(st.current.card)})`:""}…</p>`:last?`<p style="margin:0 0 6px">Last update <b>${esc(last.date)}</b> (${esc(last.reason==="manual"?"started by you":"daily")}) · ${c.updated||0} updated${c.needsMatch?` · ${c.needsMatch} need a match`:""}${c.noPrice?` · ${c.noPrice} without a price`:""}${c.failed?` · ${c.failed} failed`:""} · US$1 = C$${Number(last.rate).toFixed(4)}</p>`:`<p class="hint">Not run yet.</p>`}
+    ${st.running && st.scope!=="pictures"?`<p><b>Updating now:</b> ${st.done||0} of ${st.total||0} cards${st.current?.card?` (now ${esc(st.current.card)})`:""}…</p>`:last?`<p style="margin:0 0 6px">Last update <b>${esc(last.date)}</b> (${esc(last.reason==="manual"?"started by you":"daily")}) · ${c.updated||0} updated${c.needsMatch?` · ${c.needsMatch} need a match`:""}${c.noPrice?` · ${c.noPrice} without a price`:""}${c.failed?` · ${c.failed} failed`:""} · US$1 = C$${Number(last.rate).toFixed(4)}</p>`:`<p class="hint">Not run yet.</p>`}
     ${last && last.errors && last.errors.length?`<details class="autolog"><summary>Problems (${last.errors.length})</summary><ul class="errs">${last.errors.map(e=>`<li><b>${esc(e.card)}</b>: ${esc(e.error)}</li>`).join("")}</ul></details>`:""}
     ${need.length?`<p style="margin:8px 0 4px">These cards need you to choose their match:</p><div class="links">${need.map(x=>`<button class="btn sm" type="button" data-openc="${esc(x.id)}">${esc(x.name||"Unnamed card")} ${esc(metaLine(x))}</button>`).join("")}</div>`:""}
-    <div class="links" style="margin-top:10px"><button class="btn sm primary" type="button" id="sRunPrices" ${st.running?"disabled":""}>Update all prices now</button>${st.running && canEdit() && !st.problem?`<button class="btn sm danger" type="button" data-runprob="stop">Stop the update</button>`:""}</div>
   </div>`;
 }
 
@@ -1020,8 +1019,39 @@ function detailsSettingsHTML(){
     <h3>Card details</h3>
     <p class="hint" style="margin:0 0 8px">New cards get their set, set code, rarity, illustrator and release date from TCGdex, a free card database, and then their price and picture, as soon as they're added. Only empty fields are filled; what you type always stays.</p>
     ${st.running?`<p><b>Filling in now:</b> ${st.done||0} of ${st.total||0} cards…</p>`:last?`<p style="margin:0 0 6px">Last fill-in: ${last.filled||0} card${last.filled===1?"":"s"} filled${last.several?` · ${last.several} with several matches (open them to choose)`:""}${last.notFound?` · ${last.notFound} not in the database`:""}${last.error?` · ${last.error} failed`:""}</p>`:""}
-    <div class="links" style="margin-top:6px"><button class="btn sm" type="button" id="sFillDetails" ${st.running||!n?"disabled":""}>Fill in missing details${n?` (${n} card${n===1?"":"s"})`:""}</button></div>
+    ${n?`<p class="hint" style="margin:0">${n} card${n===1?" has":"s have"} blank details: Update all cards → Details looks ${n===1?"it":"them"} up again.</p>`:""}
   </div>`;
+}
+/* Settings → Update all cards: everything, or only prices, pictures or details, for every card now */
+const wantsDetailsNow = c => c.name && c.number && (!c.language || /^en/i.test(c.language)) && (detailsOutdated(c) || [...DETAIL_FIELDS,"released"].some(f=>!String(c[f]??"").trim()));
+function updateAllHTML(){
+  const U = window.BinderUpdateAll, st = pricingStatus(), dr = S.detailsRun || {};
+  const n = {all:S.cards.length, prices:S.cards.filter(held).length, pictures:S.cards.filter(U.needsPicture).length, details:S.cards.filter(wantsDetailsNow).length};
+  const busy = k => k==="details" ? !!dr.running : !!st.running;
+  const now = U.progress(st, dr), lastPics = U.lastPictures(st);
+  const rows = U.KINDS.map(K => `<li><button class="btn sm${K.k==="all"?" primary":""}" type="button" data-uall="${K.k}" ${busy(K.k)||!n[K.k]?"disabled":""}>${esc(K.label)}</button><span class="hint">${esc(K.hint)} <b>${n[K.k]} card${n[K.k]===1?"":"s"}.</b></span></li>`).join("");
+  return `<div class="sec" style="margin-top:18px;border-top:1px solid var(--line-2);padding-top:14px" id="sUpdateAll">
+    <h3>Update all cards</h3>
+    <p class="hint" style="margin:0 0 8px">Every morning each card's price is logged, and what it's missing (a picture, blank details) is looked for. To do it now for every card, all at once or one kind:</p>
+    ${canEdit()?`<ul class="uall">${rows}</ul>`:`<p class="hint">Ask an editor to update the cards.</p>`}
+    ${now.length?`<p style="margin:8px 0 0">${now.map(x=>`<b>${esc(x)}</b>…`).join("<br>")}</p>`:""}
+    ${st.running && canEdit() && !st.problem?`<div class="links" style="margin-top:6px"><button class="btn sm danger" type="button" data-runprob="stop">Stop the update</button></div>`:""}
+    ${lastPics?`<p class="hint" style="margin:6px 0 0">${esc(lastPics)}</p>`:""}
+  </div>`;
+}
+const UALL_TOAST = {all:"Updating every card: details, price and picture. This takes a few minutes.", prices:"Updating every card's price.", pictures:"Looking for pictures."};
+async function updateAll(k, btn){
+  if(btn) btn.disabled = true;
+  try{
+    if(k==="details"){
+      const r = await window.ledgerApi.call("POST","api/cards/fill-details?force=1");
+      toast(!r.started ? "Details are already being looked up." : r.cards ? `Looking up ${r.cards} card${r.cards===1?"":"s"} in TCGdex. This takes about a second each.` : "Nothing to look up.");
+    } else {
+      const scope = window.BinderUpdateAll.KINDS.find(K=>K.k===k).scope;
+      const r = await window.ledgerApi.call("POST","api/pricing/run",{scope, force: scope!=="prices"});
+      toast(r.started ? UALL_TOAST[scope] : "An update is already running. Start this one when it has finished.");
+    }
+  }catch(e){ toast(e?.message||"Couldn't start the update."); if(btn) btn.disabled = false; }
 }
 
 /* ---------- writes ---------- */
@@ -1897,6 +1927,7 @@ function settingsModal(){
       <div class="links"><button class="btn sm" type="button" id="sBackup">Download full backup</button>${!S.me?.user || S.me.user.role==="admin"?`<span class="btn sm filebtn">Restore from backup…<input id="sRestore" type="file" accept=".json,application/json" aria-label="Restore from backup"></span>`:""}</div>
       <div id="sRestoreZone" style="margin-top:10px"></div>
     </div>
+    ${updateAllHTML()}
     ${pricingSettingsHTML()}
     ${detailsSettingsHTML()}
     ${S.me?.user?`<div class="mfoot" style="justify-content:space-between;align-items:center;border-top:1px solid var(--line-2);padding-top:14px"><span class="hint">Signed in as <b>${esc(S.me.user.name)}</b> (${esc(S.me.user.username)}, ${esc(S.me.user.role)})</span><span style="display:flex;gap:8px">${S.me.user.role==="admin"?`<a class="btn sm" href="admin.html">Administration</a>`:""}${S.me.authEnabled?`<button class="btn sm" type="button" id="sSignOut">Sign out</button>`:""}</span></div>`:""}
@@ -2587,13 +2618,12 @@ document.addEventListener("click", e => {
   if(t.closest("#btnCsvImport")) return csvImportModal();
   if(t.closest("#btnExport")) return void exportCSV();
   if(t.closest("#btnSettings") || t.closest("#btnFirstRestore") || t.closest("#btnPriceStatus")) return settingsModal();
-  if(t.closest("#sFillDetails")){ t.closest("#sFillDetails").disabled = true; window.ledgerApi.call("POST","api/cards/fill-details").then(r=>toast(r.cards ? `Looking up ${r.cards} card${r.cards===1?"":"s"} in TCGdex. This takes about a second each.` : "Nothing to fill in."), e=>toast(e?.message||"Couldn't start it.")); return; }
+  const ua = t.closest("[data-uall]"); if(ua) return void updateAll(ua.dataset.uall, ua);
   const rp = t.closest("[data-runprob]"); if(rp) return void runProblemAction(rp.dataset.runprob, rp);
   const pb = t.closest("[data-probs]"); if(pb) return void problemsAction(pb.dataset.probs);
   if(t.closest("#btnProblems")) return problemsModal();
   const fpb = t.closest("[data-fixpast]"); if(fpb) return fixPastModal(fpb.dataset.fixpast);
   const perr = t.closest("[data-pageerr]"); if(perr){ if(perr.dataset.pageerr==="reload") location.reload(); else { PAGE_ERRORS.length = 0; renderBanner(); } return; }
-  if(t.closest("#sRunPrices")){ t.closest("#sRunPrices").disabled = true; window.ledgerApi.call("POST","api/pricing/run").then(()=>toast("Updating every card's price. This takes a few minutes."), e=>toast(e?.message||"Couldn't start the update.")); return; }
   const oc = t.closest("[data-openc]"); if(oc){ closeModal(); return openCard(oc.dataset.openc); }
   if(t.closest("#btnBinderSettings")){ const b=curBinder(); if(b) binderModal(b.id); return; }
   if(t.closest("#btnSortBinder")){ const b=curBinder(); if(b && !isCase(b)) sortModal(b.id); return; }
@@ -3564,8 +3594,8 @@ async function boot(){
   db.collection("binders").onSnapshot(s => { S.binders = s.docs.map(d=>({id:d.id, ...d.data()})); got.b=true; done(); }, onErr);
   db.collection("cards").onSnapshot(s => { S.cards = s.docs.map(d=>({id:d.id, ...d.data()})); got.c=true; if(S.sel && S.sel!=="__new" && !S.cards.some(c=>c.id===S.sel)) { S.sel=null; } done(); if($("#chkCard")) renderChecks(); }, onErr);
   db.doc("settings/main").onSnapshot(s => { if(s.exists) S.settings = {...S.settings, ...s.data()}; if(S.mode==="ready") render(); }, onErr);
-  db.doc("settings/details").onSnapshot(s => { S.detailsRun = s.exists ? s.data() : {}; const sd=$("#sDetails"); if(sd) sd.outerHTML = detailsSettingsHTML(); }, onErr);
-  db.doc("settings/pricing").onSnapshot(s => { S.pricing = s.exists ? s.data() : {}; if(S.mode==="ready"){ renderBanner(); renderStats(); const sp=$("#sPricing"); if(sp){ sp.outerHTML = pricingSettingsHTML(); scrollRunLog($("#sPricing")); } } }, onErr);
+  db.doc("settings/details").onSnapshot(s => { S.detailsRun = s.exists ? s.data() : {}; const sd=$("#sDetails"); if(sd) sd.outerHTML = detailsSettingsHTML(); const ua=$("#sUpdateAll"); if(ua) ua.outerHTML = updateAllHTML(); }, onErr);
+  db.doc("settings/pricing").onSnapshot(s => { S.pricing = s.exists ? s.data() : {}; if(S.mode==="ready"){ renderBanner(); renderStats(); const sp=$("#sPricing"); if(sp){ sp.outerHTML = pricingSettingsHTML(); scrollRunLog($("#sPricing")); } const ua=$("#sUpdateAll"); if(ua) ua.outerHTML = updateAllHTML(); } }, onErr);
 }
 boot();
 })();
