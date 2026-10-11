@@ -185,8 +185,8 @@ describe('sorting a binder', () => {
 });
 
 describe("a card's owner", () => {
-  it('keeps Megan, Justin, Both or blank, and refuses anything else', async () => {
-    for (const owner of ['Megan', 'Justin', 'Both', '']) {
+  it('keeps Megan, Justin, Maiya, Both or blank, and refuses anything else', async () => {
+    for (const owner of ['Megan', 'Justin', 'Maiya', 'Both', '']) {
       await request(app).put('/api/docs/cards/c1').send(card({ owner })).expect(200);
       expect(store.get('cards', 'c1')!.owner).toBe(owner);
     }

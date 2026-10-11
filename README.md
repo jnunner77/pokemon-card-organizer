@@ -327,7 +327,7 @@ priced for its grade (PriceCharting's price for it, see above), so neither is ad
 
 ## Owner
 
-Each card's details have an **Owner**: Megan, Justin or Both. A card you add starts as Justin's
+Each card's details have an **Owner**: Megan, Justin, Maiya or Both (Megan and Justin's). A card you add starts as Justin's
 (change it before saving if it isn't); cards imported from CSV without an owner, and older cards,
 are blank until you set it. It's saved with *Save changes*, copied by *Duplicate*, and has its own
 *Owner* column in CSV import and export.
@@ -335,7 +335,7 @@ are blank until you set it. It's saved with *Save changes*, copied by *Duplicate
 ## Filters
 
 *Filters* in the List view narrows the cards shown (in this binder, or *All cards*): by **owner**
-(tick any of Megan, Justin, Both, Not set), **set**, **rarity**, **status**, **release year** (from / to)
+(tick any of Megan, Justin, Maiya, Both, Not set), **set**, **rarity**, **status**, **release year** (from / to)
 and **value** in CAD (min / max). Cards with no release date or value are left out when those filters
 are set. The count and total value of what's shown sit next to the button, and filters are remembered
 on this device until *Clear filters*.

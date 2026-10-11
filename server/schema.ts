@@ -105,8 +105,8 @@ const card = z.looseObject({
   artist: optText(200),
   notes: optText(10_000),
   status: optText(20),
-  /** Whose card it is; blank when not set. */
-  owner: z.enum(['', 'Megan', 'Justin', 'Both']).nullish(),
+  /** Whose card it is (Both: Megan and Justin's); blank when not set. */
+  owner: z.enum(['', 'Megan', 'Justin', 'Maiya', 'Both']).nullish(),
   prices: z.array(price).max(2000).nullish(),
   // A stored photo's id, or (for photos saved while uploads weren't available) a small data: URL.
   imageId: z.string().max(200_000).nullish(),

@@ -15,7 +15,7 @@ const RARITIES = ["Common","Uncommon","Rare","Holo Rare","Double Rare","Ultra Ra
 const CONDITIONS = ["Near Mint","Lightly Played","Moderately Played","Heavily Played","Damaged"];
 const GRADERS = ["Raw","PSA","CGC","BGS","TAG","ACE"];
 /* who the card belongs to; blank until someone sets it */
-const OWNERS = [["","Not set"],["Megan","Megan"],["Justin","Justin"],["Both","Both"]];
+const OWNERS = [["","Not set"],["Megan","Megan"],["Justin","Justin"],["Maiya","Maiya"],["Both","Both"]];
 const LANGS = ["English","Japanese","Korean","Chinese (Traditional)","Chinese (Simplified)","Other"];
 
 const S = {
@@ -2102,7 +2102,7 @@ const CI_COLS = [
   {k:"grade", h:"Grade", a:["score"], d:"Number from 1 to 10, halves allowed (9.5). Only for graded cards."},
   {k:"artist", h:"Illustrator", a:["artist","illustratedby"], d:"The card's illustrator."},
   {k:"placeholder", h:"Placeholder", a:["proxy","wanted","needed","notowned"], d:"yes holds the pocket for a card you don't have yet: its price is tracked but not counted in your totals. Blank or no means you have it."},
-  {k:"owner", h:"Owner", a:["ownedby","whose","belongsto"], d:"Megan, Justin or Both. Blank means not set."},
+  {k:"owner", h:"Owner", a:["ownedby","whose","belongsto"], d:"Megan, Justin, Maiya or Both (Megan and Justin). Blank means not set."},
   {k:"status", h:"Status", a:["state"], d:STATUSES.map(s=>s[1]).join(", ")+". Blank means In binder. Short forms like listed, grading and sold work."},
   {k:"paid", h:"Paid", a:["paidcad","pricepaid","cost","boughtfor"], d:"What you paid, e.g. 12.50. Logged as an “I paid” price entry."},
   {k:"paidDate", h:"Paid date", a:["datepaid","boughton","purchasedate"], d:"YYYY-MM-DD. Blank means today."},
@@ -2123,7 +2123,7 @@ const syn = pairs => { const m={}; for(const [v,keys] of pairs) for(const k of k
 const LANG_SYN = syn([["English",["English","en","eng"]],["Japanese",["Japanese","jp","ja","jpn","jap"]],["Korean",["Korean","kr","ko","kor"]],["Chinese (Traditional)",["Chinese (Traditional)","Traditional Chinese","tc","zh-tw","cht"]],["Chinese (Simplified)",["Chinese (Simplified)","Simplified Chinese","sc","zh-cn","chs"]],["Other",["Other"]]]);
 const COND_SYN = syn([["Near Mint",["Near Mint","nm","mint","nm/m","nm-mt"]],["Lightly Played",["Lightly Played","lp","light play","excellent"]],["Moderately Played",["Moderately Played","mp","played"]],["Heavily Played",["Heavily Played","hp"]],["Damaged",["Damaged","dmg","dm","poor"]]]);
 const GRADER_SYN = syn([["Raw",["Raw","ungraded","none","n/a"]],["PSA",["PSA"]],["CGC",["CGC"]],["BGS",["BGS","Beckett"]],["TAG",["TAG"]],["ACE",["ACE"]]]);
-const OWNER_SYN = syn([["Megan",["Megan","m"]],["Justin",["Justin","j"]],["Both",["Both","shared","Megan and Justin","Justin and Megan","Megan & Justin","Justin & Megan"]]]);
+const OWNER_SYN = syn([["Megan",["Megan","m"]],["Justin",["Justin","j"]],["Maiya",["Maiya"]],["Both",["Both","shared","Megan and Justin","Justin and Megan","Megan & Justin","Justin & Megan"]]]);
 const STATUS_SYN = syn([["binder",["In binder","binder","held","owned","collection"]],["listed",["Listed for sale","listed","for sale","selling"]],["grading",["Out for grading","grading","at grading","submitted"]],["sold",["Sold"]],["traded",["Traded","trade","traded away"]]]);
 const VTYPE_SYN = syn([["market",["Market price","market","mkt"]],["comp",["Sold comp","comp","sold","last sold"]]]);
 const CUR_SYN = syn([["CAD",["CAD","ca","cdn","c"]],["USD",["USD","us","u"]]]);
@@ -2201,7 +2201,7 @@ function ciValidate(P, o){
     d.language = en("language", LANG_SYN, "English", "Language", LANGS.join(", "));
     d.condition = en("condition", COND_SYN, "Near Mint", "Condition", "Near Mint, Lightly Played, Moderately Played, Heavily Played or Damaged");
     d.grader = en("grader", GRADER_SYN, "Raw", "Graded by", GRADERS.join(", "));
-    d.owner = en("owner", OWNER_SYN, "", "Owner", "Megan, Justin or Both");
+    d.owner = en("owner", OWNER_SYN, "", "Owner", "Megan, Justin, Maiya or Both");
     const phRaw = cell("placeholder");
     d.placeholder = /^(y|yes|true|1|x|✓)$/i.test(phRaw);
     if(phRaw && !d.placeholder && !/^(n|no|false|0)$/i.test(phRaw)) E(`Placeholder “${phRaw}” should be yes or no.`);
