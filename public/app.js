@@ -679,6 +679,7 @@ function renderDrawer(force){
           <div class="field"><label for="f_setCode">Set code</label><input id="f_setCode" class="mono" name="setCode" list="dl_codes" value="${esc(c.setCode)}" placeholder="30C, MEP, SVI"></div>
           <div class="field"><label for="f_number">Number</label><input id="f_number" class="mono" name="number" value="${esc(c.number)}" placeholder="129/128"></div>
           <div class="field full detailshint" id="detailsHint" aria-live="polite" hidden></div>
+          ${isNew?"":missingDetails(c)}
           <div class="field"><label for="f_rarity">Rarity</label><input id="f_rarity" name="rarity" list="dl_rar" value="${esc(c.rarity)}"></div>
           <div class="field"><label for="f_variant">Variant / stamp</label><input id="f_variant" name="variant" value="${esc(c.variant)}" placeholder="Reverse holo, 30th stamp…"></div>
           <div class="field"><label for="f_language">Language</label><select id="f_language" name="language">${opt(LANGS,c.language||"English")}</select></div>
@@ -708,13 +709,18 @@ function renderDrawer(force){
   renderPriceSummary(c);
   if(force && isNew) setTimeout(()=>$("#f_name")?.focus(), 30);
 }
-const imgInner = c => shown(c) ? `<img src="${imgURL(shown(c))}" alt="${esc(c.name)}"><button type="button" class="zoom" data-lbopen aria-label="View photo full screen" title="View full screen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>` : `<span class="face">No photo yet</span>`;
-const findPhotoLink = c => { const q=[c.name, c.set||c.setCode, c.number, "pokemon card"].filter(Boolean).join(" ").trim(); return `<a href="https://www.google.com/search?tbm=isch&q=${encodeURIComponent(q)}" target="_blank" rel="noopener">Find photo</a>`; };
+const imgInner = c => shown(c) ? `<img src="${imgURL(shown(c))}" alt="${esc(c.name)}"><button type="button" class="zoom" data-lbopen aria-label="View photo full screen" title="View full screen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button>` : `<span class="face">No photo yet${c.name?`<a href="${esc(window.BinderGoogle.imagesUrl(c))}" target="_blank" rel="noopener">Search Google Images</a>`:""}</span>`;
+const findPhotoLink = c => `<a href="${esc(window.BinderGoogle.imagesUrl(c))}" target="_blank" rel="noopener">Find photo on Google</a>`;
 const PASTE_PH = "Or copy a picture, then press and hold here and tap Paste.";
 const envNotice = () => "";
 const canClipRead = () => !!(navigator.clipboard && navigator.clipboard.read);
 const picKey = c => [c.imageId, c.officialImageId, c.imagePref].map(x=>x||"").join("|");
 const photoSection = c => `<div class="sec" id="photoSec" data-img="${esc(picKey(c))}"><h3>Picture</h3>${picChoice(c)}<h3 style="margin-top:12px">Your photo</h3><div class="links">${envNotice("Choose photo, Take photo, Browse files and Paste")}<span class="btn sm filebtn" data-pick>${c.imageId?"Replace photo":"Choose photo"}<input id="photoPicker" data-photo type="file" accept="image/*" aria-label="${c.imageId?"Replace photo":"Choose photo"}"></span><span class="btn sm filebtn" data-pick>Take photo<input data-photo type="file" accept="image/*" capture="environment" aria-label="Take photo"></span><span class="btn sm filebtn" data-pick>Browse files<input data-photo type="file" aria-label="Browse files"></span>${canClipRead()?`<button class="btn sm" type="button" id="btnPasteImg">Paste photo</button>`:""}${c.imageId?`<button class="btn sm ghost" type="button" id="btnRmImg">Remove photo</button>`:""}${findPhotoLink(c)}<div class="pastebox" id="photoPaste" contenteditable="true" role="textbox" aria-label="Paste a photo here">${PASTE_PH}</div><span class="hint" id="imgNote">Choose photo opens your library, Take photo opens the camera, Browse files opens Files. If a button doesn't open anything here, copy the picture and paste it in the box.</span></div></div>`;
+/* the details the card databases left blank, with a Google search for them */
+function missingDetails(c){
+  const m = c.name ? window.BinderGoogle.missing(c).details : [];
+  return `<div class="field full hint missingdetails" id="detailsMissing"${m.length?"":" hidden"}>${m.length?`Missing ${esc(m.join(", "))}. <a href="${esc(window.BinderGoogle.detailsUrl(c, m))}" target="_blank" rel="noopener">Search Google</a>`:""}</div>`;
+}
 const delZone = () => S.confirm==="delete" ? `<span class="confirm">Delete this card and its price history? <button class="btn sm danger solid" type="button" id="btnDelYes">Delete</button><button class="btn sm" type="button" id="btnDelNo">Keep</button></span>` : `<button class="btn sm danger" type="button" id="btnDel">Delete card</button>`;
 function refreshParts(c, o={}){
   if(!c || S.sel==="__new") return;
@@ -727,6 +733,7 @@ function refreshParts(c, o={}){
   const psec=$("#priceSec"); if(psec && (o.price || (!S.editPrice && !S.priceTouched))){ psec.outerHTML = priceSection(c); S.priceTouched=false; }
   const msec=$("#moveSec"); if(msec && (o.move || !S.moveTouched)){ msec.outerHTML = moveSection(c); S.moveTouched=false; }
   const ai=$("#autoInfo"); if(ai) ai.innerHTML = autoInfo(c);
+  const dm=$("#detailsMissing"); if(dm) dm.outerHTML = missingDetails(c);
 }
 /* fields the card's new values reach (a chosen product's variant, say); the person's own edits stay */
 function syncForm(c){
@@ -742,7 +749,8 @@ function lookupLinks(c){
   return `<a href="https://www.tcgplayer.com/search/pokemon/product?q=${qs}" target="_blank" rel="noopener">TCGplayer</a>
     <a href="https://www.pricecharting.com/search-products?type=prices&q=${qp}" target="_blank" rel="noopener">PriceCharting</a>
     <a href="https://www.ebay.ca/sch/i.html?_nkw=${qp}&LH_Sold=1&LH_Complete=1" target="_blank" rel="noopener">eBay.ca sold</a>
-    <a href="https://www.ebay.com/sch/i.html?_nkw=${qp}&LH_Sold=1&LH_Complete=1" target="_blank" rel="noopener">eBay.com sold</a>`;
+    <a href="https://www.ebay.com/sch/i.html?_nkw=${qp}&LH_Sold=1&LH_Complete=1" target="_blank" rel="noopener">eBay.com sold</a>
+    <a href="${esc(window.BinderGoogle.priceUrl(c))}" target="_blank" rel="noopener">Google</a>`;
 }
 function renderPriceSummary(c){
   const box = $("#valueBox"); if(!box) return;
@@ -751,7 +759,8 @@ function renderPriceSummary(c){
   const basis = lp ? `${(PTYPES.find(t=>t[0]===lp.type)||[,""])[1]} · ${lp.date||""}${lp.where?` · ${lp.where}`:""}${cond}` : "Log a sold comp or market price below";
   const si = saleInfo(c);
   const gain = si ? si.profit : (v != null && pd != null ? v - pd : null);
-  box.innerHTML = `<span class="stat"><span class="k">Current value</span></span><span class="big">${money(v)}</span><span class="sub">${esc(basis)}</span>
+  const google = v == null && c.name && window.BinderGoogle.missing(c).price ? ` <a class="glink" href="${esc(window.BinderGoogle.priceUrl(c))}" target="_blank" rel="noopener">Search Google for its price</a>` : "";
+  box.innerHTML = `<span class="stat"><span class="k">Current value</span></span><span class="big">${money(v)}</span><span class="sub">${esc(basis)}${google}</span>
     <dl class="kv"><dt>Paid</dt><dd>${money(pd)}</dd>${sd!=null?`<dt>Sold for</dt><dd>${money(sd)}</dd>`:""}${gain!=null?`<dt>${si?`Profit ${BASIS_LABEL[si.basis]}`:"Unrealized"}</dt><dd class="${gain>=0?"pos":"neg"}">${gain>=0?"+":""}${money(gain)}</dd>`:""}<dt>Entries</dt><dd>${prices(c).length}</dd></dl>`;
 }
 /* "Binder", or "Binder or case" once there's a display case to choose */

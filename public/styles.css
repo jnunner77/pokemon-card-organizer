@@ -256,7 +256,10 @@ tbody tr.sel{background:var(--accent-soft)}
 .imgrow{display:grid;grid-template-columns:140px minmax(0,1fr);gap:14px;align-items:start}
 .bigimg{width:140px;aspect-ratio:63/88;max-width:100%;border-radius:7px;background:var(--pocket);overflow:hidden;position:relative;border:1px solid var(--line)}
 .bigimg img{width:100%;height:100%;object-fit:cover;display:block}
-.bigimg .face{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:10px;color:rgba(233,238,243,.55);font-size:12px}
+.bigimg .face{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;text-align:center;padding:10px;color:rgba(233,238,243,.55);font-size:12px}
+.valuebox .glink,.missingdetails a{color:var(--info);font-weight:600;text-decoration:none}
+.bigimg .face a{color:#E9EEF3;font-weight:600;text-decoration:none;border:1px solid rgba(233,238,243,.35);border-radius:999px;padding:4px 10px;font-size:11.5px}
+.valuebox .glink{white-space:nowrap}
 .valuebox{display:flex;flex-direction:column;gap:8px}
 .valuebox .big{font-family:var(--f-mono);font-size:24px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.1}
 .valuebox .sub{font-size:12px;color:var(--ink-3)}

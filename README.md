@@ -150,6 +150,21 @@ On a 122-card collection, Fill in missing details added 108 illustrators; the ca
 were from the *Trading Card Game Classic* box, a brand-new promo, and a misspelled name.
 Only English cards are looked up.
 
+### Search Google for what's still missing
+
+When the databases and price sites come up empty, the card's drawer offers a Google search for
+exactly what's missing, naming the card as you have it (name, set, number, variant, a language
+other than English, and the grade of a graded card), opening in a new tab:
+
+- **No picture:** *Search Google Images* in the empty picture box (and *Find photo on Google* next to
+  the photo buttons). Save the picture you find and add it with *Choose photo*, or copy it and paste it.
+- **No price:** *Search Google for its price* under Current value. *Look up prices* always has
+  *Google* next to TCGplayer, PriceCharting and eBay.
+- **Blank details:** under Number, *Missing rarity, illustrator* (whichever of set, set code,
+  rarity and illustrator are blank) with *Search Google* for them.
+
+Each one goes away once the card has it.
+
 ## Cards to check
 
 Each night (and once after an update) every card is checked against TCGdex. A **To check** count
