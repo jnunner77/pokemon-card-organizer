@@ -184,7 +184,7 @@ export class TcgCsv {
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     try {
       this.downloads++;
-      const res = await get(this.fetcher, `${TCGCSV}${path}`, { headers: { Accept: 'application/json' } }, { timeoutMs: 20_000, attempts: 2 });
+      const res = await get(this.fetcher, `${TCGCSV}${path}`, { headers: { Accept: 'application/json' } }, { timeoutMs: 20_000, attempts: 2, maxWaitMs: 5_000 });
       const body = (await res.json()) as { success?: boolean; results?: T };
       if (!Array.isArray(body.results)) throw new SourceError('tcgcsv.com sent no results');
       this.streak = 0;

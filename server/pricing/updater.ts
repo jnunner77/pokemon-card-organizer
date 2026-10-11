@@ -67,7 +67,7 @@ export interface UpdaterOptions {
   hour?: number;
   /** Days of daily automatic price entries to keep; older ones are thinned to one a week. */
   keepDays?: number;
-  /** Pause between cards, to be gentle with the price sites. */
+  /** Pause between cards (each source also keeps its own pace). */
   delayMs?: number;
   log?: Logger;
   /** Administrators' schedule (on/off and hour); overrides `hour` when given. */
@@ -342,7 +342,10 @@ export class PriceUpdater {
     this.timeZone = o.timeZone ?? 'America/Vancouver';
     this.hour = o.hour ?? 5;
     this.keepDays = o.keepDays ?? 30;
-    this.delayMs = o.delayMs ?? 2000;
+    // A short breath between cards: each source keeps its own pace (PriceCharting 1.25 s between
+    // calls, pokemontcg.io 2.1 s without a key, tcgcsv.com ¼ s), and the price guide spares most
+    // PriceCharting calls.
+    this.delayMs = o.delayMs ?? 250;
     this.log = o.log ?? quietLogger();
     this.config = o.config;
     this.breakerAfter = o.breakerAfter ?? 5;

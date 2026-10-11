@@ -297,6 +297,8 @@ export interface CatalogOptions {
   fetcher?: Fetcher;
   /** pokemontcg.io key (POKEMONTCG_API_KEY): optional, raises its request limits. */
   ptcgKey?: string;
+  /** Least time between pokemontcg.io requests: 2.1 s without a key (it allows 30 a minute), ¼ s with one. */
+  ptcgGapMs?: number;
   now?: () => Date;
 }
 
@@ -315,11 +317,21 @@ export class Catalog {
    * after failing in a row), with its last error. The update logs these once (updater.ts), not per card.
    */
   private ptcg = { asked: 0, failed: 0, skipped: 0, lastError: '' };
+  private readonly ptcgGapMs: number;
+  private ptcgLast = 0;
 
   constructor(o: CatalogOptions = {}) {
     this.fetcher = o.fetcher ?? fetch;
     this.ptcgKey = o.ptcgKey || undefined;
     this.now = o.now ?? (() => new Date());
+    this.ptcgGapMs = o.ptcgGapMs ?? (this.ptcgKey ? 250 : 2_100);
+  }
+
+  /** Wait for pokemontcg.io's turn: at least ptcgGapMs after the last request started. */
+  private async ptcgTurn() {
+    const wait = this.ptcgLast + this.ptcgGapMs - Date.now();
+    this.ptcgLast = Date.now() + Math.max(0, wait);
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
   }
 
   /** Start of a price update: ask every database again. */
@@ -340,7 +352,10 @@ export class Catalog {
       if (db === 'ptcg' && this.ptcgKey) headers['X-Api-Key'] = this.ptcgKey;
       // pokemontcg.io is slow at times, and often fails quickly at random (a 500 that works on the
       // next try), so it's tried 3 times but not waited on long: it only adds pictures and details.
-      const patience = db === 'ptcg' ? { timeoutMs: 10_000, attempts: 3 } : {};
+      // Its 502 page asks for a minute's wait (Retry-After: 60): the card is tried again next update
+      // instead. Without a key it allows 30 requests a minute, so they're spaced out.
+      const patience = db === 'ptcg' ? { timeoutMs: 10_000, attempts: 3, maxWaitMs: 5_000 } : {};
+      if (db === 'ptcg') await this.ptcgTurn();
       const out = (await (await get(this.fetcher, url, { headers }, patience)).json()) as T;
       this.streak[db] = 0;
       return out;

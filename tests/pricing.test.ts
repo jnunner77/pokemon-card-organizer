@@ -494,6 +494,26 @@ describe('the card databases (TCGdex and pokemontcg.io)', () => {
     expect(price(pk, 'Pokemon Together Stamp')).toEqual({ tcgplayer: null, cardmarketEur: 57.24 });
   });
 
+  it("asks pokemontcg.io at most once every ptcgGapMs, and moves on when its 502 page asks for a minute's wait", async () => {
+    const at: number[] = [];
+    const fetcher: Fetcher = async (u) => {
+      const url = String(u);
+      if (url.includes('api.tcgdex.net')) return Response.json(JSON.parse(fixture('tcgdex-card.json')));
+      at.push(Date.now());
+      return new Response('<html>Bad gateway</html>', { status: 502, headers: { 'Retry-After': '60' } });
+    };
+    const c = new Catalog({ fetcher, ptcgGapMs: 300 });
+    const started = Date.now();
+    const a = await c.quote('sv03.5-131', { variant: 'Reverse Holo', rarity: 'Uncommon' });
+    const b = await c.quote('sv03.5-131', { variant: 'Reverse Holo', rarity: 'Uncommon' });
+    // Each gave up at once (no minute's wait), and still has TCGdex's prices.
+    expect(a.errors).toEqual(['pokemontcg.io: api.pokemontcg.io answered 502']);
+    expect(b.tcgplayer).toMatchObject({ usd: 2.12 });
+    expect(at).toHaveLength(2);
+    expect(at[1] - at[0]).toBeGreaterThanOrEqual(290);
+    expect(Date.now() - started).toBeLessThan(3000);
+  });
+
   it('finds the same card on pokemontcg.io by set and number', () => {
     expect(choosePtcg(found, td)?.id).toBe('sv3pt5-131');
     expect(choosePtcg(found, { ...td, set: { id: 'me02.5', name: '30th Celebration', cardCount: { official: 128 } } })?.id).toBe('me55-131');
@@ -520,7 +540,7 @@ describe('prices and pictures from the card databases', () => {
     });
   /** With PriceCharting's token unless `token` is null (a binder without a subscription). */
   const updater = (net: Net, config?: Config, token: string | null = 'test-token') =>
-    new PriceUpdater({ store, assets, fetcher: net.fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', config, catalog: new Catalog({ fetcher: net.fetcher, now: () => now }), pricecharting: pcApi(net, token) });
+    new PriceUpdater({ store, assets, fetcher: net.fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', config, catalog: new Catalog({ fetcher: net.fetcher, now: () => now, ptcgGapMs: 0 }), pricecharting: pcApi(net, token) });
   const noPc = (net: Net, config?: Config) => updater(net, config, null);
 
   beforeEach(() => {
@@ -618,7 +638,7 @@ describe('prices and pictures from the card databases', () => {
     const down = () => new Response('', { status: 500 });
     const net = dbNet({ 'api.pokemontcg.io/v2/cards?q=': down, 'api.pokemontcg.io/v2/cards/sv3pt5-131': down });
     const log = new Logger({ stdout: false });
-    const u = new PriceUpdater({ store, assets, fetcher: net.fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', catalog: new Catalog({ fetcher: net.fetcher, now: () => now }), log });
+    const u = new PriceUpdater({ store, assets, fetcher: net.fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', catalog: new Catalog({ fetcher: net.fetcher, now: () => now, ptcgGapMs: 0 }), log });
     const s = await u.runAll('manual');
     expect(s.counts.updated).toBe(5);
     // Tried 3 times for each of 3 cards, then left alone for the rest of the update.
@@ -628,12 +648,12 @@ describe('prices and pictures from the card databases', () => {
     expect(log.query({ level: 'info', cat: 'pricing', text: 'pokemontcg.io:' })).toHaveLength(5);
     // The next update starts counting again; nothing to say when it works.
     const ok = new Logger({ stdout: false });
-    await new PriceUpdater({ store, assets, fetcher: dbNet().fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', catalog: new Catalog({ fetcher: dbNet().fetcher, now: () => now }), log: ok }).runAll('manual');
+    await new PriceUpdater({ store, assets, fetcher: dbNet().fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', catalog: new Catalog({ fetcher: dbNet().fetcher, now: () => now, ptcgGapMs: 0 }), log: ok }).runAll('manual');
     expect(ok.query({ level: 'warn', cat: 'pricing', text: 'pokemontcg.io' })).toHaveLength(0);
     // A card priced on its own (just added) still warns straight away.
     const one = new Logger({ stdout: false });
     store.set('cards', 'new', lapras({ officialImageId: null }));
-    await new PriceUpdater({ store, assets, fetcher: net.fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', catalog: new Catalog({ fetcher: net.fetcher, now: () => now }), log: one }).updateCard('new');
+    await new PriceUpdater({ store, assets, fetcher: net.fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', catalog: new Catalog({ fetcher: net.fetcher, now: () => now, ptcgGapMs: 0 }), log: one }).updateCard('new');
     expect(one.query({ level: 'warn', cat: 'pricing' }).map((e) => e.msg)).toEqual([expect.stringMatching(/^Lapras 151 131\/165: pokemontcg\.io: api\.pokemontcg\.io answered 500$/)]);
   });
 
@@ -827,7 +847,7 @@ describe('prices and pictures from the card databases', () => {
       '516694_in_1000x1000.jpg': () => new Response('denied', { status: 403 }),
       'assets.tcgdex.net/en/sv/sv03.5/131/high.png': () => new Response(new Uint8Array(TCGDEX_PIC)),
     });
-    await new PriceUpdater({ store, assets, fetcher: net.fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', catalog: new Catalog({ fetcher: net.fetcher, now: () => now }), log }).updateCard('c1');
+    await new PriceUpdater({ store, assets, fetcher: net.fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', catalog: new Catalog({ fetcher: net.fetcher, now: () => now, ptcgGapMs: 0 }), log }).updateCard('c1');
     const c = store.get('cards', 'c1')!;
     expect(c.pricing).toMatchObject({ imageUrl: 'https://assets.tcgdex.net/en/sv/sv03.5/131/high.png' });
     expect(fs.readFileSync(assets.find(c.officialImageId as string)!.file)).toEqual(TCGDEX_PIC);
@@ -887,7 +907,7 @@ describe('prices and pictures from the card databases', () => {
     const fills: [string, boolean][] = [];
     const details = { fill: async (_s: Store, id: string, force = false) => (fills.push([id, force]), 'skipped' as const) } as unknown as CardDetails;
     net = tgNet();
-    await new PriceUpdater({ store, assets, fetcher: net.fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', catalog: new Catalog({ fetcher: net.fetcher, now: () => now }), details }).runAll('manual', 'all', true);
+    await new PriceUpdater({ store, assets, fetcher: net.fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', catalog: new Catalog({ fetcher: net.fetcher, now: () => now, ptcgGapMs: 0 }), details }).runAll('manual', 'all', true);
     expect(fills).toEqual([['tg', true], ['done', true], ['sold', true]]);
     expect(store.get('cards', 'tg')).toMatchObject({ pricing: { imageUrl: 'https://images.pokemontcg.io/swsh11tg/TG10_hires.png' } });
     // Still one automatic price a day.
@@ -908,7 +928,7 @@ describe('prices and pictures from the card databases', () => {
         ...over,
       });
     const withTcgcsv = (net: Net) =>
-      new PriceUpdater({ store, assets, fetcher: net.fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', catalog: new Catalog({ fetcher: net.fetcher, now: () => now }), tcgcsv: new TcgCsv({ fetcher: net.fetcher, now: () => now, gapMs: 0 }), pricecharting: pcApi(net, null) });
+      new PriceUpdater({ store, assets, fetcher: net.fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', catalog: new Catalog({ fetcher: net.fetcher, now: () => now, ptcgGapMs: 0 }), tcgcsv: new TcgCsv({ fetcher: net.fetcher, now: () => now, gapMs: 0 }), pricecharting: pcApi(net, null) });
     const tgMarket = (JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'tcgcsv', '3172-prices.json'), 'utf8')).results as { productId: number; marketPrice: number }[]).find((p) => p.productId === 284270)!.marketPrice;
     // TCGdex knows Snorlax TG10 but has no TCGplayer price for it.
     store.set('cards', 'tg', { name: 'Snorlax', set: 'Lost Origin Trainer Gallery', number: 'TG10/TG30', status: 'binder', prices: [], details: { source: 'tcgdex', result: 'complete', id: 'swsh11tg-TG10', checkedAt: '2026-10-01T00:00:00Z' } });

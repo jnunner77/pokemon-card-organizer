@@ -98,15 +98,17 @@ export function retryWait(attempt: number, retryAfter: string | null): number {
 /**
  * fetch with a timeout, an honest user agent, and retries with exponential backoff when the site is
  * busy or unreachable (never for an answer that won't change: 400, 401, 403, 404). `patience`
- * shortens both for a source that's only nice to have; `allow` hands those statuses back instead
- * of throwing (PriceCharting reads its own error answers).
+ * shortens both for a source that's only nice to have, and `maxWaitMs` gives up rather than wait
+ * longer for a retry (pokemontcg.io's 502 page asks for a minute: the update moves on and the card
+ * is tried again next time); `allow` hands those statuses back instead of throwing (PriceCharting
+ * reads its own error answers).
  */
-export async function get(fetcher: Fetcher, url: string, init: RequestInit = {}, patience: { timeoutMs?: number; attempts?: number; allow?: number[] } = {}): Promise<Response> {
+export async function get(fetcher: Fetcher, url: string, init: RequestInit = {}, patience: { timeoutMs?: number; attempts?: number; maxWaitMs?: number; allow?: number[] } = {}): Promise<Response> {
   const host = new URL(url).host;
   const attempts = Math.max(1, Math.min(patience.attempts ?? retryPolicy.attempts, retryPolicy.attempts));
   const started = Date.now();
   // Another try only if it fits before the deadline.
-  const again = (attempt: number, wait: number) => attempt + 1 < attempts && Date.now() + wait - started < retryPolicy.deadlineMs;
+  const again = (attempt: number, wait: number) => attempt + 1 < attempts && wait <= (patience.maxWaitMs ?? Infinity) && Date.now() + wait - started < retryPolicy.deadlineMs;
   for (let attempt = 0; ; attempt++) {
     let res: Response;
     try {
