@@ -1,0 +1,35 @@
+{
+ "success": true,
+ "results": [
+  {
+   "productId": 513721,
+   "marketPrice": 69.1,
+   "midPrice": 79.47,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 516694,
+   "marketPrice": 0.24,
+   "midPrice": 0.23,
+   "subTypeName": "Normal"
+  },
+  {
+   "productId": 516694,
+   "marketPrice": 2.05,
+   "midPrice": 2.14,
+   "subTypeName": "Reverse Holofoil"
+  },
+  {
+   "productId": 517033,
+   "marketPrice": 0.94,
+   "midPrice": 1.0,
+   "subTypeName": "Reverse Holofoil"
+  },
+  {
+   "productId": 517033,
+   "marketPrice": 0.33,
+   "midPrice": 0.31,
+   "subTypeName": "Normal"
+  }
+ ]
+}

@@ -10,9 +10,10 @@ import { Config } from '../server/config';
 import type { CardDetails } from '../server/details';
 import { Catalog, choosePtcg, chooseVariant, printingOf, ptcgDetails, ptcgTcgplayer, variantPrices, tcgdexCardmarket, tcgdexTcgplayer, type PtcgCard, type TcgdexCard } from '../server/pricing/catalog';
 import { catalogMismatch, chooseMatch, detailsFromProduct, searchQuery, variantFromProduct } from '../server/pricing/match';
-import { PriceCharting, gradedPrice, oldAddress, parseProduct } from '../server/pricing/pricecharting';
+import { PriceCharting, PriceGuide, gradedPrice, oldAddress, parseCsv, parseProduct } from '../server/pricing/pricecharting';
 import { type Candidate, type Fetcher, retryPolicy, releaseDate } from '../server/pricing/sources';
 import { PriceUpdater, pricesDisagree, thinAutoPrices } from '../server/pricing/updater';
+import { TcgCsv } from '../server/pricing/tcgcsv';
 import { Secret } from '../server/secrets';
 import { Logger } from '../server/log';
 import { Store } from '../server/store';
@@ -218,11 +219,63 @@ describe('the daily update with PriceCharting', () => {
     const c = store.get('cards', 'c1')!;
     expect(c.pricing).toMatchObject({ source: 'pricecharting', id: LAPRAS_30TH, url: 'https://www.pricecharting.com/game/14330011', title: 'Lapras', linkedBy: 'auto', error: null });
     expect(c.prices).toEqual([expect.objectContaining({ type: 'market', currency: 'CAD', amount: 18.8, usd: 13.2, auto: true, date: '2026-10-03', where: 'PriceCharting', quotes: { pricecharting: 13.2 } })]);
-    // One search, then the product's prices. PriceCharting's API has no pictures (the card databases give them).
-    expect(pcCalls(net)).toEqual(['https://www.pricecharting.com/api/products?q=Lapras 131', 'https://www.pricecharting.com/api/product?id=14330011']);
+    // No price guide here: one search, then the product's prices. PriceCharting's API has no pictures (the card databases give them).
+    expect(pcCalls(net)).toEqual(['https://www.pricecharting.com/price-guide/download-custom', 'https://www.pricecharting.com/api/products?q=Lapras 131', 'https://www.pricecharting.com/api/product?id=14330011']);
     expect(c.officialImageId).toBeUndefined();
     expect(store.get('settings', 'main')).toMatchObject({ usdToCad: 1.4246 });
     expect(store.get('settings', 'pricing')).toMatchObject({ running: false, lastRun: { date: '2026-10-03', counts: { updated: 1 } } });
+  });
+
+  it("prices and matches every card from PriceCharting's price guide, downloaded once a day", async () => {
+    const GUIDE = [
+      'id,console-name,product-name,loose-price,graded-price,manual-only-price,release-date',
+      '14330011,Pokemon 30th Celebration,Lapras #131,$13.20,$45.00,$120.00,2026-09-16',
+      '3453448,Pokemon Japanese Mystery of the Fossils,Lapras #131,$18.49,,,',
+      '5809712,Pokemon Scarlet & Violet 151,Lapras [Reverse Holo] #131,$2.23,,,',
+      '5809512,Pokemon Scarlet & Violet 151,Lapras #131,$1.01,,,',
+      '"3560891",Pokemon 1999 Topps Movie,"C\'Mon, We Need Help #53",$2.50,,,',
+    ].join('\r\n');
+    const guide = () => new Response(GUIDE, { headers: { 'Content-Type': 'text/csv' } });
+    store.set('cards', 'new', card());
+    store.set('cards', 'psa', linked({ grader: 'PSA', grade: '10' }));
+    // A product the guide doesn't have is asked about on its own.
+    store.set('cards', 'other', card({ name: 'Lapras', set: 'Mystery of the Fossils', number: '131', pricing: { source: 'pricecharting', id: '5809512', linkedBy: 'user' } }));
+    // One PriceCharting no longer has is matched again, from the guide.
+    store.set('cards', 'gone', card({ pricing: { source: 'pricecharting', id: '999999', linkedBy: 'user' } }));
+    const net = fakeNet({ 'price-guide/download-custom': guide });
+    const u = updater(net);
+    const s = await u.runAll('manual');
+    expect(s.counts).toMatchObject({ updated: 4, failed: 0 });
+    expect(store.get('cards', 'gone')!.pricing).toMatchObject({ id: LAPRAS_30TH, linkedBy: 'auto' });
+    // Matched and priced from the guide: one download, and one call for the product it doesn't have.
+    expect(store.get('cards', 'new')!.pricing).toMatchObject({ source: 'pricecharting', id: LAPRAS_30TH, linkedBy: 'auto' });
+    expect(store.get('cards', 'new')!.prices).toEqual([expect.objectContaining({ usd: 13.2, where: 'PriceCharting' })]);
+    expect(store.get('cards', 'psa')!.prices).toEqual([expect.objectContaining({ usd: 120, grade: 'PSA 10' })]);
+    expect(store.get('cards', 'other')!.prices).toEqual([expect.objectContaining({ usd: 1.01 })]);
+    expect(pcCalls(net)).toEqual(['https://www.pricecharting.com/price-guide/download-custom', 'https://www.pricecharting.com/api/product?id=999999']);
+    // The token goes in the request body, never the address.
+    expect(net.urls.every((u) => !u.includes('test-token'))).toBe(true);
+    // Downloaded once a day: another update today doesn't download it again.
+    await u.runAll('manual');
+    expect(pcCalls(net).filter((c) => c.includes('price-guide'))).toHaveLength(1);
+  });
+
+  it('reads the price guide: quoted names with commas, dollar prices, and products by number and name', async () => {
+    const rows = parseCsv('id,console-name,product-name,loose-price\r\n1,Pokemon Base Set,Charizard #4,"$1,250.00"\n2,Pokemon 1999 Topps Movie,"C\'Mon, We Need Help #53",$2.50\n3,Pokemon Base Set,"Charizard [1st Edition] #4",\n');
+    expect(rows).toEqual([
+      { id: '1', 'console-name': 'Pokemon Base Set', 'product-name': 'Charizard #4', 'loose-price': '$1,250.00' },
+      { id: '2', 'console-name': 'Pokemon 1999 Topps Movie', 'product-name': "C'Mon, We Need Help #53", 'loose-price': '$2.50' },
+      { id: '3', 'console-name': 'Pokemon Base Set', 'product-name': 'Charizard [1st Edition] #4', 'loose-price': '' },
+    ]);
+    const g = new PriceGuide(rows);
+    expect(g.size).toBe(3);
+    expect(g.get('1')).toMatchObject({ title: 'Charizard', number: '4', set: 'Pokemon Base Set', usd: 1250 });
+    expect(g.get('3')).toMatchObject({ title: 'Charizard [1st Edition]', usd: null });
+    expect(g.candidates({ name: 'Charizard', number: '004/102' }).map((p) => p.id)).toEqual(['1', '3']);
+    expect(g.candidates({ name: 'Blastoise', number: '4/102' })).toEqual([]);
+    // A token PriceCharting doesn't know: refused, like the API.
+    const bad = fakeNet({ 'price-guide/download-custom': () => new Response('Unknown access token', { status: 404 }) });
+    await expect(pcApi(bad).priceGuide()).rejects.toThrow(/didn't accept the API token/);
   });
 
   it('keeps one automatic price a day for 30 days, one a week before that, and never touches the person’s own entries', async () => {
@@ -839,6 +892,60 @@ describe('prices and pictures from the card databases', () => {
     expect(store.get('cards', 'tg')).toMatchObject({ pricing: { imageUrl: 'https://images.pokemontcg.io/swsh11tg/TG10_hires.png' } });
     // Still one automatic price a day.
     expect(store.get('cards', 'tg')!.prices).toEqual([expect.objectContaining({ where: 'Cardmarket' })]);
+  });
+
+  it("fills what the databases lack from TCGplayer's own catalog (tcgcsv.com): price, product, picture, rarity and release date", async () => {
+    const tcgcsvFile = (f: string) => () => new Response(fs.readFileSync(path.join(__dirname, 'fixtures', 'tcgcsv', f), 'utf8'), { headers: { 'Content-Type': 'application/json' } });
+    const tcgcsvNet = (over: Record<string, () => Response> = {}) =>
+      dbNet({
+        'api.tcgdex.net/v2/en/cards/swsh11tg-TG10': () => Response.json(JSON.parse(fixture('tcgdex-snorlax-tg.json'))),
+        'api.pokemontcg.io/v2/cards?q=': () => new Response('', { status: 500 }),
+        'tcgcsv.com/tcgplayer/3/groups': tcgcsvFile('groups.json'),
+        'tcgcsv.com/tcgplayer/3/3172/products': tcgcsvFile('3172-products.json'),
+        'tcgcsv.com/tcgplayer/3/3172/prices': tcgcsvFile('3172-prices.json'),
+        'tcgcsv.com/tcgplayer/3/23821/products': tcgcsvFile('23821-products.json'),
+        'tcgcsv.com/tcgplayer/3/23821/prices': tcgcsvFile('23821-prices.json'),
+        ...over,
+      });
+    const withTcgcsv = (net: Net) =>
+      new PriceUpdater({ store, assets, fetcher: net.fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', catalog: new Catalog({ fetcher: net.fetcher, now: () => now }), tcgcsv: new TcgCsv({ fetcher: net.fetcher, now: () => now, gapMs: 0 }), pricecharting: pcApi(net, null) });
+    const tgMarket = (JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'tcgcsv', '3172-prices.json'), 'utf8')).results as { productId: number; marketPrice: number }[]).find((p) => p.productId === 284270)!.marketPrice;
+    // TCGdex knows Snorlax TG10 but has no TCGplayer price for it.
+    store.set('cards', 'tg', { name: 'Snorlax', set: 'Lost Origin Trainer Gallery', number: 'TG10/TG30', status: 'binder', prices: [], details: { source: 'tcgdex', result: 'complete', id: 'swsh11tg-TG10', checkedAt: '2026-10-01T00:00:00Z' } });
+    // TCGdex doesn't know these at all: TCGplayer's catalog names their products (the Poké Ball one its own).
+    store.set('cards', 'ball', { name: 'Eevee', set: 'Prismatic Evolutions', number: '074/131', variant: 'Poke Ball', status: 'binder', prices: [] });
+    store.set('cards', 'plain', { name: 'Eevee', set: 'Prismatic Evolutions', number: '074/131', status: 'binder', prices: [] });
+    // TCGplayer turned off: none of its prices.
+    store.set('cards', 'off', { name: 'Snorlax', set: 'Lost Origin Trainer Gallery', number: 'TG10/TG30', status: 'binder', prices: [], pricing: { source: 'none', pair: { source: 'tcgplayer', off: true } }, details: { source: 'tcgdex', result: 'complete', id: 'swsh11tg-TG10', checkedAt: '2026-10-01T00:00:00Z' } });
+    const net = tcgcsvNet();
+    const s = await withTcgcsv(net).runAll('manual');
+    expect(s.counts).toMatchObject({ updated: 4, failed: 0 });
+
+    const tg = store.get('cards', 'tg')!;
+    expect(tg.pricing).toMatchObject({ source: 'tcgplayer', id: '284270', linkedBy: 'auto', imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/284270_in_1000x1000.jpg' });
+    expect(tg.prices).toEqual([expect.objectContaining({ where: 'TCGplayer', usd: tgMarket, quotes: expect.objectContaining({ tcgplayer: tgMarket, cardmarket: expect.any(Number) }) })]);
+    expect(tg).toMatchObject({ rarity: 'Ultra Rare', released: '2022-09-09' });
+
+    const ball = store.get('cards', 'ball')!, plain = store.get('cards', 'plain')!;
+    expect(ball.pricing).toMatchObject({ source: 'tcgplayer', id: '610590', imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/610590_in_1000x1000.jpg' });
+    expect(plain.pricing).toMatchObject({ source: 'tcgplayer', id: '610429' });
+    expect((ball.prices as { usd: number }[])[0].usd).toBeGreaterThan((plain.prices as { usd: number }[])[0].usd);
+    expect(plain).toMatchObject({ rarity: 'Common', released: '2025-01-17' });
+
+    const off = store.get('cards', 'off')!;
+    expect((off.prices as { quotes: object }[])[0].quotes).not.toHaveProperty('tcgplayer');
+    // Each set downloaded once for the whole update.
+    expect(net.calls.filter((u) => u.includes('tcgcsv.com/tcgplayer/3/3172/products'))).toHaveLength(1);
+
+    // tcgcsv.com down: the update carries on with what the databases give.
+    store.set('cards', 'tg2', { name: 'Snorlax', set: 'Lost Origin Trainer Gallery', number: 'TG10/TG30', status: 'binder', prices: [], details: { source: 'tcgdex', result: 'complete', id: 'swsh11tg-TG10', checkedAt: '2026-10-01T00:00:00Z' } });
+    const down = dbNet({
+      'api.tcgdex.net/v2/en/cards/swsh11tg-TG10': () => Response.json(JSON.parse(fixture('tcgdex-snorlax-tg.json'))),
+      'api.pokemontcg.io/v2/cards?q=': () => new Response('', { status: 500 }),
+      'tcgcsv.com': () => new Response('', { status: 503 }),
+    });
+    expect(await withTcgcsv(down).updateCard('tg2')).toBe('updated');
+    expect((store.get('cards', 'tg2')!.prices as { where: string }[])[0].where).toBe('Cardmarket');
   });
 
   it("carries on without the databases when they don't answer", async () => {

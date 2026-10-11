@@ -1,0 +1,53 @@
+{
+ "success": true,
+ "results": [
+  {
+   "groupId": 23821,
+   "name": "SV: Prismatic Evolutions",
+   "abbreviation": "PRE",
+   "publishedOn": "2025-01-17T00:00:00"
+  },
+  {
+   "groupId": 23237,
+   "name": "SV: Scarlet & Violet 151",
+   "abbreviation": "MEW",
+   "publishedOn": "2023-09-22T00:00:00"
+  },
+  {
+   "groupId": 22873,
+   "name": "SV01: Scarlet & Violet Base Set",
+   "abbreviation": "SVI",
+   "publishedOn": "2023-03-31T00:00:00"
+  },
+  {
+   "groupId": 3118,
+   "name": "SWSH11: Lost Origin",
+   "abbreviation": "SWSH11",
+   "publishedOn": "2022-09-09T00:00:00"
+  },
+  {
+   "groupId": 3172,
+   "name": "SWSH11: Lost Origin Trainer Gallery",
+   "abbreviation": "SWSH11: TG",
+   "publishedOn": "2022-09-09T00:00:00"
+  },
+  {
+   "groupId": 605,
+   "name": "Base Set 2",
+   "abbreviation": "BS2",
+   "publishedOn": "2000-02-24T00:00:00"
+  },
+  {
+   "groupId": 604,
+   "name": "Base Set",
+   "abbreviation": "BS",
+   "publishedOn": "1999-01-09T00:00:00"
+  },
+  {
+   "groupId": 1663,
+   "name": "Base Set (Shadowless)",
+   "abbreviation": "BSS",
+   "publishedOn": "1999-01-09T00:00:00"
+  }
+ ]
+}

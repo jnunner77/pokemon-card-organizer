@@ -10,7 +10,8 @@ import type { Store } from '../store';
 import { DETAIL_FIELDS } from '../details';
 import { Catalog, type CatalogQuote } from './catalog';
 import { catalogMismatch, chooseMatch, detailsFromProduct, norm, searchQuery, variantFromProduct, type CardForMatch, type MatchResult } from './match';
-import { type PcProduct, type PriceCharting, gradedPrice, oldAddress, quoteOf } from './pricecharting';
+import { type PcProduct, type PriceCharting, type PriceGuide, gradedPrice, oldAddress, quoteOf } from './pricecharting';
+import { type TcgCsv, type TcgCsvQuote } from './tcgcsv';
 import { type Candidate, type Fetcher, ProductGone, type Quote, Refused, type Source, SourceError, get, exchangeRates, tcgImage } from './sources';
 
 // The daily price and image update. For every card still in the collection it finds the card's
@@ -77,6 +78,8 @@ export interface UpdaterOptions {
   details?: CardDetails;
   /** TCGplayer and Cardmarket prices and large pictures from TCGdex and pokemontcg.io (catalog.ts). */
   catalog?: Catalog;
+  /** TCGplayer's own catalog (tcgcsv.ts), for what the card databases don't have. */
+  tcgcsv?: TcgCsv;
   /** PriceCharting's API (pricecharting.ts); without it, or without its token, PriceCharting isn't asked. */
   pricecharting?: PriceCharting;
   /** How long a run may go without finishing a card before it's flagged as stalled. */
@@ -287,6 +290,11 @@ function catalogProduct(cat: CatalogQuote | null): Candidate | null {
   if (!cat || !id) return null;
   return { source: 'tcgplayer', id, url: `https://www.tcgplayer.com/product/${id}`, title: cat.name, set: cat.set, number: cat.number, usd: cat.tcgplayer!.usd, thumb: tcgImage(id, 200) };
 }
+/** The TCGplayer product TCGplayer's own catalog has for the card (tcgcsv.ts), as a certain match. */
+function tcgcsvProduct(q: TcgCsvQuote | null): Candidate | null {
+  if (!q) return null;
+  return { source: 'tcgplayer', id: q.productId, url: q.url, title: q.name, set: q.set, number: q.number, usd: q.usd, thumb: tcgImage(q.productId, 200) };
+}
 /** The card's database ids as kept on its link (catalog.ts). */
 const catalogOf = (q: CatalogQuote) => ({ tcgdexId: q.tcgdexId, ptcgId: q.ptcgId, ptcgSearchedAt: q.ptcgSearchedAt, ptcgReadAt: q.ptcgReadAt });
 /** The card's official picture: a large one (pokemontcg.io's or PriceCharting's), another, or none. */
@@ -309,12 +317,13 @@ export class PriceUpdater {
   private readonly breakerAfter: number;
   private readonly details?: CardDetails;
   private readonly catalog?: Catalog;
+  private readonly tcgcsv?: TcgCsv;
   private readonly pc?: PriceCharting;
   /** The euro rate fetched for the current run (Cardmarket's prices are in euros). */
   private eur: number | null = null;
   /** During a run: each site's failures in a row, and the sites left alone for the rest of it (with why). */
   /** `force`: databases are asked again even about cards they were asked about this week (a manual run). */
-  private run: { streak: Record<Source, number>; tripped: Map<Source, string>; scope: RunScope; force: boolean } | null = null;
+  private run: { streak: Record<Source, number>; tripped: Map<Source, string>; scope: RunScope; force: boolean; guide: PriceGuide | null } | null = null;
   /** Which run is current: a stopped run's loop sees this change and ends without writing anything. */
   private gen = 0;
   private readonly stallMs: number;
@@ -339,6 +348,7 @@ export class PriceUpdater {
     this.breakerAfter = o.breakerAfter ?? 5;
     this.details = o.details;
     this.catalog = o.catalog;
+    this.tcgcsv = o.tcgcsv;
     this.pc = o.pricecharting;
     this.stallMs = o.stallMs ?? 10 * 60_000;
   }
@@ -480,7 +490,16 @@ export class PriceUpdater {
     let failure: unknown = null;
     // A site that keeps failing (down, or refusing the token) is left alone for the rest of the run.
     this.catalog?.reset();
-    const run = (this.run = { streak: { pricecharting: 0, tcgplayer: 0 }, tripped: new Map<Source, string>(), scope, force });
+    this.tcgcsv?.reset();
+    const run = (this.run = { streak: { pricecharting: 0, tcgplayer: 0 }, tripped: new Map<Source, string>(), scope, force, guide: null as PriceGuide | null });
+    // PriceCharting's whole price guide in one call, instead of one call per card.
+    if (scope !== 'pictures' && this.pc?.ready && !this.siteOut('pricecharting')) {
+      this.step = "downloading PriceCharting's price guide";
+      run.guide = await this.ask('pricecharting', () => this.pc!.priceGuide()).catch((err) => {
+        this.log.warn('pricing', `Couldn't download PriceCharting's price guide, so each card is asked about on its own: ${message(err)}`);
+        return null;
+      });
+    }
     this.log.info('pricing', `${capital(name)} started (${reason}${scope === 'all' ? '' : `, ${scope} only`}) for ${ids.length} cards${scope === 'pictures' ? '' : ` at US$1 = C$${rate}`}`, { reason, scope, cards: ids.length, rate });
     try {
       for (const id of ids) {
@@ -805,9 +824,11 @@ export class PriceUpdater {
     if (card.status === 'sold' || card.status === 'traded') return 'skipped';
     const checkedAt = this.now().toISOString();
     const cat = await this.catalogQuote(card);
+    // TCGplayer's own catalog, for a TCGplayer price, product, picture or details the databases lack.
+    const tcq = await this.tcgcsvQuote(card, cat);
     const eur = this.eur ?? (Number(this.store.get('settings', 'main')?.eurToCad) || null);
     const useCardmarket = this.schedule().cardmarket && !!eur;
-    const catPriced = !!cat && (!!cat.tcgplayer || (useCardmarket && cat.cardmarketEur != null));
+    const catPriced = (!!cat && (!!cat.tcgplayer || (useCardmarket && cat.cardmarketEur != null))) || tcq?.usd != null;
     card = this.unlinkPlainProduct(id, card, cat);
 
     // Without a product yet: find one. If there's none, a card the databases price is still priced.
@@ -820,7 +841,7 @@ export class PriceUpdater {
       } else {
         let found: Awaited<ReturnType<PriceUpdater['autoMatch']>> | null = null;
         try {
-          found = await this.autoMatch(card, kept?.off ? [kept.source] : [], cat);
+          found = await this.autoMatch(card, kept?.off ? [kept.source] : [], cat, tcq);
         } catch (err) {
           this.patchLink(id, { error: message(err), checkedAt });
           unmatched = 'failed';
@@ -841,7 +862,7 @@ export class PriceUpdater {
     // PriceCharting products saved by their page address, before the binder used PriceCharting's API.
     const moved = await this.fromOldAddress(id);
     if (moved === 'gone' && !rematched) return this.updateCard(id, rate, true);
-    await this.findPair(id, cat);
+    await this.findPair(id, cat, tcq);
     card = this.store.get('cards', id) as Card;
     const link = isLinked(card.pricing) ? card.pricing : null;
     if (!link && !catPriced) return unmatched ?? 'skipped';
@@ -852,10 +873,12 @@ export class PriceUpdater {
     const fromCatalog = (l: { id: string; linkedBy?: 'auto' | 'user' | null }) => !!cat?.tcgplayer && (cat.tcgplayer.productId ? cat.tcgplayer.productId === l.id : l.linkedBy !== 'user');
     const quote = (l: { source: Source; id: string; linkedBy?: 'auto' | 'user' | null }): Promise<Quote> => {
       if (l.source === 'pricecharting') {
-        const known = moved && typeof moved === 'object' && moved.id === l.id ? moved : null;
+        const known = (moved && typeof moved === 'object' && moved.id === l.id ? moved : null) ?? this.run?.guide?.get(l.id) ?? null;
         return known ? Promise.resolve(quoteOf(known)) : this.ask('pricecharting', () => this.pc!.product(l.id)).then(quoteOf);
       }
       if (fromCatalog(l)) return Promise.resolve({ usd: cat!.tcgplayer!.usd, image: tcgImage(l.id, 1000), info: null });
+      // TCGplayer's own catalog prices the product the databases don't (its set name is TCGplayer's, so it isn't used).
+      if (tcq?.productId === l.id && tcq.usd != null) return Promise.resolve({ usd: tcq.usd, image: tcgImage(l.id, 1000), info: { set: null, released: tcq.released, rarity: tcq.rarity } });
       return Promise.reject(new SourceError(cat ? TCG_NOT_PRICED : 'TCGplayer prices come from the TCGdex card database, which has no price for this card today.'));
     };
     const [mainQ, pairQ] = await Promise.allSettled([link ? quote(link) : Promise.resolve(null), pair ? quote(pair) : Promise.resolve(null)]);
@@ -886,6 +909,9 @@ export class PriceUpdater {
     const ownTcg = link?.source === 'tcgplayer' ? link : pair?.source === 'tcgplayer' ? pair : null;
     const tcgOff = link?.pair?.source === 'tcgplayer' && !!link.pair.off;
     if (cat?.tcgplayer && quotes.tcgplayer == null && !tcgOff && (!ownTcg || fromCatalog(ownTcg))) quotes.tcgplayer = cat.tcgplayer.usd;
+    // Else TCGplayer's own catalog's price for the card's product (tcgcsv.ts).
+    const tcgOffAny = tcgOff || (card.pricing?.pair?.source === 'tcgplayer' && !!card.pricing.pair.off);
+    if (tcq?.usd != null && quotes.tcgplayer == null && !tcgOffAny && (!ownTcg || ownTcg.id === tcq.productId)) quotes.tcgplayer = tcq.usd;
     if (useCardmarket && cat?.cardmarketEur != null) quotes.cardmarket = round2((cat.cardmarketEur * eur!) / fx);
     // PriceCharting knows every set and variant; the card databases (TCGplayer's and Cardmarket's
     // prices) have subsets of them. Their prices count only when their card is PriceCharting's
@@ -925,7 +951,7 @@ export class PriceUpdater {
     if (best && link && mainQ.status === 'rejected' && this.siteOut(link.source)) mainError = null;
 
     // A prices-only update leaves pictures alone.
-    const image = this.run?.scope === 'prices' ? null : await this.fetchImage(card, this.pictureUrls(card, cat, link, pair, main?.image ?? null));
+    const image = this.run?.scope === 'prices' ? null : await this.fetchImage(card, this.pictureUrls(card, cat, link, pair, main?.image ?? null, tcq));
 
     // Network work is done: re-read the card so nothing the person changed meanwhile is lost.
     const fresh = this.store.get('cards', id) as Card | undefined;
@@ -990,6 +1016,12 @@ export class PriceUpdater {
         this.log.info('pricing', `${label(fresh)}: ${d.filled.map((f) => `${f} ${d.patch[f]}`).join(', ')}${was} from ${SOURCE_NAME[link.source]}`);
       }
     }
+    // What's still blank (rarity, release date), from TCGplayer's own catalog.
+    if (tcq && this.run?.scope !== 'prices') {
+      const filled = (['rarity', 'released'] as const).filter((f) => blank(fresh[f]) && blank(patch[f]) && !blank(tcq[f]));
+      for (const f of filled) patch[f] = tcq[f];
+      if (filled.length) this.log.info('pricing', `${label(fresh)}: ${filled.map((f) => `${f} ${patch[f]}`).join(', ')} from TCGplayer`);
+    }
     this.store.update('cards', id, patch);
     if (image && oldImage && oldImage !== image.id && !this.store.referencedImages().has(oldImage)) this.assets.remove(oldImage);
     return best ? 'updated' : 'noPrice';
@@ -1002,7 +1034,7 @@ export class PriceUpdater {
    * them, and pokemontcg.io often fails), then TCGdex's own. pokemontcg.io's replaces the others
    * once it answers.
    */
-  private pictureUrls(card: Card, cat: CatalogQuote | null, link: { source: string; id: string } | null, pair: { source: string; id: string } | null, mainImage: string | null): (string | null | undefined)[] {
+  private pictureUrls(card: Card, cat: CatalogQuote | null, link: { source: string; id: string } | null, pair: { source: string; id: string } | null, mainImage: string | null, tcq: TcgCsvQuote | null = null): (string | null | undefined)[] {
     const current = card.officialImageId ? (card.pricing?.imageUrl ?? '') : '';
     if (/pricecharting/i.test(current)) return [];
     // A special variant (a Poké Ball pattern, say) is pictured by its own TCGplayer product, which shows it.
@@ -1010,8 +1042,10 @@ export class PriceUpdater {
     if (/pokemontcg\.io/i.test(current)) return [cat?.image];
     const ownTcg = link?.source === 'tcgplayer' ? link : pair?.source === 'tcgplayer' ? pair : null;
     // The databases' product only for a plain printing (they sometimes name one product for several
-    // special ones), and not when the person turned TCGplayer off for the card.
-    const tcgId = ownTcg?.id ?? (cat?.special || (card.pricing?.pair?.source === 'tcgplayer' && card.pricing.pair.off) ? null : (cat?.tcgplayerProduct ?? null));
+    // special ones), else TCGplayer's own catalog's (which names its variant), and not when the
+    // person turned TCGplayer off for the card.
+    const off = card.pricing?.pair?.source === 'tcgplayer' && !!card.pricing.pair.off;
+    const tcgId = ownTcg?.id ?? (off ? null : ((cat?.special ? null : cat?.tcgplayerProduct) ?? tcq?.productId ?? null));
     const tcgdexPicture = card.officialImageId ? null : (cat?.fallbackImage ?? null);
     return [cat?.image, mainImage, tcgId ? tcgImage(tcgId, 1000) : null, tcgdexPicture];
   }
@@ -1036,7 +1070,8 @@ export class PriceUpdater {
     const link = isLinked(card.pricing) ? card.pricing : null;
     const pair = link && pairLinked(link.pair) && link.pair.source !== link.source ? link.pair : null;
     const mainImage = link?.source === 'tcgplayer' ? tcgImage(link.id, 1000) : null;
-    const image = await this.fetchImage(card, this.pictureUrls(card, cat, link, pair, mainImage));
+    const tcq = await this.tcgcsvQuote(card, cat);
+    const image = await this.fetchImage(card, this.pictureUrls(card, cat, link, pair, mainImage, tcq));
     // Network work is done: re-read the card so nothing the person changed meanwhile is lost.
     const fresh = this.store.get('cards', id) as Card | undefined;
     if (!fresh || fresh.pricing?.source === 'off') return 'skipped';
@@ -1105,6 +1140,33 @@ export class PriceUpdater {
     return this.store.get('cards', id) as Card;
   }
 
+  /**
+   * What TCGplayer's own catalog (tcgcsv.ts) says about an English card, when the card databases
+   * left something for it to fill: a TCGplayer price, a picture, or a blank rarity or release date.
+   * Null when it isn't certain which product the card is, or tcgcsv.com didn't answer.
+   */
+  private async tcgcsvQuote(card: Card, cat: CatalogQuote | null): Promise<TcgCsvQuote | null> {
+    if (!this.tcgcsv || (!blank(card.language) && !/^en/i.test(String(card.language)))) return null;
+    const l = card.pricing;
+    const tcgOff = l?.pair?.source === 'tcgplayer' && !!l.pair.off;
+    const own = l?.source === 'tcgplayer' && l.id ? l.id : l?.pair?.source === 'tcgplayer' && l.pair.id && !l.pair.off ? l.pair.id : null;
+    const scope = this.run?.scope ?? 'all';
+    const needPrice = scope !== 'pictures' && !tcgOff && !cat?.tcgplayer;
+    const needPicture = scope !== 'prices' && !card.officialImageId;
+    const needDetails = scope === 'all' && (blank(card.rarity) || blank(card.released));
+    if (!needPrice && !needPicture && !needDetails) return null;
+    const d = card.details as DetailsStatus | null | undefined;
+    try {
+      return await this.tcgcsv.quote(
+        { name: card.name, set: card.set, setCode: card.setCode, number: card.number, variant: card.variant, rarity: card.rarity, tcgdexSet: cat?.set ?? (d as { set?: string } | null | undefined)?.set ?? null },
+        own ?? cat?.tcgplayerProduct ?? null,
+      );
+    } catch (err) {
+      this.log[this.run ? 'info' : 'warn']('pricing', `${label(card)}: tcgcsv.com: ${message(err)}`);
+      return null;
+    }
+  }
+
   /** What the card databases say about the card today, or null when it isn't matched to TCGdex (or they didn't answer). */
   private async catalogQuote(card: Card): Promise<CatalogQuote | null> {
     const d = card.details as DetailsStatus | null | undefined;
@@ -1142,13 +1204,13 @@ export class PriceUpdater {
    * found a week ago. A PriceCharting product found for a card matched on TCGplayer becomes its
    * main product (details come from PriceCharting); TCGplayer's becomes the pair.
    */
-  private async findPair(id: string, cat: CatalogQuote | null = null): Promise<void> {
+  private async findPair(id: string, cat: CatalogQuote | null = null, tcq: TcgCsvQuote | null = null): Promise<void> {
     const card = this.store.get('cards', id) as Card | undefined;
     if (!card || !isLinked(card.pricing)) return;
     const site = otherSite(card.pricing.source);
     const p = card.pricing.pair;
     if (site === 'tcgplayer') {
-      const known = catalogProduct(cat);
+      const known = catalogProduct(cat) ?? tcgcsvProduct(tcq);
       // A product the person chose (or turning TCGplayer off) stands; an automatic match gives way to the databases'.
       if (known && !(p && p.source === site && (p.off || (p.id && (p.linkedBy === 'user' || p.id === known.id))))) {
         const at = this.now().toISOString();
@@ -1213,14 +1275,17 @@ export class PriceUpdater {
    * when there is one; the other is its pair. PriceCharting failing for a moment leaves no pair, so
    * it's looked for again next time.
    */
-  async autoMatch(card: CardForMatch, skip: Source[] = [], cat: CatalogQuote | null = null): Promise<{ match: Candidate | null; candidates: Candidate[]; pair?: Pair }> {
+  async autoMatch(card: CardForMatch, skip: Source[] = [], cat: CatalogQuote | null = null, tcq: TcgCsvQuote | null = null): Promise<{ match: Candidate | null; candidates: Candidate[]; pair?: Pair }> {
     const at = this.now().toISOString();
-    const tg = skip.includes('tcgplayer') ? null : catalogProduct(cat);
+    const tg = skip.includes('tcgplayer') ? null : (catalogProduct(cat) ?? tcgcsvProduct(tcq));
     let pc: MatchResult | null = null;
     let pcError: unknown = null;
     if (!skip.includes('pricecharting')) {
       try {
-        pc = chooseMatch(card, await this.ask('pricecharting', () => this.pc!.search(searchQuery(card))));
+        // The price guide's products with the card's number and name first; PriceCharting's search
+        // when they don't give a certain match.
+        const local = this.run?.guide ? chooseMatch(card, this.run.guide.candidates(card)) : null;
+        pc = local?.match ? local : chooseMatch(card, await this.ask('pricecharting', () => this.pc!.search(searchQuery(card))));
       } catch (err) {
         pcError = err;
       }

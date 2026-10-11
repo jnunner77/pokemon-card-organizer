@@ -33,7 +33,8 @@ Every morning (after 5:00 in your time zone, catching up if the server was off) 
    own TCGplayer and Cardmarket products. The card's **Variant** picks one ("Master Ball",
    "1st Edition Shadowless", "Pokemon Together Stamp"); a variant TCGdex doesn't list, or lists
    without a price, is never given another printing's price. [pokemontcg.io](https://pokemontcg.io)
-   stands in for TCGplayer's price when TCGdex has none. The entry says which source it came from
+   stands in for TCGplayer's price when TCGdex has none, and then TCGplayer's own catalog (see
+   *TCGplayer's own catalog* below). The entry says which source it came from
    and keeps every price. If a source has no match, no price or doesn't answer, the others are
    used, and a card the card database prices is priced even before it's matched on PriceCharting.
    Cardmarket can be left out under **Administration → Prices**. Each day adds one entry; the last
@@ -42,7 +43,8 @@ Every morning (after 5:00 in your time zone, catching up if the server was off) 
    listings, your own market prices) are never changed.
 3. **Downloads the official picture**, the largest available: pokemontcg.io's (733×1024) for
    cards it has, else the card's TCGplayer product's (717×1000; also on days TCGplayer has no price
-   for it), or TCGdex's own (600×825). One that won't download gives way to the next, and
+   for it, and the one TCGplayer's own catalog finds for a card TCGdex doesn't know), or TCGdex's own
+   (600×825). One that won't download gives way to the next, and
    pokemontcg.io's replaces the others once it answers, so a card isn't left without a picture
    while pokemontcg.io is failing or TCGdex has none (it has no Trainer Gallery pictures, like
    Lost Origin's Snorlax TG10). A pattern or stamped variant gets its own TCGplayer product's
@@ -118,6 +120,26 @@ No site's pages are read: every price comes from an API.
   removed when there were none) and its
   pictures (the next update downloads others). Prices you logged yourself stay; copies of the
   ledger on the server keep PriceCharting's prices until they age out.
+- **The price guide:** each update downloads PriceCharting's whole Pokémon price guide (the
+  subscription's *API/Download* CSV, about 95,000 products) in **one call**, through the same
+  guard, and prices every PriceCharting card from it, and matches new cards against it, instead of
+  one call per card (a search and a product each). It's downloaded at most once a day (it takes
+  PriceCharting about half a minute to send); a product it doesn't have, a card added during the
+  day, and *Change match* still ask the API, and if the download fails each card is asked about on
+  its own as before. Graded prices and release dates are read from it when the subscription
+  includes those columns. Purging PriceCharting forgets it.
+- **TCGplayer's own catalog** from [tcgcsv.com](https://tcgcsv.com), a free public copy of
+  TCGplayer's catalog API (sets, products, prices, pictures), refreshed daily, with no key. It fills
+  what TCGdex and pokemontcg.io don't have: a card TCGdex has no TCGplayer price for (Lost Origin's
+  Trainer Gallery *Snorlax TG10*), a card TCGdex doesn't know at all, its picture, and its blank
+  rarity and release date. The card is found in its set (by the set's name or code, or TCGdex's
+  name for it, or a set that starts or ends with it, like *Lost Origin Trainer Gallery* for a TG card
+  filed under *Lost Origin*, or *Scarlet & Violet 151* for *151*) by number, name and variant: a
+  Poké Ball card gets TCGplayer's *Eevee (Poke Ball Pattern)*, never the regular card's price, and
+  a regular common never its reverse holo's. When it isn't certain (two products fit), it's left
+  alone. That product becomes the card's TCGplayer match. Only the sets the cards need are
+  downloaded, each at most once a day, a quarter second apart; after failing three times in a row
+  it isn't asked again until the next update.
 - **TCGdex** and **pokemontcg.io** are free public APIs (`POKEMONTCG_API_KEY`, a free key from
   [dev.pokemontcg.io](https://dev.pokemontcg.io), raises pokemontcg.io's request limits but isn't
   needed).
@@ -662,7 +684,7 @@ DATA_DIR=$(mktemp -d) AUTH=off PRICE_UPDATES=off npm start &
 BASE_URL=http://localhost:4100/ npm run test:e2e    # browser smoke test
 ```
 
-- `server/pricing/`: `pricecharting.ts` (PriceCharting's API and graded prices), `catalog.ts`
+- `server/pricing/`: `pricecharting.ts` (PriceCharting's API, price guide download and graded prices), `tcgcsv.ts` (TCGplayer's own catalog), `catalog.ts`
   (TCGdex and pokemontcg.io: TCGplayer and Cardmarket prices, pictures), `sources.ts` (requests,
   Bank of Canada), `match.ts` (which product is this card), `updater.ts` (the daily run, per-card
   updates and the PriceCharting purge). `server/secrets.ts` keeps PriceCharting's token.
