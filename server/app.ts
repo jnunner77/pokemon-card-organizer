@@ -15,11 +15,13 @@ import { Config, priceMethodSchema, pricingConfigSchema, retentionSchema } from 
 import type { CardDetails } from './details';
 import { GUEST_COOKIE, GUEST_IDLE_MS, GuestFeed, type Guests, guestSchemas, isListed, shownImage } from './guests';
 import { CATEGORIES, LEVELS, type Logger, quietLogger } from './log';
+import { MasterSets, placeholderCards } from './masterset';
+import type { TcgCsv } from './pricing/tcgcsv';
 import { NoToken, type PriceCharting } from './pricing/pricecharting';
 import { Refused, SourceError } from './pricing/sources';
 import type { PriceUpdater, RunProblem, RunSummary } from './pricing/updater';
 import { problemFeed } from './problems';
-import { InvalidDoc, collectionSchema, idSchema } from './schema';
+import { InvalidDoc, collectionSchema, idSchema, validateDoc } from './schema';
 import { HttpError, MUTATING, type Security } from './security';
 import type { Secret } from './secrets';
 import { cardsNeedingAttention, readOffsite, statusText, writeStatus } from './status';
@@ -46,6 +48,8 @@ export interface AppOptions {
   envPassword?: string;
   /** Card details lookups (TCGdex); the lookup routes answer 503 without them. */
   details?: CardDetails;
+  /** TCGplayer's own catalog (tcgcsv.com), which master sets are checked against. */
+  tcgcsv?: TcgCsv;
   /** The clock for the Administration checks and backups (tests set it; defaults to the real time). */
   now?: () => Date;
   /** New cards filling themselves in, and Fill in missing details. */
@@ -586,6 +590,72 @@ export function createApp(o: AppOptions) {
     const cards = o.autofill.fillAll(req.query.force === '1');
     if (!already) log.info('pricing', `${who(res)} started Fill in missing details (${cards} cards)`);
     res.status(202).json({ started: !already, cards });
+  });
+
+  // ---- master sets (masterset.ts) ----------------------------------------------------
+  // Every card of a set in every variant, from TCGdex, checked against TCGplayer's catalog:
+  // previewed first, then created as a new binder of placeholders. The preview's answers are
+  // remembered (TCGdex's for an hour, TCGplayer's for the day), so creating it straight after is quick.
+  const masterSets = o.details ? new MasterSets(o.details, o.tcgcsv) : null;
+  const lookups = () => {
+    if (!masterSets) throw new HttpError(503, 'Card lookups are turned off on this server.');
+    return masterSets;
+  };
+  const fromTcgdex = async <T>(fn: () => Promise<T>): Promise<T> => {
+    try {
+      return await fn();
+    } catch (err) {
+      if (err instanceof SourceError) throw new HttpError(502, "The card database (TCGdex) didn't answer. Try again in a minute.", 'upstream_error');
+      throw err;
+    }
+  };
+  const findMasterSet = (query: string) =>
+    fromTcgdex(async () => {
+      const found = await lookups().findSet(query);
+      if (!found) throw new HttpError(404, `No set called “${query}” was found. Pick one from the list.`, 'not_found');
+      if (!found.entries.length) throw new HttpError(404, `The card database has no cards for ${found.title} yet.`, 'not_found');
+      return found;
+    });
+  const setQuery = z.string().trim().min(1).max(80);
+  api.get('/master-sets/sets', need('editor'), async (_req, res) => {
+    const m = lookups();
+    res.json({ sets: await fromTcgdex(() => m.sets()) });
+  });
+  api.get('/master-sets/preview', need('editor'), heavy, async (req, res) => {
+    const q = setQuery.safeParse(req.query.set);
+    if (!q.success) throw new HttpError(400, 'Type the set.');
+    res.json(await findMasterSet(q.data));
+  });
+  const masterSetBody = z.object({
+    set: setQuery,
+    owner: z.string().max(20),
+    name: z.string().trim().min(1).max(40),
+    color: z.string().max(40).optional(),
+    pockets: z.union([z.literal(4), z.literal(9), z.literal(12), z.literal(16)]),
+    /** Promo printings too (stamps, Cosmos holos): left out unless asked for. */
+    extras: z.boolean().optional(),
+  });
+  api.post('/master-sets', need('editor'), heavy, json, async (req, res) => {
+    const body = masterSetBody.safeParse(req.body);
+    if (!body.success) throw new HttpError(400, 'Give the set, its owner, a binder name and the pockets per page.');
+    const { set, owner, name, color, pockets, extras } = body.data;
+    const found = await findMasterSet(set);
+    const entries = found.entries.filter((e) => extras || !e.extra);
+    const at = now().toISOString();
+    const binderId = crypto.randomBytes(8).toString('hex');
+    const order = Math.max(0, ...store.all().binders.map((b) => Number((b as { order?: unknown }).order) || 0)) + 1;
+    const cards = placeholderCards(entries, { binderId, pockets, owner, now: at }).map((doc) => ({ id: crypto.randomBytes(8).toString('hex'), doc }));
+    // Every card is checked before anything is saved (an owner the ledger doesn't know, say).
+    for (const c of cards) validateDoc('cards', c.doc);
+    store.set('binders', binderId, { name, color: color ?? null, pockets, kind: 'binder', order, createdAt: at });
+    try {
+      store.setMany('cards', cards);
+    } catch (err) {
+      store.delete('binders', binderId);
+      throw err;
+    }
+    log.info('app', `${who(res)} made a ${found.title} master set: ${name}, ${cards.length} placeholders (${found.cards} cards${found.tcgplayer.checked ? `, ${found.tcgplayer.added} printings from TCGplayer` : ''})`);
+    res.status(201).json({ binderId, cards: cards.length, pages: Math.ceil(cards.length / pockets) });
   });
 
   // ---- full backups (with photos) -----------------------------------------------------

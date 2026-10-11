@@ -198,7 +198,7 @@ export class TcgCsv {
   }
 
   /** Today's list of Pokémon sets; a failed download is tried again next time. */
-  private listGroups(): Promise<TcgGroup[]> {
+  groupList(): Promise<TcgGroup[]> {
     this.fresh();
     this.groups ??= this.json<TcgGroup[]>('/groups').catch((err) => {
       this.groups = null;
@@ -207,7 +207,8 @@ export class TcgCsv {
     return this.groups;
   }
 
-  private set(groupId: number) {
+  /** One set's products and prices, downloaded at most once a day. */
+  group(groupId: number): Promise<{ products: TcgProduct[]; prices: TcgPrice[] }> {
     this.fresh();
     let s = this.sets.get(groupId);
     if (!s) {
@@ -223,13 +224,13 @@ export class TcgCsv {
    * named it), found in the card's set by number, name and variant; null when it isn't certain.
    */
   async quote(card: TcgCsvCard, productId?: string | null): Promise<TcgCsvQuote | null> {
-    const tiers = candidateGroups(await this.listGroups(), card);
+    const tiers = candidateGroups(await this.groupList(), card);
     for (const tier of tiers) {
       // Too many sets to look through means the card's set name says too little.
       if (tier.length > 4) continue;
       const found: { g: TcgGroup; p: TcgProduct; prices: TcgPrice[] }[] = [];
       for (const g of tier) {
-        const s = await this.set(g.groupId);
+        const s = await this.group(g.groupId);
         const p = chooseProduct(s.products, card, productId);
         if (p) found.push({ g, p, prices: s.prices });
       }

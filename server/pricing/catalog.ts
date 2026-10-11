@@ -26,9 +26,12 @@ export interface Printing {
  * Edition" → first edition, anything else the regular card. Commons and uncommons (which come in a
  * regular version) are strict: a missing price isn't taken from the holo.
  */
+/** "Non-Holo", "Non Holo", "Nonholo": the plain printing, said outright (a holo rare's theme deck copy). */
+const NON_HOLO = /\bnon[-\s]?holo/i;
+
 export function printingOf(variant: unknown, rarity: unknown): Printing {
   const v = String(variant ?? '');
-  const kind = /reverse/i.test(v) ? 'reverse' : /holo|foil/i.test(v) ? 'holo' : 'normal';
+  const kind = /reverse/i.test(v) ? 'reverse' : NON_HOLO.test(v) ? 'normal' : /holo|foil/i.test(v) ? 'holo' : 'normal';
   return { kind, first: /1st|first/i.test(v), strict: kind === 'normal' && /^(common|uncommon)$/i.test(String(rarity ?? '').trim()) };
 }
 
@@ -160,8 +163,8 @@ export function chooseVariant(c: TcgdexCard, variantText: unknown): { variant: T
     .filter((v, _, all) => extra(v) === extra(all[0]));
   const kind = printingOf(text, null).kind;
   const order = kind === 'reverse' ? ['reverse', 'holo', 'normal'] : kind === 'holo' ? ['holo', 'reverse', 'normal'] : ['normal', 'holo', 'reverse'];
-  // A plain card named "Holo" or "Reverse" must be that kind; a pattern or stamp names its variant on its own.
-  const kinds = claimed.length || kind === 'normal' ? order : [kind];
+  // A plain card named "Holo", "Reverse" or "Non-Holo" must be that kind; a pattern or stamp names its variant on its own.
+  const kinds = claimed.length || (kind === 'normal' && !NON_HOLO.test(text)) ? order : [kind];
   for (const k of kinds) {
     const hit = fits.find((v) => v.type === k);
     if (hit) return { variant: hit, special, unknown: false };
