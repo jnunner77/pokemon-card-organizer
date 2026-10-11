@@ -418,6 +418,47 @@ placeholders aren't counted.
   switches them back when they all are placeholders.
 - **CSV:** a *Placeholder* column (yes/no) on import and export.
 
+## Master sets
+
+A **master set** is every card of one set in every variant. *+ New binder → Master set…* makes one
+as a new binder of [placeholders](#placeholders), to fill as you buy the cards:
+
+1. Pick the **set** (*151*, *Ascended Heroes*, *Base Set*; suggestions as you type, from
+   [TCGdex](https://tcgdex.dev)'s English sets), its **owner** and the pockets per page; the binder is
+   named *151 master set* unless you name it yourself.
+2. *Find cards* lists every card in it, trainers, energy and secret rares included, with its sub-sets
+   after it (Lost Origin's Trainer Gallery, Crown Zenith's Galarian Gallery, Hidden Fates' Shiny
+   Vault, Celebrations' Classic Collection), in number order, once per **variant**: the regular card,
+   holo, reverse holo, 1st Edition, Shadowless, and the set's reverse holo patterns (Poké Ball,
+   Master Ball, the other balls, Energy symbol, Team Rocket).
+3. It's **checked against TCGplayer's own catalog** (tcgcsv.com, see *The sources*), set by set and
+   sub-set by sub-set (TCGplayer's *Generations: Radiant Collection* for the RC cards TCGdex keeps
+   in Generations): a printing TCGplayer lists that TCGdex doesn't is added from TCGplayer, marked
+   *from TCGplayer* and matched to its TCGplayer product, so it's priced and pictured as that
+   printing. TCGdex leaves out the reverse holos of the whole Black & White, XY and Sun & Moon eras
+   (Hidden Fates, Shining Legends and Dragon Majesty too), a few cards (Shrouded Fable's reverse holo
+   Energies) and the plain copies TCGplayer lists of some holo rares (named *Non-Holo*): about 4,600
+   printings across 62 sets, all added from TCGplayer (checked against all 174 sets both have, in
+   October 2026). The preview says how many were added, or, in red, when TCGplayer couldn't be
+   asked (try again later to check). Trainer kits can't be checked (TCGplayer sells both halves as
+   one set).
+4. **Promo printings** (store and event stamps like GameStop, Pokémon Center and Player Rewards,
+   Cosmos holos from blisters, metal cards) are left out unless you tick them (151 is 360
+   placeholders, or 382 with them). TCG Pocket's digital cards and jumbo cards are never included.
+5. *Create binder* puts one placeholder per variant in the new binder, page 1 pocket 1 onwards, with
+   its name, set, set code, number, rarity, variant, illustrator, release date, language and owner
+   filled in, and already matched to its TCGdex card.
+
+Master sets are of whole sets only. A Pokémon's master set (every card of it across every set) was
+tried and dropped: the card databases miss too many of a Pokémon's promo and special printings
+(Prize Pack and Battle Academy stamps, blister Cosmos holos, store exclusives) for it to be complete.
+
+Placeholders get their prices and pictures by themselves straight afterwards, one card at a time
+(a few hundred cards take a while; PriceCharting's daily budget may leave some for the next day).
+When you buy one, open it and switch *Placeholder* off (or select several and choose *Owned*), and
+change anything that differs (its condition, a grade). Cards you don't collect can be deleted like any
+other card.
+
 ## Arrange a binder by hand
 
 *Arrange* (next to *Pages* and *List*) lists every pocket of the binder in order, page by page,

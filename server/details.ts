@@ -215,7 +215,7 @@ interface SetInfo {
 const setOf = (c: Brief) => (c.id.endsWith(`-${c.localId}`) ? c.id.slice(0, -c.localId.length - 1) : c.id.replace(/-[^-]+$/, ''));
 
 /** "2026-03-27" or "1999/01/09" → "1999-01-09"; anything else → null. */
-const isoDate = (s: unknown) => {
+export const isoDate = (s: unknown) => {
   const m = /^(\d{4})[-/](\d{2})[-/](\d{2})/.exec(String(s ?? '').trim());
   return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
 };
@@ -236,15 +236,18 @@ export class CardDetails {
     this.now = o.now ?? (() => new Date());
   }
 
-  /** GET a TCGdex path as JSON, remembered for an hour (sets for a day) so typing doesn't repeat requests. */
-  private json<T>(path: string): Promise<T> {
+  /**
+   * GET a TCGdex path as JSON, remembered for an hour (sets for a day) so typing doesn't repeat
+   * requests. Also how a master set (masterset.ts) reads every card of a set.
+   */
+  json<T>(path: string): Promise<T> {
     const ttl = path.startsWith('/sets/') ? 86_400_000 : 3_600_000;
     const hit = this.cache.get(path);
     if (hit && this.now().getTime() - hit.at < ttl) return hit.value as Promise<T>;
     const value = get(this.fetcher, API + path, { headers: { Accept: 'application/json' } }).then((r) => r.json() as Promise<T>);
     value.catch(() => this.cache.delete(path));
     this.cache.set(path, { at: this.now().getTime(), value });
-    if (this.cache.size > 500) this.cache.delete(this.cache.keys().next().value!);
+    if (this.cache.size > 2000) this.cache.delete(this.cache.keys().next().value!);
     return value;
   }
 
@@ -287,7 +290,7 @@ export class CardDetails {
   }
 
   /** Whether a set is TCG Pocket's (TCGdex series tcgp, or shaped like its ids when TCGdex doesn't say); asked once a day. */
-  private async pocketTest(): Promise<(setId: string) => boolean> {
+  async pocketTest(): Promise<(setId: string) => boolean> {
     if (!this.pocket || this.now().getTime() - this.pocket.at > 86_400_000) {
       const serie = await this.json<{ sets?: { id: string }[] }>('/series/tcgp').catch(() => null);
       this.pocket = { at: this.now().getTime(), ids: new Set((serie?.sets ?? []).map((x) => x.id)) };

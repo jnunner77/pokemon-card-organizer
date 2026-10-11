@@ -99,6 +99,7 @@ const app = createApp({
   config,
   backups,
   details,
+  tcgcsv,
   autofill,
   guests,
   pricecharting: { token: pcToken, api: pricecharting },

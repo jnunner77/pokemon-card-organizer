@@ -475,6 +475,10 @@ describe('the card database (TCGdex)', () => {
     // Words describing the card itself don't make it another printing.
     expect(pick(pk, 'Full Art')).toBe('normal');
     expect(pick(cz, 'Holo Rare')).toBe('holo unlimited');
+    // "Non-Holo" is the plain printing only: never a holo-only card's holo.
+    expect(pick(cz, 'Non-Holo')).toBe('unknown');
+    expect(pick(ex, 'Non Holo')).toBe('normal');
+    expect(printingOf('Non-Holo', 'Rare')).toEqual({ kind: 'normal', first: false, strict: false });
 
     const price = (c: TcgdexCard, text: string) => variantPrices(chooseVariant(c, text).variant!);
     expect(price(ex, 'Master Ball')).toEqual({ tcgplayer: { usd: 1.27, productId: '610637' }, cardmarketEur: 1.61 });

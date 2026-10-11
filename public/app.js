@@ -1380,6 +1380,7 @@ function binderModal(id){
         <label><input type="radio" name="bkind" value="case" ${kind==="case"?"checked":""} ${count?"disabled":""}><span><b>Display case</b> <span class="hint">no pages or pockets, like the case at card shows</span></span></label>
         ${count?`<span class="hint">Move its ${count} card${count===1?"":"s"} out to change its type.</span>`:""}
       </fieldset>
+      ${isNew && window.ledgerApi ? `<div class="msoffer"><span><b>Master set</b> <span class="hint">every card of one set, in every variant, as placeholders</span></span><button class="btn sm" type="button" id="bMaster">Master set…</button></div>` : ""}
       <div class="field"><label for="b_name">Name</label><input id="b_name" value="${esc(b.name)}" maxlength="40" placeholder="e.g. Vintage holos" autocomplete="off"></div>
       <div class="field"><label>Colour</label><div class="swatches" id="b_colors">${BINDER_COLORS.map(c=>`<button type="button" style="--c:${c}" data-color="${c}" aria-pressed="${(b.color||BINDER_COLORS[0])===c}" aria-label="Colour ${c}"></button>`).join("")}</div></div>
       <div class="field" id="b_pocketsF"><label for="b_pockets">Pockets per page</label><select id="b_pockets">${[4,9,12,16].map(p=>`<option value="${p}" ${p===n?"selected":""}>${p}-pocket</option>`).join("")}</select><span class="hint">Changing this doesn't move cards. Pockets past the new size stay listed but won't show on the page.</span></div>
@@ -1406,6 +1407,7 @@ function binderModal(id){
     sync();
   };
   let color = b.color || BINDER_COLORS[0];
+  const ms = $("#bMaster"); if(ms) ms.onclick = () => masterSetModal(color);
   $("#b_colors").onclick = e => { const t = e.target.closest("[data-color]"); if(!t) return; color = t.dataset.color; $("#b_colors").querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed", x===t)); };
   setTimeout(()=>{ nameIn.focus(); nameIn.select(); }, 30);
   nameIn.addEventListener("keydown", e => { if(e.key==="Enter"){ e.preventDefault(); $("#bSave").click(); } });
@@ -1423,6 +1425,84 @@ function binderModal(id){
     if(await guard(()=> S.db.doc("binders/"+id).update({name, color, pockets, kind}))){ closeModal(); toast(name!==b.name?`Renamed to ${name}`:`${kind==="case"?"Display case":"Binder"} saved`); }
   };
   sync();
+}
+/* ---------- master set ----------
+   Every card of one set, its sub-sets included, in every variant (server/masterset.ts), checked
+   against TCGplayer's catalog, previewed, then made into a new binder of placeholders for the
+   owner chosen. Promo printings (stamps, Cosmos holos) are left out unless ticked. */
+function masterSetModal(color){
+  const M = {found:null, busy:false, named:false, extras:false, sets:null};
+  const defOwner = "Justin";
+  $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard narrow" role="dialog" aria-modal="true" aria-labelledby="msTitle">
+    <h2 id="msTitle">New master set</h2>
+    <p class="lead">Every card of one set, secret rares and its gallery cards included, in every variant (reverse holo, Poké Ball and Master Ball patterns, 1st Edition), as placeholders in a new binder, in number order. Switch each one to <i>Owned</i> as you get it.</p>
+    <div class="form" style="grid-template-columns:1fr 1fr">
+      <div class="field full"><label for="ms_q">Set</label><input id="ms_q" maxlength="80" list="ms_sets" placeholder="e.g. 151 or Ascended Heroes" autocomplete="off" autocapitalize="words" enterkeyhint="search"><datalist id="ms_sets"></datalist></div>
+      <div class="field"><label for="ms_owner">Owner</label><select id="ms_owner">${opt(OWNERS, defOwner)}</select></div>
+      <div class="field"><label for="ms_pockets">Pockets per page</label><select id="ms_pockets">${[4,9,12,16].map(p=>`<option value="${p}" ${p===9?"selected":""}>${p}-pocket</option>`).join("")}</select></div>
+      <div class="field full"><label for="ms_name">Binder name</label><input id="ms_name" maxlength="40" placeholder="e.g. 151 master set" autocomplete="off"></div>
+    </div>
+    <div id="msOut" aria-live="polite"></div>
+    <div class="mfoot"><button class="btn" type="button" data-mclose>Cancel</button><button class="btn" type="button" id="msFind">Find cards</button><button class="btn primary" type="button" id="msMake" hidden></button></div>
+  </div></div>`;
+  const q = $("#ms_q"), nameIn = $("#ms_name"), out = $("#msOut");
+  const ownerLabel = () => OWNERS.find(o=>o[0]===$("#ms_owner").value)?.[1] || "";
+  const autoName = () => { const p = (M.found?.title || q.value.trim()); return p ? `${p} master set`.slice(0,40) : ""; };
+  const chosen = () => (M.found?.entries || []).filter(x => M.extras || !x.extra);
+  const sync = () => {
+    if(!M.named) nameIn.value = autoName();
+    const n = chosen().length, pk = +$("#ms_pockets").value;
+    $("#msFind").hidden = !!M.found; $("#msMake").hidden = !M.found;
+    $("#msFind").disabled = M.busy || !q.value.trim(); $("#msMake").disabled = M.busy || !n;
+    $("#msMake").textContent = M.busy ? "Making the binder…" : `Create binder · ${n} placeholder${n===1?"":"s"}`;
+    const pg = $("#msPages"); if(pg) pg.textContent = `${n} placeholder${n===1?"":"s"}: ${Math.ceil(n/pk)} page${Math.ceil(n/pk)===1?"":"s"} of ${pk}${$("#ms_owner").value ? `, owned by ${ownerLabel()}` : ""}.`;
+  };
+  const list = () => { const ol = $("#msList"); if(ol) ol.innerHTML = chosen().map(x=>`<li><span class="msn">${esc(x.name)}${x.variant?` <span class="msv">${esc(x.variant)}</span>`:""}</span><span class="hint">${esc(x.set)} · ${esc(x.number)}${x.tcgplayerId?" · from TCGplayer":""}</span></li>`).join(""); };
+  const show = () => {
+    const f = M.found, e = f.entries, nx = e.filter(x=>x.extra).length, t = f.tcgplayer || {};
+    const subs = [...new Set(e.map(x=>x.set))].filter(n=>n!==f.title);
+    const year = e.map(x=>x.released?.slice(0,4)).filter(Boolean).sort()[0];
+    const checked = t.checked
+      ? `<p class="hint">Checked against TCGplayer's catalog${t.added ? `: ${t.added} printing${t.added===1?"":"s"} the card database doesn't list added from it` : ": nothing missing"}.</p>`
+      : `<p class="hint err">Not checked against TCGplayer's catalog (${esc(t.error || "not available")}), so a printing the card database doesn't list may be missing. Try again later to check.</p>`;
+    out.innerHTML = `<div class="msres"><p><b>${esc(f.title)}</b>: ${f.cards} card${f.cards===1?"":"s"}${subs.length?`, with ${esc(subs.join(" and "))}`:""}${year?`, ${year}`:""}. <span id="msPages"></span></p>
+      ${checked}
+      ${nx?`<label class="msx"><input type="checkbox" id="msExtras" ${M.extras?"checked":""}><span>Promo printings too <span class="hint">${nx} stamped, Cosmos holo or other promo versions of these cards (GameStop, Pokémon Center, Player Rewards…)</span></span></label>`:""}
+      <ol class="mslist" id="msList"></ol>
+      <p class="hint">Prices and pictures fill in by themselves over the next while (a big set takes longer). Delete any you don't collect.</p></div>`;
+    const x = $("#msExtras"); if(x) x.onchange = () => { M.extras = x.checked; list(); sync(); };
+    list(); sync();
+  };
+  const loadSets = async () => {
+    try{ M.sets = (await window.ledgerApi.call("GET", "api/master-sets/sets")).sets || []; }catch(_){ M.sets = null; return; }
+    $("#ms_sets").innerHTML = [...M.sets].reverse().map(x=>`<option value="${esc(x.name)}">${x.total?`${x.total} cards`:""}</option>`).join("");
+  };
+  const find = async () => {
+    const p = q.value.trim(); if(!p || M.busy) return;
+    M.busy = true; M.found = null; out.innerHTML = `<p class="hint">Looking up every card in ${esc(p)} and checking it against TCGplayer… this can take a little while.</p>`; sync();
+    try{ M.found = await window.ledgerApi.call("GET", `api/master-sets/preview?set=${encodeURIComponent(p)}`); M.busy = false; show(); }
+    catch(err){ M.busy = false; out.innerHTML = `<p class="hint err">${esc(err?.message || "That didn't work. Try again.")}</p>`; sync(); }
+  };
+  const make = async () => {
+    if(!M.found || M.busy) return;
+    const name = nameIn.value.trim() || autoName();
+    const pockets = +$("#ms_pockets").value, owner = $("#ms_owner").value;
+    M.busy = true; sync();
+    try{
+      const r = await window.ledgerApi.call("POST", "api/master-sets", {set:M.found.setId, owner, name, color, pockets, extras:M.extras});
+      // The new binder arrives with the live updates; open it once it's here.
+      for(let i=0; i<50 && !binderById(r.binderId); i++) await new Promise(res=>setTimeout(res,100));
+      closeModal(); S.binderId = r.binderId; S.page = 1; persistNav();
+      toast(`${name}: ${r.cards} placeholders on ${r.pages} page${r.pages===1?"":"s"}`); render();
+    }catch(err){ M.busy = false; sync(); toast(err?.message || "That didn't work. Try again."); }
+  };
+  q.addEventListener("input", () => { if(M.found){ M.found = null; out.innerHTML = ""; } sync(); });
+  q.addEventListener("keydown", e => { if(e.key==="Enter"){ e.preventDefault(); find(); } });
+  nameIn.addEventListener("input", () => { M.named = !!nameIn.value.trim(); });
+  $("#ms_owner").onchange = sync; $("#ms_pockets").onchange = sync;
+  $("#msFind").onclick = find; $("#msMake").onclick = make;
+  loadSets(); sync();
+  setTimeout(()=>q.focus(), 30);
 }
 /* ---------- cards to check ----------
    What the nightly check against TCGdex (server/details.ts) found wrong with a card, plus cards
