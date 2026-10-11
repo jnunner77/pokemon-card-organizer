@@ -138,6 +138,87 @@ export function oldAddress(id: string): { query: string; is: (p: Candidate) => b
   };
 }
 
+// ---- the price guide download ----------------------------------------------------------
+
+/** A CSV file's rows, by its header's column names (quoted fields with commas and "" in them included). */
+export function parseCsv(text: string): Record<string, string>[] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = '';
+  let quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (quoted) {
+      if (ch === '"' && text[i + 1] === '"') {
+        field += '"';
+        i++;
+      } else if (ch === '"') quoted = false;
+      else field += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === ',') {
+      row.push(field);
+      field = '';
+    } else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      row.push(field);
+      field = '';
+      if (row.some((f) => f !== '')) rows.push(row);
+      row = [];
+    } else field += ch;
+  }
+  row.push(field);
+  if (row.some((f) => f !== '')) rows.push(row);
+  const [head, ...body] = rows;
+  if (!head) return [];
+  return body.map((r) => Object.fromEntries(head.map((h, i) => [h.trim(), r[i] ?? ''])));
+}
+
+/** "051/165" and "#51" → "51", "TG03/TG30" → "tg3": a card number to compare. */
+const numKey = (v: unknown) => {
+  const n = fold(String(v ?? '').split('/')[0]);
+  const m = /^([a-z]*)0*(\d+)([a-z]*)$/.exec(n);
+  return m ? `${m[1]}${m[2]}${m[3]}` : n;
+};
+
+/** "$21.08" (a price guide price) → 2108 pennies, as the API gives them; anything else → null. */
+const pennies = (v: string) => {
+  const n = Number(String(v).replace(/[$,\s]/g, ''));
+  return v.trim() && Number.isFinite(n) && n > 0 ? Math.round(n * 100) : null;
+};
+
+/** The price guide, by product id and by card number, for pricing and matching without asking the API. */
+export class PriceGuide {
+  private readonly byId = new Map<string, PcProduct>();
+  private readonly byNumber = new Map<string, PcProduct[]>();
+  constructor(rows: Record<string, string>[]) {
+    for (const row of rows) {
+      const p: Record<string, unknown> = { ...row };
+      for (const k of Object.keys(row)) if (k.endsWith('-price')) p[k] = pennies(row[k]);
+      try {
+        const product = parseProduct(p);
+        this.byId.set(product.id, product);
+        const n = numKey(product.number);
+        if (n) this.byNumber.set(n, [...(this.byNumber.get(n) ?? []), product]);
+      } catch {
+        // a row without an id
+      }
+    }
+  }
+  get size() {
+    return this.byId.size;
+  }
+  get(id: string): PcProduct | undefined {
+    return this.byId.get(id);
+  }
+  /** Products with the card's number whose name (without its bracket) is the card's name: what a search for it would find. */
+  candidates(card: { name?: unknown; number?: unknown }): PcProduct[] {
+    const num = numKey(card.number);
+    const name = fold(String(card.name ?? ''));
+    if (!num || !name) return [];
+    return (this.byNumber.get(num) ?? []).filter((p) => fold(p.title.replace(/\s*\[[^\]]*\]\s*/g, ' ')) === name);
+  }
+}
+
 /** The token is missing: PriceCharting isn't asked. */
 export class NoToken extends SourceError {}
 /**
@@ -217,6 +298,8 @@ export class PriceCharting {
   private paused: { until: number; why: string } | null = null;
   private failures = 0;
   private readonly cache = new Map<string, { at: number; body: Record<string, unknown> }>();
+  /** Today's price guide download. */
+  private guide: { day: string; guide: PriceGuide } | null = null;
   /** Calls made, for the tests and the logs. */
   calls = 0;
 
@@ -279,6 +362,7 @@ export class PriceCharting {
   /** Forget every answer kept (the token was removed, or PriceCharting's data purged). */
   forget() {
     this.cache.clear();
+    this.guide = null;
   }
 
   private saveUsage() {
@@ -328,6 +412,11 @@ export class PriceCharting {
     const key = cacheable ? `${path}?${new URLSearchParams(params)}` : '';
     const hit = key ? this.cache.get(key) : undefined;
     if (hit && this.now() - hit.at < this.cacheMs) return Promise.resolve(structuredClone(hit.body));
+    return this.request(path, params, token, key, false) as Promise<Record<string, unknown>>;
+  }
+
+  /** One request through the guard: JSON from the API, or (`csv`) the text of a price guide download. */
+  private request(path: string, params: Record<string, string>, token: string | null, key: string, csv: boolean): Promise<Record<string, unknown> | string> {
     const run = async () => {
       if (!token) throw new NoToken('PriceCharting has no API token: add it under Administration → Prices.');
       const started = this.now();
@@ -339,7 +428,8 @@ export class PriceCharting {
             this.fetcher,
             PC + path,
             { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' }, body: new URLSearchParams({ t: token, ...params }).toString() },
-            { attempts: 1, allow: [400, 401, 403, 404, ...BUSY] },
+            // The price guide is a few megabytes that PriceCharting takes half a minute to send.
+            { attempts: 1, allow: [400, 401, 403, 404, ...BUSY], ...(csv ? { timeoutMs: 180_000 } : {}) },
           );
         } catch (err) {
           // Unreachable (or timed out): tried again unless that's the last try.
@@ -352,8 +442,19 @@ export class PriceCharting {
           throw this.failed(err instanceof SourceError ? err : new SourceError(String(err)));
         }
         this.last = this.now();
-        const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
-        if (res.ok && body?.status === 'success') {
+        const text = await res.text().catch(() => '');
+        if (csv && res.ok && /^id,/.test(text)) {
+          this.failures = 0;
+          return text;
+        }
+        let body: Record<string, unknown> | null = null;
+        try {
+          body = JSON.parse(text) as Record<string, unknown>;
+        } catch {
+          // A download's errors are plain text ("Unknown access token").
+          body = csv && text.trim() ? { error: text.trim() } : null;
+        }
+        if (!csv && res.ok && body?.status === 'success') {
           this.failures = 0;
           if (key) {
             this.cache.set(key, { at: this.now(), body });
@@ -377,7 +478,7 @@ export class PriceCharting {
           throw this.failed(new SourceError(`PriceCharting answered ${res.status}${why ? `: ${why}` : ''}`));
         }
         this.failures = 0;
-        if (res.status === 401 || res.status === 403) throw new Refused(/token/i.test(why) ? "PriceCharting didn't accept the API token: check it under Administration → Prices." : `PriceCharting refused the request (${res.status})${why ? `: ${why}` : ''}.`);
+        if (res.status === 401 || res.status === 403 || /access token/i.test(why)) throw new Refused(/token/i.test(why) ? "PriceCharting didn't accept the API token: check it under Administration → Prices." : `PriceCharting refused the request (${res.status})${why ? `: ${why}` : ''}.`);
         if (res.status === 404 || /no such product/i.test(why)) throw new ProductGone(`PriceCharting has no product ${params.id ?? 'like that'} any more.`);
         throw new SourceError(`PriceCharting answered ${res.status}${why ? `: ${why}` : ''}`);
       }
@@ -421,6 +522,22 @@ export class PriceCharting {
     if (!old) return null;
     const found = (await this.search(old.query)).filter(old.is);
     return found.length === 1 ? this.product(found[0].id) : null;
+  }
+
+  /**
+   * The subscription's whole Pokémon price guide (every product's id, set, name and prices, and the
+   * graded prices and release dates when the subscription has them), downloaded in one call at most
+   * once a day: the daily update prices every PriceCharting card from it instead of one call each.
+   */
+  async priceGuide(): Promise<PriceGuide> {
+    const day = this.day();
+    if (this.guide?.day === day) return this.guide.guide;
+    const text = (await this.request('/price-guide/download-custom', { category: 'pokemon-cards' }, this.o.token(), '', true)) as string;
+    const guide = new PriceGuide(parseCsv(text));
+    if (!guide.size) throw new SourceError("PriceCharting's price guide was empty");
+    this.guide = { day, guide };
+    this.log.info('pricing', `Downloaded PriceCharting's Pokémon price guide: ${guide.size} products`, { products: guide.size });
+    return guide;
   }
 
   /** Whether PriceCharting accepts a token (one call, never from the cache), before it's saved. */

@@ -40,6 +40,8 @@ function net() {
   const waiting: (() => void)[] = [];
   const fetcher: Fetcher = async (url) => {
     if (String(url).includes('bankofcanada')) return Response.json(BOC);
+    // No price guide: each card is asked about on its own (what these tests hang).
+    if (String(url).includes('price-guide')) return new Response('not found', { status: 404 });
     if (hang) await new Promise<void>((r) => waiting.push(r));
     return Response.json({ status: 'success', id: '100', 'product-name': 'Lapras', 'console-name': 'Pokemon 30th Celebration', 'loose-price': 1000 });
   };

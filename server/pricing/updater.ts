@@ -10,7 +10,7 @@ import type { Store } from '../store';
 import { DETAIL_FIELDS } from '../details';
 import { Catalog, type CatalogQuote } from './catalog';
 import { catalogMismatch, chooseMatch, detailsFromProduct, norm, searchQuery, variantFromProduct, type CardForMatch, type MatchResult } from './match';
-import { type PcProduct, type PriceCharting, gradedPrice, oldAddress, quoteOf } from './pricecharting';
+import { type PcProduct, type PriceCharting, type PriceGuide, gradedPrice, oldAddress, quoteOf } from './pricecharting';
 import { type TcgCsv, type TcgCsvQuote } from './tcgcsv';
 import { type Candidate, type Fetcher, ProductGone, type Quote, Refused, type Source, SourceError, get, exchangeRates, tcgImage } from './sources';
 
@@ -323,7 +323,7 @@ export class PriceUpdater {
   private eur: number | null = null;
   /** During a run: each site's failures in a row, and the sites left alone for the rest of it (with why). */
   /** `force`: databases are asked again even about cards they were asked about this week (a manual run). */
-  private run: { streak: Record<Source, number>; tripped: Map<Source, string>; scope: RunScope; force: boolean } | null = null;
+  private run: { streak: Record<Source, number>; tripped: Map<Source, string>; scope: RunScope; force: boolean; guide: PriceGuide | null } | null = null;
   /** Which run is current: a stopped run's loop sees this change and ends without writing anything. */
   private gen = 0;
   private readonly stallMs: number;
@@ -491,7 +491,15 @@ export class PriceUpdater {
     // A site that keeps failing (down, or refusing the token) is left alone for the rest of the run.
     this.catalog?.reset();
     this.tcgcsv?.reset();
-    const run = (this.run = { streak: { pricecharting: 0, tcgplayer: 0 }, tripped: new Map<Source, string>(), scope, force });
+    const run = (this.run = { streak: { pricecharting: 0, tcgplayer: 0 }, tripped: new Map<Source, string>(), scope, force, guide: null as PriceGuide | null });
+    // PriceCharting's whole price guide in one call, instead of one call per card.
+    if (scope !== 'pictures' && this.pc?.ready && !this.siteOut('pricecharting')) {
+      this.step = "downloading PriceCharting's price guide";
+      run.guide = await this.ask('pricecharting', () => this.pc!.priceGuide()).catch((err) => {
+        this.log.warn('pricing', `Couldn't download PriceCharting's price guide, so each card is asked about on its own: ${message(err)}`);
+        return null;
+      });
+    }
     this.log.info('pricing', `${capital(name)} started (${reason}${scope === 'all' ? '' : `, ${scope} only`}) for ${ids.length} cards${scope === 'pictures' ? '' : ` at US$1 = C$${rate}`}`, { reason, scope, cards: ids.length, rate });
     try {
       for (const id of ids) {
@@ -865,7 +873,7 @@ export class PriceUpdater {
     const fromCatalog = (l: { id: string; linkedBy?: 'auto' | 'user' | null }) => !!cat?.tcgplayer && (cat.tcgplayer.productId ? cat.tcgplayer.productId === l.id : l.linkedBy !== 'user');
     const quote = (l: { source: Source; id: string; linkedBy?: 'auto' | 'user' | null }): Promise<Quote> => {
       if (l.source === 'pricecharting') {
-        const known = moved && typeof moved === 'object' && moved.id === l.id ? moved : null;
+        const known = (moved && typeof moved === 'object' && moved.id === l.id ? moved : null) ?? this.run?.guide?.get(l.id) ?? null;
         return known ? Promise.resolve(quoteOf(known)) : this.ask('pricecharting', () => this.pc!.product(l.id)).then(quoteOf);
       }
       if (fromCatalog(l)) return Promise.resolve({ usd: cat!.tcgplayer!.usd, image: tcgImage(l.id, 1000), info: null });
@@ -1274,7 +1282,10 @@ export class PriceUpdater {
     let pcError: unknown = null;
     if (!skip.includes('pricecharting')) {
       try {
-        pc = chooseMatch(card, await this.ask('pricecharting', () => this.pc!.search(searchQuery(card))));
+        // The price guide's products with the card's number and name first; PriceCharting's search
+        // when they don't give a certain match.
+        const local = this.run?.guide ? chooseMatch(card, this.run.guide.candidates(card)) : null;
+        pc = local?.match ? local : chooseMatch(card, await this.ask('pricecharting', () => this.pc!.search(searchQuery(card))));
       } catch (err) {
         pcError = err;
       }
