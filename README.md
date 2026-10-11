@@ -424,6 +424,30 @@ placeholders aren't counted.
   switches them back when they all are placeholders.
 - **CSV:** a *Placeholder* column (yes/no) on import and export.
 
+## Master sets
+
+A **master set** is every card of one Pokémon ever released, in every variant. *+ New binder →
+Master set…* makes one as a new binder of [placeholders](#placeholders), to fill as you buy the cards:
+
+1. Type the Pokémon (*Pikachu*, *Mr. Mime*, *Farfetch'd*), choose its **owner** and the pockets per
+   page; the binder is named *Pikachu master set* unless you name it yourself.
+2. *Find cards* looks up every English card of that Pokémon in [TCGdex](https://tcgdex.dev): by name
+   (its ex, V, VMAX and GX cards, *Ash's Pikachu*, *Pikachu & Zekrom GX*) and by Pokédex number, with
+   one entry per **variant**: the regular card, holo, reverse holo, 1st Edition, Shadowless, Poké Ball
+   and Master Ball patterns, stamps and promos' other printings. TCG Pocket's digital cards, jumbo
+   cards and trainer cards aren't included. A preview lists them all, oldest first, with how many
+   pages they fill.
+3. *Create binder* puts one placeholder per variant in the new binder, page 1 pocket 1 onwards, in
+   release order, with its name, set, set code, number, rarity, variant, illustrator, release date,
+   language and owner filled in, and already matched to its TCGdex card.
+
+Placeholders get their prices and pictures by themselves straight afterwards, one card at a time
+(a few hundred cards take a while; PriceCharting's daily budget may leave some for the next day).
+When you buy one, open it and switch *Placeholder* off (or select several and choose *Owned*), and
+change anything that differs (its condition, a grade). Cards you don't collect, like McDonald's or
+trainer kit cards, can be deleted like any other card. A pocket shows its card's variant under the
+name, so a set's 1st Edition, Shadowless and reverse holo copies can be told apart.
+
 ## Arrange a binder by hand
 
 *Arrange* (next to *Pages* and *List*) lists every pocket of the binder in order, page by page,
