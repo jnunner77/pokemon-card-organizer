@@ -8,7 +8,7 @@ import { Assets } from '../server/assets';
 import { makeBackup } from '../server/backup';
 import { Config } from '../server/config';
 import { Catalog, choosePtcg, chooseVariant, printingOf, ptcgDetails, ptcgTcgplayer, variantPrices, tcgdexCardmarket, tcgdexTcgplayer, type PtcgCard, type TcgdexCard } from '../server/pricing/catalog';
-import { chooseMatch, detailsFromProduct, searchQuery, variantFromProduct } from '../server/pricing/match';
+import { catalogMismatch, chooseMatch, detailsFromProduct, searchQuery, variantFromProduct } from '../server/pricing/match';
 import { PriceCharting, gradedPrice, oldAddress, parseProduct } from '../server/pricing/pricecharting';
 import { type Candidate, type Fetcher, retryPolicy, releaseDate } from '../server/pricing/sources';
 import { PriceUpdater, pricesDisagree, thinAutoPrices } from '../server/pricing/updater';
@@ -516,6 +516,40 @@ describe('prices and pictures from the card databases', () => {
     expect(store.get('cards', 'chosen')!.pricing).toMatchObject({ pair: { id: '497658', linkedBy: 'user' } });
   });
 
+  it('judges the card databases’ card against PriceCharting’s product, which knows every set and variant', () => {
+    const pc = (set: string, title = 'Lugia') => ({ title, set });
+    // Another set: the 30th Celebration Magikarp priced as Paldea Evolved's.
+    expect(catalogMismatch({ number: '203/193' }, pc('Pokemon 30th Celebration'), 'Paldea Evolved')).toBe("the card database's card is from Paldea Evolved, PriceCharting's product from 30th Celebration");
+    expect(catalogMismatch({ number: '118/130' }, pc('Pokemon Base Set'), 'Base Set 2')).toMatch(/from Base Set 2/);
+    // The same set, however each names it, sub-sets through the set they belong to, and promos.
+    expect(catalogMismatch({ number: '131/165' }, pc('Pokemon Scarlet & Violet 151'), '151')).toBeNull();
+    expect(catalogMismatch({ number: '149/147' }, pc('Pokemon 30th Celebration'), '30th Classic Collection', '30th Celebration')).toBeNull();
+    expect(catalogMismatch({ number: 'GG69/GG70' }, pc('Pokemon Crown Zenith'), 'Crown Zenith Galarian Gallery')).toBeNull();
+    expect(catalogMismatch({ number: '4/102' }, pc('Pokemon Celebrations'), 'Celebrations Classic Collection')).toBeNull();
+    expect(catalogMismatch({ number: 'SWSH298' }, pc('Pokemon Promo'), 'SWSH Black Star Promos')).toBeNull();
+    // A variant product: only when the card is priced for that variant; plain printings are fine.
+    expect(catalogMismatch({ number: '1', variant: '' }, pc('Pokemon Prismatic Evolutions', 'Exeggcute [Master Ball]'), 'Prismatic Evolutions')).toBe("PriceCharting's product is the Master Ball variant, which the card database doesn't price for this card");
+    expect(catalogMismatch({ number: '1', variant: 'Master Ball' }, pc('Pokemon Prismatic Evolutions', 'Exeggcute [Master Ball]'), 'Prismatic Evolutions')).toBeNull();
+    expect(catalogMismatch({ number: '1', variant: '' }, pc('Pokemon Prismatic Evolutions', 'Exeggcute [Reverse Holo]'), 'Prismatic Evolutions')).toBeNull();
+    // Nothing to judge by.
+    expect(catalogMismatch({}, null, 'Paldea Evolved')).toBeNull();
+    expect(catalogMismatch({}, pc('Pokemon 30th Celebration'), null)).toBeNull();
+  });
+
+  it('leaves TCGplayer and Cardmarket out of a day when their card is another set than PriceCharting’s product', async () => {
+    // A 151 Lapras matched in TCGdex (151), but linked to PriceCharting's 30th Celebration Lapras.
+    store.set('cards', 'c', lapras({ set: '30th Celebration', pricing: { source: 'pricecharting', id: LAPRAS_30TH, title: 'Lapras', set: 'Pokemon 30th Celebration', linkedBy: 'user' } }));
+    await updater(dbNet()).updateCard('c');
+    const e = (store.get('cards', 'c')!.prices as { usd: number; where: string; quotes: object; note: string }[])[0];
+    expect(e).toMatchObject({ usd: 13.2, where: 'PriceCharting', quotes: { pricecharting: 13.2 } });
+    expect(e.note).toMatch(/· TCGplayer left out: the card database's card is from 151, PriceCharting's product from 30th Celebration$/);
+    // The rebuild leaves them out of past days the same way.
+    const day = { id: 'd', date: '2026-10-09', type: 'market', currency: 'CAD', auto: true, usd: 300, amount: 420, where: 'TCGplayer', quotes: { pricecharting: 13, tcgplayer: 300 } };
+    store.update('cards', 'c', { prices: [day], details: { source: 'tcgdex', result: 'complete', id: 'sv03.5-131', set: '151', checkedAt: '2026-10-01T00:00:00Z' } });
+    updater(dbNet()).rebuildPrices(true);
+    expect(store.get('cards', 'c')!.prices).toEqual([expect.objectContaining({ usd: 13, amount: 18.2, where: 'PriceCharting', note: expect.stringMatching(/TCGplayer and Cardmarket left out: the card database's card is from 151/) })]);
+  });
+
   it('calls prices disagreeing when one is over 3 times another and US$5 apart', () => {
     expect(pricesDisagree({ pricecharting: 4, tcgplayer: 310 })).toBe(true);
     expect(pricesDisagree({ pricecharting: 10, tcgplayer: 29 })).toBe(false); // under 3×
@@ -549,7 +583,7 @@ describe('prices and pictures from the card databases', () => {
     expect(one.query({ level: 'warn', cat: 'pricing' }).map((e) => e.msg)).toEqual([expect.stringMatching(/^Lapras 151 131\/165: pokemontcg\.io: api\.pokemontcg\.io answered 500$/)]);
   });
 
-  it("logs the highest of TCGplayer and Cardmarket without reading TCGplayer, with pokemontcg.io's large picture", async () => {
+  it("prices from TCGplayer and Cardmarket without reading TCGplayer, with pokemontcg.io's large picture", async () => {
     store.set('cards', 'c1', lapras());
     // Without PriceCharting's token.
     const net = dbNet();
@@ -559,9 +593,10 @@ describe('prices and pictures from the card databases', () => {
     // Matched to the TCGplayer product TCGdex names, without searching TCGplayer.
     expect(c.pricing).toMatchObject({ source: 'tcgplayer', id: '516694', linkedBy: 'auto', error: null, catalog: { tcgdexId: 'sv03.5-131', ptcgId: 'sv3pt5-131' } });
     expect(net.calls.some((u) => u.includes('tcgplayer.com') || u.includes('pricecharting.com'))).toBe(false);
-    // Reverse holo: TCGplayer US$2.12, Cardmarket €3.07 = US$3.44 at the day's rates; Cardmarket is higher.
+    // Reverse holo: TCGplayer US$2.12, Cardmarket €3.07 = US$3.44 at the day's rates. Without
+    // PriceCharting, TCGplayer is the blend's anchor, and Cardmarket is more than 25% from it: left out.
     expect(c.prices).toEqual([
-      expect.objectContaining({ where: 'Cardmarket', usd: 3.44, amount: 4.91, quotes: { tcgplayer: 2.12, cardmarket: 3.44 }, note: 'Daily update · higher of TCGplayer US$2.12 and Cardmarket €3.07 (US$3.44) at 1.4271 (€1 = C$1.5978)' }),
+      expect.objectContaining({ where: 'TCGplayer', usd: 2.12, amount: 3.03, quotes: { tcgplayer: 2.12, cardmarket: 3.44 }, note: 'Daily update · TCGplayer US$2.12 · left out (more than 25% from TCGplayer): Cardmarket US$3.44 at 1.4271 (Cardmarket €3.07, €1 = C$1.5978)' }),
     ]);
     expect(c.pricing).toMatchObject({ imageUrl: 'https://images.pokemontcg.io/sv3pt5/131_hires.png' });
     expect(fs.readFileSync(assets.find(c.officialImageId as string)!.file)).toEqual(HIRES);
@@ -590,18 +625,18 @@ describe('prices and pictures from the card databases', () => {
     const fresh = store.get('cards', 'fresh')!;
     expect(fresh.pricing).toMatchObject({ source: 'pricecharting', pair: { source: 'tcgplayer', id: '516694', linkedBy: 'auto' }, imageUrl: 'https://images.pokemontcg.io/sv3pt5/131_hires.png' });
     // This card (151's Lapras) is linked to the 30th Celebration Lapras on PriceCharting: its US$13.20
-    // is far from the others' US$2.12 and US$3.44, so the card is flagged and the main product's price used.
+    // is far from the others' US$2.12 and US$3.44, so the card is flagged; the blend (anchored on
+    // PriceCharting) leaves the others out.
     expect((fresh.prices as { where: string; quotes: object; note: string }[])[0]).toMatchObject({
       where: 'PriceCharting',
       quotes: { pricecharting: 13.2, tcgplayer: 2.12, cardmarket: 3.44 },
-      note: expect.stringMatching(/^Daily update · PriceCharting's US\$13\.20: the sources disagree \(PriceCharting US\$13\.20, TCGplayer US\$2\.12, Cardmarket €3\.07 \(US\$3\.44\)\), so the highest wasn't used/),
+      note: 'Daily update · PriceCharting US$13.20 · left out (more than 25% from PriceCharting): TCGplayer US$2.12, Cardmarket US$3.44 at 1.4271 (Cardmarket €3.07, €1 = C$1.5978)',
     });
     expect(fresh.pricing).toMatchObject({ disagree: { quotes: { pricecharting: 13.2, tcgplayer: 2.12, cardmarket: 3.44 }, sig: `pricecharting:${LAPRAS_30TH}|tcgplayer:516694|sv03.5-131` } });
-    // The person says the prices are right: the highest is used, until the matches change.
+    // The person says the prices are right: no longer flagged, until the matches change.
     store.update('cards', 'fresh', { pricesDisagreeIgnored: `pricecharting:${LAPRAS_30TH}|tcgplayer:516694|sv03.5-131` });
     await updater(net).updateCard('fresh');
     expect(store.get('cards', 'fresh')!.pricing).toMatchObject({ disagree: null });
-    expect((store.get('cards', 'fresh')!.prices as { note: string }[]).at(-1)!.note).toMatch(/^Daily update · highest of PriceCharting US\$13\.20, TCGplayer US\$2\.12 and Cardmarket €3\.07 \(US\$3\.44\)/);
     // A card with a picture from PriceCharting's pages (before the API) keeps it.
     const pcPicture = assets.put(JPEG)!;
     const pcUrl = 'https://storage.googleapis.com/images.pricecharting.com/asqso2to674mken7/1600.jpg';
@@ -618,7 +653,7 @@ describe('prices and pictures from the card databases', () => {
     store.set('cards', 'c1', lapras());
     const net = dbNet();
     await noPc(net, config).runAll('manual');
-    expect(store.get('cards', 'c1')!.prices).toEqual([expect.objectContaining({ where: 'TCGplayer', usd: 2.12, quotes: { tcgplayer: 2.12 }, note: 'Daily update · US$2.12 at 1.4271' })]);
+    expect(store.get('cards', 'c1')!.prices).toEqual([expect.objectContaining({ where: 'TCGplayer', usd: 2.12, quotes: { tcgplayer: 2.12 }, note: 'Daily update · TCGplayer US$2.12 at 1.4271' })]);
     expect(net.calls.some((u) => u.includes('pricecharting.com'))).toBe(false);
   });
 
@@ -662,8 +697,8 @@ describe('prices and pictures from the card databases', () => {
     await noPc(net).runAll('manual');
     const mb = store.get('cards', 'mb')!;
     expect(mb.pricing).toMatchObject({ source: 'tcgplayer', id: '610637', linkedBy: 'auto', imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/610637_in_1000x1000.jpg' });
-    // TCGplayer US$1.27 vs Cardmarket €1.61 = US$1.80.
-    expect(mb.prices).toEqual([expect.objectContaining({ where: 'Cardmarket', quotes: { tcgplayer: 1.27, cardmarket: 1.8 }, note: expect.stringMatching(/^Daily update \(Master Ball reverse\) · higher of TCGplayer US\$1\.27 and Cardmarket €1\.61/) })]);
+    // TCGplayer US$1.27 vs Cardmarket €1.61 = US$1.80: more than 25% from TCGplayer (the anchor), so left out.
+    expect(mb.prices).toEqual([expect.objectContaining({ where: 'TCGplayer', usd: 1.27, quotes: { tcgplayer: 1.27, cardmarket: 1.8 }, note: expect.stringMatching(/^Daily update \(Master Ball reverse\) · TCGplayer US\$1\.27 · left out \(more than 25% from TCGplayer\): Cardmarket US\$1\.80/) })]);
     // The product the person chose stays; TCGdex doesn't price it (TCGplayer's pages aren't read), so Cardmarket does, and the card says why.
     expect(store.get('cards', 'chosen')).toMatchObject({ pricing: { source: 'tcgplayer', id: '610356', linkedBy: 'user', error: expect.stringMatching(/doesn't price this TCGplayer product/) }, prices: [expect.objectContaining({ where: 'Cardmarket', quotes: { cardmarket: 1.8 } })] });
   });
@@ -782,9 +817,9 @@ describe('prices and pictures from the card databases', () => {
     expect(pc.pricing).toMatchObject({ source: 'tcgplayer', id: '516694', pair: null, imageUrl: null });
     expect(pc.officialImageId).toBeNull();
     expect(assets.find(pcPicture.id)).toBeNull();
-    // Entries PriceCharting set are re-priced from the day's other sources at the same rate, or removed; the person's own stays.
+    // Entries PriceCharting set are re-priced from the day's other sources (by the price method) at the same rate, or removed; the person's own stays.
     expect(pc.prices).toEqual([
-      expect.objectContaining({ date: '2026-10-08', where: 'Cardmarket', usd: 3.44, amount: 4.82, quotes: { tcgplayer: 2.12, cardmarket: 3.44 }, note: "Daily update · Cardmarket US$3.44 (PriceCharting's price removed)" }),
+      expect.objectContaining({ date: '2026-10-08', where: 'TCGplayer', usd: 2.12, amount: 2.97, quotes: { tcgplayer: 2.12, cardmarket: 3.44 }, note: "Daily update · TCGplayer US$2.12 · left out (more than 25% from TCGplayer): Cardmarket US$3.44 at 1.4000 (PriceCharting's price removed)" }),
       expect.objectContaining({ date: '2026-10-09', where: 'TCGplayer', usd: 20, quotes: { tcgplayer: 20 }, note: "Daily update · TCGplayer US$20.00 (PriceCharting's price removed)" }),
       expect.objectContaining({ id: 'mine', where: 'PriceCharting' }),
     ]);

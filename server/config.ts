@@ -27,12 +27,26 @@ export const pricingConfigSchema = z
   })
   .strict();
 
+/** How a card's daily price is worked out from its sources (blend.ts, public/blend.js). */
+export const priceMethodSchema = z
+  .object({
+    method: z.enum(['blend', 'highest', 'pricecharting']),
+    weights: z.object({ pricecharting: z.number().min(0).max(100), tcgplayer: z.number().min(0).max(100), cardmarket: z.number().min(0).max(100) }).strict(),
+    /** Percent from PriceCharting's price beyond which a source is left out. */
+    tolerance: z.number().min(1).max(1000),
+  })
+  .strict()
+  .refine((m) => m.weights.pricecharting + m.weights.tcgplayer + m.weights.cardmarket > 0, 'Give at least one source a weight.');
+export type PriceMethodConfig = z.infer<typeof priceMethodSchema>;
+
 export type Retention = z.infer<typeof retentionSchema>;
 export type PricingConfig = z.infer<typeof pricingConfigSchema>;
 
 export interface AdminConfig {
   backups: Retention;
   pricing: PricingConfig;
+  /** How a card's daily price is worked out; the default (blend 40/40/20, 25%) when not set. */
+  priceMethod?: PriceMethodConfig | null;
   /** When someone last downloaded a full backup (a copy that leaves the server). */
   lastFullBackupAt: string | null;
   /** When an administrator last marked the problems (warnings and errors) as seen (problems.ts). */

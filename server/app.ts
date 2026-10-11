@@ -11,7 +11,7 @@ import type { Autofill } from './autofill';
 import { RestoreError, makeBackup, restoreBackup } from './backup';
 import { Backups } from './backups';
 import { dirBytes, freeBytes, runChecks } from './checks';
-import { Config, pricingConfigSchema, retentionSchema } from './config';
+import { Config, priceMethodSchema, pricingConfigSchema, retentionSchema } from './config';
 import type { CardDetails } from './details';
 import { GUEST_COOKIE, GUEST_IDLE_MS, GuestFeed, type Guests, guestSchemas, isListed, shownImage } from './guests';
 import { CATEGORIES, LEVELS, type Logger, quietLogger } from './log';
@@ -733,6 +733,27 @@ export function createApp(o: AppOptions) {
     config.set({ pricing });
     log.info('admin', `${who(res)} changed the price update schedule`, { ...pricing });
     res.json({ schedule: updater?.schedule() ?? { ...pricing } });
+  });
+  // How a card's daily price is worked out (blend.ts): blended, highest, or PriceCharting first.
+  admin.put('/pricing/method', json, (req, res) => {
+    const priceMethod = priceMethodSchema.parse(req.body);
+    config.set({ priceMethod });
+    updater?.noteToken();
+    log.info('admin', `${who(res)} changed how daily prices are worked out`, { ...priceMethod });
+    res.json({ schedule: updater?.schedule() ?? null });
+  });
+  // Past daily prices worked out again with that method: a preview, or (apply) saved after a copy of the ledger.
+  admin.post('/pricing/rebuild', heavy, json, (req, res) => {
+    if (!updater) throw new HttpError(400, 'Automatic prices are not available on this server.');
+    const apply = req.body?.apply === true;
+    let summary;
+    try {
+      summary = updater.rebuildPrices(apply, () => backups.snapshot('before rebuilding daily prices', who(res)).name);
+    } catch (err) {
+      throw new HttpError(409, err instanceof Error ? err.message : String(err), 'busy');
+    }
+    if (apply) log.info('admin', `${who(res)} rebuilt the past daily prices`, { cards: summary.cards, prices: summary.prices });
+    res.json(summary);
   });
   const needPc = () => {
     if (!o.pricecharting || !updater) throw new HttpError(400, 'PriceCharting prices are not available on this server.');

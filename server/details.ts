@@ -68,6 +68,8 @@ export interface DetailsStatus {
   suggest?: DetailsOption[] | null;
   /** The person chose this match (from several, or in Cards to check): it's never replaced by a lookup. */
   chosen?: boolean | null;
+  /** A match in a reprint sub-set (30th Classic Collection): the set it belongs to (30th Celebration). */
+  parentSet?: string | null;
   checkedAt: string;
 }
 
@@ -343,13 +345,13 @@ export class CardDetails {
    * name, but which belongs to a different set, is flagged (Bill 118/130 filed under Base Set is
    * from Base Set 2). Labels TCGdex doesn't know ("Scarlet & Violet Base") aren't errors.
    */
-  private async checkFiling(m: DetailsMatch, filedUnder: unknown): Promise<{ released: string | null; filedUnder: DetailsStatus['filedUnder'] }> {
+  private async checkFiling(m: DetailsMatch, filedUnder: unknown): Promise<{ released: string | null; filedUnder: DetailsStatus['filedUnder']; parentSet?: string }> {
     const label = setLabel(filedUnder);
     if (!label || norm(label) === norm(m.set)) return { released: m.released, filedUnder: null };
     const named = await this.setNamed(label);
     if (!named || named.id === m.setId) return { released: m.released, filedUnder: null };
     // A reprint sub-set (30th Classic Collection) is part of the set it's filed under.
-    if (isSubSet(named.id, m.setId)) return { released: m.released ?? named.released, filedUnder: null };
+    if (isSubSet(named.id, m.setId)) return { released: m.released ?? named.released, filedUnder: null, parentSet: named.name };
     if (isPromo(m)) return { released: named.released ?? m.released, filedUnder: null };
     return { released: m.released, filedUnder: { as: String(filedUnder), id: named.id, name: named.name } };
   }
@@ -455,6 +457,7 @@ export class CardDetails {
           setCode: m.setCode,
           released: m.released,
           filedUnder: check.filedUnder,
+          ...(check.parentSet ? { parentSet: check.parentSet } : {}),
           ...(isChosen ? { chosen: true } : {}),
         };
       } else if (found.length) status = { ...base, result: 'several', options: found.map(option) };
