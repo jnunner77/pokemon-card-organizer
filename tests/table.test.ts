@@ -32,7 +32,7 @@ const ctx = {
     condition: ['Near Mint', 'Lightly Played'],
     grader: ['Raw', 'PSA'],
     status: [['binder', 'In binder'], ['sold', 'Sold']],
-    owner: [['', 'Not set'], ['Megan', 'Megan'], ['Justin', 'Justin'], ['Both', 'Both']],
+    owner: [['', 'Not set'], ['Megan', 'Megan'], ['Justin', 'Justin'], ['Maiya', 'Maiya'], ['Both', 'Both']],
   },
   binder: (c: Card) => binders[c.binderId as string]?.name || 'Not in a binder',
   location: (c: Card) => (binders[c.binderId as string] ? `${binders[c.binderId as string].name} · p${c.page} · #${c.slot}` : 'Loose'),

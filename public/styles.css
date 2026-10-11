@@ -227,6 +227,7 @@ tr.ended td{background:var(--bad-soft)}
 .filtrange>span{font-size:12px;color:var(--ink-3)}
 .filtacts{justify-content:flex-end;align-items:flex-start}
 .ownerpick{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:4px 0 8px}
+.ownerpick>:first-child{grid-column:1/-1}
 .tablewrap{overflow-x:auto}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{position:sticky;top:0;text-align:left;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-weight:600;padding:9px 10px;border-bottom:1px solid var(--line);background:var(--surface);white-space:nowrap}
