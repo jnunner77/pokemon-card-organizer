@@ -426,20 +426,30 @@ placeholders aren't counted.
 
 ## Master sets
 
-A **master set** is every card of one Pokémon ever released, in every variant. *+ New binder →
-Master set…* makes one as a new binder of [placeholders](#placeholders), to fill as you buy the cards:
+A **master set** is every card of one Pokémon ever released, or every card of one set, in every
+variant. *+ New binder → Master set…* makes one as a new binder of [placeholders](#placeholders), to
+fill as you buy the cards. Choose what it's a master set of:
 
-1. Type the Pokémon (*Pikachu*, *Mr. Mime*, *Farfetch'd*), choose its **owner** and the pockets per
-   page; the binder is named *Pikachu master set* unless you name it yourself.
-2. *Find cards* looks up every English card of that Pokémon in [TCGdex](https://tcgdex.dev): by name
-   (its ex, V, VMAX and GX cards, *Ash's Pikachu*, *Pikachu & Zekrom GX*) and by Pokédex number, with
-   one entry per **variant**: the regular card, holo, reverse holo, 1st Edition, Shadowless, Poké Ball
-   and Master Ball patterns, stamps and promos' other printings. TCG Pocket's digital cards, jumbo
-   cards and trainer cards aren't included. A preview lists them all, oldest first, with how many
-   pages they fill.
-3. *Create binder* puts one placeholder per variant in the new binder, page 1 pocket 1 onwards, in
-   release order, with its name, set, set code, number, rarity, variant, illustrator, release date,
-   language and owner filled in, and already matched to its TCGdex card.
+- **A Pokémon** (*Pikachu*, *Mr. Mime*, *Farfetch'd*): every English card of it in
+  [TCGdex](https://tcgdex.dev), found by name (its ex, V, VMAX and GX cards, *Ash's Pikachu*,
+  *Pikachu & Zekrom GX*) and by Pokédex number, oldest set first. Trainer cards aren't included.
+- **A set** (*151*, *Ascended Heroes*, *Base Set*; pick it from the suggestions as you type): every
+  card in it, trainers, energy and secret rares included, with its reprint sub-sets after it (Lost
+  Origin's Trainer Gallery, Crown Zenith's Galarian Gallery, Celebrations' Classic Collection), in
+  number order.
+
+Each card comes once per **variant**: the regular card, holo, reverse holo, 1st Edition, Shadowless,
+the set's reverse holo patterns (Poké Ball, Master Ball, the other balls, Energy symbol, Team
+Rocket). **Promo printings** (store and event stamps like GameStop, Pokémon Center and Player
+Rewards, Cosmos holos from blisters, metal cards) are offered with a tick box: ticked for a Pokémon,
+left out of a set unless you tick it (151 is 360 placeholders, or 382 with them). TCG Pocket's digital
+cards and jumbo cards are never included.
+
+Then choose its **owner** and the pockets per page; the binder is named *Pikachu master set* or
+*151 master set* unless you name it yourself. *Find cards* previews every card and variant with how
+many pages they fill, and *Create binder* puts one placeholder per variant in the new binder, page 1
+pocket 1 onwards, with its name, set, set code, number, rarity, variant, illustrator, release date,
+language and owner filled in, and already matched to its TCGdex card.
 
 Placeholders get their prices and pictures by themselves straight afterwards, one card at a time
 (a few hundred cards take a while; PriceCharting's daily budget may leave some for the next day).

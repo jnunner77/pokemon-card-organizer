@@ -812,3 +812,7 @@ html.tblopen,html.tblopen body{overflow:hidden}
 .mslist .hint{flex:none;text-align:right}
 .hint.err{color:var(--bad)}
 @media (max-width:640px){.mslist li{flex-direction:column;gap:0}.mslist .hint{text-align:left}}
+.msk{grid-column:1/-1;margin:0}
+.msx{display:flex;gap:8px;align-items:flex-start;margin:8px 0;font-size:13px;font-weight:600;cursor:pointer}
+.msx input{width:16px;height:16px;margin:2px 0 0;flex:none}
+.msx .hint{display:block;font-weight:400}
