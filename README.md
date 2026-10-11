@@ -144,9 +144,15 @@ No site's pages are read: every price comes from an API.
   [dev.pokemontcg.io](https://dev.pokemontcg.io), raises pokemontcg.io's request limits but isn't
   needed).
   pokemontcg.io often fails at random (a server error that works on the next try), so it's tried
-  three times. It only adds large pictures and blank details, so its failures during an update are
+  three times, a few seconds apart; its *502* page asks clients to wait a minute, so then it's left
+  for that card until the next update rather than holding the update up (tcgcsv.com likewise).
+  Without a key it allows 30 requests a minute, so it's asked at most once every 2.1 s (¼ s with
+  a key). It only adds large pictures and blank details, so its failures during an update are
   logged once, at the end (*pokemontcg.io failed for 18 of the 122 cards it was asked about …*),
   rather than a warning per card; those cards are tried again in the next update.
+- **Pace:** an update moves to the next card after a quarter of a second; each source keeps its
+  own pace on top (PriceCharting 1.25 s between calls, pokemontcg.io 2.1 s, tcgcsv.com ¼ s), and the
+  price guide spares most PriceCharting calls.
 - Links saved before PriceCharting was read through its API (by page address) are moved to their
   API product at the next update; one PriceCharting no longer has is matched again.
 
