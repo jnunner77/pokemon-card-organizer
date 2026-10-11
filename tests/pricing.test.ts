@@ -690,6 +690,62 @@ describe('prices and pictures from the card databases', () => {
     expect(s.counts).toMatchObject({ updated: 1, needsMatch: 1 });
   });
 
+  it("pictures a card from its TCGplayer product when pokemontcg.io fails and TCGdex has no picture, until pokemontcg.io answers", async () => {
+    // Lost Origin's Trainer Gallery Snorlax: TCGdex has no picture of it, nor a TCGplayer price today, but names its TCGplayer product.
+    const snorlax = (over: Record<string, unknown> = {}) => ({ name: 'Snorlax', set: 'Lost Origin Trainer Gallery', number: 'TG10/TG30', rarity: 'Rare', status: 'binder', prices: [], details: { source: 'tcgdex', result: 'complete', id: 'swsh11tg-TG10', checkedAt: '2026-10-01T00:00:00Z' }, ...over });
+    store.set('cards', 'tg', snorlax());
+    store.set('cards', 'off', snorlax({ pricing: { source: 'none', pair: { source: 'tcgplayer', off: true } } }));
+    const ptcgDown = () => new Response('', { status: 500 });
+    const TG_HIRES = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('Snorlax TG10 large picture')]);
+    const tgNet = (over: Record<string, () => Response> = {}) =>
+      dbNet({
+        'api.tcgdex.net/v2/en/cards/swsh11tg-TG10': () => Response.json(JSON.parse(fixture('tcgdex-snorlax-tg.json'))),
+        'api.pokemontcg.io/v2/cards?q=': ptcgDown,
+        'TG10_hires.png': () => new Response(new Uint8Array(TG_HIRES), { headers: { 'Content-Type': 'image/png' } }),
+        ...over,
+      });
+    const net = tgNet();
+    const s = await noPc(net).runAll('manual');
+    expect(s.counts).toMatchObject({ updated: 2 });
+    const tg = store.get('cards', 'tg')!;
+    expect(tg.prices).toEqual([expect.objectContaining({ where: 'Cardmarket' })]);
+    expect(tg.pricing).toMatchObject({ imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/284270_in_1000x1000.jpg' });
+    expect(fs.readFileSync(assets.find(tg.officialImageId as string)!.file)).toEqual(JPEG);
+    // Not when the person turned TCGplayer off for the card.
+    expect(store.get('cards', 'off')!.officialImageId ?? null).toBeNull();
+    expect(net.calls.filter((u) => u.includes('tcgplayer-cdn'))).toHaveLength(1);
+
+    // The next day pokemontcg.io answers: its larger picture replaces TCGplayer's.
+    now = new Date('2026-10-11T15:00:00Z');
+    const ptcg = { data: [{ id: 'swsh11tg-TG10', name: 'Snorlax', number: 'TG10', set: { id: 'swsh11tg', name: 'Lost Origin Trainer Gallery', ptcgoCode: 'LOR', printedTotal: 30 }, images: { large: 'https://images.pokemontcg.io/swsh11tg/TG10_hires.png' } }] };
+    const up = tgNet({ 'api.pokemontcg.io/v2/cards?q=': () => Response.json(ptcg) });
+    const oldPicture = tg.officialImageId as string;
+    await noPc(up).runAll('manual');
+    const after = store.get('cards', 'tg')!;
+    expect(after.pricing).toMatchObject({ imageUrl: 'https://images.pokemontcg.io/swsh11tg/TG10_hires.png' });
+    expect(fs.readFileSync(assets.find(after.officialImageId as string)!.file)).toEqual(TG_HIRES);
+    expect(assets.find(oldPicture)).toBeFalsy();
+    expect(up.calls.filter((u) => u.includes('tcgplayer-cdn'))).toHaveLength(0);
+  });
+
+  it("falls back to the next picture when one won't download", async () => {
+    store.set('cards', 'c1', lapras({ variant: '' }));
+    const TCGDEX_PIC = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('tcgdex picture')]);
+    const log = new Logger({ stdout: false });
+    // pokemontcg.io down and TCGplayer's image server refusing: TCGdex's own picture.
+    const net = dbNet({
+      'api.pokemontcg.io/v2/cards?q=': () => new Response('', { status: 500 }),
+      '516694_in_1000x1000.jpg': () => new Response('denied', { status: 403 }),
+      'assets.tcgdex.net/en/sv/sv03.5/131/high.png': () => new Response(new Uint8Array(TCGDEX_PIC)),
+    });
+    await new PriceUpdater({ store, assets, fetcher: net.fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', catalog: new Catalog({ fetcher: net.fetcher, now: () => now }), log }).updateCard('c1');
+    const c = store.get('cards', 'c1')!;
+    expect(c.pricing).toMatchObject({ imageUrl: 'https://assets.tcgdex.net/en/sv/sv03.5/131/high.png' });
+    expect(fs.readFileSync(assets.find(c.officialImageId as string)!.file)).toEqual(TCGDEX_PIC);
+    expect(log.query({ level: 'info', cat: 'pricing', text: 'picture from assets.tcgdex.net' })).toHaveLength(1);
+    expect(log.query({ level: 'warn', cat: 'pricing', text: 'No new image' })).toHaveLength(0);
+  });
+
   it("carries on without the databases when they don't answer", async () => {
     store.set('cards', 'c1', lapras({ pricing: { source: 'pricecharting', id: LAPRAS_30TH, linkedBy: 'auto', pair: { source: 'tcgplayer', id: null, checkedAt: '2026-10-09T00:00:00Z' } } }));
     const net = dbNet({ 'api.tcgdex.net/v2/en/cards/sv03.5-131': () => new Response('down', { status: 500 }) });

@@ -4,8 +4,8 @@
 //   its details (details.ts). Each card lists its variants (regular, reverse, holo, patterns such
 //   as Poké Ball and Master Ball, stamps, 1st Edition, Shadowless), each with its own TCGplayer
 //   and Cardmarket products and prices (in euros), refreshed daily. A card is priced from the
-//   variant its Variant field names, never from another variant's price. TCGdex's own pictures
-//   (600×825) stand in when there's no larger one.
+//   variant its Variant field names, never from another variant's price. Its TCGplayer product's
+//   picture (717×1000), then TCGdex's own (600×825), stand in when there's no larger one.
 // - pokemontcg.io (https://pokemontcg.io, free; a key, POKEMONTCG_API_KEY, raises its limits),
 //   whose card pictures are the largest official ones (733×1024). Its TCGplayer prices stand in when
 //   TCGdex has none; its Cardmarket prices are left alone (they stopped updating in 2025). Its
@@ -269,6 +269,8 @@ export interface CatalogQuote {
   tcgplayer: { usd: number; productId: string | null } | null;
   /** Cardmarket's trend price in euros for the card's printing. */
   cardmarketEur: number | null;
+  /** The TCGplayer product of the card's printing, even on a day TCGplayer has no price for it (its picture stands in, updater.ts). */
+  tcgplayerProduct: string | null;
   /** The largest official picture: pokemontcg.io's. */
   image: string | null;
   /** TCGdex's own picture (600×825), for a card with none. */
@@ -420,6 +422,7 @@ export class Catalog {
       ptcgReadAt,
       tcgplayer: tcgplayer ?? (fromPtcg != null ? { usd: fromPtcg, productId: null } : null),
       cardmarketEur,
+      tcgplayerProduct: chosen.unknown ? null : (tcgplayer?.productId ?? (chosen.variant?.thirdParty?.tcgplayer ? String(Math.trunc(chosen.variant.thirdParty.tcgplayer)) : null)),
       fallbackImage: td.image ? `${td.image}/high.png` : null,
       special: chosen.special,
       unknownVariant: chosen.unknown,
