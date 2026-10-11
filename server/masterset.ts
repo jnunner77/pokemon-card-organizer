@@ -1,10 +1,10 @@
-// A master set: every English card of one Pokémon ever released, in every variant (regular,
-// holo, reverse holo, 1st Edition, Shadowless, Poké Ball and Master Ball patterns, stamps), from
-// TCGdex (https://tcgdex.dev). The page previews it, then creates a binder holding one
+// A master set: every English card of one Pokémon ever released, or every card of one set (151,
+// Ascended Heroes), in every variant (regular, holo, reverse holo, 1st Edition, Shadowless, Poké Ball
+// and Master Ball patterns, stamps), from TCGdex (https://tcgdex.dev). The page previews it, then creates a binder holding one
 // placeholder per variant, owned by whoever is collecting it, to switch to Owned as the cards are
 // bought. Placeholders are priced and pictured like any other card (autofill.ts picks them up).
 
-import { type CardDetails, ACCENTED, DETAILS_VERSION, type DetailsStatus, isoDate, mapRarity } from './details';
+import { type CardDetails, ACCENTED, DETAILS_VERSION, type DetailsStatus, isSubSet, isoDate, mapRarity } from './details';
 import { type TcgdexCard, type TcgdexVariant, chooseVariant, featuresOf } from './pricing/catalog';
 import type { Doc } from './schema';
 
@@ -24,17 +24,31 @@ export interface MasterSetCard {
   artist: string | null;
   released: string | null;
   thumb: string | null;
+  /** A promo printing of the card (a store or event stamp, a Cosmos holo from a blister, a metal card), left out of a set's master set unless asked for. */
+  extra: boolean;
 }
 
 export interface MasterSet {
-  /** The Pokémon as TCGdex names it ("Farfetch'd"). */
-  pokemon: string;
-  /** Its National Pokédex number, when TCGdex knows it. */
+  /** Every card of one Pokémon, or every card of one set. */
+  kind: 'pokemon' | 'set';
+  /** What it's a master set of, as TCGdex names it: the Pokémon ("Farfetch'd") or the set ("151"). */
+  title: string;
+  /** The Pokémon's National Pokédex number, when TCGdex knows it. */
   dexId: number | null;
+  /** The set's TCGdex id ("sv03.5"). */
+  setId: string | null;
   /** How many different cards (each in one or more variants). */
   cards: number;
-  /** One per variant, oldest set first. */
+  /** One per variant: a Pokémon's oldest set first; a set's in card-number order, its sub-sets after it. */
   entries: MasterSetCard[];
+}
+
+/** A set to offer when choosing one: TCGdex's English sets, TCG Pocket's left out. */
+export interface SetChoice {
+  id: string;
+  name: string;
+  /** Cards in it, secret rares included. */
+  total: number | null;
 }
 
 interface Brief {
@@ -88,6 +102,9 @@ const searchWord = (pokemon: string) => {
 
 /** TCGdex's feature words as printed on the cards. */
 const SPELLED: Record<string, string> = { pokeball: 'Poké Ball', masterball: 'Master Ball', pokemon: 'Pokémon', mcdonalds: "McDonald's", wotc: 'WotC', poketour: 'PokéTour' };
+/** "Ascended Heroes", "Scarlet & Violet—151" → "ascendedheroes", "scarletviolet151": compares set names however they're written. */
+const norm = (s: unknown) => words(s).join('');
+
 /** "Poké Ball", "1st Edition", "1999-2000 Copyright", "Pokémon Day": a TCGdex variant feature in words. */
 const featureWords = (f: string) =>
   SPELLED[f] ??
@@ -123,6 +140,22 @@ function variantsOf(c: FullCard): TcgdexVariant[] {
   return list.length ? list : [{ type: 'normal' }];
 }
 
+/** Patterns a set's own reverse holos come in (Poké Ball, Master Ball, Energy symbol, Team Rocket): part of the set, not promos. */
+const isPattern = (foil: string) => /ball$/.test(foil) || foil === 'energy' || foil === 'team-rocket';
+
+/**
+ * Whether a variant is a promo printing rather than one of the set's own: a stamp (other than 1st
+ * Edition: GameStop, Pokémon Center, set logo, Player Rewards…), something other than a regular,
+ * holo or reverse holo card (a metal card), or a foil (Cosmos, Galaxy, a second gold) on a card that
+ * also comes plain (a Cosmos holo Charmander from a blister). A finish that is the card itself (a gold Hyper Rare listed only
+ * gold, Fossil's galaxy holos) isn't.
+ */
+export function isExtra(v: TcgdexVariant, all: TcgdexVariant[]): boolean {
+  if ((v.stamp ?? []).some((x) => x !== '1st-edition')) return true;
+  if (!['normal', 'holo', 'reverse'].includes(v.type)) return true;
+  return !!v.foil && !isPattern(v.foil) && all.some((o) => o !== v && !featuresOf(o).length);
+}
+
 /** "27" of 102 → "27/102", "083" of 165 → "083/165"; promos and sub-set numbers ("SWSH020", "TG05") as they are. */
 const printedNumber = (localId: string, official: number | undefined) => (official && /^\d+$/.test(localId) ? `${localId}/${String(official).padStart(localId.length, '0')}` : localId);
 
@@ -153,7 +186,7 @@ export class MasterSets {
    */
   async find(pokemon: string): Promise<MasterSet> {
     const word = searchWord(pokemon);
-    if (!word) return { pokemon: pokemon.trim(), dexId: null, cards: 0, entries: [] };
+    if (!word) return { kind: 'pokemon', title: pokemon.trim(), dexId: null, setId: null, cards: 0, entries: [] };
     const db = this.details;
     const isPocket = await db.pocketTest();
     const setOf = (c: Brief) => (c.id.endsWith(`-${c.localId}`) ? c.id.slice(0, -c.localId.length - 1) : c.id.replace(/-[^-]+$/, ''));
@@ -167,6 +200,44 @@ export class MasterSets {
     const briefs = [...new Map([...byName, ...byDex].map((c) => [c.id, c])).values()].filter((c) => !isPocket(setOf(c)));
 
     const full = (await pool(briefs, 6, (b) => db.json<FullCard>(`/cards/${encodeURIComponent(b.id)}`))).filter((c) => !c.category || c.category === 'Pokemon');
+    return { kind: 'pokemon', title: named?.name ?? exact?.name ?? pokemon.trim(), dexId, setId: null, ...(await this.entriesOf(full)) };
+  }
+
+  /** TCGdex's English sets, newest last, without TCG Pocket's (for suggestions as a set is typed). */
+  async sets(): Promise<SetChoice[]> {
+    const isPocket = await this.details.pocketTest();
+    const all = await this.details.json<{ id: string; name: string; cardCount?: { total?: number } }[]>('/sets');
+    return (Array.isArray(all) ? all : []).filter((x) => !isPocket(x.id)).map((x) => ({ id: x.id, name: x.name, total: x.cardCount?.total || null }));
+  }
+
+  /**
+   * Every card of a set, named as TCGdex names it ("151", "Ascended Heroes") or by its id
+   * ("sv03.5"), in every variant: trainers and energy too, secret rares, and its reprint sub-sets
+   * (Trainer Gallery, Galarian Gallery, Shiny Vault, Classic Collection) after its own cards. Null
+   * when no set has that name.
+   */
+  async findSet(query: string): Promise<MasterSet | null> {
+    const sets = await this.sets();
+    const q = norm(query);
+    const set = sets.find((x) => norm(x.name) === q) ?? sets.find((x) => x.id.toLowerCase() === query.trim().toLowerCase()) ?? null;
+    if (!q || !set) return null;
+    const family = [set.id, ...sets.filter((x) => isSubSet(set.id, x.id)).map((x) => x.id)];
+    const db = this.details;
+    const briefs: Brief[] = [];
+    for (const id of family) {
+      const full = await db.json<{ cards?: Brief[] }>(`/sets/${encodeURIComponent(id)}`);
+      briefs.push(...(Array.isArray(full?.cards) ? full.cards : []));
+    }
+    const full = await pool(briefs, 6, (b) => db.json<FullCard>(`/cards/${encodeURIComponent(b.id)}`));
+    return { kind: 'set', title: set.name, dexId: null, setId: set.id, ...(await this.entriesOf(full, family)) };
+  }
+
+  /**
+   * One entry per variant of each card: oldest set first, or, given a set and its sub-sets, in
+   * that order; then by card number.
+   */
+  private async entriesOf(full: FullCard[], setOrder?: string[]): Promise<{ cards: number; entries: MasterSetCard[] }> {
+    const db = this.details;
     const setIds = [...new Set(full.map((c) => c.set.id))];
     const sets = new Map((await pool(setIds, 6, (id) => db.json<SetInfo>(`/sets/${encodeURIComponent(id)}`).catch(() => null))).map((s, i) => [setIds[i], s]));
 
@@ -192,17 +263,16 @@ export class MasterSets {
           artist: c.illustrator?.trim() || null,
           released: isoDate(s?.releaseDate),
           thumb: c.image ? `${c.image}/low.webp` : null,
+          extra: isExtra(v, vs),
           order,
         });
       });
     }
-    entries.sort((a, b) => (a.released ?? '9999').localeCompare(b.released ?? '9999') || a.setId.localeCompare(b.setId) || byNumber(a.number, b.number) || a.order - b.order);
-    return {
-      pokemon: named?.name ?? exact?.name ?? pokemon.trim(),
-      dexId,
-      cards: full.length,
-      entries: entries.map(({ order: _order, ...e }) => e),
-    };
+    const bySet = setOrder
+      ? (a: MasterSetCard, b: MasterSetCard) => setOrder.indexOf(a.setId) - setOrder.indexOf(b.setId)
+      : (a: MasterSetCard, b: MasterSetCard) => (a.released ?? '9999').localeCompare(b.released ?? '9999') || a.setId.localeCompare(b.setId);
+    entries.sort((a, b) => bySet(a, b) || byNumber(a.number, b.number) || a.order - b.order);
+    return { cards: full.length, entries: entries.map(({ order: _order, ...e }) => e) };
   }
 }
 

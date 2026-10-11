@@ -590,43 +590,66 @@ export function createApp(o: AppOptions) {
   });
 
   // ---- master sets (masterset.ts) ----------------------------------------------------
-  // Every card of a Pokémon in every variant, from TCGdex: previewed first, then created as a new
-  // binder of placeholders. The preview's TCGdex answers are remembered for an hour, so creating
-  // it straight after is quick.
+  // Every card of a Pokémon, or of a set, in every variant, from TCGdex: previewed first, then
+  // created as a new binder of placeholders. The preview's TCGdex answers are remembered for an
+  // hour, so creating it straight after is quick.
   const masterSets = o.details ? new MasterSets(o.details) : null;
-  const findMasterSet = async (pokemon: string) => {
+  const lookups = () => {
     if (!masterSets) throw new HttpError(503, 'Card lookups are turned off on this server.');
+    return masterSets;
+  };
+  const fromTcgdex = async <T>(fn: () => Promise<T>): Promise<T> => {
     try {
-      const found = await masterSets.find(pokemon);
-      if (!found.entries.length) throw new HttpError(404, `No cards of “${pokemon}” were found. Check the spelling (the Pokémon's English name).`, 'not_found');
-      return found;
+      return await fn();
     } catch (err) {
       if (err instanceof SourceError) throw new HttpError(502, "The card database (TCGdex) didn't answer. Try again in a minute.", 'upstream_error');
       throw err;
     }
   };
-  const pokemonName = z.string().trim().min(1).max(60);
+  const findMasterSet = (of: { pokemon?: string; set?: string }) => {
+    const m = lookups();
+    return fromTcgdex(async () => {
+      if (of.set) {
+        const found = await m.findSet(of.set);
+        if (!found) throw new HttpError(404, `No set called “${of.set}” was found. Pick one from the list.`, 'not_found');
+        if (!found.entries.length) throw new HttpError(404, `The card database has no cards for ${found.title} yet.`, 'not_found');
+        return found;
+      }
+      const found = await m.find(of.pokemon!);
+      if (!found.entries.length) throw new HttpError(404, `No cards of “${of.pokemon}” were found. Check the spelling (the Pokémon's English name).`, 'not_found');
+      return found;
+    });
+  };
+  const masterSetOf = z.union([z.object({ pokemon: z.string().trim().min(1).max(60) }), z.object({ set: z.string().trim().min(1).max(80) })]);
+  api.get('/master-sets/sets', need('editor'), async (_req, res) => {
+    const m = lookups();
+    res.json({ sets: await fromTcgdex(() => m.sets()) });
+  });
   api.get('/master-sets/preview', need('editor'), heavy, async (req, res) => {
-    const q = pokemonName.safeParse(req.query.pokemon);
-    if (!q.success) throw new HttpError(400, 'Type the Pokémon.');
+    const q = masterSetOf.safeParse(req.query.set ? { set: req.query.set } : { pokemon: req.query.pokemon });
+    if (!q.success) throw new HttpError(400, 'Type the Pokémon or the set.');
     res.json(await findMasterSet(q.data));
   });
   const masterSetBody = z.object({
-    pokemon: pokemonName,
     owner: z.string().max(20),
     name: z.string().trim().min(1).max(40),
     color: z.string().max(40).optional(),
     pockets: z.union([z.literal(4), z.literal(9), z.literal(12), z.literal(16)]),
+    /** Promo printings too (stamps, Cosmos holos): by default for a Pokémon, not for a set. */
+    extras: z.boolean().optional(),
   });
   api.post('/master-sets', need('editor'), heavy, json, async (req, res) => {
     const body = masterSetBody.safeParse(req.body);
-    if (!body.success) throw new HttpError(400, 'Give the Pokémon, its owner, a binder name and the pockets per page.');
-    const { pokemon, owner, name, color, pockets } = body.data;
-    const found = await findMasterSet(pokemon);
+    const of = masterSetOf.safeParse(req.body?.set ? { set: req.body.set } : { pokemon: req.body?.pokemon });
+    if (!body.success || !of.success) throw new HttpError(400, 'Give the Pokémon or the set, its owner, a binder name and the pockets per page.');
+    const { owner, name, color, pockets } = body.data;
+    const found = await findMasterSet(of.data);
+    const extras = body.data.extras ?? found.kind === 'pokemon';
+    const entries = found.entries.filter((e) => extras || !e.extra);
     const at = now().toISOString();
     const binderId = crypto.randomBytes(8).toString('hex');
     const order = Math.max(0, ...store.all().binders.map((b) => Number((b as { order?: unknown }).order) || 0)) + 1;
-    const cards = placeholderCards(found.entries, { binderId, pockets, owner, now: at }).map((doc) => ({ id: crypto.randomBytes(8).toString('hex'), doc }));
+    const cards = placeholderCards(entries, { binderId, pockets, owner, now: at }).map((doc) => ({ id: crypto.randomBytes(8).toString('hex'), doc }));
     // Every card is checked before anything is saved (an owner the ledger doesn't know, say).
     for (const c of cards) validateDoc('cards', c.doc);
     store.set('binders', binderId, { name, color: color ?? null, pockets, kind: 'binder', order, createdAt: at });
@@ -636,7 +659,7 @@ export function createApp(o: AppOptions) {
       store.delete('binders', binderId);
       throw err;
     }
-    log.info('app', `${who(res)} made a ${found.pokemon} master set: ${name}, ${cards.length} placeholders (${found.cards} cards)`);
+    log.info('app', `${who(res)} made a ${found.title} master set: ${name}, ${cards.length} placeholders (${found.cards} cards)`);
     res.status(201).json({ binderId, cards: cards.length, pages: Math.ceil(cards.length / pockets) });
   });
 

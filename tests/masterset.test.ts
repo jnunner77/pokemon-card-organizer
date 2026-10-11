@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../server/app';
 import { Assets } from '../server/assets';
 import { CardDetails, DETAILS_VERSION } from '../server/details';
-import { MasterSets, namesPokemon, placeholderCards, variantText } from '../server/masterset';
+import { MasterSets, isExtra, namesPokemon, placeholderCards, variantText } from '../server/masterset';
 import { type TcgdexCard, chooseVariant } from '../server/pricing/catalog';
 import { type Fetcher, retryPolicy } from '../server/pricing/sources';
 import { Store } from '../server/store';
@@ -44,7 +44,7 @@ describe("a Pokémon's cards, by name", () => {
 describe('finding a master set', () => {
   it("lists every card in every variant, oldest first, without TCG Pocket's", async () => {
     const m = await new MasterSets(new CardDetails({ fetcher: replay() })).find("farfetch'd");
-    expect(m).toMatchObject({ pokemon: "Farfetch'd", dexId: 83, cards: 20 });
+    expect(m).toMatchObject({ kind: 'pokemon', title: "Farfetch'd", dexId: 83, cards: 20 });
     expect(m.entries).toHaveLength(34);
     expect(m.entries.slice(0, 5).map((e) => [e.set, e.number, e.variant])).toEqual([
       ['Base Set', '27/102', ''],
@@ -77,6 +77,41 @@ describe('finding a master set', () => {
   it('finds nothing for a name no card has', async () => {
     const m = await new MasterSets(new CardDetails({ fetcher: replay() })).find('Notapokemon');
     expect(m).toMatchObject({ cards: 0, entries: [] });
+  });
+});
+
+describe("a set's master set", () => {
+  it('lists every card of the set and its sub-sets, in number order', async () => {
+    const m = await new MasterSets(new CardDetails({ fetcher: replay() })).findSet('celebrations');
+    expect(m).toMatchObject({ kind: 'set', title: 'Celebrations', setId: 'cel25', dexId: null, cards: 50 });
+    expect(m!.entries).toHaveLength(50);
+    expect(m!.entries.slice(0, 2).map((e) => [e.setId, e.number, e.name, e.variant])).toEqual([
+      ['cel25', '1/25', 'Ho-Oh', ''],
+      ['cel25', '2/25', 'Reshiram', ''],
+    ]);
+    // Its Classic Collection follows its own cards.
+    expect(m!.entries.slice(-1).map((e) => [e.setId, e.number, e.name])).toEqual([['cel25cc', 'CC025', 'Tapu Lele GX']]);
+    expect(m!.entries.filter((e) => e.extra).map((e) => e.variant)).toEqual(['25th Celebration Holo', '25th Celebration Holo']);
+  });
+
+  it('finds the set by its id too, and nothing for a set that does not exist', async () => {
+    const ms = new MasterSets(new CardDetails({ fetcher: replay() }));
+    expect((await ms.findSet('cel25'))?.title).toBe('Celebrations');
+    expect(await ms.findSet('Not a set')).toBeNull();
+    expect((await ms.sets()).some((x) => /^(?:[AB]\d+[a-z]?|P-[AB])$/.test(x.id))).toBe(false);
+  });
+});
+
+describe('promo printings', () => {
+  const v = (type: string, foil?: string, stamp?: string[], subtype?: string) => ({ type, foil, stamp, subtype });
+  it('are stamped, metal, or a foil on a card that also comes plain', () => {
+    const regular = v('normal'), reverse = v('reverse'), ball = v('reverse', 'pokeball'), master = v('reverse', 'masterball');
+    const stamped = v('normal', undefined, ['gamestop']), cosmos = v('holo', 'cosmos'), metal = v('metal', 'gold');
+    const all = [regular, reverse, ball, master, stamped, cosmos, metal];
+    expect(all.map((x) => isExtra(x, all))).toEqual([false, false, false, false, true, true, true]);
+    // 1st Edition is part of the set; a holo that is only ever galaxy foil (Fossil) is the card itself.
+    const galaxy = v('normal', 'galaxy'), first = v('normal', 'galaxy', ['1st-edition']), print4 = v('normal', undefined, undefined, '1999-2000-copyright');
+    expect([galaxy, first, print4].map((x) => isExtra(x, [galaxy, first, print4]))).toEqual([false, false, false]);
   });
 });
 
@@ -120,7 +155,7 @@ describe('master sets in the app', () => {
     store.set('binders', 'old', { name: 'Binder 1', pockets: 9, order: 3 });
     const a = app();
     const p = await request(a).get('/api/master-sets/preview').query({ pokemon: "Farfetch'd" }).expect(200);
-    expect(p.body).toMatchObject({ pokemon: "Farfetch'd", cards: 20 });
+    expect(p.body).toMatchObject({ kind: 'pokemon', title: "Farfetch'd", cards: 20 });
     expect(p.body.entries).toHaveLength(34);
 
     const r = await request(a).post('/api/master-sets').send({ pokemon: "Farfetch'd", owner: 'Justin', name: "Farfetch'd master set", color: '#2E9B5E', pockets: 16 }).expect(201);
@@ -130,6 +165,18 @@ describe('master sets in the app', () => {
     expect(cards).toHaveLength(34);
     expect(cards.every((c) => (c as { owner?: string }).owner === 'Justin' && (c as { placeholder?: boolean }).placeholder === true)).toBe(true);
     expect(new Set(cards.map((c) => `${(c as { page?: number }).page}/${(c as { slot?: number }).slot}`)).size).toBe(34);
+  });
+
+  it("makes a set's master set, leaving promo printings out unless asked", async () => {
+    const a = app();
+    expect((await request(a).get('/api/master-sets/sets').expect(200)).body.sets).toContainEqual({ id: 'cel25', name: 'Celebrations', total: 25 });
+    const p = await request(a).get('/api/master-sets/preview').query({ set: 'Celebrations' }).expect(200);
+    expect(p.body).toMatchObject({ kind: 'set', title: 'Celebrations', cards: 50 });
+    const r = await request(a).post('/api/master-sets').send({ set: 'Celebrations', owner: 'Maiya', name: 'Celebrations master set', pockets: 9 }).expect(201);
+    expect(r.body).toMatchObject({ cards: 48, pages: 6 });
+    const all = await request(a).post('/api/master-sets').send({ set: 'cel25', owner: 'Maiya', name: 'Celebrations everything', pockets: 9, extras: true }).expect(201);
+    expect(all.body.cards).toBe(50);
+    await request(a).get('/api/master-sets/preview').query({ set: 'Not a set' }).expect(404);
   });
 
   it('creates nothing for an owner the ledger does not know, or a Pokémon with no cards', async () => {
