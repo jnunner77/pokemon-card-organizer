@@ -32,26 +32,24 @@ Every morning (after 5:00 in your time zone, catching up if the server was off) 
    (Poké Ball, Master Ball, Cosmos…), stamps, 1st Edition and Shadowless separately, each with its
    own TCGplayer and Cardmarket products. The card's **Variant** picks one ("Master Ball",
    "1st Edition Shadowless", "Pokemon Together Stamp"); a variant TCGdex doesn't list, or lists
-   without a price, is never given another printing's price. [pokemontcg.io](https://pokemontcg.io)
-   stands in for TCGplayer's price when TCGdex has none, and then TCGplayer's own catalog (see
-   *TCGplayer's own catalog* below). The entry says which source it came from
+   without a price, is never given another printing's price. TCGplayer's own catalog stands in
+   for TCGplayer's price when TCGdex has none (see *TCGplayer's own catalog* below). The entry says
+   which source it came from
    and keeps every price. If a source has no match, no price or doesn't answer, the others are
    used, and a card the card database prices is priced even before it's matched on PriceCharting.
    Cardmarket can be left out under **Administration → Prices**. Each day adds one entry; the last
    30 days are kept, and older automatic entries are thinned to one a week (the last of each
    week) for the Pricing view's longer ranges. Prices you log yourself (what you paid, sales,
    listings, your own market prices) are never changed.
-3. **Downloads the official picture**, the largest available: pokemontcg.io's (733×1024) for
-   cards it has, else the card's TCGplayer product's (717×1000; also on days TCGplayer has no price
-   for it, and the one TCGplayer's own catalog finds for a card TCGdex doesn't know), or TCGdex's own
-   (600×825). One that won't download gives way to the next, and
-   pokemontcg.io's replaces the others once it answers, so a card isn't left without a picture
-   while pokemontcg.io is failing or TCGdex has none (it has no Trainer Gallery pictures, like
-   Lost Origin's Snorlax TG10). A pattern or stamped variant gets its own TCGplayer product's
-   picture, which shows it. A picture a card already has from pokemontcg.io
-   (or from PriceCharting, before it was read through its API) is kept, so pokemontcg.io is only
-   asked while a card still needs a picture, or (weekly) details it could fill. The picture is
-   shown instead of your photo. Your photos are kept; each card has an *Official image / Your
+3. **Downloads the official picture**, the largest available: the card's TCGplayer product's
+   (717×1000; also on days TCGplayer has no price for it, and the one TCGplayer's own catalog finds
+   for a card TCGdex doesn't know), else TCGdex's own (600×825), which the TCGplayer product's
+   replaces once there is one. One that won't download gives way to the next, so a card isn't left
+   without a picture when TCGdex has none (it has no Trainer Gallery pictures, like Lost Origin's
+   Snorlax TG10). A pattern or stamped variant gets its own TCGplayer product's picture, which
+   shows it. A picture a card already has from pokemontcg.io (used until October 2026) or from
+   PriceCharting (before it was read through its API) is kept. The picture is shown instead of
+   your photo. Your photos are kept; each card has an *Official image / Your
    photo* switch.
 
 Each card's drawer shows its PriceCharting and TCGplayer products, a 30-day price chart, and
@@ -130,7 +128,7 @@ No site's pages are read: every price comes from an API.
   includes those columns. Purging PriceCharting forgets it.
 - **TCGplayer's own catalog** from [tcgcsv.com](https://tcgcsv.com), a free public copy of
   TCGplayer's catalog API (sets, products, prices, pictures), refreshed daily, with no key. It fills
-  what TCGdex and pokemontcg.io don't have: a card TCGdex has no TCGplayer price for (Lost Origin's
+  what TCGdex doesn't have: a card TCGdex has no TCGplayer price for (Lost Origin's
   Trainer Gallery *Snorlax TG10*), a card TCGdex doesn't know at all, its picture, and its blank
   rarity and release date. The card is found in its set (by the set's name or code, or TCGdex's
   name for it, or a set that starts or ends with it, like *Lost Origin Trainer Gallery* for a TG card
@@ -140,19 +138,15 @@ No site's pages are read: every price comes from an API.
   alone. That product becomes the card's TCGplayer match. Only the sets the cards need are
   downloaded, each at most once a day, a quarter second apart; after failing three times in a row
   it isn't asked again until the next update.
-- **TCGdex** and **pokemontcg.io** are free public APIs (`POKEMONTCG_API_KEY`, a free key from
-  [dev.pokemontcg.io](https://dev.pokemontcg.io), raises pokemontcg.io's request limits but isn't
-  needed).
-  pokemontcg.io often fails at random (a server error that works on the next try), so it's tried
-  three times, a few seconds apart; its *502* page asks clients to wait a minute, so then it's left
-  for that card until the next update rather than holding the update up (tcgcsv.com likewise).
-  Without a key it allows 30 requests a minute, so it's asked at most once every 2.1 s (¼ s with
-  a key). It only adds large pictures and blank details, so its failures during an update are
-  logged once, at the end (*pokemontcg.io failed for 18 of the 122 cards it was asked about …*),
-  rather than a warning per card; those cards are tried again in the next update.
+- **TCGdex** is a free public API with no key. When tcgcsv.com is busy and asks for more than a
+  few seconds' wait, it's left for that card until the next update rather than holding it up.
+- **pokemontcg.io is no longer used** (since October 2026): it failed about one request in three
+  (500 and 502 answers, often asking for a minute's wait), and only added slightly larger pictures
+  (733×1024 against TCGplayer's 717×1000), a few blank details and TCGplayer prices that TCGdex and
+  TCGplayer's own catalog already give.
 - **Pace:** an update moves to the next card after a quarter of a second; each source keeps its
-  own pace on top (PriceCharting 1.25 s between calls, pokemontcg.io 2.1 s, tcgcsv.com ¼ s), and the
-  price guide spares most PriceCharting calls.
+  own pace on top (PriceCharting 1.25 s between calls, tcgcsv.com ¼ s), and the price guide spares
+  most PriceCharting calls.
 - Links saved before PriceCharting was read through its API (by page address) are moved to their
   API product at the next update; one PriceCharting no longer has is matched again.
 
@@ -162,12 +156,12 @@ The daily update logs every card's price and looks for what cards are missing, b
 are only tried again once a week (a card the databases didn't have). **Settings → Update all
 cards** does it now, for every card, all at once or one kind:
 
-- **Everything:** looks every card up again in the card databases (TCGdex and pokemontcg.io), even
-  the ones asked about this week, then logs today's price and downloads its picture.
+- **Everything:** looks every card up again in the card database (TCGdex), even the ones asked
+  about this week, then logs today's price and downloads its picture.
 - **Prices:** logs today's price for every card, nothing else (no lookups, no pictures).
-- **Pictures:** downloads a picture for each card without an official one, or with a smaller one
-  than pokemontcg.io's (TCGplayer's or TCGdex's), asking pokemontcg.io again. It logs no price, and
-  doesn't count as the day's price update.
+- **Pictures:** downloads a picture for each card without an official one, or with TCGdex's smaller
+  one (TCGplayer's product picture replaces it). It logs no price, and doesn't count as the day's
+  price update.
 - **Details:** looks every card with a blank set, set code, rarity, illustrator or release date up
   again in TCGdex. What you typed is never replaced.
 
@@ -191,10 +185,10 @@ Adding a card only needs its **name and number**:
 - *Settings → Update all cards → Details* does the same for cards already in the
   ledger (illustrators, for instance), and the daily price run fills blanks too. Cards looked up
   are asked about again after a week, in case TCGdex has added them.
-- What TCGdex leaves blank for a card it found (a rarity, an illustrator, a set code or release
-  date) is filled at the next price update from [pokemontcg.io](https://pokemontcg.io), the
-  database the card's large picture comes from. Its older rarity names are put in the binder's
-  words ("Rare Ultra" becomes Ultra Rare). Again, nothing you typed is replaced.
+- What TCGdex leaves blank for a card it found (a rarity or release date) is filled at the next
+  price update from TCGplayer's own catalog and the card's PriceCharting product. Older rarity
+  names are put in the binder's words ("Rare Ultra" becomes Ultra Rare). Again, nothing you typed
+  is replaced.
 
 On a 122-card collection, looking every card up added 108 illustrators; the cards not found
 were from the *Trading Card Game Classic* box, a brand-new promo, and a misspelled name.
@@ -303,7 +297,7 @@ price site confirms its name and number.
 
 Every price update also reads the card's PriceCharting product, when it has one: its set (and
 release date, when PriceCharting gives one). The TCGplayer product only gives a price to compare.
-They fill the card's empty fields, after TCGdex and pokemontcg.io have filled what they know (so
+They fill the card's empty fields, after TCGdex has filled what it knows (so
 Classic box cards and new promos get a set too).
 When you chose the product yourself and the card is filed under a different set, the card takes
 the product's set: you said that product is your card.
@@ -715,7 +709,7 @@ BASE_URL=http://localhost:4100/ npm run test:e2e    # browser smoke test
 ```
 
 - `server/pricing/`: `pricecharting.ts` (PriceCharting's API, price guide download and graded prices), `tcgcsv.ts` (TCGplayer's own catalog), `catalog.ts`
-  (TCGdex and pokemontcg.io: TCGplayer and Cardmarket prices, pictures), `sources.ts` (requests,
+  (TCGdex: TCGplayer and Cardmarket prices, pictures), `sources.ts` (requests,
   Bank of Canada), `match.ts` (which product is this card), `updater.ts` (the daily run, per-card
   updates and the PriceCharting purge). `server/secrets.ts` keeps PriceCharting's token.
 - `server/details.ts` (card details from TCGdex), `server/autofill.ts` (new cards filling themselves

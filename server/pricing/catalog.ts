@@ -1,25 +1,18 @@
-// Prices and pictures from the Pokémon card databases' own APIs, with nothing scraped:
+// Prices and pictures from the TCGdex card database's API, with nothing scraped:
 //
 // - TCGdex (https://tcgdex.dev, free, no key), which the binder already matches every card to for
 //   its details (details.ts). Each card lists its variants (regular, reverse, holo, patterns such
 //   as Poké Ball and Master Ball, stamps, 1st Edition, Shadowless), each with its own TCGplayer
 //   and Cardmarket products and prices (in euros), refreshed daily. A card is priced from the
 //   variant its Variant field names, never from another variant's price. Its TCGplayer product's
-//   picture (717×1000), then TCGdex's own (600×825), stand in when there's no larger one.
-// - pokemontcg.io (https://pokemontcg.io, free; a key, POKEMONTCG_API_KEY, raises its limits),
-//   whose card pictures are the largest official ones (733×1024). Its TCGplayer prices stand in when
-//   TCGdex has none; its Cardmarket prices are left alone (they stopped updating in 2025). Its
-//   rarity, illustrator, set code and release date fill what TCGdex left blank.
+//   picture (717×1000), then TCGdex's own (600×825), picture the card.
 //
-// The updater (updater.ts) compares these with PriceCharting's price and logs the highest.
+// TCGplayer's own catalog (tcgcsv.ts) fills what TCGdex lacks. The updater (updater.ts) blends
+// these with PriceCharting's price.
 
-import { type DetailField, mapRarity, similarity } from '../details';
-import { type Fetcher, SourceError, get, releaseDate } from './sources';
+import { type Fetcher, SourceError, get } from './sources';
 
 const TCGDEX = 'https://api.tcgdex.net/v2/en';
-const PTCG = 'https://api.pokemontcg.io/v2';
-/** A card pokemontcg.io didn't have is looked for again after this long. */
-export const PTCG_RETRY_MS = 7 * 86_400_000;
 
 /** Which printing of a card to price. `strict`: never borrow another printing's price. */
 export interface Printing {
@@ -39,7 +32,7 @@ export function printingOf(variant: unknown, rarity: unknown): Printing {
   return { kind, first: /1st|first/i.test(v), strict: kind === 'normal' && /^(common|uncommon)$/i.test(String(rarity ?? '').trim()) };
 }
 
-/** A price list key, TCGdex's ("reverse-holofoil", "1st-edition-holofoil") or pokemontcg.io's ("reverseHolofoil"), as a printing. */
+/** A TCGdex price list key ("reverse-holofoil", "1st-edition-holofoil") as a printing. */
 function keyPrinting(key: string): { kind: Printing['kind']; first: boolean } {
   const k = key.toLowerCase().replace(/[^a-z0-9]/g, '');
   return { kind: k.includes('reverse') ? 'reverse' : k.includes('holo') ? 'holo' : 'normal', first: k.startsWith('1stedition') };
@@ -201,229 +194,82 @@ export function variantLabel(v: TcgdexVariant): string {
   return [...words, v.type === 'normal' ? 'regular' : v.type].join(' ');
 }
 
-// ---- pokemontcg.io ------------------------------------------------------------------
-
-export interface PtcgCard {
-  id: string;
-  name: string;
-  number: string;
-  set: { id: string; name: string; ptcgoCode?: string; printedTotal?: number; releaseDate?: string };
-  rarity?: string;
-  artist?: string;
-  images?: { small?: string; large?: string };
-  tcgplayer?: { prices?: Record<string, { market?: number | null }> } | null;
-}
-
 const norm = (s: unknown) =>
   String(s ?? '')
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9]/g, '');
-/** "051" → "51", "TG01" → "tg01": the number on the card, however it's written. */
-const ownNumber = (s: unknown) => {
-  const n = String(s ?? '').split('/')[0].replace(/\s+/g, '').toLowerCase();
-  return /^\d+$/.test(n) ? String(Number(n)) : n;
-};
-
-/**
- * The pokemontcg.io card that is this TCGdex card: the same number in the same set (by set code,
- * name, or a similar name with the same set size). Null unless exactly one fits.
- */
-export function choosePtcg(list: PtcgCard[], c: TcgdexCard, setCode?: string | null): PtcgCard | null {
-  const total = c.set.cardCount?.official;
-  const fits = list.filter((p) => {
-    if (ownNumber(p.number) !== ownNumber(c.localId)) return false;
-    if (setCode && p.set.ptcgoCode && norm(p.set.ptcgoCode) === norm(setCode)) return true;
-    if (norm(p.set.name) === norm(c.set.name)) return true;
-    return !!total && p.set.printedTotal === total && similarity(p.set.name, c.set.name) >= 0.6;
-  });
-  const exact = fits.filter((p) => norm(p.set.name) === norm(c.set.name));
-  if (exact.length === 1) return exact[0];
-  return fits.length === 1 ? fits[0] : null;
-}
-
-/** TCGplayer's market price (US$) for the printing, from a pokemontcg.io card. */
-export function ptcgTcgplayer(p: PtcgCard, want: Printing): number | null {
-  const hit = pickPrinting(p.tcgplayer?.prices, want, (v) => usd(v.market) != null);
-  return hit ? usd(hit.market) : null;
-}
-
-/** A pokemontcg.io card's details, in the binder's words ("Rare Ultra" → "Ultra Rare", "2023/09/22" → "2023-09-22"). */
-export function ptcgDetails(p: PtcgCard): Record<DetailField, string | null> {
-  const t = (s: unknown) => (typeof s === 'string' && s.trim() ? s.trim() : null);
-  return { set: t(p.set.name), setCode: t(p.set.ptcgoCode), rarity: mapRarity(p.rarity), artist: t(p.artist), released: releaseDate(String(p.set.releaseDate ?? '').replace(/\//g, '-')) };
-}
-
 // ---- one card -----------------------------------------------------------------------
 
-/** What the card databases say about one card today. */
+/** What TCGdex says about one card today. */
 export interface CatalogQuote {
   tcgdexId: string;
-  /** pokemontcg.io's id for the card; null when it has none (looked for again after PTCG_RETRY_MS). */
-  ptcgId: string | null;
-  /** When pokemontcg.io was last searched for the card, and last read. */
-  ptcgSearchedAt: string | null;
-  ptcgReadAt: string | null;
   /** TCGplayer's market price in US$ for the card's printing, and its TCGplayer product. */
   tcgplayer: { usd: number; productId: string | null } | null;
   /** Cardmarket's trend price in euros for the card's printing. */
   cardmarketEur: number | null;
   /** The TCGplayer product of the card's printing, even on a day TCGplayer has no price for it (its picture stands in, updater.ts). */
   tcgplayerProduct: string | null;
-  /** The largest official picture: pokemontcg.io's. */
-  image: string | null;
-  /** TCGdex's own picture (600×825), for a card with none. */
+  /** TCGdex's own picture (600×825), the last to try for a card with none. */
   fallbackImage: string | null;
   /** The card's Variant names more than a plain printing (a pattern, stamp, edition…). */
   special: boolean;
-  /** No TCGdex variant fits the card's Variant: the databases' prices aren't used for it. */
+  /** No TCGdex variant fits the card's Variant: TCGdex's prices aren't used for it. */
   unknownVariant: boolean;
   /** The TCGdex variant priced, in words (for a special one). */
   variant: string | null;
   /** TCGplayer products of the card's plain printings: an automatic link to one of these is wrong for a special variant. */
   plainProducts: string[];
-  /** pokemontcg.io's set, set code, rarity, illustrator and release date, for filling blanks. */
-  details: Record<DetailField, string | null> | null;
   /** The card's name and set as TCGdex has them, for naming a TCGplayer product found this way. */
   name: string;
   set: string;
   number: string;
-  /** What failed, if a database didn't answer (the rest is still used). */
-  errors: string[];
 }
 
 export interface CatalogOptions {
   fetcher?: Fetcher;
-  /** pokemontcg.io key (POKEMONTCG_API_KEY): optional, raises its request limits. */
-  ptcgKey?: string;
-  /** Least time between pokemontcg.io requests: 2.1 s without a key (it allows 30 a minute), ¼ s with one. */
-  ptcgGapMs?: number;
-  now?: () => Date;
 }
 
-/** A database that kept failing isn't asked again until reset(). */
+/** TCGdex isn't asked again until reset() once it kept failing. */
 class Skipped extends SourceError {}
 
-/** Asks TCGdex and pokemontcg.io about cards. A database that keeps failing is left alone until reset(). */
+/** Asks TCGdex about cards. If it keeps failing it's left alone until reset(). */
 export class Catalog {
   private readonly fetcher: Fetcher;
-  private readonly ptcgKey?: string;
-  private readonly now: () => Date;
-  private streak = { tcgdex: 0, ptcg: 0 };
+  private streak = 0;
   static readonly breakerAfter = 3;
-  /**
-   * Since reset(): cards pokemontcg.io was asked about, and those it failed for (or was skipped for
-   * after failing in a row), with its last error. The update logs these once (updater.ts), not per card.
-   */
-  private ptcg = { asked: 0, failed: 0, skipped: 0, lastError: '' };
-  private readonly ptcgGapMs: number;
-  private ptcgLast = 0;
 
   constructor(o: CatalogOptions = {}) {
     this.fetcher = o.fetcher ?? fetch;
-    this.ptcgKey = o.ptcgKey || undefined;
-    this.now = o.now ?? (() => new Date());
-    this.ptcgGapMs = o.ptcgGapMs ?? (this.ptcgKey ? 250 : 2_100);
   }
 
-  /** Wait for pokemontcg.io's turn: at least ptcgGapMs after the last request started. */
-  private async ptcgTurn() {
-    const wait = this.ptcgLast + this.ptcgGapMs - Date.now();
-    this.ptcgLast = Date.now() + Math.max(0, wait);
-    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-  }
-
-  /** Start of a price update: ask every database again. */
+  /** Start of a price update: ask TCGdex again. */
   reset() {
-    this.streak = { tcgdex: 0, ptcg: 0 };
-    this.ptcg = { asked: 0, failed: 0, skipped: 0, lastError: '' };
+    this.streak = 0;
   }
 
-  /** How pokemontcg.io did since reset(). */
-  ptcgSummary() {
-    return { ...this.ptcg };
-  }
-
-  private async json<T>(db: 'tcgdex' | 'ptcg', url: string): Promise<T> {
-    if (this.streak[db] >= Catalog.breakerAfter) throw new Skipped(`Skipped: ${db === 'tcgdex' ? 'TCGdex' : 'pokemontcg.io'} kept failing during this update.`);
+  private async json<T>(url: string): Promise<T> {
+    if (this.streak >= Catalog.breakerAfter) throw new Skipped('Skipped: TCGdex kept failing during this update.');
     try {
-      const headers: Record<string, string> = { Accept: 'application/json' };
-      if (db === 'ptcg' && this.ptcgKey) headers['X-Api-Key'] = this.ptcgKey;
-      // pokemontcg.io is slow at times, and often fails quickly at random (a 500 that works on the
-      // next try), so it's tried 3 times but not waited on long: it only adds pictures and details.
-      // Its 502 page asks for a minute's wait (Retry-After: 60): the card is tried again next update
-      // instead. Without a key it allows 30 requests a minute, so they're spaced out.
-      const patience = db === 'ptcg' ? { timeoutMs: 10_000, attempts: 3, maxWaitMs: 5_000 } : {};
-      if (db === 'ptcg') await this.ptcgTurn();
-      const out = (await (await get(this.fetcher, url, { headers }, patience)).json()) as T;
-      this.streak[db] = 0;
+      const out = (await (await get(this.fetcher, url, { headers: { Accept: 'application/json' } })).json()) as T;
+      this.streak = 0;
       return out;
     } catch (err) {
-      this.streak[db]++;
+      this.streak++;
       throw err;
     }
   }
 
-  /**
-   * Today's prices and picture for the TCGdex card `tcgdexId`. `known` is what an earlier quote
-   * found on pokemontcg.io (its id, or that it had none, when it was searched and last read).
-   * pokemontcg.io is only asked while the card needs it: for a large picture (`picture`: what the
-   * card has now), for blank details (`blanks`, at most weekly), or for a price TCGdex lacks.
-   */
-  async quote(
-    tcgdexId: string,
-    card: { variant?: unknown; rarity?: unknown; picture?: 'large' | 'other' | null; blanks?: boolean },
-    known: { ptcgId?: string | null; ptcgSearchedAt?: string | null; ptcgReadAt?: string | null } = {},
-    setCode?: string | null,
-  ): Promise<CatalogQuote> {
-    const errors: string[] = [];
-    const msg = (err: unknown) => (err instanceof Error ? err.message : String(err));
-    const td = await this.json<TcgdexCard>('tcgdex', `${TCGDEX}/cards/${encodeURIComponent(tcgdexId)}`);
+  /** Today's prices and picture for the TCGdex card `tcgdexId`, priced as the card's own variant. */
+  async quote(tcgdexId: string, card: { variant?: unknown; rarity?: unknown }): Promise<CatalogQuote> {
+    const td = await this.json<TcgdexCard>(`${TCGDEX}/cards/${encodeURIComponent(tcgdexId)}`);
     // The card's own variant's prices; TCGdex's card-wide lists only for a card with no variant list.
     const want = printingOf(card.variant, card.rarity);
     const chosen = chooseVariant(td, card.variant);
     const own = chosen.variant ? variantPrices(chosen.variant) : null;
-    const plain = !chosen.special && !chosen.unknown;
     const tcgplayer = chosen.unknown ? null : own ? own.tcgplayer : tcgdexTcgplayer(td, want);
     const cardmarketEur = chosen.unknown ? null : own ? own.cardmarketEur : tcgdexCardmarket(td, want);
-
-    const now = this.now().getTime();
-    const older = (at: string | null | undefined) => !at || Date.parse(at) < now - PTCG_RETRY_MS;
-    // A special variant is pictured by its own TCGplayer product instead.
-    const wantsPicture = card.picture === undefined || card.picture === null || (card.picture === 'other' && !chosen.special);
-    const needPtcg = wantsPicture || (plain && !tcgplayer) || (!!card.blanks && older(known.ptcgReadAt));
-    let ptcgId = known.ptcgId ?? null;
-    let ptcgSearchedAt = known.ptcgSearchedAt ?? null;
-    let ptcgReadAt = known.ptcgReadAt ?? null;
-    let pc: PtcgCard | null = null;
-    const stale = older(ptcgSearchedAt);
-    if (needPtcg && (ptcgId || stale)) this.ptcg.asked++;
-    try {
-      if (!needPtcg) {
-        // Nothing pokemontcg.io would add today.
-      } else if (!ptcgId && stale) {
-        const q = `name:"${td.name.replace(/["\\]/g, '')}" number:${ownNumber(td.localId) || td.localId}`;
-        const found = await this.json<{ data?: PtcgCard[] }>('ptcg', `${PTCG}/cards?q=${encodeURIComponent(q)}&select=id,name,number,set,images,tcgplayer,rarity,artist`);
-        pc = choosePtcg(found.data ?? [], td, setCode);
-        ptcgId = pc?.id ?? null;
-        ptcgSearchedAt = this.now().toISOString();
-        if (pc) ptcgReadAt = ptcgSearchedAt;
-      } else if (ptcgId) {
-        pc = (await this.json<{ data?: PtcgCard }>('ptcg', `${PTCG}/cards/${encodeURIComponent(ptcgId)}`)).data ?? null;
-        ptcgReadAt = this.now().toISOString();
-      }
-    } catch (err) {
-      errors.push(`pokemontcg.io: ${msg(err)}`);
-      if (err instanceof Skipped) this.ptcg.skipped++;
-      else {
-        this.ptcg.failed++;
-        this.ptcg.lastError = msg(err);
-      }
-    }
-    // pokemontcg.io only prices the plain printings.
-    const kindOf = (t: string): Printing['kind'] => (t === 'reverse' ? 'reverse' : t === 'holo' ? 'holo' : 'normal');
-    const fromPtcg = plain && pc ? ptcgTcgplayer(pc, chosen.variant ? { kind: kindOf(chosen.variant.type), first: false, strict: true } : want) : null;
     const plainProducts = [
       ...(td.variants_detailed ?? []).filter((v) => !featuresOf(v).length).map((v) => v.thirdParty?.tcgplayer),
       ...Object.values(td.pricing?.tcgplayer ?? {}).map((v) => (typeof v === 'object' && v ? v.productId : undefined)),
@@ -432,10 +278,7 @@ export class Catalog {
       .map((n) => String(Math.trunc(n)));
     return {
       tcgdexId,
-      ptcgId,
-      ptcgSearchedAt,
-      ptcgReadAt,
-      tcgplayer: tcgplayer ?? (fromPtcg != null ? { usd: fromPtcg, productId: null } : null),
+      tcgplayer,
       cardmarketEur,
       tcgplayerProduct: chosen.unknown ? null : (tcgplayer?.productId ?? (chosen.variant?.thirdParty?.tcgplayer ? String(Math.trunc(chosen.variant.thirdParty.tcgplayer)) : null)),
       fallbackImage: td.image ? `${td.image}/high.png` : null,
@@ -443,12 +286,9 @@ export class Catalog {
       unknownVariant: chosen.unknown,
       variant: chosen.special && chosen.variant ? variantLabel(chosen.variant) : null,
       plainProducts: [...new Set(plainProducts)],
-      image: pc?.images?.large ?? null,
-      details: pc ? ptcgDetails(pc) : null,
       name: td.name,
       set: td.set.name,
       number: td.localId,
-      errors,
     };
   }
 }

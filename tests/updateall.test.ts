@@ -25,9 +25,9 @@ describe('Settings → Update all cards', () => {
     ]);
   });
 
-  it('visits the cards a picture update would: no official picture, or a smaller one', () => {
+  it("visits the cards a picture update would: no official picture, or TCGdex's smaller one", () => {
     expect(U.needsPicture({ status: 'binder' })).toBe(true);
-    expect(U.needsPicture({ status: 'binder', officialImageId: 'a', pricing: { imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/1_in_1000x1000.jpg' } })).toBe(true);
+    expect(U.needsPicture({ status: 'binder', officialImageId: 'a', pricing: { imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/1_in_1000x1000.jpg' } })).toBe(false);
     expect(U.needsPicture({ status: 'binder', officialImageId: 'a', pricing: { imageUrl: 'https://assets.tcgdex.net/en/sv/sv03.5/131/high.png' } })).toBe(true);
     expect(U.needsPicture({ status: 'binder', officialImageId: 'a', pricing: { imageUrl: 'https://images.pokemontcg.io/sv3pt5/131_hires.png' } })).toBe(false);
     expect(U.needsPicture({ status: 'binder', officialImageId: 'a', pricing: { imageUrl: 'https://storage.googleapis.com/images.pricecharting.com/x/1600.jpg' } })).toBe(false);

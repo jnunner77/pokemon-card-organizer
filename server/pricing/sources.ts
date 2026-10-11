@@ -2,9 +2,10 @@
 //
 // PriceCharting's official API (pricecharting.ts, with the owner's subscription token) gives each
 // card's ungraded price, recent eBay sales, and its graded prices. TCGplayer's market price and
-// Cardmarket's trend come from the TCGdex card database, and the largest pictures from
-// pokemontcg.io (catalog.ts). A card is priced from all of them and the highest is logged
-// (updater.ts). No site's pages are read; the daily run records failures instead of stopping.
+// Cardmarket's trend come from the TCGdex card database (catalog.ts), and what it lacks from
+// TCGplayer's own catalog (tcgcsv.ts); pictures from TCGplayer's products and TCGdex. A card is
+// priced from all of them, blended (updater.ts). No site's pages are read; the daily run records
+// failures instead of stopping.
 
 export type Source = 'pricecharting' | 'tcgplayer';
 
@@ -99,8 +100,8 @@ export function retryWait(attempt: number, retryAfter: string | null): number {
  * fetch with a timeout, an honest user agent, and retries with exponential backoff when the site is
  * busy or unreachable (never for an answer that won't change: 400, 401, 403, 404). `patience`
  * shortens both for a source that's only nice to have, and `maxWaitMs` gives up rather than wait
- * longer for a retry (pokemontcg.io's 502 page asks for a minute: the update moves on and the card
- * is tried again next time); `allow` hands those statuses back instead of throwing (PriceCharting
+ * longer for a retry (a page asking for a minute's wait: the update moves on and the card is tried
+ * again next time); `allow` hands those statuses back instead of throwing (PriceCharting
  * reads its own error answers).
  */
 export async function get(fetcher: Fetcher, url: string, init: RequestInit = {}, patience: { timeoutMs?: number; attempts?: number; maxWaitMs?: number; allow?: number[] } = {}): Promise<Response> {
