@@ -1,0 +1,62 @@
+{
+ "success": true,
+ "results": [
+  {
+   "productId": 513721,
+   "name": "Pikachu - 173/165",
+   "groupId": 23237,
+   "url": "https://www.tcgplayer.com/product/513721/pokemon-sv-scarlet-and-violet-151-pikachu-173-165",
+   "imageUrl": "https://tcgplayer-cdn.tcgplayer.com/product/513721_200w.jpg",
+   "extendedData": [
+    {
+     "name": "Number",
+     "displayName": "Card Number",
+     "value": "173/165"
+    },
+    {
+     "name": "Rarity",
+     "displayName": "Rarity",
+     "value": "Illustration Rare"
+    }
+   ]
+  },
+  {
+   "productId": 516694,
+   "name": "Lapras",
+   "groupId": 23237,
+   "url": "https://www.tcgplayer.com/product/516694/pokemon-sv-scarlet-and-violet-151-lapras",
+   "imageUrl": "https://tcgplayer-cdn.tcgplayer.com/product/516694_200w.jpg",
+   "extendedData": [
+    {
+     "name": "Number",
+     "displayName": "Card Number",
+     "value": "131/165"
+    },
+    {
+     "name": "Rarity",
+     "displayName": "Rarity",
+     "value": "Uncommon"
+    }
+   ]
+  },
+  {
+   "productId": 517033,
+   "name": "Pikachu - 025/165",
+   "groupId": 23237,
+   "url": "https://www.tcgplayer.com/product/517033/pokemon-sv-scarlet-and-violet-151-pikachu-025-165",
+   "imageUrl": "https://tcgplayer-cdn.tcgplayer.com/product/517033_200w.jpg",
+   "extendedData": [
+    {
+     "name": "Number",
+     "displayName": "Card Number",
+     "value": "025/165"
+    },
+    {
+     "name": "Rarity",
+     "displayName": "Rarity",
+     "value": "Common"
+    }
+   ]
+  }
+ ]
+}

@@ -13,6 +13,7 @@ import { catalogMismatch, chooseMatch, detailsFromProduct, searchQuery, variantF
 import { PriceCharting, gradedPrice, oldAddress, parseProduct } from '../server/pricing/pricecharting';
 import { type Candidate, type Fetcher, retryPolicy, releaseDate } from '../server/pricing/sources';
 import { PriceUpdater, pricesDisagree, thinAutoPrices } from '../server/pricing/updater';
+import { TcgCsv } from '../server/pricing/tcgcsv';
 import { Secret } from '../server/secrets';
 import { Logger } from '../server/log';
 import { Store } from '../server/store';
@@ -839,6 +840,60 @@ describe('prices and pictures from the card databases', () => {
     expect(store.get('cards', 'tg')).toMatchObject({ pricing: { imageUrl: 'https://images.pokemontcg.io/swsh11tg/TG10_hires.png' } });
     // Still one automatic price a day.
     expect(store.get('cards', 'tg')!.prices).toEqual([expect.objectContaining({ where: 'Cardmarket' })]);
+  });
+
+  it("fills what the databases lack from TCGplayer's own catalog (tcgcsv.com): price, product, picture, rarity and release date", async () => {
+    const tcgcsvFile = (f: string) => () => new Response(fs.readFileSync(path.join(__dirname, 'fixtures', 'tcgcsv', f), 'utf8'), { headers: { 'Content-Type': 'application/json' } });
+    const tcgcsvNet = (over: Record<string, () => Response> = {}) =>
+      dbNet({
+        'api.tcgdex.net/v2/en/cards/swsh11tg-TG10': () => Response.json(JSON.parse(fixture('tcgdex-snorlax-tg.json'))),
+        'api.pokemontcg.io/v2/cards?q=': () => new Response('', { status: 500 }),
+        'tcgcsv.com/tcgplayer/3/groups': tcgcsvFile('groups.json'),
+        'tcgcsv.com/tcgplayer/3/3172/products': tcgcsvFile('3172-products.json'),
+        'tcgcsv.com/tcgplayer/3/3172/prices': tcgcsvFile('3172-prices.json'),
+        'tcgcsv.com/tcgplayer/3/23821/products': tcgcsvFile('23821-products.json'),
+        'tcgcsv.com/tcgplayer/3/23821/prices': tcgcsvFile('23821-prices.json'),
+        ...over,
+      });
+    const withTcgcsv = (net: Net) =>
+      new PriceUpdater({ store, assets, fetcher: net.fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', catalog: new Catalog({ fetcher: net.fetcher, now: () => now }), tcgcsv: new TcgCsv({ fetcher: net.fetcher, now: () => now, gapMs: 0 }), pricecharting: pcApi(net, null) });
+    const tgMarket = (JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'tcgcsv', '3172-prices.json'), 'utf8')).results as { productId: number; marketPrice: number }[]).find((p) => p.productId === 284270)!.marketPrice;
+    // TCGdex knows Snorlax TG10 but has no TCGplayer price for it.
+    store.set('cards', 'tg', { name: 'Snorlax', set: 'Lost Origin Trainer Gallery', number: 'TG10/TG30', status: 'binder', prices: [], details: { source: 'tcgdex', result: 'complete', id: 'swsh11tg-TG10', checkedAt: '2026-10-01T00:00:00Z' } });
+    // TCGdex doesn't know these at all: TCGplayer's catalog names their products (the Poké Ball one its own).
+    store.set('cards', 'ball', { name: 'Eevee', set: 'Prismatic Evolutions', number: '074/131', variant: 'Poke Ball', status: 'binder', prices: [] });
+    store.set('cards', 'plain', { name: 'Eevee', set: 'Prismatic Evolutions', number: '074/131', status: 'binder', prices: [] });
+    // TCGplayer turned off: none of its prices.
+    store.set('cards', 'off', { name: 'Snorlax', set: 'Lost Origin Trainer Gallery', number: 'TG10/TG30', status: 'binder', prices: [], pricing: { source: 'none', pair: { source: 'tcgplayer', off: true } }, details: { source: 'tcgdex', result: 'complete', id: 'swsh11tg-TG10', checkedAt: '2026-10-01T00:00:00Z' } });
+    const net = tcgcsvNet();
+    const s = await withTcgcsv(net).runAll('manual');
+    expect(s.counts).toMatchObject({ updated: 4, failed: 0 });
+
+    const tg = store.get('cards', 'tg')!;
+    expect(tg.pricing).toMatchObject({ source: 'tcgplayer', id: '284270', linkedBy: 'auto', imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/284270_in_1000x1000.jpg' });
+    expect(tg.prices).toEqual([expect.objectContaining({ where: 'TCGplayer', usd: tgMarket, quotes: expect.objectContaining({ tcgplayer: tgMarket, cardmarket: expect.any(Number) }) })]);
+    expect(tg).toMatchObject({ rarity: 'Ultra Rare', released: '2022-09-09' });
+
+    const ball = store.get('cards', 'ball')!, plain = store.get('cards', 'plain')!;
+    expect(ball.pricing).toMatchObject({ source: 'tcgplayer', id: '610590', imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/610590_in_1000x1000.jpg' });
+    expect(plain.pricing).toMatchObject({ source: 'tcgplayer', id: '610429' });
+    expect((ball.prices as { usd: number }[])[0].usd).toBeGreaterThan((plain.prices as { usd: number }[])[0].usd);
+    expect(plain).toMatchObject({ rarity: 'Common', released: '2025-01-17' });
+
+    const off = store.get('cards', 'off')!;
+    expect((off.prices as { quotes: object }[])[0].quotes).not.toHaveProperty('tcgplayer');
+    // Each set downloaded once for the whole update.
+    expect(net.calls.filter((u) => u.includes('tcgcsv.com/tcgplayer/3/3172/products'))).toHaveLength(1);
+
+    // tcgcsv.com down: the update carries on with what the databases give.
+    store.set('cards', 'tg2', { name: 'Snorlax', set: 'Lost Origin Trainer Gallery', number: 'TG10/TG30', status: 'binder', prices: [], details: { source: 'tcgdex', result: 'complete', id: 'swsh11tg-TG10', checkedAt: '2026-10-01T00:00:00Z' } });
+    const down = dbNet({
+      'api.tcgdex.net/v2/en/cards/swsh11tg-TG10': () => Response.json(JSON.parse(fixture('tcgdex-snorlax-tg.json'))),
+      'api.pokemontcg.io/v2/cards?q=': () => new Response('', { status: 500 }),
+      'tcgcsv.com': () => new Response('', { status: 503 }),
+    });
+    expect(await withTcgcsv(down).updateCard('tg2')).toBe('updated');
+    expect((store.get('cards', 'tg2')!.prices as { where: string }[])[0].where).toBe('Cardmarket');
   });
 
   it("carries on without the databases when they don't answer", async () => {

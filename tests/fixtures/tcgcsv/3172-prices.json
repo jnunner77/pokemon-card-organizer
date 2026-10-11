@@ -1,0 +1,185 @@
+{
+ "success": true,
+ "results": [
+  {
+   "productId": 284251,
+   "marketPrice": 27.35,
+   "midPrice": 32.3,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284253,
+   "marketPrice": 4.0,
+   "midPrice": 4.56,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284254,
+   "marketPrice": 2.51,
+   "midPrice": 3.1,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284255,
+   "marketPrice": 4.33,
+   "midPrice": 4.5,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284258,
+   "marketPrice": 39.17,
+   "midPrice": 45.09,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284266,
+   "marketPrice": 45.14,
+   "midPrice": 51.82,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284267,
+   "marketPrice": 2.92,
+   "midPrice": 3.49,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284268,
+   "marketPrice": 4.4,
+   "midPrice": 5.27,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284269,
+   "marketPrice": 2.56,
+   "midPrice": 3.24,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284270,
+   "marketPrice": 22.69,
+   "midPrice": 23.57,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284271,
+   "marketPrice": 1.95,
+   "midPrice": 2.49,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284272,
+   "marketPrice": 4.93,
+   "midPrice": 5.83,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284273,
+   "marketPrice": 12.0,
+   "midPrice": 12.51,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284275,
+   "marketPrice": 5.06,
+   "midPrice": 5.33,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284276,
+   "marketPrice": 8.12,
+   "midPrice": 9.0,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284278,
+   "marketPrice": 117.75,
+   "midPrice": 123.18,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284283,
+   "marketPrice": 103.28,
+   "midPrice": 111.56,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284284,
+   "marketPrice": 12.86,
+   "midPrice": 13.71,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284286,
+   "marketPrice": 9.88,
+   "midPrice": 10.81,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284290,
+   "marketPrice": 12.15,
+   "midPrice": 12.5,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284294,
+   "marketPrice": 5.98,
+   "midPrice": 5.99,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284295,
+   "marketPrice": 14.54,
+   "midPrice": 14.72,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284296,
+   "marketPrice": 3.32,
+   "midPrice": 3.96,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284297,
+   "marketPrice": 8.92,
+   "midPrice": 9.99,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284298,
+   "marketPrice": 3.96,
+   "midPrice": 3.95,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284299,
+   "marketPrice": 1.85,
+   "midPrice": 1.98,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284300,
+   "marketPrice": 12.71,
+   "midPrice": 13.09,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284301,
+   "marketPrice": 2.64,
+   "midPrice": 2.5,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284302,
+   "marketPrice": 24.21,
+   "midPrice": 25.99,
+   "subTypeName": "Holofoil"
+  },
+  {
+   "productId": 284303,
+   "marketPrice": 27.89,
+   "midPrice": 30.88,
+   "subTypeName": "Holofoil"
+  }
+ ]
+}
