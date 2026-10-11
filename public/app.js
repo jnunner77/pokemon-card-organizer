@@ -1380,7 +1380,6 @@ function binderModal(id){
         <label><input type="radio" name="bkind" value="case" ${kind==="case"?"checked":""} ${count?"disabled":""}><span><b>Display case</b> <span class="hint">no pages or pockets, like the case at card shows</span></span></label>
         ${count?`<span class="hint">Move its ${count} card${count===1?"":"s"} out to change its type.</span>`:""}
       </fieldset>
-      ${isNew && window.ledgerApi ? `<div class="msoffer"><span><b>Master set</b> <span class="hint">every card of one Pokémon, in every variant, as placeholders</span></span><button class="btn sm" type="button" id="bMaster">Master set…</button></div>` : ""}
       <div class="field"><label for="b_name">Name</label><input id="b_name" value="${esc(b.name)}" maxlength="40" placeholder="e.g. Vintage holos" autocomplete="off"></div>
       <div class="field"><label>Colour</label><div class="swatches" id="b_colors">${BINDER_COLORS.map(c=>`<button type="button" style="--c:${c}" data-color="${c}" aria-pressed="${(b.color||BINDER_COLORS[0])===c}" aria-label="Colour ${c}"></button>`).join("")}</div></div>
       <div class="field" id="b_pocketsF"><label for="b_pockets">Pockets per page</label><select id="b_pockets">${[4,9,12,16].map(p=>`<option value="${p}" ${p===n?"selected":""}>${p}-pocket</option>`).join("")}</select><span class="hint">Changing this doesn't move cards. Pockets past the new size stay listed but won't show on the page.</span></div>
@@ -1407,7 +1406,6 @@ function binderModal(id){
     sync();
   };
   let color = b.color || BINDER_COLORS[0];
-  const ms = $("#bMaster"); if(ms) ms.onclick = () => masterSetModal(color);
   $("#b_colors").onclick = e => { const t = e.target.closest("[data-color]"); if(!t) return; color = t.dataset.color; $("#b_colors").querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed", x===t)); };
   setTimeout(()=>{ nameIn.focus(); nameIn.select(); }, 30);
   nameIn.addEventListener("keydown", e => { if(e.key==="Enter"){ e.preventDefault(); $("#bSave").click(); } });
@@ -1424,71 +1422,6 @@ function binderModal(id){
     if(kind!==(isCase(b)?"case":"binder") && cardsIn(id).length) return toast(`Move its cards out to change its type.`);
     if(await guard(()=> S.db.doc("binders/"+id).update({name, color, pockets, kind}))){ closeModal(); toast(name!==b.name?`Renamed to ${name}`:`${kind==="case"?"Display case":"Binder"} saved`); }
   };
-  sync();
-}
-/* ---------- master set ----------
-   Every card of one Pokémon in every variant (server/masterset.ts), previewed, then made into a new
-   binder of placeholders for the owner chosen. */
-function masterSetModal(color){
-  const M = {found:null, busy:false, named:false};
-  const defOwner = "Justin";
-  $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard narrow" role="dialog" aria-modal="true" aria-labelledby="msTitle">
-    <h2 id="msTitle">New master set</h2>
-    <p class="lead">Every English card of one Pokémon ever released, in every variant (1st Edition, reverse holo, patterns, stamps), as placeholders in a new binder, oldest first. Switch each one to <i>Owned</i> as you get it.</p>
-    <div class="form" style="grid-template-columns:1fr 1fr">
-      <div class="field full"><label for="ms_poke">Pokémon</label><input id="ms_poke" maxlength="60" placeholder="e.g. Pikachu" autocomplete="off" autocapitalize="words" enterkeyhint="search"></div>
-      <div class="field"><label for="ms_owner">Owner</label><select id="ms_owner">${opt(OWNERS, defOwner)}</select></div>
-      <div class="field"><label for="ms_pockets">Pockets per page</label><select id="ms_pockets">${[4,9,12,16].map(p=>`<option value="${p}" ${p===9?"selected":""}>${p}-pocket</option>`).join("")}</select></div>
-      <div class="field full"><label for="ms_name">Binder name</label><input id="ms_name" maxlength="40" placeholder="e.g. Pikachu master set" autocomplete="off"></div>
-    </div>
-    <div id="msOut" aria-live="polite"></div>
-    <div class="mfoot"><button class="btn" type="button" data-mclose>Cancel</button><button class="btn" type="button" id="msFind">Find cards</button><button class="btn primary" type="button" id="msMake" hidden></button></div>
-  </div></div>`;
-  const poke = $("#ms_poke"), nameIn = $("#ms_name"), out = $("#msOut");
-  const ownerLabel = () => OWNERS.find(o=>o[0]===$("#ms_owner").value)?.[1] || "";
-  const autoName = () => { const p = (M.found?.pokemon || poke.value.trim()); return p ? `${p} master set`.slice(0,40) : ""; };
-  const sync = () => {
-    if(!M.named) nameIn.value = autoName();
-    const n = M.found?.entries.length || 0, pk = +$("#ms_pockets").value;
-    $("#msFind").hidden = !!M.found; $("#msMake").hidden = !M.found;
-    $("#msFind").disabled = M.busy || !poke.value.trim(); $("#msMake").disabled = M.busy;
-    $("#msMake").textContent = M.busy ? "Making the binder…" : `Create binder · ${n} placeholder${n===1?"":"s"}`;
-    if(M.found) $("#msPages").textContent = `${Math.ceil(n/pk)} page${Math.ceil(n/pk)===1?"":"s"} of ${pk}${ownerLabel() && $("#ms_owner").value ? `, owned by ${ownerLabel()}` : ""}.`;
-  };
-  const show = () => {
-    const f = M.found, e = f.entries;
-    const years = e.map(x=>x.released?.slice(0,4)).filter(Boolean);
-    const sets = new Set(e.map(x=>x.setId)).size;
-    out.innerHTML = `<div class="msres"><p><b>${esc(f.pokemon)}</b>${f.dexId?` <span class="hint">#${f.dexId}</span>`:""}: ${f.cards} card${f.cards===1?"":"s"} from ${sets} set${sets===1?"":"s"}${years.length?`, ${years[0]}–${years[years.length-1]}`:""}, <b>${e.length}</b> with every variant. <span id="msPages"></span></p>
-      <ol class="mslist">${e.map(x=>`<li><span class="msn">${esc(x.name)}${x.variant?` <span class="msv">${esc(x.variant)}</span>`:""}</span><span class="hint">${esc(x.set)} · ${esc(x.number)}${x.released?` · ${esc(x.released.slice(0,4))}`:""}</span></li>`).join("")}</ol>
-      <p class="hint">Prices and pictures fill in by themselves over the next while (a big set takes longer). Delete any you don't collect, like promos or McDonald's cards.</p></div>`;
-    sync();
-  };
-  const find = async () => {
-    const p = poke.value.trim(); if(!p || M.busy) return;
-    M.busy = true; M.found = null; out.innerHTML = `<p class="hint">Looking up every ${esc(p)} card… this can take a little while.</p>`; sync();
-    try{ M.found = await window.ledgerApi.call("GET", "api/master-sets/preview?pokemon="+encodeURIComponent(p)); M.busy = false; show(); }
-    catch(err){ M.busy = false; out.innerHTML = `<p class="hint err">${esc(err?.message || "That didn't work. Try again.")}</p>`; sync(); }
-  };
-  const make = async () => {
-    if(!M.found || M.busy) return;
-    const name = nameIn.value.trim() || autoName();
-    const pockets = +$("#ms_pockets").value, owner = $("#ms_owner").value;
-    M.busy = true; sync();
-    try{
-      const r = await window.ledgerApi.call("POST", "api/master-sets", {pokemon:M.found.pokemon, owner, name, color, pockets});
-      // The new binder arrives with the live updates; open it once it's here.
-      for(let i=0; i<50 && !binderById(r.binderId); i++) await new Promise(res=>setTimeout(res,100));
-      closeModal(); S.binderId = r.binderId; S.page = 1; persistNav();
-      toast(`${name}: ${r.cards} placeholders on ${r.pages} page${r.pages===1?"":"s"}`); render();
-    }catch(err){ M.busy = false; sync(); toast(err?.message || "That didn't work. Try again."); }
-  };
-  poke.addEventListener("input", () => { if(M.found){ M.found = null; out.innerHTML = ""; } sync(); });
-  poke.addEventListener("keydown", e => { if(e.key==="Enter"){ e.preventDefault(); find(); } });
-  nameIn.addEventListener("input", () => { M.named = !!nameIn.value.trim(); });
-  $("#ms_owner").onchange = sync; $("#ms_pockets").onchange = sync;
-  $("#msFind").onclick = find; $("#msMake").onclick = make;
-  setTimeout(()=>poke.focus(), 30);
   sync();
 }
 /* ---------- cards to check ----------
