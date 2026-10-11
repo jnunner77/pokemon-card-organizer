@@ -194,10 +194,24 @@ export const NO_TOKEN = "PriceCharting isn't set up: add its API token under Adm
 /** A TCGplayer product the person chose that the card databases don't price (TCGplayer's own pages aren't read). */
 const TCG_NOT_PRICED = "TCGplayer's prices come from the TCGdex card database, which doesn't price this TCGplayer product. Choose the product it names, or the card's PriceCharting product, with Change match.";
 
-export type CardOutcome = 'updated' | 'needsMatch' | 'noPrice' | 'failed' | 'skipped' | 'off';
+export type CardOutcome = 'updated' | 'needsMatch' | 'noPrice' | 'noPicture' | 'failed' | 'skipped' | 'off';
+
+/**
+ * What an update does to each card: `all` looks up its blank details, logs today's price and
+ * downloads its picture (the daily update, and Update all cards → Everything, which also looks
+ * cards up again that were looked up this week); `prices` only logs prices; `pictures` only
+ * pictures the cards without an official picture or with a smaller one, and logs no price.
+ */
+export type RunScope = 'all' | 'prices' | 'pictures';
+const RUN_NAME: Record<RunScope, string> = { all: 'price update', prices: 'price update', pictures: 'picture update' };
+const runName = (scope: unknown) => RUN_NAME[(scope as RunScope) in RUN_NAME ? (scope as RunScope) : 'all'];
+const capital = (s: string) => s[0].toUpperCase() + s.slice(1);
+const zeroCounts = (): Record<CardOutcome, number> => ({ updated: 0, needsMatch: 0, noPrice: 0, noPicture: 0, failed: 0, skipped: 0, off: 0 });
 
 export interface RunSummary {
   reason: 'schedule' | 'manual';
+  /** What it updated (missing on runs from before there was a choice: they were `all`). */
+  scope?: RunScope;
   date: string;
   startedAt: string;
   finishedAt: string;
@@ -299,7 +313,8 @@ export class PriceUpdater {
   /** The euro rate fetched for the current run (Cardmarket's prices are in euros). */
   private eur: number | null = null;
   /** During a run: each site's failures in a row, and the sites left alone for the rest of it (with why). */
-  private run: { streak: Record<Source, number>; tripped: Map<Source, string> } | null = null;
+  /** `force`: databases are asked again even about cards they were asked about this week (a manual run). */
+  private run: { streak: Record<Source, number>; tripped: Map<Source, string>; scope: RunScope; force: boolean } | null = null;
   /** Which run is current: a stopped run's loop sees this change and ends without writing anything. */
   private gen = 0;
   private readonly stallMs: number;
@@ -406,7 +421,8 @@ export class PriceUpdater {
   dueToday(): boolean {
     const st = this.status();
     if ((st.lastRun as RunSummary | undefined)?.date === this.today()) return false;
-    const startedAt = st.startedAt as string | undefined;
+    // A picture update (kept in lastPictureRun) doesn't count: the day's prices are still to be logged.
+    const startedAt = (st.pricesStartedAt ?? (st.scope === 'pictures' ? undefined : st.startedAt)) as string | undefined;
     if (!startedAt || this.today(new Date(startedAt)) !== this.today()) return true;
     const p = st.problem as RunProblem | null | undefined;
     return !!p && p.kind === 'interrupted' && !!p.graceful && p.startedAt === startedAt;
@@ -419,10 +435,18 @@ export class PriceUpdater {
 
   // ---- the daily run -----------------------------------------------------------------
 
-  /** Update every card. A second call while one is running joins it. */
-  runAll(reason: RunSummary['reason']): Promise<RunSummary> {
+  /** What the running update does, or null when none is running. */
+  get runningScope(): RunScope | null {
+    return this.current ? (this.run?.scope ?? 'all') : null;
+  }
+
+  /**
+   * Update every card (`scope`: what to update; `force`: ask the databases again even about cards
+   * they were asked about this week). A second call while one is running joins it.
+   */
+  runAll(reason: RunSummary['reason'], scope: RunScope = 'all', force = false): Promise<RunSummary> {
     if (!this.current) {
-      const p: Promise<RunSummary> = this.doRunAll(reason).finally(() => {
+      const p: Promise<RunSummary> = this.doRunAll(reason, scope, force).finally(() => {
         if (this.current === p) this.current = null;
       });
       this.current = p;
@@ -430,29 +454,34 @@ export class PriceUpdater {
     return this.current;
   }
 
-  private async doRunAll(reason: RunSummary['reason']): Promise<RunSummary> {
+  private async doRunAll(reason: RunSummary['reason'], scope: RunScope = 'all', force = false): Promise<RunSummary> {
     const gen = ++this.gen;
     // False once the run is stopped (stop, shutdown): it then ends without writing anything.
     const live = () => this.gen === gen;
     const startedAt = this.now().toISOString();
     const date = this.today();
-    const ids = this.store.all().cards.map((c) => c.id);
-    this.setStatus({ running: true, startedAt, reason, done: 0, total: ids.length, current: null });
+    const name = runName(scope);
+    // A picture update only visits the cards that need one.
+    const ids = this.store
+      .all()
+      .cards.filter((c) => scope !== 'pictures' || this.needsPicture(c as Card))
+      .map((c) => c.id);
+    this.setStatus({ running: true, startedAt, reason, scope, ...(scope === 'pictures' ? {} : { pricesStartedAt: startedAt }), done: 0, total: ids.length, current: null });
     this.progressAt = this.now().getTime();
     this.stalled = false;
-    this.step = 'getting the exchange rate from the Bank of Canada';
-    const watchdog = (this.watchdog = setInterval(() => live() && safely(this.log, 'pricing', 'Checking the price update for progress', () => this.checkStall()), Math.min(30_000, Math.max(1000, this.stallMs / 4))));
+    this.step = scope === 'pictures' ? null : 'getting the exchange rate from the Bank of Canada';
+    const watchdog = (this.watchdog = setInterval(() => live() && safely(this.log, 'pricing', `Checking the ${name} for progress`, () => this.checkStall()), Math.min(30_000, Math.max(1000, this.stallMs / 4))));
     watchdog.unref();
-    const { rate, rateDate } = await this.rate();
-    const counts: Record<CardOutcome, number> = { updated: 0, needsMatch: 0, noPrice: 0, failed: 0, skipped: 0, off: 0 };
+    const { rate, rateDate } = scope === 'pictures' ? this.savedRate() : await this.rate();
+    const counts = zeroCounts();
     this.counts = counts;
     const errors: RunSummary['errors'] = [];
     let done = 0;
     let failure: unknown = null;
     // A site that keeps failing (down, or refusing the token) is left alone for the rest of the run.
     this.catalog?.reset();
-    const run = (this.run = { streak: { pricecharting: 0, tcgplayer: 0 }, tripped: new Map<Source, string>() });
-    this.log.info('pricing', `Price update started (${reason}) for ${ids.length} cards at US$1 = C$${rate}`, { reason, cards: ids.length, rate });
+    const run = (this.run = { streak: { pricecharting: 0, tcgplayer: 0 }, tripped: new Map<Source, string>(), scope, force });
+    this.log.info('pricing', `${capital(name)} started (${reason}${scope === 'all' ? '' : `, ${scope} only`}) for ${ids.length} cards${scope === 'pictures' ? '' : ` at US$1 = C$${rate}`}`, { reason, scope, cards: ids.length, rate });
     try {
       for (const id of ids) {
         if (!live()) break;
@@ -461,19 +490,25 @@ export class PriceUpdater {
         if (card) {
           this.progress(label(card));
           try {
-            // Blanks first, release date included (it only asks TCGdex about cards with blanks, at
-            // most once a week each): a known set helps find the right product.
-            this.step = 'filling in its details from TCGdex';
-            if (this.details) await this.details.fill(this.store, id).catch(() => {});
-            this.step = 'pricing it';
-            outcome = await this.updateCard(id, rate);
+            if (scope === 'pictures') {
+              outcome = await this.updatePicture(id);
+            } else {
+              // Blanks first, release date included (it only asks TCGdex about cards with blanks, at
+              // most once a week each, unless the person asked for everything): a known set helps
+              // find the right product.
+              this.step = 'filling in its details from TCGdex';
+              if (this.details && scope === 'all') await this.details.fill(this.store, id, run.force).catch(() => {});
+              this.step = 'pricing it';
+              outcome = await this.updateCard(id, rate);
+            }
           } catch (err) {
             outcome = 'failed';
-            this.log.error('pricing', `Price update for ${label(card)} failed: ${message(err)}`);
+            this.log.error('pricing', `${capital(name)} for ${label(card)} failed: ${message(err)}`);
           }
           if (!live()) break;
           const after = this.store.get('cards', id) as Card | undefined;
           if (outcome === 'failed' || outcome === 'noPrice') errors.push({ card: label(card), error: after?.pricing?.error ?? 'Failed' });
+          if (outcome === 'noPicture') errors.push({ card: label(card), error: 'No picture found in the card databases or on TCGplayer.' });
         }
         counts[outcome]++;
         this.setStatus({ done: ++done });
@@ -489,7 +524,7 @@ export class PriceUpdater {
     }
     const sitesOut: Partial<Record<Source, string>> = {};
     for (const [src, why] of run.tripped) sitesOut[src] = why;
-    const summary: RunSummary = { reason, date, startedAt, finishedAt: this.now().toISOString(), rate, rateDate, counts, errors: errors.slice(0, 30), ...(Object.keys(sitesOut).length ? { sitesOut } : {}) };
+    const summary: RunSummary = { reason, scope, date, startedAt, finishedAt: this.now().toISOString(), rate, rateDate, counts, errors: errors.slice(0, 30), ...(Object.keys(sitesOut).length ? { sitesOut } : {}) };
     // Stopped (or the server shutting down): stop() or shutdown() already wrote down how far it got.
     if (!live()) return { ...summary, ended: 'stopped', done, total: ids.length };
     this.run = null;
@@ -501,7 +536,7 @@ export class PriceUpdater {
       const card = (st.current as { card?: string } | null)?.card ?? null;
       const problem: RunProblem = {
         kind: 'failed',
-        title: `The price update failed at card ${Math.min(done + 1, ids.length)} of ${ids.length}`,
+        title: `The ${name} failed at card ${Math.min(done + 1, ids.length)} of ${ids.length}`,
         message: `It stopped with an error: ${message(failure)}. The cards before it were priced. Start it again; if it fails the same way, the log below shows where.`,
         at,
         startedAt,
@@ -511,17 +546,18 @@ export class PriceUpdater {
         card,
         step: this.step,
       };
-      this.log.error('pricing', `Price update failed after ${done} of ${ids.length} cards${card ? ` (on ${card})` : ''}: ${failure instanceof Error && failure.stack ? failure.stack : message(failure)}`, { done, total: ids.length });
-      // Written as the day's update so the daily run doesn't start it again and again; the banner says what happened.
+      this.log.error('pricing', `${capital(name)} failed after ${done} of ${ids.length} cards${card ? ` (on ${card})` : ''}: ${failure instanceof Error && failure.stack ? failure.stack : message(failure)}`, { done, total: ids.length });
+      // A price update is written as the day's update so the daily run doesn't start it again and
+      // again; the banner says what happened.
       const failed: RunSummary = { ...summary, ended: 'failed', done, total: ids.length };
-      this.setStatus({ running: false, current: null, lastRun: failed, problem, history: this.withHistory(failed) });
+      this.setStatus({ running: false, current: null, [scope === 'pictures' ? 'lastPictureRun' : 'lastRun']: failed, problem, history: this.withHistory(failed) });
       this.step = null;
       return failed;
     }
     const prior = st.problem as RunProblem | null | undefined;
     // An earlier problem stays shown (until dismissed), saying that this update went through.
     const problem = prior && !prior.recoveredAt ? { ...prior, recoveredAt: summary.finishedAt } : (prior ?? null);
-    this.setStatus({ running: false, current: null, lastRun: summary, problem, history: this.withHistory(summary) });
+    this.setStatus({ running: false, current: null, [scope === 'pictures' ? 'lastPictureRun' : 'lastRun']: summary, problem, history: this.withHistory(summary) });
     this.step = null;
     const ptcg = this.catalog?.ptcgSummary();
     if (ptcg && ptcg.failed + ptcg.skipped) {
@@ -529,7 +565,8 @@ export class PriceUpdater {
       this.log.warn('pricing', `pokemontcg.io failed for ${missed} of the ${ptcg.asked} cards it was asked about${ptcg.lastError ? ` (${ptcg.lastError})` : ''}${ptcg.skipped ? `; after failing ${Catalog.breakerAfter} times in a row it wasn't asked about the rest` : ''}. It only adds large pictures and blank details, so prices aren't affected; those cards are tried again in the next update.`, { ...ptcg });
     }
     const lvl = counts.failed ? 'warn' : 'info';
-    this.log[lvl]('pricing', `Price update finished: ${counts.updated} updated, ${counts.needsMatch} need a match, ${counts.noPrice} without a price, ${counts.failed} failed`, { ...counts, tripped: [...run.tripped.keys()] });
+    if (scope === 'pictures') this.log[lvl]('pricing', `Picture update finished: ${counts.updated} pictured, ${counts.noPicture} without a picture, ${counts.failed} failed`, { ...counts });
+    else this.log[lvl]('pricing', `${capital(name)} finished${scope === 'prices' ? ' (prices only)' : ''}: ${counts.updated} updated, ${counts.needsMatch} need a match, ${counts.noPrice} without a price, ${counts.failed} failed`, { ...counts, tripped: [...run.tripped.keys()] });
     return summary;
   }
 
@@ -571,7 +608,7 @@ export class PriceUpdater {
     this.stalled = true;
     const problem: RunProblem = {
       kind: 'stalled',
-      title: `The price update is stuck at card ${Math.min(done + 1, total)} of ${total}`,
+      title: `The ${runName(st.scope)} is stuck at card ${Math.min(done + 1, total)} of ${total}`,
       message: `Nothing has happened for ${mins} minute${mins === 1 ? '' : 's'}${card ? ` while ${this.step ?? 'pricing'} for ${card}` : this.step ? ` while ${this.step}` : ''}. Stop it and start it again; the log below shows its last steps.`,
       at: this.now().toISOString(),
       startedAt: (st.startedAt as string) ?? null,
@@ -581,7 +618,7 @@ export class PriceUpdater {
       card,
       step: this.step,
     };
-    this.log.error('pricing', `Price update stalled: no progress for ${mins} minutes at card ${Math.min(done + 1, total)} of ${total}${card ? ` (${card}, ${this.step ?? 'pricing'})` : ''}`, { done, total, card, step: this.step, minutes: mins });
+    this.log.error('pricing', `${capital(runName(st.scope))} stalled: no progress for ${mins} minutes at card ${Math.min(done + 1, total)} of ${total}${card ? ` (${card}, ${this.step ?? 'pricing'})` : ''}`, { done, total, card, step: this.step, minutes: mins });
     this.setStatus({ problem });
     return problem;
   }
@@ -597,7 +634,7 @@ export class PriceUpdater {
     const p = st.problem as RunProblem | null | undefined;
     const wasStalled = this.stalled && p?.kind === 'stalled' && p.startedAt === st.startedAt;
     this.endRun('stopped');
-    this.log.warn('pricing', `${by} stopped the price update at ${st.done ?? 0} of ${st.total ?? 0} cards${wasStalled ? ' after it stalled' : ''}`);
+    this.log.warn('pricing', `${by} stopped the ${runName(st.scope)} at ${st.done ?? 0} of ${st.total ?? 0} cards${wasStalled ? ' after it stalled' : ''}`);
     if (wasStalled) this.setStatus({ problem: { ...p, message: `${p.message} ${by} stopped it.` } });
     return true;
   }
@@ -651,7 +688,7 @@ export class PriceUpdater {
     const at = Math.min(done + 1, total);
     return {
       kind,
-      title: `The price update was interrupted at card ${at} of ${total}`,
+      title: `The ${runName(st.scope)} was interrupted at card ${at} of ${total}`,
       message: `${why}${card ? (step ? ` It was ${step} for ${card}.` : ` It was on ${card}.`) : ''} ${done} card${done === 1 ? ' was' : 's were'} priced before that. ${graceful ? 'The daily update starts again by itself once the server is back, or start it again now.' : 'Start it again; the log below shows its last lines.'}`,
       at: this.now().toISOString(),
       startedAt: (st.startedAt as string) ?? null,
@@ -669,15 +706,15 @@ export class PriceUpdater {
     const startedAt = st.startedAt as string | undefined;
     if (!startedAt) return null;
     const main = this.store.get('settings', 'main') ?? {};
-    const zero: Record<CardOutcome, number> = { updated: 0, needsMatch: 0, noPrice: 0, failed: 0, skipped: 0, off: 0 };
     return {
       reason: (st.reason as RunSummary['reason']) ?? 'schedule',
+      ...(st.scope ? { scope: st.scope as RunScope } : {}),
       date: this.today(new Date(startedAt)),
       startedAt,
       finishedAt: this.now().toISOString(),
       rate: Number(main.usdToCad) || 0,
       rateDate: (main.usdToCadDate as string) ?? null,
-      counts: this.current && this.counts ? { ...this.counts } : zero,
+      counts: this.current && this.counts ? { ...this.counts } : zeroCounts(),
       errors: [],
       ended,
       done: Number(st.done) || 0,
@@ -734,6 +771,12 @@ export class PriceUpdater {
   }
 
   /** Today's Bank of Canada rates (US dollar, and euro for Cardmarket); if they can't be had, the last ones saved. */
+  /** The rate the last update saved (a picture update doesn't need today's). */
+  private savedRate(): { rate: number; rateDate: string | null } {
+    const main = this.store.get('settings', 'main') ?? {};
+    return { rate: Number(main.usdToCad) > 0 ? Number(main.usdToCad) : 1.37, rateDate: (main.usdToCadDate as string) ?? null };
+  }
+
   private async rate(): Promise<{ rate: number; rateDate: string | null }> {
     const main = this.store.get('settings', 'main') ?? {};
     try {
@@ -881,20 +924,8 @@ export class PriceUpdater {
     // Priced from another source while PriceCharting is out: the update's summary says why, once.
     if (best && link && mainQ.status === 'rejected' && this.siteOut(link.source)) mainError = null;
 
-    // The largest picture: a PriceCharting picture the card already has is kept (it's as large);
-    // otherwise pokemontcg.io's, then the main product's, then the card's TCGplayer product's (717×1000:
-    // TCGdex has no pictures of some sets, Trainer Galleries among them, and pokemontcg.io often
-    // fails), then TCGdex's own. pokemontcg.io's replaces the others once it answers.
-    const current = card.officialImageId ? (card.pricing?.imageUrl ?? '') : '';
-    // A special variant (a Poké Ball pattern, say) is pictured by its own TCGplayer product, which shows it.
-    const variantPicture = cat?.special && link?.source === 'tcgplayer' ? (main?.image ?? null) : null;
-    // The databases' product only for a plain printing (they sometimes name one product for several
-    // special ones), and not when the person turned TCGplayer off for the card.
-    const tcgId = ownTcg?.id ?? (cat?.special || (card.pricing?.pair?.source === 'tcgplayer' && card.pricing.pair.off) ? null : (cat?.tcgplayerProduct ?? null));
-    const tcgPicture = tcgId ? tcgImage(tcgId, 1000) : null;
-    const tcgdexPicture = card.officialImageId ? null : (cat?.fallbackImage ?? null);
-    const pictures = /pricecharting/i.test(current) ? [] : variantPicture ? [variantPicture] : /pokemontcg\.io/i.test(current) ? [cat?.image] : [cat?.image, main?.image, tcgPicture, tcgdexPicture];
-    const image = await this.fetchImage(card, pictures);
+    // A prices-only update leaves pictures alone.
+    const image = this.run?.scope === 'prices' ? null : await this.fetchImage(card, this.pictureUrls(card, cat, link, pair, main?.image ?? null));
 
     // Network work is done: re-read the card so nothing the person changed meanwhile is lost.
     const fresh = this.store.get('cards', id) as Card | undefined;
@@ -962,6 +993,58 @@ export class PriceUpdater {
     this.store.update('cards', id, patch);
     if (image && oldImage && oldImage !== image.id && !this.store.referencedImages().has(oldImage)) this.assets.remove(oldImage);
     return best ? 'updated' : 'noPrice';
+  }
+
+  /**
+   * The pictures to try for a card, best first. A PriceCharting picture the card already has is
+   * kept (it's as large); otherwise pokemontcg.io's, then the main product's, then the card's
+   * TCGplayer product's (717×1000: TCGdex has no pictures of some sets, Trainer Galleries among
+   * them, and pokemontcg.io often fails), then TCGdex's own. pokemontcg.io's replaces the others
+   * once it answers.
+   */
+  private pictureUrls(card: Card, cat: CatalogQuote | null, link: { source: string; id: string } | null, pair: { source: string; id: string } | null, mainImage: string | null): (string | null | undefined)[] {
+    const current = card.officialImageId ? (card.pricing?.imageUrl ?? '') : '';
+    if (/pricecharting/i.test(current)) return [];
+    // A special variant (a Poké Ball pattern, say) is pictured by its own TCGplayer product, which shows it.
+    if (cat?.special && link?.source === 'tcgplayer' && mainImage) return [mainImage];
+    if (/pokemontcg\.io/i.test(current)) return [cat?.image];
+    const ownTcg = link?.source === 'tcgplayer' ? link : pair?.source === 'tcgplayer' ? pair : null;
+    // The databases' product only for a plain printing (they sometimes name one product for several
+    // special ones), and not when the person turned TCGplayer off for the card.
+    const tcgId = ownTcg?.id ?? (cat?.special || (card.pricing?.pair?.source === 'tcgplayer' && card.pricing.pair.off) ? null : (cat?.tcgplayerProduct ?? null));
+    const tcgdexPicture = card.officialImageId ? null : (cat?.fallbackImage ?? null);
+    return [cat?.image, mainImage, tcgId ? tcgImage(tcgId, 1000) : null, tcgdexPicture];
+  }
+
+  /** Whether a picture update should visit the card: it has no official picture, or a smaller one than pokemontcg.io's. */
+  needsPicture(c: Card): boolean {
+    if (c.pricing?.source === 'off' || c.status === 'sold' || c.status === 'traded') return false;
+    return !c.officialImageId || !this.assets.find(c.officialImageId) || pictureOf(c) === 'other';
+  }
+
+  /**
+   * Picture one card (a picture update): the best picture the card databases and its TCGplayer
+   * product have, without logging a price. 'updated' when it got a new picture, 'noPicture' when it
+   * still has none, 'skipped' when it keeps the one it has.
+   */
+  async updatePicture(id: string): Promise<CardOutcome> {
+    const card = this.store.get('cards', id) as Card | undefined;
+    if (!card) return 'skipped';
+    if (card.pricing?.source === 'off') return 'off';
+    if (card.status === 'sold' || card.status === 'traded') return 'skipped';
+    const cat = await this.catalogQuote(card);
+    const link = isLinked(card.pricing) ? card.pricing : null;
+    const pair = link && pairLinked(link.pair) && link.pair.source !== link.source ? link.pair : null;
+    const mainImage = link?.source === 'tcgplayer' ? tcgImage(link.id, 1000) : null;
+    const image = await this.fetchImage(card, this.pictureUrls(card, cat, link, pair, mainImage));
+    // Network work is done: re-read the card so nothing the person changed meanwhile is lost.
+    const fresh = this.store.get('cards', id) as Card | undefined;
+    if (!fresh || fresh.pricing?.source === 'off') return 'skipped';
+    const pricing = { ...(fresh.pricing ?? { source: 'none' }), ...(image ? { imageUrl: image.url } : {}), ...(cat ? { catalog: catalogOf(cat) } : {}) };
+    if (image || cat) this.store.update('cards', id, { pricing, ...(image ? { officialImageId: image.id } : {}) });
+    const oldImage = fresh.officialImageId;
+    if (image && oldImage && oldImage !== image.id && !this.store.referencedImages().has(oldImage)) this.assets.remove(oldImage);
+    return image ? 'updated' : fresh.officialImageId && this.assets.find(fresh.officialImageId) ? 'skipped' : 'noPicture';
   }
 
   /**
@@ -1035,9 +1118,14 @@ export class PriceUpdater {
     const known = card.pricing?.catalog?.tcgdexId === tcgdexId ? card.pricing.catalog : {};
     if (this.run) this.step = 'asking the card databases (TCGdex, pokemontcg.io)';
     try {
-      const blanks = DETAIL_FIELDS.some((f) => blank(card[f]));
-      // Matched to another TCGdex card than before: its picture is fetched again too.
-      const q = await this.catalog.quote(tcgdexId, { variant: card.variant, rarity: card.rarity, picture: switched ? null : pictureOf(card), blanks }, known, card.setCode as string | undefined);
+      const pricesOnly = this.run?.scope === 'prices';
+      const blanks = !pricesOnly && DETAIL_FIELDS.some((f) => blank(card[f]));
+      // Matched to another TCGdex card than before: its picture is fetched again too. A prices-only
+      // update wants no picture; a run the person started asks pokemontcg.io again even if it had
+      // nothing for the card this week.
+      const picture = pricesOnly ? 'large' : switched ? null : pictureOf(card);
+      const asked = this.run?.force ? { ptcgId: known.ptcgId ?? null } : known;
+      const q = await this.catalog.quote(tcgdexId, { variant: card.variant, rarity: card.rarity, picture, blanks }, asked, card.setCode as string | undefined);
       // During an update, pokemontcg.io's failures (it only adds pictures and details) are counted
       // and logged once at the end; a single card priced on its own still warns.
       for (const e of q.errors) this.log[this.run && e.startsWith('pokemontcg.io:') ? 'info' : 'warn']('pricing', `${label(card)}: ${e}`);

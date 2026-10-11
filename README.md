@@ -55,8 +55,8 @@ Every morning (after 5:00 in your time zone, catching up if the server was off) 
 Each card's drawer shows its PriceCharting and TCGplayer products, a 30-day price chart, and
 *Update now*, *Change match* (search PriceCharting, or take the TCGplayer product TCGdex names),
 *Don't use TCGplayer* (or PriceCharting) for that card, and *Turn off*. **Settings** shows the last
-run (updated, needing a match, problems), *Update all prices now*, and *Stop the update* while
-one is running.
+run (updated, needing a match, problems), and *Update all cards* (below) starts one now, with
+*Stop the update* while one is running.
 
 When an update goes wrong, a **red banner** across the top of the binder (and of Administration →
 Prices, and a failing check on the Overview) says what happened, which card it stopped at, and
@@ -64,7 +64,7 @@ shows the update's log, with *Start it again* (or *Stop the update*), *Copy log*
 
 - **Interrupted:** the server restarted, was updated or crashed during it. A crash's error is
   written to the log before the server stops, and a server that was killed outright is noticed
-  when it starts again. Either way *Update all prices now* works again straight away. After a
+  when it starts again. Either way an update can be started again straight away. After a
   restart or an update the daily run starts again by itself; after a crash it waits to be
   started, so a run that crashes the server doesn't do it all day.
 - **Stuck:** no card finished for 10 minutes (a site that never answers). It names the card and
@@ -128,6 +128,26 @@ No site's pages are read: every price comes from an API.
 - Links saved before PriceCharting was read through its API (by page address) are moved to their
   API product at the next update; one PriceCharting no longer has is matched again.
 
+## Update all cards
+
+The daily update logs every card's price and looks for what cards are missing, but some things
+are only tried again once a week (a card the databases didn't have). **Settings → Update all
+cards** does it now, for every card, all at once or one kind:
+
+- **Everything:** looks every card up again in the card databases (TCGdex and pokemontcg.io), even
+  the ones asked about this week, then logs today's price and downloads its picture.
+- **Prices:** logs today's price for every card, nothing else (no lookups, no pictures).
+- **Pictures:** downloads a picture for each card without an official one, or with a smaller one
+  than pokemontcg.io's (TCGplayer's or TCGdex's), asking pokemontcg.io again. It logs no price, and
+  doesn't count as the day's price update.
+- **Details:** looks every card with a blank set, set code, rarity, illustrator or release date up
+  again in TCGdex. What you typed is never replaced.
+
+Each button says how many cards it covers, shows its progress while it runs (with *Stop the
+update*), and Settings says how the last picture update went (*4 pictured · 1 still without a
+picture*). A card still blank afterwards is one the databases can't place by itself: its name or
+number is off, or several cards match (see Cards to check); its drawer has the Google searches.
+
 ## New cards fill themselves in
 
 Adding a card only needs its **name and number**:
@@ -140,7 +160,7 @@ Adding a card only needs its **name and number**:
 - As soon as the card is saved (from the form, a CSV import or the API) the server fills whatever
   is still empty and then looks up its **price and official picture**, so the card is complete
   within seconds instead of the next morning.
-- *Settings → Card details → Fill in missing details* does the same for cards already in the
+- *Settings → Update all cards → Details* does the same for cards already in the
   ledger (illustrators, for instance), and the daily price run fills blanks too. Cards looked up
   are asked about again after a week, in case TCGdex has added them.
 - What TCGdex leaves blank for a card it found (a rarity, an illustrator, a set code or release
@@ -148,7 +168,7 @@ Adding a card only needs its **name and number**:
   database the card's large picture comes from. Its older rarity names are put in the binder's
   words ("Rare Ultra" becomes Ultra Rare). Again, nothing you typed is replaced.
 
-On a 122-card collection, Fill in missing details added 108 illustrators; the cards not found
+On a 122-card collection, looking every card up added 108 illustrators; the cards not found
 were from the *Trading Card Game Classic* box, a brand-new promo, and a misspelled name.
 Only English cards are looked up.
 
@@ -647,7 +667,7 @@ BASE_URL=http://localhost:4100/ npm run test:e2e    # browser smoke test
   Bank of Canada), `match.ts` (which product is this card), `updater.ts` (the daily run, per-card
   updates and the PriceCharting purge). `server/secrets.ts` keeps PriceCharting's token.
 - `server/details.ts` (card details from TCGdex), `server/autofill.ts` (new cards filling themselves
-  in, and Fill in missing details).
+  in, and Update all cards → Details).
 - `server/`: `store.ts` (ledger file and change feed), `assets.ts` (pictures), `backup.ts`
   (full backups), `backups.ts` (copies and retention), `accounts.ts` (people, sessions, API
   tokens), `security.ts` (rate limits and blocks), `log.ts`, `checks.ts` (Overview checks),

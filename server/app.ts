@@ -482,12 +482,18 @@ export function createApp(o: AppOptions) {
     if (!card) throw new HttpError(404, 'No such card', 'not_found');
     return { id: parsed.data!, card };
   };
-  api.post('/pricing/run', need('editor'), heavy, (_req, res) => {
+  // Update every card now: everything (the default), only prices, or only pictures. `force` asks the
+  // card databases again even about cards they were asked about this week (Update all cards).
+  const runBody = z.object({ scope: z.enum(['all', 'prices', 'pictures']).optional(), force: z.boolean().optional() }).strict();
+  api.post('/pricing/run', need('editor'), heavy, json, (req, res) => {
     const u = needUpdater();
+    const body = runBody.safeParse(req.body ?? {});
+    if (!body.success) throw new HttpError(400, 'Choose what to update: all, prices or pictures.');
+    const scope = body.data.scope ?? 'all';
     const already = u.running;
-    u.runAll('manual').catch((err) => log.error('pricing', `Price update failed: ${err instanceof Error ? err.message : err}`));
-    if (!already) log.info('pricing', `${who(res)} started a price update`);
-    res.status(202).json({ started: !already });
+    u.runAll('manual', scope, !!body.data.force).catch((err) => log.error('pricing', `Update failed: ${err instanceof Error ? err.message : err}`));
+    if (!already) log.info('pricing', `${who(res)} started ${scope === 'pictures' ? 'a picture update' : scope === 'prices' ? 'a price update (prices only)' : 'a price update'}${body.data.force ? ', asking the card databases again' : ''}`);
+    res.status(202).json({ started: !already, scope: u.runningScope });
   });
   // Stop a running update (one that's stuck, say): another can start straight away.
   api.post('/pricing/stop', need('editor'), (_req, res) => {
