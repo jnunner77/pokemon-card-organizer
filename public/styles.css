@@ -801,14 +801,3 @@ html.tblopen,html.tblopen body{overflow:hidden}
   .tbltitle h2{font-size:18px}
   .tblwrap{scroll-padding-left:150px}
 }
-.msoffer{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px dashed var(--line);border-radius:10px;font-size:13px}
-.msoffer .hint{display:block}
-.msres p{margin:6px 0;font-size:13px}
-.mslist{list-style:none;margin:8px 0;padding:0;max-height:min(40vh,320px);overflow-y:auto;border:1px solid var(--line);border-radius:10px}
-.mslist li{display:flex;justify-content:space-between;gap:10px;padding:6px 10px;border-top:1px solid var(--line);font-size:13px}
-.mslist li:first-child{border-top:0}
-.mslist .msn{min-width:0;font-weight:600}
-.mslist .msv{font-weight:500;color:var(--ink-2)}
-.mslist .hint{flex:none;text-align:right}
-.hint.err{color:var(--bad)}
-@media (max-width:640px){.mslist li{flex-direction:column;gap:0}.mslist .hint{text-align:left}}
