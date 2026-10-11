@@ -7,7 +7,6 @@ import { type BlendSettings, blend } from '../blend';
 import { safely } from '../recover';
 import type { Doc } from '../schema';
 import type { Store } from '../store';
-import { DETAIL_FIELDS } from '../details';
 import { Catalog, type CatalogQuote } from './catalog';
 import { catalogMismatch, chooseMatch, detailsFromProduct, norm, searchQuery, variantFromProduct, type CardForMatch, type MatchResult } from './match';
 import { type PcProduct, type PriceCharting, type PriceGuide, gradedPrice, oldAddress, quoteOf } from './pricecharting';
@@ -76,9 +75,9 @@ export interface UpdaterOptions {
   breakerAfter?: number;
   /** Fills cards' empty set, set code, rarity, illustrator and release date before pricing them (details.ts). */
   details?: CardDetails;
-  /** TCGplayer and Cardmarket prices and large pictures from TCGdex and pokemontcg.io (catalog.ts). */
+  /** TCGplayer and Cardmarket prices and pictures from TCGdex (catalog.ts). */
   catalog?: Catalog;
-  /** TCGplayer's own catalog (tcgcsv.ts), for what the card databases don't have. */
+  /** TCGplayer's own catalog (tcgcsv.ts), for what TCGdex doesn't have. */
   tcgcsv?: TcgCsv;
   /** PriceCharting's API (pricecharting.ts); without it, or without its token, PriceCharting isn't asked. */
   pricecharting?: PriceCharting;
@@ -170,8 +169,8 @@ interface Link {
   candidates?: Candidate[] | null;
   /** The card's product on the other site; the higher of the two sites' prices is logged. */
   pair?: Pair | null;
-  /** The card's ids in the card databases (catalog.ts): TCGdex's, and pokemontcg.io's or when it was last looked for there. */
-  catalog?: { tcgdexId?: string | null; ptcgId?: string | null; ptcgSearchedAt?: string | null; ptcgReadAt?: string | null } | null;
+  /** The card's TCGdex id as last priced (catalog.ts). */
+  catalog?: { tcgdexId?: string | null } | null;
 }
 /**
  * The card's product on the other price site. No `id`: that site was searched (at checkedAt)
@@ -295,10 +294,8 @@ function tcgcsvProduct(q: TcgCsvQuote | null): Candidate | null {
   if (!q) return null;
   return { source: 'tcgplayer', id: q.productId, url: q.url, title: q.name, set: q.set, number: q.number, usd: q.usd, thumb: tcgImage(q.productId, 200) };
 }
-/** The card's database ids as kept on its link (catalog.ts). */
-const catalogOf = (q: CatalogQuote) => ({ tcgdexId: q.tcgdexId, ptcgId: q.ptcgId, ptcgSearchedAt: q.ptcgSearchedAt, ptcgReadAt: q.ptcgReadAt });
-/** The card's official picture: a large one (pokemontcg.io's or PriceCharting's), another, or none. */
-const pictureOf = (c: Card): 'large' | 'other' | null => (!c.officialImageId ? null : /pokemontcg\.io|pricecharting/i.test(c.pricing?.imageUrl ?? '') ? 'large' : 'other');
+/** The card's TCGdex id as kept on its link (catalog.ts). */
+const catalogOf = (q: CatalogQuote) => ({ tcgdexId: q.tcgdexId });
 const blank = (v: unknown) => v == null || String(v).trim() === '';
 
 export class PriceUpdater {
@@ -343,7 +340,7 @@ export class PriceUpdater {
     this.hour = o.hour ?? 5;
     this.keepDays = o.keepDays ?? 30;
     // A short breath between cards: each source keeps its own pace (PriceCharting 1.25 s between
-    // calls, pokemontcg.io 2.1 s without a key, tcgcsv.com ¼ s), and the price guide spares most
+    // calls, tcgcsv.com ¼ s), and the price guide spares most
     // PriceCharting calls.
     this.delayMs = o.delayMs ?? 250;
     this.log = o.log ?? quietLogger();
@@ -581,11 +578,6 @@ export class PriceUpdater {
     const problem = prior && !prior.recoveredAt ? { ...prior, recoveredAt: summary.finishedAt } : (prior ?? null);
     this.setStatus({ running: false, current: null, [scope === 'pictures' ? 'lastPictureRun' : 'lastRun']: summary, problem, history: this.withHistory(summary) });
     this.step = null;
-    const ptcg = this.catalog?.ptcgSummary();
-    if (ptcg && ptcg.failed + ptcg.skipped) {
-      const missed = ptcg.failed + ptcg.skipped;
-      this.log.warn('pricing', `pokemontcg.io failed for ${missed} of the ${ptcg.asked} cards it was asked about${ptcg.lastError ? ` (${ptcg.lastError})` : ''}${ptcg.skipped ? `; after failing ${Catalog.breakerAfter} times in a row it wasn't asked about the rest` : ''}. It only adds large pictures and blank details, so prices aren't affected; those cards are tried again in the next update.`, { ...ptcg });
-    }
     const lvl = counts.failed ? 'warn' : 'info';
     if (scope === 'pictures') this.log[lvl]('pricing', `Picture update finished: ${counts.updated} pictured, ${counts.noPicture} without a picture, ${counts.failed} failed`, { ...counts });
     else this.log[lvl]('pricing', `${capital(name)} finished${scope === 'prices' ? ' (prices only)' : ''}: ${counts.updated} updated, ${counts.needsMatch} need a match, ${counts.noPrice} without a price, ${counts.failed} failed`, { ...counts, tripped: [...run.tripped.keys()] });
@@ -1003,12 +995,6 @@ export class PriceUpdater {
       updatedAt: checkedAt,
     };
     if (image) patch.officialImageId = image.id;
-    // What TCGdex left blank (details.ts), from pokemontcg.io: rarity, illustrator, set code, release date.
-    if (cat?.details) {
-      const filled = DETAIL_FIELDS.filter((f) => blank(fresh[f]) && !blank(cat.details![f]));
-      for (const f of filled) patch[f] = cat.details[f];
-      if (filled.length) this.log.info('pricing', `${label(fresh)}: ${filled.map((f) => `${f} ${patch[f]}`).join(', ')} from pokemontcg.io`);
-    }
     // The product's set (and release date, when PriceCharting gives one), for cards that lack them
     // (or that the person matched to a product from another set).
     if (link && main?.info) {
@@ -1031,18 +1017,18 @@ export class PriceUpdater {
   }
 
   /**
-   * The pictures to try for a card, best first. A PriceCharting picture the card already has is
-   * kept (it's as large); otherwise pokemontcg.io's, then the main product's, then the card's
-   * TCGplayer product's (717×1000: TCGdex has no pictures of some sets, Trainer Galleries among
-   * them, and pokemontcg.io often fails), then TCGdex's own. pokemontcg.io's replaces the others
-   * once it answers.
+   * The pictures to try for a card, best first. A PriceCharting or pokemontcg.io picture the card
+   * already has (from before pokemontcg.io was dropped) is kept: they're as large. Otherwise the
+   * main product's, then the card's TCGplayer product's (717×1000: TCGdex has no pictures of some
+   * sets, Trainer Galleries among them), then TCGdex's own (600×825), which the TCGplayer product's
+   * replaces once there is one.
    */
   private pictureUrls(card: Card, cat: CatalogQuote | null, link: { source: string; id: string } | null, pair: { source: string; id: string } | null, mainImage: string | null, tcq: TcgCsvQuote | null = null): (string | null | undefined)[] {
     const current = card.officialImageId ? (card.pricing?.imageUrl ?? '') : '';
     if (/pricecharting/i.test(current)) return [];
     // A special variant (a Poké Ball pattern, say) is pictured by its own TCGplayer product, which shows it.
     if (cat?.special && link?.source === 'tcgplayer' && mainImage) return [mainImage];
-    if (/pokemontcg\.io/i.test(current)) return [cat?.image];
+    if (/pokemontcg\.io/i.test(current)) return [];
     const ownTcg = link?.source === 'tcgplayer' ? link : pair?.source === 'tcgplayer' ? pair : null;
     // The databases' product only for a plain printing (they sometimes name one product for several
     // special ones), else TCGplayer's own catalog's (which names its variant), and not when the
@@ -1050,18 +1036,17 @@ export class PriceUpdater {
     const off = card.pricing?.pair?.source === 'tcgplayer' && !!card.pricing.pair.off;
     const tcgId = ownTcg?.id ?? (off ? null : ((cat?.special ? null : cat?.tcgplayerProduct) ?? tcq?.productId ?? null));
     const tcgdexPicture = card.officialImageId ? null : (cat?.fallbackImage ?? null);
-    return [cat?.image, mainImage, tcgId ? tcgImage(tcgId, 1000) : null, tcgdexPicture];
+    return [mainImage, tcgId ? tcgImage(tcgId, 1000) : null, tcgdexPicture];
   }
 
-  /** Whether a picture update should visit the card: it has no official picture, or a smaller one than pokemontcg.io's. */
+  /** Whether a picture update should visit the card: it has no official picture, or TCGdex's smaller one. */
   needsPicture(c: Card): boolean {
     if (c.pricing?.source === 'off' || c.status === 'sold' || c.status === 'traded') return false;
-    return !c.officialImageId || !this.assets.find(c.officialImageId) || pictureOf(c) === 'other';
+    return !c.officialImageId || !this.assets.find(c.officialImageId) || /tcgdex/i.test(c.pricing?.imageUrl ?? '');
   }
 
   /**
-   * Picture one card (a picture update): the best picture the card databases and its TCGplayer
-   * product have, without logging a price. 'updated' when it got a new picture, 'noPicture' when it
+   * Picture one card (a picture update): the best picture its TCGplayer product and TCGdex have, without logging a price. 'updated' when it got a new picture, 'noPicture' when it
    * still has none, 'skipped' when it keeps the one it has.
    */
   async updatePicture(id: string): Promise<CardOutcome> {
@@ -1179,22 +1164,9 @@ export class PriceUpdater {
     // check) gives no prices or picture until the person files it there, chooses it, or ignores the
     // check: a card that only shares a number would otherwise be priced as this one.
     if (d.filedUnder && norm(card.set) === norm(d.filedUnder.as) && !d.chosen && card.checksIgnored !== checkIdentity(card)) return null;
-    const switched = !!card.pricing?.catalog?.tcgdexId && card.pricing.catalog.tcgdexId !== tcgdexId;
-    const known = card.pricing?.catalog?.tcgdexId === tcgdexId ? card.pricing.catalog : {};
-    if (this.run) this.step = 'asking the card databases (TCGdex, pokemontcg.io)';
+    if (this.run) this.step = 'asking the card database (TCGdex)';
     try {
-      const pricesOnly = this.run?.scope === 'prices';
-      const blanks = !pricesOnly && DETAIL_FIELDS.some((f) => blank(card[f]));
-      // Matched to another TCGdex card than before: its picture is fetched again too. A prices-only
-      // update wants no picture; a run the person started asks pokemontcg.io again even if it had
-      // nothing for the card this week.
-      const picture = pricesOnly ? 'large' : switched ? null : pictureOf(card);
-      const asked = this.run?.force ? { ptcgId: known.ptcgId ?? null } : known;
-      const q = await this.catalog.quote(tcgdexId, { variant: card.variant, rarity: card.rarity, picture, blanks }, asked, card.setCode as string | undefined);
-      // During an update, pokemontcg.io's failures (it only adds pictures and details) are counted
-      // and logged once at the end; a single card priced on its own still warns.
-      for (const e of q.errors) this.log[this.run && e.startsWith('pokemontcg.io:') ? 'info' : 'warn']('pricing', `${label(card)}: ${e}`);
-      return q;
+      return await this.catalog.quote(tcgdexId, { variant: card.variant, rarity: card.rarity });
     } catch (err) {
       this.log.warn('pricing', `${label(card)}: no prices from TCGdex: ${message(err)}`);
       return null;

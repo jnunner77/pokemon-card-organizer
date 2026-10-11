@@ -6,19 +6,19 @@
 
   /* The choices, in order: `scope` is what POST api/pricing/run updates (Details has its own call). */
   const KINDS = [
-    { k: "all", label: "Everything", scope: "all", hint: "Looks every card up again in the card databases, then logs today's price and downloads its picture." },
+    { k: "all", label: "Everything", scope: "all", hint: "Looks every card up again in the card database, then logs today's price and downloads its picture." },
     { k: "prices", label: "Prices", scope: "prices", hint: "Logs today's price for every card, nothing else." },
-    { k: "pictures", label: "Pictures", scope: "pictures", hint: "Downloads a picture for each card without an official one, or with a smaller one. Logs no prices." },
+    { k: "pictures", label: "Pictures", scope: "pictures", hint: "Downloads a picture for each card without an official one, or with the card database's smaller one. Logs no prices." },
     { k: "details", label: "Details", scope: null, hint: "Looks up every card with a blank set, set code, rarity, illustrator or release date again." },
   ];
 
   const gone = c => c.status === "sold" || c.status === "traded";
 
   /* A card a picture update visits: still owned, priced automatically, and without an official
-     picture or with one smaller than pokemontcg.io's (PriceCharting's are as large). */
+     picture or with TCGdex's smaller one (TCGplayer's product picture replaces it). */
   function needsPicture(c) {
     if (!c || gone(c) || (c.pricing && c.pricing.source === "off")) return false;
-    return !c.officialImageId || !/pokemontcg\.io|pricecharting/i.test((c.pricing && c.pricing.imageUrl) || "");
+    return !c.officialImageId || /tcgdex/i.test((c.pricing && c.pricing.imageUrl) || "");
   }
 
   const NAMES = { all: "Updating everything", prices: "Updating prices", pictures: "Updating pictures" };

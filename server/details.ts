@@ -172,7 +172,7 @@ const RARITIES: Record<string, string> = {
   'shiny rare': 'Shiny Rare',
   'shiny ultra rare': 'Shiny Rare',
   'secret rare': 'Secret Rare',
-  // pokemontcg.io's older names (catalog.ts)
+  // Older names, as other price sites still write them
   'rare ultra': 'Ultra Rare',
   'rare secret': 'Secret Rare',
   'rare rainbow': 'Secret Rare',

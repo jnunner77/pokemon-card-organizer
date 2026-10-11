@@ -197,17 +197,17 @@ describe('the price update and a paused PriceCharting', () => {
 });
 
 describe('sources that are only nice to have', () => {
-  it("don't wait a minute when a busy answer asks for one (pokemontcg.io's 502 page): they give up for now", async () => {
+  it("don't wait a minute when a busy answer asks for one (a Cloudflare 502 page): they give up for now", async () => {
     const calls: number[] = [];
     const fetcher: Fetcher = async () => (calls.push(Date.now()), new Response('<html>Bad gateway</html>', { status: 502, headers: { 'Retry-After': '60' } }));
     const started = Date.now();
-    await expect(get(fetcher, 'https://api.pokemontcg.io/v2/cards?q=x', {}, { attempts: 3, maxWaitMs: 5_000 })).rejects.toThrow('api.pokemontcg.io answered 502');
+    await expect(get(fetcher, 'https://tcgcsv.com/tcgplayer/3/groups', {}, { attempts: 3, maxWaitMs: 5_000 })).rejects.toThrow('tcgcsv.com answered 502');
     expect(calls).toHaveLength(1);
     expect(Date.now() - started).toBeLessThan(1000);
     // A short wait is still waited, and the next try made.
     let n = 0;
     const flaky: Fetcher = async () => (++n === 1 ? new Response('', { status: 500, headers: { 'Retry-After': '0' } }) : Response.json({ ok: true }));
-    expect((await get(flaky, 'https://api.pokemontcg.io/v2/cards?q=x', {}, { attempts: 3, maxWaitMs: 5_000 })).status).toBe(200);
+    expect((await get(flaky, 'https://tcgcsv.com/tcgplayer/3/groups', {}, { attempts: 3, maxWaitMs: 5_000 })).status).toBe(200);
     expect(n).toBe(2);
   });
 });
