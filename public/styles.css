@@ -193,7 +193,9 @@ tr.ended td{background:var(--bad-soft)}
 .pocket .face .n{font-weight:800;font-stretch:80%;font-size:clamp(13px,2.4vw,18px);line-height:1.1}
 .pocket .face .m{font-family:var(--f-mono);font-size:10.5px;color:rgba(233,238,243,.7)}
 .pocket .face .np{font-size:10px;color:rgba(233,238,243,.45)}
-@media (max-width:480px){.pocket .cap .m,.pocket .face .np{display:none}.grid{gap:6px}.binder-page{padding:10px 10px 10px 24px}.binder-page::after{left:14px}.binder-page::before{width:10px}}
+.pocket .face .v,.pocket .cap .v{max-width:100%;font-size:10.5px;font-weight:600;color:#F2C94C;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pocket .face .v{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+@media (max-width:480px){.pocket .cap .m,.pocket .face .np{display:none}.pocket .face .v{-webkit-line-clamp:1;font-size:10px}.pocket .face .v+.m{display:none}.grid{gap:6px}.binder-page{padding:10px 10px 10px 24px}.binder-page::after{left:14px}.binder-page::before{width:10px}}
 
 .binder-page{touch-action:pan-y}
 .binder-page.slide-l{animation:slideL .22s ease-out}.binder-page.slide-r{animation:slideR .22s ease-out}
@@ -799,3 +801,14 @@ html.tblopen,html.tblopen body{overflow:hidden}
   .tbltitle h2{font-size:18px}
   .tblwrap{scroll-padding-left:150px}
 }
+.msoffer{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px dashed var(--line);border-radius:10px;font-size:13px}
+.msoffer .hint{display:block}
+.msres p{margin:6px 0;font-size:13px}
+.mslist{list-style:none;margin:8px 0;padding:0;max-height:min(40vh,320px);overflow-y:auto;border:1px solid var(--line);border-radius:10px}
+.mslist li{display:flex;justify-content:space-between;gap:10px;padding:6px 10px;border-top:1px solid var(--line);font-size:13px}
+.mslist li:first-child{border-top:0}
+.mslist .msn{min-width:0;font-weight:600}
+.mslist .msv{font-weight:500;color:var(--ink-2)}
+.mslist .hint{flex:none;text-align:right}
+.hint.err{color:var(--bad)}
+@media (max-width:640px){.mslist li{flex-direction:column;gap:0}.mslist .hint{text-align:left}}
