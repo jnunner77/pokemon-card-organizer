@@ -18,7 +18,10 @@ Every morning (after 5:00 in your time zone, catching up if the server was off) 
    the same number, name, set and variant; otherwise its drawer lists the likely products for you to
    pick (or search for). Typos, "VSTAR"/"V Star" spellings and promos filed under other sets are
    handled, and a variant (a pattern, stamp, 1st Edition…) is matched to its own product
-   (*Lapras [Master Ball]*). A card PriceCharting had no certain match for is searched again a week later.
+   (*Lapras [Master Ball]*). A *Holo* card is the product without a bracket (PriceCharting lists holo
+   rares that way), never *[Reverse Holo]*, and a *Reverse Holo* card is never the holo; a card
+   linked to another printing's product before this was checked is matched again. A card
+   PriceCharting had no certain match for is searched again a week later.
 2. **Logs today's market price** in CAD, worked out from PriceCharting's ungraded price (recent
    eBay sales), TCGplayer's market price (recent TCGplayer sales) and Cardmarket's trend (Europe,
    in euros), converted at the Bank of Canada's daily rates. By default it's a **blend**, as apps

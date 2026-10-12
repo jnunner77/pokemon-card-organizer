@@ -181,6 +181,24 @@ describe('matching a card to a product', () => {
     expect(variantFromProduct({}, null)).toBeNull();
   });
 
+  it('tells a holo card from the reverse holo product, and a reverse holo from the holo one', () => {
+    // "Holo" (or "Non-Holo") only names the card's ordinary printing: PriceCharting lists it without a bracket.
+    for (const variant of ['Holo', 'holofoil', 'Non-Holo']) {
+      expect(chooseMatch({ name: 'Lapras', set: 'Scarlet & Violet 151', setCode: 'MEW', number: '131/165', variant }, pc).match?.title).toBe('Lapras');
+    }
+    // Only the reverse holo listed: it isn't the Holo card.
+    expect(chooseMatch({ name: 'Lapras', set: 'Lost Origin', number: '031/196', variant: 'Holo' }, [cand('Lapras [Reverse Holo]', 'Pokemon Lost Origin', '31')]).match).toBeNull();
+    // A Reverse Holo card is neither the [Holo] product nor the plain one.
+    const pikachu = [cand('Pikachu [Holo]', 'Pokemon McDonalds 2022', '7'), cand('Pikachu', 'Pokemon McDonalds 2022', '7')];
+    expect(chooseMatch({ name: 'Pikachu', set: 'Pokemon McDonalds 2022', number: '7/15', variant: 'Reverse Holo' }, pikachu).match).toBeNull();
+    // A Non-Holo card isn't the [Holo] product, even when it's the only one listed.
+    expect(chooseMatch({ name: 'Pikachu', set: 'Pokemon McDonalds 2022', number: '7/15', variant: 'Non-Holo' }, pikachu).match?.title).toBe('Pikachu');
+    expect(chooseMatch({ name: 'Pikachu', set: 'Pokemon McDonalds 2022', number: '7/15', variant: 'Non-Holo' }, [pikachu[0]]).match).toBeNull();
+    // A product of the other printing the person chooses names the card's variant.
+    expect(variantFromProduct({ variant: 'Holo' }, 'Lapras [Reverse Holo]')).toBe('Reverse Holo');
+    expect(variantFromProduct({ variant: 'Reverse Holo' }, 'Pikachu [Holo]')).toBe('Holo');
+  });
+
   it('leaves the choice to the person when it isn’t certain', () => {
     // Only a holo version listed: not the same as the plain card.
     const r = chooseMatch({ name: 'Pikachu', set: 'Pokemon McDonalds 2022', number: '7/15' }, [cand('Pikachu [Holo]', 'Pokemon McDonalds 2022', '7')]);
@@ -390,6 +408,25 @@ describe('the daily update with PriceCharting', () => {
     store.set('cards', 'odd', card({ name: 'Mystery', number: '999/1', pricing: { source: 'pricecharting', id: '424242', linkedBy: 'user' } }));
     expect(await updater(fakeNet()).updateCard('odd')).toBe('needsMatch');
     expect(store.get('cards', 'odd')!.pricing).toMatchObject({ source: 'none', error: null });
+  });
+
+  it('matches a card again when it was linked automatically to another printing’s product', async () => {
+    // Matching once linked a Holo card to "[Reverse Holo]": the link is dropped and its own product found.
+    const holo = (linkedBy: string) => card({ set: 'Scarlet & Violet 151', setCode: 'MEW', number: '131/165', variant: 'Holo', pricing: { source: 'pricecharting', id: '5809712', title: 'Lapras [Reverse Holo]', linkedBy } });
+    store.set('cards', 'auto', holo('auto'));
+    expect(await updater(fakeNet()).updateCard('auto')).toBe('updated');
+    expect(store.get('cards', 'auto')!.pricing).toMatchObject({ source: 'pricecharting', id: '5809512', title: 'Lapras', linkedBy: 'auto' });
+    // A card whose Variant became Reverse Holo after it was matched to the plain product: its own product is found.
+    const reverse = (linkedBy: string) => card({ set: 'Scarlet & Violet 151', setCode: 'MEW', number: '131/165', variant: 'Reverse Holo', pricing: { source: 'pricecharting', id: '5809512', title: 'Lapras', linkedBy } });
+    store.set('cards', 'rev', reverse('auto'));
+    expect(await updater(fakeNet()).updateCard('rev')).toBe('updated');
+    expect(store.get('cards', 'rev')!.pricing).toMatchObject({ source: 'pricecharting', id: '5809712', title: 'Lapras [Reverse Holo]', linkedBy: 'auto' });
+    // Products the person chose stay.
+    for (const [id, c, product] of [['user', holo('user'), '5809712'], ['userRev', reverse('user'), '5809512']] as const) {
+      store.set('cards', id, c);
+      expect(await updater(fakeNet()).updateCard(id)).toBe('updated');
+      expect(store.get('cards', id)!.pricing).toMatchObject({ id: product, linkedBy: 'user' });
+    }
   });
 
   it("stops asking PriceCharting for the rest of an update when it refuses the token", async () => {

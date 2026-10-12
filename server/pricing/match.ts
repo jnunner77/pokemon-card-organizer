@@ -1,4 +1,5 @@
 import { mapRarity } from '../details';
+import { printingOf } from './catalog';
 import type { Candidate, ProductInfo } from './sources';
 
 // Deciding which product on a price site is the card in the binder. A card is linked
@@ -37,6 +38,29 @@ const nameKey = (s: unknown) =>
     .replace(/^basic(\w+)energy$/, '$1energy');
 
 const bracket = (title: string) => (title.match(/\[([^\]]+)\]/)?.[1] ?? '').trim();
+
+/** A bracket that only names a plain printing ("Reverse Holo", "Holo"), which TCGdex prices per card. */
+const PLAIN_BRACKET = /^(?:reverse(?:\s*holo(?:foil)?)?|holo(?:foil)?|normal|non[-\s]?holo|unlimited)$/i;
+
+const isReverse = (s: string) => printingOf(s, null).kind === 'reverse';
+
+/**
+ * The product is a plain printing other than the card's: a Holo (or plain) card isn't the
+ * "[Reverse Holo]" product, a Reverse Holo card is neither "[Holo]" nor the product without a
+ * bracket, and a card said to be the non-holo printing isn't "[Holo]". Products of other variants
+ * (a stamp, a pattern) are judged by their own words.
+ */
+export function otherPrinting(variant: unknown, title: unknown): boolean {
+  const v = String(variant ?? '').trim();
+  const t = String(title ?? '').trim();
+  const br = bracket(t);
+  // Without its title (a link saved before titles were kept), the product's printing isn't known.
+  if (!t || (br && !PLAIN_BRACKET.test(br))) return false;
+  const card = printingOf(v, null).kind;
+  const product = br ? printingOf(br, null).kind : 'normal';
+  if ((card === 'reverse') !== (product === 'reverse')) return true;
+  return product === 'holo' && card === 'normal' && PLAIN_BRACKET.test(v);
+}
 
 const OTHER_LANGUAGES = /japanese|chinese|korean|thai|indonesian|german|french|italian|spanish|portuguese/i;
 const PROMO_CODES = new Set(['mep', 'svp', 'swshp', 'smp', 'xyp', 'bwp', 'pr']);
@@ -108,6 +132,7 @@ export function detailsFromProduct(card: CardForMatch & { released?: unknown; ra
 
 /** The card's variant agrees with the product's bracket: "Reverse holo" and "[Reverse Holo]", "Poke Ball" and "[Ball]". */
 function variantAgrees(variant: string, title: string): boolean {
+  if (otherPrinting(variant, title)) return false;
   const v = norm(variant);
   const br = norm(bracket(title));
   return !!v && !!br && (v.includes(br) || br.includes(v) || sharesWord(variant, bracket(title)));
@@ -135,6 +160,7 @@ export function chooseMatch(card: CardForMatch, all: Candidate[]): MatchResult {
   const num = cardNumber(card.number);
   const name = nameKey(card.name);
   const variant = norm(card.variant);
+  const plain = !variant || (PLAIN_BRACKET.test(String(card.variant).trim()) && !isReverse(String(card.variant)));
   const scored = all
     .filter((c) => !OTHER_LANGUAGES.test(c.set) && !OTHER_LANGUAGES.test(c.title))
     .map((c) => {
@@ -142,8 +168,10 @@ export function chooseMatch(card: CardForMatch, all: Candidate[]): MatchResult {
       const n = nameKey(c.title);
       const nameScore = n === name || (!!name && nearly(name, n)) ? 2 : name && (n.includes(name) || name.includes(n)) ? 1 : 0;
       const setScore = setMatches(card, c.set);
-      // No variant on the card: the plain product. A variant: a product whose bracket shares a word with it.
-      const variantOk = variant ? variantAgrees(card.variant!, c.title) : !bracket(c.title);
+      // No variant on the card, or one that only names its regular or holo printing ("Holo",
+      // "Non-Holo"): the plain product, as PriceCharting lists a holo rare. A variant: a product whose
+      // bracket shares a word with it, of the same printing.
+      const variantOk = (plain && !bracket(c.title)) || (!!variant && variantAgrees(card.variant!, c.title));
       return { c, numOk, nameScore, setScore, variantOk, score: (numOk ? 8 : 0) + nameScore * 2 + setScore + (variantOk ? 1 : 0) };
     })
     .filter((x) => x.numOk || x.nameScore > 0)
@@ -163,10 +191,6 @@ const searchName = (card: CardForMatch) =>
     .replace(/\bV Star\b/i, 'VSTAR')
     .replace(/\bV Max\b/i, 'VMAX')
     .trim();
-
-/** What to type into a site's search box for this card. */
-/** A bracket that only names a plain printing ("Reverse Holo", "Holo"), which TCGdex prices per card. */
-const PLAIN_BRACKET = /^(?:reverse(?:\s*holo(?:foil)?)?|holo(?:foil)?|normal|non[-\s]?holo|unlimited)$/i;
 
 /**
  * Why the card databases' prices (TCGplayer's and Cardmarket's, through TCGdex) aren't this card's,
@@ -189,6 +213,7 @@ export function catalogMismatch(card: CardForMatch, pc: { title?: string | null;
   return null;
 }
 
+/** What to type into a site's search box for this card. */
 export function searchQuery(card: CardForMatch) {
   return `${searchName(card)} ${cardNumber(card.number)}`.trim();
 }
