@@ -11,10 +11,13 @@ Nothing goes up as a pull request until a separate reviewer has passed it. The r
 `VERDICT: CHANGES REQUESTED`.
 
 ```
-push ─▶ review ─▶ PASS ─────────────▶ open the pull request
-          ▲   └─▶ CHANGES REQUESTED ─▶ fix, check, push ─┐
-          └──────────────────────────────────────────────┘
+commit ─▶ review ─▶ PASS ─────────────▶ push (if not yet) ─▶ open or update the pull request
+            ▲   └─▶ CHANGES REQUESTED ─▶ fix, check, commit ─┐
+            └────────────────────────────────────────────────┘
 ```
+
+Before the branch has a pull request, commits may be pushed before they're reviewed (a branch is
+not a pull request). Once it has one, nothing is pushed until the review of the local `HEAD` passes.
 
 ## 1. Push the work
 
@@ -78,8 +81,9 @@ after its front matter), then the template above. Tell it to stay read-only.
   - Outside the ticket (a separate bug or a follow-up): give it its own Boards ticket and mention it
     to the user; tell the reviewer it's tracked as AB#<id>.
 
-  Then `npm run typecheck` and `npm test` again, commit (subject still ends with the AB# ids), push,
-  and go back to step 2 with the round number increased and the list of previous findings.
+  Then `npm run typecheck` and `npm test` again and commit (subject still ends with the AB# ids).
+  Push only if the branch has no pull request yet; with a pull request, keep the commit local. Go
+  back to step 2 with the round number increased and the list of previous findings.
 
 Repeat until the review passes with no findings. Use a fresh reviewer each round (a new Agent call,
 not a continued one), so every round reads the branch as it is now.
@@ -92,7 +96,7 @@ Stop and ask the user, with the findings and your reasoning, if:
 
 ## 4. Open the pull request
 
-Only after a pass. Follow `boards-tickets` for the title (`… (AB#<pbi>)`) and description (starts
+Only after a pass. Push any commits still local first. Follow `boards-tickets` for the title (`… (AB#<pbi>)`) and description (starts
 with `AB#<pbi>` and its tasks, ends with the session attribution). Add a **Code review** section to
 the description: how many rounds it took and the last verdict, e.g.
 `Reviewed by the code-reviewer agent: PASS on round 2 (round 1: 2 findings, both fixed in abc1234).`

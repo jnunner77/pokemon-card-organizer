@@ -72,7 +72,7 @@ Tell the user the ticket numbers (e.g. "AB#113 with tasks AB#114–AB#116") befo
 
 ## 3. Pull request opened and merged
 
-- Before opening it, the pushed branch must pass the `review-loop` skill: the `code-reviewer` agent
+- Before opening it (and before each later push to it), the branch must pass the `review-loop` skill: the `code-reviewer` agent
   reviews it against this ticket (`boards.py brief <id>` prints the description, acceptance criteria
   and tasks to hand it) until it passes with no findings.
 - When the PR is opened: `link <pbi> <PR url> "Pull request #N"` and a comment saying what was

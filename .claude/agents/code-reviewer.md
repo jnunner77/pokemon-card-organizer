@@ -1,6 +1,6 @@
 ---
 name: code-reviewer
-description: Reviews a pushed branch of the Pokémon Binder Ledger against its Boards ticket (PBI or Bug, its description, acceptance criteria and tasks) and returns VERDICT PASS or CHANGES REQUESTED with findings. Spawned by the review-loop skill after every push and before any pull request is opened. Read-only; it never edits, commits or pushes.
+description: Reviews a branch of the Pokémon Binder Ledger (its commits up to local HEAD) against its Boards ticket (PBI or Bug, its description, acceptance criteria and tasks) and returns VERDICT PASS or CHANGES REQUESTED with findings. Spawned by the review-loop skill before a pull request is opened and before every push that updates one. Read-only; it never edits, commits or pushes.
 tools: Read, Grep, Glob, Bash
 model: haiku
 ---
