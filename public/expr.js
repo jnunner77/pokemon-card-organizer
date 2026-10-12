@@ -223,6 +223,14 @@
     return true;
   }
 
+  /* the expression being edited against the one the table uses: is it changed, has it a mistake,
+     and can it be applied (changed, and no mistake) */
+  function editState(text, applied) {
+    const t = String(text ?? "").trim(), a = String(applied ?? "").trim(), r = parse(t);
+    const error = r.error ? r : null;
+    return { dirty: t !== a, error, canApply: t !== a && !error };
+  }
+
   /* ---------- writing ---------- */
 
   /* a value as the editor writes it: bare when it can be, quoted otherwise */
@@ -340,5 +348,5 @@
     return { from, to: caret, kind, items: items.slice(0, 30) };
   }
 
-  root.BinderExpr = { parse, test, quote, fromFilters, suggest, values, opsFor, fieldOf, fieldName, SEARCH };
+  root.BinderExpr = { parse, editState, test, quote, fromFilters, suggest, values, opsFor, fieldOf, fieldName, SEARCH };
 })(typeof window !== "undefined" ? window : globalThis);

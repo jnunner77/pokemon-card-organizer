@@ -376,13 +376,17 @@ number, rarity, variant, language, condition, grader, grade, illustrator, status
     illustrator, grade, owner and notes. Columns go by their heading or key; case and accents don't
     matter.
 
-  As you type, it suggests the columns, the comparisons that suit the column, and the values your
-  cards have; tap one to put it in. It shows how many cards match, or what's wrong and where (the
-  expression doesn't filter until it's fixed). *Add* builds a condition from a column, comparison and
-  value, joined *with and* or *with or* (tick *not* for the opposite). *Use the header filters* moves
-  the header filters into the expression, *Save as…* keeps it under a name to use again (tap it;
-  × deletes it), and *How to write an expression* has examples to try. The expression and the header
-  filters both have to match; untick *Filter with this expression* to set it aside.
+  Write it, then **Apply** (or press **Enter**) to filter the table with it: typing, picking a
+  suggestion, adding a condition or trying an example only changes the text, so the table stays put
+  while you edit. Until it's applied the editor says so, with how many cards it would match, and
+  *Revert* goes back to the applied one. As you type, it suggests the columns, the comparisons that
+  suit the column, and the values your cards have; tap one to put it in. A mistake is pointed out
+  (what's wrong and where) and can't be applied until it's fixed. *Add* builds a condition from a
+  column, comparison and value, joined *with and* or *with or* (tick *not* for the opposite).
+  *Use the header filters* moves the header filters into the expression, *Clear* stops filtering
+  with it, *Save as…* keeps it under a name to use again (tap it to apply it; × deletes it), and
+  *How to write an expression* has examples to try. The expression and the header filters both have
+  to match; untick *Filter with this expression* to set it aside.
 - **Columns:** Location and Released are shown to read but not edit. Picture, value, paid and the
   PriceCharting / TCGplayer match are off unless you turn them on in *Columns*.
 - **↗** next to a name opens the card's details (picture, prices, moving it).

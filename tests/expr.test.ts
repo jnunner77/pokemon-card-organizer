@@ -9,6 +9,7 @@ type Parsed = { ast?: unknown; error?: string; at?: number; end?: number };
 type Item = { label: string; insert: string; hint: string };
 type Expr = {
   parse: (src: string) => Parsed;
+  editState: (text: string, applied: string) => { dirty: boolean; error: Parsed | null; canApply: boolean };
   test: (ast: unknown, c: Card, ctx: unknown) => boolean;
   quote: (v: string) => string;
   fromFilters: (f: Record<string, unknown>) => string;
@@ -154,6 +155,24 @@ describe('expressions: mistakes', () => {
     expect(err('> 10')).toMatchObject({ error: expect.stringMatching(/needs a column/) });
     expect(err('()')).toMatchObject({ error: expect.stringMatching(/nothing between/) });
     expect(err('not')).toMatchObject({ error: expect.stringMatching(/after not/) });
+  });
+});
+
+describe('expressions: editing before applying', () => {
+  it('can apply an edit that changed and reads cleanly', () => {
+    expect(E.editState('owner = Megan', '')).toMatchObject({ dirty: true, error: null, canApply: true });
+    expect(E.editState('', 'owner = Megan')).toMatchObject({ dirty: true, canApply: true }); // applying a blank one stops filtering
+  });
+
+  it("has nothing to apply when the edit is what's applied, spaces at the ends aside", () => {
+    expect(E.editState('owner = Megan', 'owner = Megan')).toMatchObject({ dirty: false, canApply: false });
+    expect(E.editState('  owner = Megan \n', 'owner = Megan')).toMatchObject({ dirty: false, canApply: false });
+    expect(E.editState('', '')).toMatchObject({ dirty: false, canApply: false });
+  });
+
+  it("can't apply an edit with a mistake, and says where it is", () => {
+    const x = E.editState('owner = Megan and', 'owner = Megan');
+    expect(x).toMatchObject({ dirty: true, canApply: false, error: { error: expect.stringMatching(/after and/), at: 14 } });
   });
 });
 
