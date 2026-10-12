@@ -151,10 +151,16 @@ try {
   await page.locator('#tblClear').click();
   // An expression filters too, and says what's wrong with one it can't read.
   await page.locator('#tblExprBtn').click();
+  // It filters when applied, not while it's being typed.
   await page.locator('#tbxText').fill('owner = Megan and setcode = OBF');
-  await page.locator('#tblCount', { hasText: '1 of' }).waitFor();
+  await page.locator('#tbxStatus', { hasText: 'Not applied yet' }).waitFor();
+  if (await page.locator('#tblCount', { hasText: 'expression' }).count()) fail('the expression filtered before Apply');
+  await page.locator('#tbxApply').click();
+  await page.locator('#tblCount', { hasText: /^1 of .*expression/ }).waitFor();
   await page.locator('#tbxText').fill('owner = ');
   await page.locator('#tbxErr', { hasText: 'Put a value after =' }).waitFor();
+  if (!(await page.locator('#tbxApply').isDisabled())) fail('Apply should be off for an expression with a mistake');
+  await page.locator('#tblCount', { hasText: /^1 of .*expression/ }).waitFor(); // still the applied one
   await page.locator('#tbxClear').click();
   await page.locator('#tblExprBtn').click();
   await page.locator('#tblClose').click();

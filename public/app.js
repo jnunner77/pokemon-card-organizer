@@ -3416,14 +3416,15 @@ window.addEventListener("resize", () => { if(!LB.open) return; const tr = lbTrac
 /* ---------- table editor (table.js, expr.js) ----------
    Every card in one table, its details edited in the cells. The rows and their order are set when the
    table opens and when a filter, the expression or the sort changes; edits don't move rows, like a
-   spreadsheet. A card shows when it matches the header filters and the expression (when it's on). */
+   spreadsheet. A card shows when it matches the header filters and the expression (when it's on).
+   The expression is edited as expr.text and used as expr.applied: typing doesn't filter until Apply. */
 const TBL = window.BinderTable, EXPR = window.BinderExpr;
 const TB_KEEP = ["filt","sort","cols","expr","saved"];
 const TB = {open:false, rows:[], known:new Set(), html:new Map(), colsOpen:false, sortOpen:false, pop:null, stale:false,
-  filt:{}, sort:[], cols:{}, expr:{text:"", on:true, open:false}, saved:[], ast:null, err:null};
+  filt:{}, sort:[], cols:{}, expr:{text:"", applied:"", on:true, open:false}, saved:[], ast:null};
 { const s = store.get("table", {}); for(const k of TB_KEEP) if(s && s[k] && typeof s[k]==="object") TB[k] = s[k]; }
 if(!Array.isArray(TB.sort)) TB.sort = TB.sort.k ? [TB.sort] : []; // saved before sorting by several columns
-if(typeof TB.expr.text!=="string") TB.expr = {text:"", on:true, open:false};
+TB.expr = EXPR.fromSaved(TB.expr);
 if(!Array.isArray(TB.saved)) TB.saved = [];
 const tbSave = () => store.set("table", Object.fromEntries(TB_KEEP.map(k=>[k, TB[k]])));
 const BACK_TABLE = BACK.layer("table", () => { if(TB.open) closeTable(); });
@@ -3458,7 +3459,7 @@ function closeTable(){
   $("#btnTable")?.focus({preventScroll:true});
 }
 /* read the expression; one with a mistake doesn't filter until it's fixed */
-function tbCompile(){ const r = EXPR.parse(TB.expr.text); TB.ast = r.error ? null : r.ast; TB.err = r.error ? r : null; }
+function tbCompile(){ const r = EXPR.parse(TB.expr.applied); TB.ast = r.error ? null : r.ast; }
 tbCompile();
 const tbExprOn = () => !!(TB.expr.on && TB.ast);
 const tbMatch = c => TBL.matches(c, TB.filt, tbCtx) && (!tbExprOn() || EXPR.test(TB.ast, c, tbCtx));
@@ -3634,6 +3635,7 @@ function tbExprPane(){
   return `<section class="tbexpr" id="tbExpr" aria-label="Filter expression" ${x.open?"":"hidden"}>
     <div class="tbx-top"><label class="tbx-on"><input type="checkbox" id="tbxOn" ${x.on?"checked":""}> Filter with this expression</label><span class="tbx-status hint" id="tbxStatus" aria-live="polite"></span></div>
     <textarea id="tbxText" class="mono" rows="2" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Expression" aria-describedby="tbxStatus" placeholder='set = "30th Celebration" and not owner in (Megan, Both)'>${esc(x.text)}</textarea>
+    <div class="tbx-run"><button class="btn sm primary" type="button" id="tbxApply" title="Filter the table with this expression (Enter)">Apply</button><button class="btn sm ghost" type="button" id="tbxRevert" title="Go back to the expression the table is using">Revert</button></div>
     <div class="tbx-err" id="tbxErr" hidden></div>
     <div class="tbx-sug" id="tbxSug" role="group" aria-label="Suggestions"></div>
     <div class="tbx-build" role="group" aria-label="Add a condition">
@@ -3665,20 +3667,28 @@ function tbExprPane(){
     </tbody></table></div><p class="hint">Columns go by their heading or key (<b>set code</b> is <b>setcode</b>); quote values with spaces. Case and accents don't matter.</p></details>
   </section>`;
 }
+/* the editor's state: the mistake in what's being edited, and whether it's applied yet */
 function tbxStatus(){
   const st = $("#tbxStatus"); if(!st) return;
-  const e = TB.err, err = $("#tbxErr");
+  const x = EXPR.editState(TB.expr.text, TB.expr.applied), e = x.error, err = $("#tbxErr");
+  const of = n => `${n} of ${S.cards.length} card${S.cards.length===1?"":"s"}`;
   if(e){
-    const t = TB.expr.text, a = Math.min(e.at, t.length), b = Math.max(a + 1, Math.min(e.end, t.length));
+    const t = TB.expr.text.trim(), a = Math.min(e.at, t.length), b = Math.max(a + 1, Math.min(e.end, t.length));
     err.hidden = false;
     err.innerHTML = `<code>${esc(t.slice(0, a))}<mark>${esc(t.slice(a, b) || " ")}</mark>${esc(t.slice(b))}</code><span>${esc(e.error)}</span>`;
-    st.textContent = "Not filtering until this is fixed."; st.className = "tbx-status hint err";
+  } else { err.hidden = true; err.innerHTML = ""; }
+  if(x.dirty){
+    const ast = e ? null : EXPR.parse(TB.expr.text).ast, n = ast ? S.cards.filter(c => EXPR.test(ast, c, tbCtx)).length : S.cards.length;
+    st.className = "tbx-status hint " + (e ? "err" : "pending");
+    st.textContent = e ? "Not applied: fix the mistake to apply it." : !ast ? "Not applied yet: Apply to stop filtering with an expression." : `Not applied yet: ${of(n)} would match. Apply, or press Enter.`;
   } else {
-    err.hidden = true; err.innerHTML = "";
     const n = TB.ast ? S.cards.filter(c => EXPR.test(TB.ast, c, tbCtx)).length : 0;
     st.className = "tbx-status hint" + (tbExprOn() ? " ok" : "");
-    st.textContent = !TB.ast ? "Type an expression, or add conditions below." : `${TB.expr.on ? "" : "Off · "}${n} of ${S.cards.length} card${S.cards.length===1?"":"s"} match${n===1?"es":""} it`;
+    st.textContent = !TB.ast ? "Type an expression, or add conditions below, then Apply." : `${TB.expr.on ? "" : "Off · "}${of(n)} match${n===1?"es":""} it`;
   }
+  const ap = $("#tbxApply"), rv = $("#tbxRevert");
+  if(ap) ap.disabled = !x.canApply;
+  if(rv) rv.hidden = !x.dirty;
   const fh = $("#tbxFromHead"); if(fh) fh.disabled = !TBL.count(TB.filt);
 }
 /* the suggestions for where the caret is */
@@ -3710,17 +3720,21 @@ function tbxJoin(a, b, how){
   const top = EXPR.parse(a).ast;
   return `${how==="and" && top?.type==="or" ? `(${a})` : a} ${how} ${b}`;
 }
-function tbxSet(text, caret){
-  const ta = $("#tbxText"); TB.expr.text = text; TB.expr.on = true;
+/* change the text being edited; the table keeps its filter until Apply */
+function tbxEdit(text, caret){
+  const ta = $("#tbxText"); TB.expr.text = text; tbSave();
   if(ta){ ta.value = text; const p = caret ?? text.length; ta.focus({preventScroll:true}); ta.setSelectionRange(p, p); }
-  const on = $("#tbxOn"); if(on) on.checked = true;
-  tbxApply(true);
+  tbxSuggest(); tbxStatus();
 }
-let tbxT = 0;
-function tbxApply(now){
-  clearTimeout(tbxT);
-  const go = () => { tbCompile(); tbSave(); tbApply(); tbDraw(true); tbxSuggest(); };
-  if(now) go(); else { tbCompile(); tbxStatus(); tbxT = setTimeout(go, 250); }
+/* filter with the expression (the one being edited, or text): false if it has a mistake */
+function tbxApply(text){
+  if(text != null) TB.expr.text = text;
+  if(EXPR.parse(TB.expr.text).error){ tbxEdit(TB.expr.text); toast("Fix the mistake in the expression first."); return false; } // shown where it can be fixed
+  TB.expr.applied = TB.expr.text = TB.expr.text.trim(); TB.expr.on = true;
+  const ta = $("#tbxText"); if(ta && ta.value !== TB.expr.text) ta.value = TB.expr.text;
+  const on = $("#tbxOn"); if(on) on.checked = true;
+  tbCompile(); tbSave(); tbApply(); tbDraw(true); tbxSuggest();
+  return true;
 }
 function tbxAdd(how){
   const k = $("#tbxF").value, op = $("#tbxO").value, raw = $("#tbxV").value.trim(), f = EXPR.fieldName(k);
@@ -3729,21 +3743,33 @@ function tbxAdd(how){
   else if(/in \($/.test(op)){ const vs = raw.split(",").map(x=>x.trim()).filter(Boolean); if(!vs.length) return toast("Put the values in first, with commas between them."); term = `${f} ${op}${vs.map(EXPR.quote).join(", ")})`; }
   else { if(!raw && !["=","!="].includes(op)) return toast("Put a value in first."); term = `${f} ${op} ${EXPR.quote(raw)}`; }
   if($("#tbxNot").checked) term = `not ${/ or | and /.test(term) ? `(${term})` : term}`;
-  tbxSet(tbxJoin(TB.expr.text, term, how));
+  tbxEdit(tbxJoin(TB.expr.text, term, how));
   $("#tbxV").value = ""; $("#tbxNot").checked = false;
 }
 function tbxClick(t){
   const sg = t.closest("[data-tbxs]");
   if(sg){ const x = TB.sug?.items[+sg.dataset.tbxs]; if(!x) return true;
     const ta = $("#tbxText"), v = ta.value, after = v.slice(TB.sug.to), pad = after && !/^\s/.test(after) && !/[\s(]$/.test(x.insert) ? " " : "";
-    tbxSet(v.slice(0, TB.sug.from) + x.insert + pad + after, TB.sug.from + x.insert.length); return true; }
+    tbxEdit(v.slice(0, TB.sug.from) + x.insert + pad + after, TB.sug.from + x.insert.length); return true; }
   const ad = t.closest("[data-tbxadd]"); if(ad){ tbxAdd(ad.dataset.tbxadd); return true; }
-  const tr = t.closest("[data-tbxtry]"); if(tr){ tbxSet(tr.dataset.tbxtry); return true; }
-  if(t.closest("#tbxFromHead")){ const add = EXPR.fromFilters(TB.filt); if(!add) return true; TB.filt = {}; tbxSet(tbxJoin(TB.expr.text, add, "and")); toast("The header filters are in the expression now"); return true; }
-  if(t.closest("#tbxClear")){ tbxSet(""); return true; }
+  const tr = t.closest("[data-tbxtry]"); if(tr){ tbxEdit(tr.dataset.tbxtry); return true; }
+  if(t.closest("#tbxApply")){ tbxApply(); return true; }
+  if(t.closest("#tbxRevert")){ tbxEdit(TB.expr.applied); return true; }
+  // these change what the table shows, so they apply at once
+  // the header filters join the applied expression, which is turned on so they keep filtering: the
+  // table shows the same cards if it was on (if it was off, its own conditions filter again too). An
+  // edit not applied yet keeps waiting for Apply, with them added too.
+  if(t.closest("#tbxFromHead")){ const add = EXPR.fromFilters(TB.filt); if(!add) return true;
+    const was = TB.filt, edit = TB.expr.text, dirty = EXPR.editState(edit, TB.expr.applied).dirty, off = !TB.expr.on && !!TB.expr.applied.trim();
+    TB.filt = {};
+    if(!tbxApply(tbxJoin(TB.expr.applied, add, "and"))){ TB.filt = was; tbxEdit(edit); return true; }
+    if(dirty) tbxEdit(tbxJoin(edit, add, "and"));
+    toast(off ? "The header filters are in the expression now, and it's on again" : "The header filters are in the expression now");
+    return true; }
+  if(t.closest("#tbxClear")){ tbxApply(""); $("#tbxText").focus({preventScroll:true}); return true; }
   if(t.closest("#tbxSaveBtn")){ const fm = $("#tbxSaveForm"); if(!TB.expr.text.trim()) return toast("Write an expression to save first."), true; fm.hidden = !fm.hidden; if(!fm.hidden) $("#tbxName").focus(); return true; }
   if(t.closest("#tbxSaveGo")){ tbxSave(); return true; }
-  const ld = t.closest("[data-tbxload]"); if(ld){ const x = TB.saved[+ld.dataset.tbxload]; if(x) tbxSet(x.text); return true; }
+  const ld = t.closest("[data-tbxload]"); if(ld){ const x = TB.saved[+ld.dataset.tbxload]; if(x) tbxApply(x.text); return true; }
   const dl = t.closest("[data-tbxdel]"); if(dl){ const i = +dl.dataset.tbxdel, x = TB.saved[i]; if(!x) return true;
     TB.saved.splice(i, 1); tbSave(); tbxSaved(); toast(`Deleted ${x.name}`, {label:"Undo", run: () => { TB.saved.splice(i, 0, x); tbSave(); tbxSaved(); }}); return true; }
   return false;
@@ -3919,7 +3945,7 @@ function tbKey(e){
     if(t.dataset.tk || t.dataset.tf){ t.blur(); $("#tblWrap")?.focus({preventScroll:true}); return; }
     return closeTable();
   }
-  if(e.key==="Enter" && t.id==="tbxText"){ e.preventDefault(); return tbxApply(true); } // spaces and lines are the same in an expression
+  if(e.key==="Enter" && t.id==="tbxText"){ e.preventDefault(); if(EXPR.editState(TB.expr.text, TB.expr.applied).dirty) tbxApply(); return; } // spaces and lines are the same in an expression
   if(e.key==="Enter" && t.id==="tbxName"){ e.preventDefault(); return tbxSave(); }
   if(e.key==="Enter" && t.id==="tbxV"){ e.preventDefault(); return tbxAdd("and"); }
   if(e.key==="Enter" && t.id==="tfpQ"){ e.preventDefault(); return $("#tfpList").querySelector(".tfpv:not([hidden]) [data-tfv]")?.focus(); }
@@ -3935,7 +3961,7 @@ $("#tableRoot").addEventListener("keydown", tbKey);
 $("#tableRoot").addEventListener("input", e => {
   e.stopPropagation(); const t = e.target;
   if(t.dataset.tf && t.tagName==="INPUT") return tbFilter(t);
-  if(t.id==="tbxText"){ TB.expr.text = t.value; tbxSuggest(); return tbxApply(); }
+  if(t.id==="tbxText"){ TB.expr.text = t.value; tbSave(); tbxSuggest(); return tbxStatus(); }
   if(t.id==="tfpQ" && TB.pop){ TB.pop.q = t.value; const q = TBL.norm(t.value); $("#tfpList").querySelectorAll(".tfpv").forEach(l => l.hidden = !!q && !l.dataset.l.includes(q)); }
 });
 /* the caret moved: suggest for where it is now */
@@ -3946,7 +3972,7 @@ $("#tableRoot").addEventListener("change", e => {
   if(t.dataset.tfv!=null && TB.pop){ const v = t.dataset.tfv, on = t.checked; return tbPopSet(f => ({...f, in: on ? [...new Set([...f.in, v])] : f.in.filter(x=>x!==v)})); }
   if(t.dataset.tfpnot!=null && TB.pop) return tbPopSet(f => ({...f, not: t.value==="1"}));
   if(t.dataset.tsl!=null){ const lv = tbLevels(), i = +t.dataset.tsl; lv[i] = {k:t.value, d: TBL.BY[t.value].num ? -1 : 1}; return tbSortSet(lv); }
-  if(t.id==="tbxOn"){ TB.expr.on = t.checked; return tbxApply(true); }
+  if(t.id==="tbxOn"){ TB.expr.on = t.checked; tbSave(); tbApply(); return tbDraw(true); }
   if(t.id==="tbxF") return tbxBuildOps();
   if(t.id==="tbxO") return tbxBuildVal();
   if(t.dataset.tcol){ TB.cols[t.dataset.tcol] = t.checked; tbSave(); tbDraw(true); }

@@ -831,6 +831,9 @@ html.tblopen,html.tblopen body{overflow:hidden}
 .tbx-top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 12px}
 .tbx-on{display:flex;align-items:center;gap:6px;font-weight:600;cursor:pointer}
 .tbx-status.ok{color:var(--good)}
+.tbx-status.pending{color:var(--warn)}
+.tbx-run{display:flex;align-items:center;gap:6px}
+.tbx-run .btn:disabled{opacity:.5;cursor:default}
 .tbexpr textarea{width:100%;box-sizing:border-box;min-height:44px;resize:vertical;border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:7px 9px;font-family:var(--f-mono);font-size:13px;line-height:1.45;color:var(--ink)}
 .tbexpr textarea:focus{outline:2px solid var(--accent-line);outline-offset:-1px}
 .tbx-err{display:flex;flex-direction:column;gap:2px;color:var(--bad)}

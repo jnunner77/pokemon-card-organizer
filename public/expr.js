@@ -223,6 +223,21 @@
     return true;
   }
 
+  /* the expression being edited against the one the table uses: is it changed, has it a mistake,
+     and can it be applied (changed, and no mistake) */
+  function editState(text, applied) {
+    const t = String(text ?? "").trim(), a = String(applied ?? "").trim(), r = parse(t);
+    const error = r.error ? r : null;
+    return { dirty: t !== a, error, canApply: t !== a && !error };
+  }
+
+  /* the Table's saved expression settings {text, applied, on, open}, as they are now: settings saved
+     before Apply existed (no applied) keep filtering with their text */
+  function fromSaved(x) {
+    if (!x || typeof x !== "object" || typeof x.text !== "string") return { text: "", applied: "", on: true, open: false };
+    return { text: x.text, applied: typeof x.applied === "string" ? x.applied : x.text, on: x.on !== false, open: !!x.open };
+  }
+
   /* ---------- writing ---------- */
 
   /* a value as the editor writes it: bare when it can be, quoted otherwise */
@@ -340,5 +355,5 @@
     return { from, to: caret, kind, items: items.slice(0, 30) };
   }
 
-  root.BinderExpr = { parse, test, quote, fromFilters, suggest, values, opsFor, fieldOf, fieldName, SEARCH };
+  root.BinderExpr = { parse, editState, fromSaved, test, quote, fromFilters, suggest, values, opsFor, fieldOf, fieldName, SEARCH };
 })(typeof window !== "undefined" ? window : globalThis);
