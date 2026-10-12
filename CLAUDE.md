@@ -25,6 +25,11 @@ confirmed on the live binder.
 - Before pushing: `npm run typecheck` and `npm test` pass. For UI changes, also run the app
   (`DATA_DIR=$(mktemp -d) AUTH=off PRICE_UPDATES=off npm start`) and check it in a browser,
   including a phone-sized screen (≤ 640px).
+- Every push is reviewed before it becomes (or updates) a pull request: follow the `review-loop`
+  skill (`.claude/skills/review-loop/`). It spawns the `code-reviewer` agent
+  (`.claude/agents/code-reviewer.md`, on the cheapest model, Haiku) with the diff and the ticket's
+  description, acceptance criteria and tasks; fix its findings, push and review again until it
+  passes with no findings, and only then open the pull request.
 - Browser-only logic that's worth testing lives in small plain scripts in `public/` (like
   `sales.js`, `move.js`, `filter.js`) loaded before `app.js`, with tests in `tests/` that load them
   the same way.

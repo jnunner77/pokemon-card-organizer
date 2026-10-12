@@ -9,9 +9,12 @@ Needs BOARDS_URL and BOARDS_TOKEN in the environment. The token is sent as a hea
   boards.py comment ID "<p>HTML</p>"
   boards.py link ID URL [COMMENT]       add a hyperlink (e.g. the pull request)
   boards.py show ID                     an item and its child tasks
+  boards.py brief ID                    an item's description, acceptance criteria and tasks, as text (for reviews)
 """
+import html
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -68,6 +71,29 @@ def show(i):
             print(f"{'  ' if w['id'] != i else ''}{w['type']} {w['id']} [{w['state']}] {w['title']}")
 
 
+def text(h):
+    """Work item HTML as plain text: list items on their own lines, tags dropped."""
+    h = re.sub(r"<li[^>]*>", "\n- ", h or "")
+    h = re.sub(r"<(br|/p|/div|/h\d)[^>]*>", "\n", h)
+    return re.sub(r"\n\s*\n+", "\n", html.unescape(re.sub(r"<[^>]+>", "", h))).strip()
+
+
+def brief(i):
+    db = call("GET", "/api/bootstrap")["db"]
+    w = next((w for w in db["workItems"] if w["id"] == i), None)
+    if not w:
+        sys.exit(f"no work item {i}")
+    print(f"{w['type']} AB#{w['id']} [{w['state']}] {w['title']}")
+    for key, label in (("description", "Description"), ("reproSteps", "Repro steps"), ("acceptanceCriteria", "Acceptance criteria")):
+        if w.get(key):
+            print(f"\n{label}:\n{text(w[key])}")
+    tasks = [t for t in db["workItems"] if t.get("parentId") == i]
+    if tasks:
+        print("\nTasks:")
+        for t in tasks:
+            print(f"- AB#{t['id']} [{t['state']}] {t['title']}")
+
+
 def main(a):
     if not a or a[0] in ("-h", "--help"):
         print(__doc__); return
@@ -89,6 +115,8 @@ def main(a):
         call("POST", f"/api/workitems/{int(a[1])}/hyperlinks", {"url": a[2], **({"comment": a[3]} if len(a) > 3 else {})}); print("linked")
     elif cmd == "show":
         show(int(a[1]))
+    elif cmd == "brief":
+        brief(int(a[1]))
     else:
         sys.exit(f"unknown command {cmd}\n{__doc__}")
 
