@@ -33,7 +33,8 @@ function backup() {
 
 describe('deploy/backup.sh', () => {
   it('writes archives only their owner can read, and fixes older ones', () => {
-    fs.mkdirSync(dest, { mode: 0o755 });
+    fs.mkdirSync(dest);
+    fs.chmodSync(dest, 0o755); // explicitly: mkdir's mode is masked by the test process's own umask
     const old = path.join(dest, 'binder-20250101-000000.tar.gz');
     fs.writeFileSync(old, 'old');
     fs.chmodSync(old, 0o644);
