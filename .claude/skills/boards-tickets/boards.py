@@ -74,7 +74,7 @@ def show(i):
 def text(h):
     """Work item HTML as plain text: list items on their own lines, tags dropped."""
     h = re.sub(r"<li[^>]*>", "\n- ", h or "")
-    h = re.sub(r"<(br|/p|/div|/h\d)[^>]*>", "\n", h)
+    h = re.sub(r"</?(p|div|ul|ol|h\d|br)\b[^>]*>", "\n", h)
     return re.sub(r"\n\s*\n+", "\n", html.unescape(re.sub(r"<[^>]+>", "", h))).strip()
 
 
