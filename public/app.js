@@ -2795,7 +2795,7 @@ document.addEventListener("keydown", e => {
   if(FIND.open) return findKey(e);
   if(!LB.open && !$("#modalRoot").innerHTML && !isTyping(e.target) && !e.altKey && ((e.key==="/" && !e.ctrlKey && !e.metaKey) || ((e.key==="k" || e.key==="K") && (e.ctrlKey || e.metaKey)))){ e.preventDefault(); return openFind(); }
   if(LB.open){ if(e.key==="Escape"){ e.preventDefault(); closeViewer(); } else if(e.key==="ArrowLeft"||e.key==="ArrowRight"){ e.preventDefault(); lbGo(LB.i+(e.key==="ArrowLeft"?-1:1)); } else if(e.key==="Home"||e.key==="End"){ e.preventDefault(); lbGo(e.key==="Home"?0:LB.list.length-1); } return; }
-  if(e.key==="Escape"){ if($("#modalRoot").innerHTML){ if(!CI?.busy || !$("#ci_card")) closeModal(); } else if(S.sel) closeDrawer(); else if(TB.open) closeTable(); else if(S.pick) endPick(); else if(S.swap){ S.swap = null; renderMain(); } else if(PV.open) closePricing(); else if(SV.open) closeSelling(); } });
+  if(e.key==="Escape"){ if($("#modalRoot").innerHTML){ if(!CI?.busy || !$("#ci_card")) closeModal(); } else if(S.sel) closeDrawer(); else if(TB.open){ if(TB.pop) tbPopClose(true); else if(TB.colsOpen || TB.sortOpen){ TB.colsOpen = TB.sortOpen = false; tbPanes(); } else closeTable(); } else if(S.pick) endPick(); else if(S.swap){ S.swap = null; renderMain(); } else if(PV.open) closePricing(); else if(SV.open) closeSelling(); } });
 function updateMoveNote(){
   const n=$("#moveNote"); if(!n) return; const c=selCard(); const bid=$("#m_binder").value;
   if(!bid){ n.textContent="The card stays in your ledger under “Not in a binder”."; return; }
@@ -3413,13 +3413,18 @@ $("#lbRoot").addEventListener("click", e => {
 $("#lbRoot").addEventListener("contextmenu", e => { if(e.target.closest(".lb-slide img")) e.preventDefault(); });
 window.addEventListener("resize", () => { if(!LB.open) return; const tr = lbTrack(); if(tr){ tr.style.scrollBehavior="auto"; tr.scrollLeft = LB.i * tr.clientWidth; } });
 
-/* ---------- table editor (table.js) ----------
+/* ---------- table editor (table.js, expr.js) ----------
    Every card in one table, its details edited in the cells. The rows and their order are set when the
-   table opens and when a filter or the sort changes; edits don't move rows, like a spreadsheet. */
-const TBL = window.BinderTable;
-const TB_KEEP = ["filt","sort","cols"];
-const TB = {open:false, rows:[], known:new Set(), html:new Map(), colsOpen:false, stale:false, filt:{}, sort:{k:"",d:1}, cols:{}};
+   table opens and when a filter, the expression or the sort changes; edits don't move rows, like a
+   spreadsheet. A card shows when it matches the header filters and the expression (when it's on). */
+const TBL = window.BinderTable, EXPR = window.BinderExpr;
+const TB_KEEP = ["filt","sort","cols","expr","saved"];
+const TB = {open:false, rows:[], known:new Set(), html:new Map(), colsOpen:false, sortOpen:false, pop:null, stale:false,
+  filt:{}, sort:[], cols:{}, expr:{text:"", on:true, open:false}, saved:[], ast:null, err:null};
 { const s = store.get("table", {}); for(const k of TB_KEEP) if(s && s[k] && typeof s[k]==="object") TB[k] = s[k]; }
+if(!Array.isArray(TB.sort)) TB.sort = TB.sort.k ? [TB.sort] : []; // saved before sorting by several columns
+if(typeof TB.expr.text!=="string") TB.expr = {text:"", on:true, open:false};
+if(!Array.isArray(TB.saved)) TB.saved = [];
 const tbSave = () => store.set("table", Object.fromEntries(TB_KEEP.map(k=>[k, TB[k]])));
 const BACK_TABLE = BACK.layer("table", () => { if(TB.open) closeTable(); });
 const tbCtx = {
@@ -3434,7 +3439,7 @@ const tbCtx = {
     return {group:"No match yet", text:"No match yet"}; }
 };
 /* column widths in px; the name column stays in place while scrolling sideways */
-const TB_W = {name:190, set:170, setCode:90, number:90, rarity:150, variant:140, language:130, condition:145, grader:100, grade:70, artist:150, status:140, owner:100, placeholder:96, notes:280, location:150, released:100, picture:56, value:96, paid:96, match:240};
+const TB_W = {name:190, set:170, setCode:90, number:100, rarity:150, variant:140, language:130, condition:145, grader:100, grade:70, artist:150, status:140, owner:100, placeholder:96, notes:280, location:150, released:100, picture:56, value:96, paid:96, match:240};
 const tbW = k => k==="name" && window.matchMedia?.("(max-width:640px)").matches ? 150 : TB_W[k] || 120;
 const tbRO = () => !S.db || S.me?.user?.role==="viewer";
 const tbCols = () => TBL.visible(TB.cols);
@@ -3452,9 +3457,15 @@ function closeTable(){
   TB.open = false; TB.colsOpen = false; renderTable(true);
   $("#btnTable")?.focus({preventScroll:true});
 }
+/* read the expression; one with a mistake doesn't filter until it's fixed */
+function tbCompile(){ const r = EXPR.parse(TB.expr.text); TB.ast = r.error ? null : r.ast; TB.err = r.error ? r : null; }
+tbCompile();
+const tbExprOn = () => !!(TB.expr.on && TB.ast);
+const tbMatch = c => TBL.matches(c, TB.filt, tbCtx) && (!tbExprOn() || EXPR.test(TB.ast, c, tbCtx));
+const tbLevels = () => TBL.levels(TB.sort);
 /* which cards show, in order */
 function tbApply(){
-  const list = S.cards.filter(c => TBL.matches(c, TB.filt, tbCtx));
+  const list = S.cards.filter(tbMatch);
   TB.rows = TBL.sort(list, TB.sort, tbCtx).map(c=>c.id);
   TB.known = new Set(S.cards.map(c=>c.id));
 }
@@ -3463,7 +3474,7 @@ function tbApply(){
 function tbKeepRows(){
   const ids = new Set(S.cards.map(c=>c.id));
   TB.rows = TB.rows.filter(id => ids.has(id));
-  for(const c of S.cards) if(!TB.known.has(c.id) && TBL.matches(c, TB.filt, tbCtx)) TB.rows.push(c.id);
+  for(const c of S.cards) if(!TB.known.has(c.id) && tbMatch(c)) TB.rows.push(c.id);
   TB.known = ids;
 }
 
@@ -3487,18 +3498,27 @@ function tbRow(c, cols, ro){
     ? tbCell(c, col, ro).replace(/^(<td[^>]*>)/, `$1<div class="tname">`).replace(/<\/td>$/, `<button class="topen" type="button" data-topen="${esc(c.id)}" aria-label="Open ${esc(c.name||"card")}" title="Open the card: picture, prices, move"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg></button></div></td>`)
     : tbCell(c, col, ro)).join("")}</tr>`;
 }
+/* a dropdown filter's ticked values, as they read */
+function tbPickText(col, f){
+  if(!f) return "All";
+  const lab = v => v==="" ? (col.edit==="select" ? TBL.label(col, "", tbCtx) || TBL.BLANK : TBL.BLANK) : col.edit==="select" ? TBL.label(col, v, tbCtx) : v;
+  const names = f.in.map(lab);
+  return (f.not ? "Not " : "") + (names.length > 2 ? `${names.length} values` : names.join(", "));
+}
 function tbFilterCtl(col){
-  const f = TB.filt[col.k] || "", lab = `aria-label="Filter ${esc(col.h)}"`;
+  const lab = `aria-label="Filter ${esc(col.h)}"`;
   if(col.filter==="pick"){
-    const ch = TBL.choices(S.cards, col, tbCtx);
-    const has = !f || ch.some(x => "="+x.v === f);
-    return `<select id="tf_${col.k}" data-tf="${col.k}" ${lab}><option value="">All</option>${has?"":`<option value="${esc(f)}" selected>${esc(f.slice(1) || TBL.BLANK)} (0)</option>`}${ch.map(x=>`<option value="${esc("="+x.v)}" ${f==="="+x.v?"selected":""}>${esc(x.label)} (${x.n})</option>`).join("")}</select>`;
+    const f = TBL.filterOf(col, TB.filt[col.k]), txt = tbPickText(col, f);
+    return `<button type="button" class="tfpick${f?.not?" not":""}" id="tf_${col.k}" data-tfp="${col.k}" aria-haspopup="dialog" aria-expanded="${TB.pop?.k===col.k}" aria-label="Filter ${esc(col.h)}: ${esc(txt)}" title="${esc(f ? (f.not?"Not: ":"")+f.in.map(v=>tbPickText(col,{in:[v]})).join(", ") : "Pick one or more")}"><span>${esc(txt)}</span></button>`;
   }
-  return `<input id="tf_${col.k}" data-tf="${col.k}" type="search" ${lab} list="tdl__blank" value="${esc(f)}" placeholder="${col.filter==="num"?">10, 5-20…":"Filter…"}" autocomplete="off" spellcheck="false">`;
+  const f = typeof TB.filt[col.k]==="string" ? TB.filt[col.k] : "", not = f.startsWith("!");
+  return `<div class="tftext"><input id="tf_${col.k}" data-tf="${col.k}" type="search" ${lab} list="tdl__blank" value="${esc(f)}" placeholder="${col.filter==="num"?">10, 5-20…":"Filter…"}" autocomplete="off" spellcheck="false"><button type="button" class="tfnot" id="tfn_${col.k}" data-tfnot="${col.k}" aria-pressed="${not}" aria-label="Not: ${esc(col.h)} without this" title="Not: show the cards that don't match (or start the filter with !)">not</button></div>`;
 }
 function tbHead(cols){
-  return `<tr>${cols.map(col => { const on = TB.sort.k===col.k || (!TB.sort.k && col.k==="location");
-    return `<th class="tk-${col.k}${TB.filt[col.k]?" on":""}" scope="col" style="width:${tbW(col.k)}px" aria-sort="${on?(TB.sort.d<0?"descending":"ascending"):"none"}"><button type="button" data-tsort="${col.k}" title="Sort by ${esc(col.h.toLowerCase())}">${esc(col.h)}<span aria-hidden="true">${on?(TB.sort.d<0?" ▼":" ▲"):""}</span></button>${tbFilterCtl(col)}</th>`; }).join("")}</tr>`;
+  const lv = tbLevels();
+  return `<tr>${cols.map(col => { const i = lv.findIndex(x => x.k===col.k), l = lv[i];
+    const arrow = l ? `${l.d<0?" ▼":" ▲"}${lv.length>1?`<sup>${i+1}</sup>`:""}` : "";
+    return `<th class="tk-${col.k}${TBL.filterOf(col, TB.filt[col.k])!=null?" on":""}" scope="col" style="width:${tbW(col.k)}px" aria-sort="${i===0?(l.d<0?"descending":"ascending"):"none"}"><button type="button" data-tsort="${col.k}" title="Sort by ${esc(col.h.toLowerCase())} (Shift+click: then by it)">${esc(col.h)}<span aria-hidden="true">${arrow}</span></button>${tbFilterCtl(col)}</th>`; }).join("")}</tr>`;
 }
 function tbLists(){
   const uniq = a => [...new Set(a.map(x=>String(x??"").trim()).filter(Boolean))].sort((x,y)=>x.localeCompare(y));
@@ -3507,9 +3527,12 @@ function tbLists(){
     + `<datalist id="tdl__blank"><option value="${TBL.BLANK}"><option value="${TBL.FILLED}"></datalist>`;
 }
 function tbCount(){
-  const n = TBL.count(TB.filt), el = $("#tblCount"), clr = $("#tblClear");
-  if(el) el.textContent = `${TB.rows.length} of ${S.cards.length} card${S.cards.length===1?"":"s"}${n?` · ${n} filter${n===1?"":"s"}`:""}`;
-  if(clr) clr.disabled = !n;
+  const n = TBL.count(TB.filt), x = tbExprOn(), el = $("#tblCount"), clr = $("#tblClear");
+  if(el) el.textContent = `${TB.rows.length} of ${S.cards.length} card${S.cards.length===1?"":"s"}${n?` · ${n} filter${n===1?"":"s"}`:""}${x?" · expression":""}`;
+  if(clr) clr.disabled = !n && !x;
+  const xb = $("#tblExprBtn"); if(xb) xb.classList.toggle("on", x);
+  const sb = $("#tblSortBtn"); if(sb) sb.classList.toggle("on", tbLevels().length > 1);
+  tbxStatus();
 }
 function tbColsPane(){
   const box = col => `<label><input type="checkbox" data-tcol="${col.k}" ${tbCols().includes(col)?"checked":""}> ${esc(col.h)}</label>`;
@@ -3519,6 +3542,229 @@ function tbColsPane(){
     <p class="hint">Off unless you turn them on</p>${extra.map(box).join("")}
     <button class="btn sm ghost" type="button" id="tblColsReset">Default columns</button></div>`;
 }
+/* the Sort pane: sort by, then by… each level its own way */
+function tbSortPane(){
+  const lv = tbLevels(), used = new Set(lv.map(l=>l.k));
+  const dir = (k, d) => TBL.BY[k].num ? (d<0 ? "▼ High to low" : "▲ Low to high") : k==="location" ? (d<0 ? "▼ Last first" : "▲ First to last") : (d<0 ? "▼ Z to A" : "▲ A to Z");
+  const row = (l, i) => `<li><span class="tsn">${i ? "then" : "by"}</span>
+    <select id="tsl_${i}" data-tsl="${i}" aria-label="Sort level ${i+1}">${TBL.COLUMNS.filter(c => c.k===l.k || !used.has(c.k)).map(c=>`<option value="${c.k}" ${c.k===l.k?"selected":""}>${esc(c.h)}</option>`).join("")}</select>
+    <button class="btn sm" type="button" id="tsd_${i}" data-tsd="${i}" aria-label="Sort level ${i+1}: ${dir(l.k, l.d).slice(2)}, change">${dir(l.k, l.d)}</button>
+    <button class="btn sm ghost" type="button" id="tsu_${i}" data-tsu="${i}" aria-label="Move level ${i+1} up" ${i?"":"disabled"}>↑</button>
+    <button class="btn sm ghost" type="button" id="tsx_${i}" data-tsx="${i}" aria-label="Remove level ${i+1}" ${lv.length>1 || l.k!=="location" ? "" : "disabled"}>✕</button></li>`;
+  return `<div class="tblcols tblsort" id="tblSort" role="group" aria-label="Sort" ${TB.sortOpen?"":"hidden"}>
+    <p class="hint">Sort by, then by</p><ol>${lv.map(row).join("")}</ol>
+    <div class="tsacts"><button class="btn sm" type="button" id="tsAdd" data-tsadd ${used.size>=TBL.COLUMNS.length?"disabled":""}>+ Then by</button><button class="btn sm ghost" type="button" id="tsReset" data-tsreset>By location</button></div>
+    <p class="hint tstip">Click a heading to sort by it; <b>Shift+click</b> adds it as the next level.</p></div>`;
+}
+function tbSortRedraw(){
+  const a = document.activeElement, id = a && a.closest && a.closest("#tblSort") ? a.id : "";
+  $("#tblSort").outerHTML = tbSortPane();
+  const n = (id && document.getElementById(id)) || $("#tsAdd"); if(id) n?.focus({preventScroll:true});
+}
+function tbSortSet(lv){ TB.sort = lv; tbSave(); tbApply(); tbDraw(true); if($("#tblSort")) tbSortRedraw(); }
+function tbSortClick(t){
+  const lv = tbLevels(), el = t.closest("[data-tsd],[data-tsu],[data-tsx]"), i = el ? +(el.dataset.tsd ?? el.dataset.tsu ?? el.dataset.tsx) : -1;
+  if(t.closest("[data-tsd]")){ lv[i].d = -lv[i].d; return tbSortSet(lv), true; }
+  if(t.closest("[data-tsu]")){ if(i>0) [lv[i-1], lv[i]] = [lv[i], lv[i-1]]; return tbSortSet(lv), true; }
+  if(t.closest("[data-tsx]")){ lv.splice(i, 1); return tbSortSet(lv), true; }
+  if(t.closest("[data-tsadd]")){ const c = TBL.COLUMNS.find(c => !lv.some(l=>l.k===c.k)); if(c) lv.push({k:c.k, d:c.num?-1:1}); tbSortSet(lv); $(`#tsl_${lv.length-1}`)?.focus(); return true; }
+  if(t.closest("[data-tsreset]")){ tbSortSet([]); return true; }
+  return false;
+}
+
+/* a dropdown filter's list: tick any number of values, or turn it around to none of them */
+function tbPopHTML(){
+  const k = TB.pop.k, col = TBL.BY[k], f = TBL.filterOf(col, TB.filt[k]) || {in:[], not:false};
+  const ch = TBL.choices(S.cards, col, tbCtx);
+  const list = [...ch, ...f.in.filter(v => !ch.some(x=>x.v===v)).map(v => ({v, label: tbPickText(col, {in:[v]}), n:0}))];
+  const q = TBL.norm(TB.pop.q || "");
+  return `<div class="tfpop" id="tfPop" role="dialog" aria-label="Filter ${esc(col.h)}">
+    <div class="tfpop-h"><b>${esc(col.h)}</b><button class="btn ghost sm" type="button" data-tfpclose aria-label="Done">Done</button></div>
+    <div class="tfseg" role="radiogroup" aria-label="Show the cards whose ${esc(col.h.toLowerCase())}">
+      <label><input type="radio" id="tfpn_0" name="tfpnot" value="" data-tfpnot ${f.not?"":"checked"}> is any of</label>
+      <label><input type="radio" id="tfpn_1" name="tfpnot" value="1" data-tfpnot ${f.not?"checked":""}> is none of</label></div>
+    ${list.length > 8 ? `<input type="search" id="tfpQ" data-tfpq value="${esc(TB.pop.q||"")}" placeholder="Search ${esc(col.h.toLowerCase())}…" aria-label="Search the ${esc(col.h.toLowerCase())} values" autocomplete="off" spellcheck="false">` : ""}
+    <div class="tfpop-list" id="tfpList">${list.map((x, i) => `<label class="tfpv" data-l="${esc(TBL.norm(x.label))}" ${q && !TBL.norm(x.label).includes(q) ? "hidden" : ""}><input type="checkbox" id="tfv_${i}" data-tfv="${esc(x.v)}" ${f.in.includes(x.v)?"checked":""}><span>${esc(x.label)}</span><small>${x.n}</small></label>`).join("") || `<p class="hint">No values yet.</p>`}</div>
+    <div class="tfpop-f"><button class="btn sm ghost" type="button" data-tfpall>Tick all${list.length>8?" shown":""}</button><button class="btn sm ghost" type="button" data-tfpclear ${f.in.length?"":"disabled"}>Clear</button></div>
+  </div>`;
+}
+function tbPopOpen(k){
+  const w = $("#tblWrap"); TB.pop = {k, q:"", x:w.scrollLeft, y:w.scrollTop}; TB.colsOpen = TB.sortOpen = false; tbPanes();
+  const box = $("#tfPopWrap"); box.innerHTML = tbPopHTML();
+  const b = document.getElementById("tf_"+k), pop = $("#tfPop");
+  if(b){ b.setAttribute("aria-expanded", true); const r = b.getBoundingClientRect(), w = Math.max(240, r.width);
+    pop.style.minWidth = w+"px"; pop.style.left = Math.max(8, Math.min(r.left, innerWidth - pop.offsetWidth - 8))+"px"; pop.style.top = (r.bottom + 4)+"px";
+    pop.style.maxHeight = Math.max(220, innerHeight - r.bottom - 16)+"px"; }
+  ($("#tfpQ") || pop.querySelector("[data-tfv]") || pop.querySelector("button"))?.focus({preventScroll:true});
+}
+function tbPopClose(focus){
+  if(!TB.pop) return; const k = TB.pop.k; TB.pop = null;
+  const box = $("#tfPopWrap"); if(box) box.innerHTML = "";
+  const b = document.getElementById("tf_"+k); if(b){ b.setAttribute("aria-expanded", false); if(focus) b.focus({preventScroll:true}); }
+}
+/* after a tick: the filter changes at once, the list stays open */
+function tbPopSet(fn){
+  const k = TB.pop.k, col = TBL.BY[k], f = TBL.filterOf(col, TB.filt[k]) || {in:[], not:false};
+  const next = fn({in:[...f.in], not:f.not});
+  if(next.in.length) TB.filt[k] = next; else delete TB.filt[k];
+  tbSave(); tbApply(); tbDraw(true);
+  const pop = $("#tfPop"), a = document.activeElement, id = a && pop?.contains(a) ? a.id : "", top = $("#tfpList")?.scrollTop;
+  const style = pop?.getAttribute("style");
+  pop.outerHTML = tbPopHTML(); const np = $("#tfPop"); np.setAttribute("style", style); if($("#tfpList")) $("#tfpList").scrollTop = top;
+  ((id && document.getElementById(id)) || (a && pop?.contains(a) ? $("#tfPop [data-tfpclose]") : null))?.focus({preventScroll:true});
+  document.getElementById("tf_"+k)?.setAttribute("aria-expanded", true);
+}
+function tbPopClick(t){
+  if(t.closest("[data-tfpclose]")){ tbPopClose(true); return true; }
+  if(t.closest("[data-tfpall]")){ const shown = [...$("#tfpList").querySelectorAll(".tfpv:not([hidden]) [data-tfv]")].map(x=>x.dataset.tfv); tbPopSet(f => ({...f, in:[...new Set([...f.in, ...shown])]})); return true; }
+  if(t.closest("[data-tfpclear]")){ tbPopSet(f => ({...f, in:[]})); return true; }
+  return false;
+}
+/* the Columns and Sort panes, and the filter list: one open at a time */
+function tbPanes(){
+  const c = $("#tblCols"), so = $("#tblSort");
+  if(c){ c.hidden = !TB.colsOpen; $("#tblColsBtn").setAttribute("aria-expanded", TB.colsOpen); }
+  if(so){ so.hidden = !TB.sortOpen; $("#tblSortBtn").setAttribute("aria-expanded", TB.sortOpen); }
+}
+
+/* ---------- the expression editor ---------- */
+function tbExprPane(){
+  const x = TB.expr, names = TBL.COLUMNS.map(c=>`<option value="${c.k}">${esc(c.h)}</option>`).join("");
+  const ex = (src, what) => `<tr><td><button type="button" class="tbxex mono" data-tbxtry="${esc(src)}" title="Try it">${esc(src)}</button></td><td>${what}</td></tr>`;
+  return `<section class="tbexpr" id="tbExpr" aria-label="Filter expression" ${x.open?"":"hidden"}>
+    <div class="tbx-top"><label class="tbx-on"><input type="checkbox" id="tbxOn" ${x.on?"checked":""}> Filter with this expression</label><span class="tbx-status hint" id="tbxStatus" aria-live="polite"></span></div>
+    <textarea id="tbxText" class="mono" rows="2" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Expression" aria-describedby="tbxStatus" placeholder='set = "30th Celebration" and not owner in (Megan, Both)'>${esc(x.text)}</textarea>
+    <div class="tbx-err" id="tbxErr" hidden></div>
+    <div class="tbx-sug" id="tbxSug" role="group" aria-label="Suggestions"></div>
+    <div class="tbx-build" role="group" aria-label="Add a condition">
+      <span class="hint">Add</span>
+      <label class="tbx-not"><input type="checkbox" id="tbxNot"> not</label>
+      <select id="tbxF" aria-label="Column">${names}</select>
+      <select id="tbxO" aria-label="Comparison"></select>
+      <input id="tbxV" list="tbxVals" aria-label="Value" placeholder="Value" autocomplete="off" spellcheck="false"><datalist id="tbxVals"></datalist>
+      <button class="btn sm" type="button" data-tbxadd="and">with and</button><button class="btn sm" type="button" data-tbxadd="or">with or</button>
+    </div>
+    <div class="tbx-acts">
+      <button class="btn sm ghost" type="button" id="tbxFromHead" title="Move the header filters into the expression">Use the header filters</button>
+      <button class="btn sm ghost" type="button" id="tbxClear">Clear</button>
+      <span class="tbx-savewrap"><button class="btn sm ghost" type="button" id="tbxSaveBtn">Save as…</button><span id="tbxSaveForm" hidden><input id="tbxName" maxlength="40" placeholder="Name" aria-label="Name for this expression" autocomplete="off"><button class="btn sm" type="button" id="tbxSaveGo">Save</button></span></span>
+      <span class="tbx-saved" id="tbxSaved"></span>
+    </div>
+    <details class="tbx-help"><summary>How to write an expression</summary><div class="tablewrap"><table><tbody>
+      ${ex('owner = Megan', "is: as shown, or as stored (<b>status = sold</b>, <b>owner = \"Not set\"</b>, <b>location = \"Binder 1\"</b>)")}
+      ${ex('owner != Megan', "isn't")}
+      ${ex('notes ~ centering', "contains (<b>name:pika</b> works too); <b>!~</b> doesn't contain")}
+      ${ex('value >= 10', "more or less: <b>&gt; &gt;= &lt; &lt;=</b> on value, paid, grade, card number, release date")}
+      ${ex('released >= 2024-06', "release dates by as much as you give: a year, a month or a day")}
+      ${ex('owner in (Megan, Both)', "any of; <b>not in ( … )</b> none of")}
+      ${ex('notes is blank', "empty; <b>is not blank</b> filled in")}
+      ${ex('grader != Raw and value > 50', "both (a space works too)")}
+      ${ex('owner = Megan or owner = Both', "either (<b>and</b> goes before <b>or</b>; use brackets)")}
+      ${ex('not (set = Promo or placeholder = yes)', "the opposite (<b>!</b> works too)")}
+      ${ex('pikachu "full art"', "words on their own search the name, set, number, rarity, variant, illustrator, grade, owner and notes")}
+    </tbody></table></div><p class="hint">Columns go by their heading or key (<b>set code</b> is <b>setcode</b>); quote values with spaces. Case and accents don't matter.</p></details>
+  </section>`;
+}
+function tbxStatus(){
+  const st = $("#tbxStatus"); if(!st) return;
+  const e = TB.err, err = $("#tbxErr");
+  if(e){
+    const t = TB.expr.text, a = Math.min(e.at, t.length), b = Math.max(a + 1, Math.min(e.end, t.length));
+    err.hidden = false;
+    err.innerHTML = `<code>${esc(t.slice(0, a))}<mark>${esc(t.slice(a, b) || " ")}</mark>${esc(t.slice(b))}</code><span>${esc(e.error)}</span>`;
+    st.textContent = "Not filtering until this is fixed."; st.className = "tbx-status hint err";
+  } else {
+    err.hidden = true; err.innerHTML = "";
+    const n = TB.ast ? S.cards.filter(c => EXPR.test(TB.ast, c, tbCtx)).length : 0;
+    st.className = "tbx-status hint" + (tbExprOn() ? " ok" : "");
+    st.textContent = !TB.ast ? "Type an expression, or add conditions below." : `${TB.expr.on ? "" : "Off · "}${n} of ${S.cards.length} card${S.cards.length===1?"":"s"} match${n===1?"es":""} it`;
+  }
+  const fh = $("#tbxFromHead"); if(fh) fh.disabled = !TBL.count(TB.filt);
+}
+/* the suggestions for where the caret is */
+function tbxSuggest(){
+  const ta = $("#tbxText"), box = $("#tbxSug"); if(!ta || !box) return;
+  const r = EXPR.suggest(ta.value, ta.selectionStart, S.cards, tbCtx);
+  TB.sug = r;
+  box.innerHTML = r.items.map((x, i) => `<button type="button" class="tbxs${r.kind==="op"||r.kind==="join"?" mono":""}" data-tbxs="${i}" title="${esc(x.hint ? `${x.label}: ${x.hint}` : x.label)}">${esc(x.label)}${x.hint && r.kind!=="value" ? ` <small>${esc(x.hint)}</small>` : ""}</button>`).join("");
+}
+function tbxSaved(){
+  const el = $("#tbxSaved"); if(!el) return;
+  el.innerHTML = TB.saved.map((x, i) => `<span class="tbxchip"><button type="button" data-tbxload="${i}" title="${esc(x.text)}">${esc(x.name)}</button><button type="button" data-tbxdel="${i}" aria-label="Delete the saved expression ${esc(x.name)}">×</button></span>`).join("");
+}
+function tbxBuildOps(){
+  const k = $("#tbxF").value, o = $("#tbxO"), cur = o.value;
+  o.innerHTML = EXPR.opsFor(k).map(x => `<option value="${esc(x.v)}">${esc(x.hint)} (${esc(x.v.replace(/ \($/, ""))})</option>`).join("");
+  if([...o.options].some(x=>x.value===cur)) o.value = cur;
+  $("#tbxVals").innerHTML = EXPR.values(S.cards, k, tbCtx).slice(0, 200).map(x=>`<option value="${esc(x.v)}">${esc(x.label)} (${x.n})</option>`).join("");
+  tbxBuildVal();
+}
+function tbxBuildVal(){
+  const op = $("#tbxO").value, v = $("#tbxV");
+  v.hidden = /blank$/.test(op);
+  v.placeholder = /in \($/.test(op) ? "Values, with commas" : "Value";
+}
+/* a and b joined by and / or, with brackets where or would bind wrongly */
+function tbxJoin(a, b, how){
+  a = a.trim(); if(!a) return b;
+  const top = EXPR.parse(a).ast;
+  return `${how==="and" && top?.type==="or" ? `(${a})` : a} ${how} ${b}`;
+}
+function tbxSet(text, caret){
+  const ta = $("#tbxText"); TB.expr.text = text; TB.expr.on = true;
+  if(ta){ ta.value = text; const p = caret ?? text.length; ta.focus({preventScroll:true}); ta.setSelectionRange(p, p); }
+  const on = $("#tbxOn"); if(on) on.checked = true;
+  tbxApply(true);
+}
+let tbxT = 0;
+function tbxApply(now){
+  clearTimeout(tbxT);
+  const go = () => { tbCompile(); tbSave(); tbApply(); tbDraw(true); tbxSuggest(); };
+  if(now) go(); else { tbCompile(); tbxStatus(); tbxT = setTimeout(go, 250); }
+}
+function tbxAdd(how){
+  const k = $("#tbxF").value, op = $("#tbxO").value, raw = $("#tbxV").value.trim(), f = EXPR.fieldName(k);
+  let term;
+  if(/blank$/.test(op)) term = `${f} ${op}`;
+  else if(/in \($/.test(op)){ const vs = raw.split(",").map(x=>x.trim()).filter(Boolean); if(!vs.length) return toast("Put the values in first, with commas between them."); term = `${f} ${op}${vs.map(EXPR.quote).join(", ")})`; }
+  else { if(!raw && !["=","!="].includes(op)) return toast("Put a value in first."); term = `${f} ${op} ${EXPR.quote(raw)}`; }
+  if($("#tbxNot").checked) term = `not ${/ or | and /.test(term) ? `(${term})` : term}`;
+  tbxSet(tbxJoin(TB.expr.text, term, how));
+  $("#tbxV").value = ""; $("#tbxNot").checked = false;
+}
+function tbxClick(t){
+  const sg = t.closest("[data-tbxs]");
+  if(sg){ const x = TB.sug?.items[+sg.dataset.tbxs]; if(!x) return true;
+    const ta = $("#tbxText"), v = ta.value, after = v.slice(TB.sug.to), pad = after && !/^\s/.test(after) && !/[\s(]$/.test(x.insert) ? " " : "";
+    tbxSet(v.slice(0, TB.sug.from) + x.insert + pad + after, TB.sug.from + x.insert.length); return true; }
+  const ad = t.closest("[data-tbxadd]"); if(ad){ tbxAdd(ad.dataset.tbxadd); return true; }
+  const tr = t.closest("[data-tbxtry]"); if(tr){ tbxSet(tr.dataset.tbxtry); return true; }
+  if(t.closest("#tbxFromHead")){ const add = EXPR.fromFilters(TB.filt); if(!add) return true; TB.filt = {}; tbxSet(tbxJoin(TB.expr.text, add, "and")); toast("The header filters are in the expression now"); return true; }
+  if(t.closest("#tbxClear")){ tbxSet(""); return true; }
+  if(t.closest("#tbxSaveBtn")){ const fm = $("#tbxSaveForm"); if(!TB.expr.text.trim()) return toast("Write an expression to save first."), true; fm.hidden = !fm.hidden; if(!fm.hidden) $("#tbxName").focus(); return true; }
+  if(t.closest("#tbxSaveGo")){ tbxSave(); return true; }
+  const ld = t.closest("[data-tbxload]"); if(ld){ const x = TB.saved[+ld.dataset.tbxload]; if(x) tbxSet(x.text); return true; }
+  const dl = t.closest("[data-tbxdel]"); if(dl){ const i = +dl.dataset.tbxdel, x = TB.saved[i]; if(!x) return true;
+    TB.saved.splice(i, 1); tbSave(); tbxSaved(); toast(`Deleted ${x.name}`, {label:"Undo", run: () => { TB.saved.splice(i, 0, x); tbSave(); tbxSaved(); }}); return true; }
+  return false;
+}
+function tbxSave(){
+  const name = $("#tbxName").value.trim(), text = TB.expr.text.trim();
+  if(!name) return toast("Give it a name.");
+  if(!text) return toast("Write an expression to save first.");
+  const i = TB.saved.findIndex(x => norm(x.name)===norm(name));
+  if(i>=0) TB.saved[i] = {name, text}; else TB.saved.push({name, text});
+  TB.saved = TB.saved.slice(-30); tbSave(); tbxSaved();
+  $("#tbxName").value = ""; $("#tbxSaveForm").hidden = true; $("#tbxSaveBtn").focus();
+  toast(`Saved ${name}`);
+}
+function tbxToggle(open){
+  TB.expr.open = open; tbSave();
+  const p = $("#tbExpr"), b = $("#tblExprBtn"); if(!p) return;
+  p.hidden = !open; b.setAttribute("aria-expanded", open);
+  if(open){ tbxSuggest(); $("#tbxText").focus({preventScroll:true}); }
+}
+
 /* keep the cell (or filter) being typed in, with what's typed, across a redraw */
 function tbKeepFocus(fn){
   const a = document.activeElement, id = a && a.closest && a.closest("#tableRoot") && a.id ? a.id : "";
@@ -3540,15 +3786,22 @@ function renderTable(full){
         <div class="tbltitle"><h2 id="tblTitle">All cards</h2><span class="hint" id="tblCount" aria-live="polite"></span></div>
         <div class="tblacts">
           <button class="btn sm" type="button" id="tblClear">Clear filters</button>
+          <button class="btn sm tbtoggle" type="button" id="tblExprBtn" aria-expanded="${!!TB.expr.open}" aria-controls="tbExpr" title="Filter with an expression: and, or, not, brackets">Expression</button>
+          <span class="tblcolwrap"><button class="btn sm tbtoggle" type="button" id="tblSortBtn" aria-expanded="${TB.sortOpen}" aria-controls="tblSort" title="Sort by several columns">Sort</button>${tbSortPane()}</span>
           <span class="tblcolwrap"><button class="btn sm" type="button" id="tblColsBtn" aria-expanded="${TB.colsOpen}" aria-controls="tblCols">Columns</button>${tbColsPane()}</span>
           <button class="btn ghost" type="button" id="tblClose" aria-label="Close the table">✕</button>
         </div>
       </div>
       <p class="tblhint hint">${tbRO() ? "View only: you can look and filter, but not change cards." : "Changes save when you leave a cell.<span class=\"kbdhint\"> <b>Enter</b> saves and goes down, <b>Esc</b> puts the cell back, <b>Alt+Enter</b> starts a new line in notes.</span> ↗ opens the card."}</p>
+      ${tbExprPane()}
       <div class="tblwrap" id="tblWrap" tabindex="-1"><table class="tgrid" id="tblGrid"><thead id="tblHead"></thead><tbody id="tblBody"></tbody></table></div>
       <div id="tblLists"></div>
+      <div id="tfPopWrap"></div>
     </div>`;
-    TB.html.clear();
+    TB.html.clear(); TB.headHTML = null; TB.pop = null;
+    $("#tblWrap").addEventListener("scroll", e => { const w = e.currentTarget; // the list stays by its heading until the table really moves
+      if(TB.pop && Math.abs(w.scrollLeft - TB.pop.x) + Math.abs(w.scrollTop - TB.pop.y) > 40 && !window.matchMedia?.("(max-width:640px)").matches) tbPopClose(); }, {passive:true});
+    tbxBuildOps(); tbxSaved(); if(TB.expr.open) tbxSuggest();
   } else tbKeepRows();
   tbDraw();
 }
@@ -3562,8 +3815,12 @@ function tbDrawHead(cols){
   const tmp = document.createElement("thead"); tmp.innerHTML = html; const fresh = tmp.firstElementChild;
   if(fresh.children.length !== old.children.length){ a.blur(); thead.innerHTML = html; return; }
   [...old.children].forEach((th, i) => { const n = fresh.children[i]; if(th.outerHTML === n.outerHTML) return;
-    if(th.contains(a)){ th.className = n.className; th.setAttribute("aria-sort", n.getAttribute("aria-sort")); th.querySelector("[data-tsort]").outerHTML = n.querySelector("[data-tsort]").outerHTML; }
-    else th.replaceWith(n.cloneNode(true)); });
+    if(!th.contains(a)) return th.replaceWith(n.cloneNode(true));
+    th.className = n.className; th.setAttribute("aria-sort", n.getAttribute("aria-sort"));
+    const was = th.querySelectorAll("button, input"), now = n.querySelectorAll("button, input");
+    was.forEach((el, j) => { const f = now[j]; if(!f) return;
+      if(el!==a){ if(el.outerHTML!==f.outerHTML) el.replaceWith(f.cloneNode(true)); return; }
+      if(el.tagName==="BUTTON"){ for(const at of f.attributes) el.setAttribute(at.name, at.value); el.innerHTML = f.innerHTML; } }); });
 }
 /* draw the header and rows; only rows that changed are redrawn, and never the cell being edited */
 function tbDraw(rebuild){
@@ -3619,13 +3876,27 @@ function tbStep(el, d){
 
 function tbClick(e){
   const t = e.target; e.stopPropagation();
-  if(TB.colsOpen && !t.closest(".tblcolwrap")){ TB.colsOpen = false; $("#tblCols").hidden = true; $("#tblColsBtn").setAttribute("aria-expanded", false); }
+  if(TB.pop && !t.closest("#tfPop") && !t.closest(`#tf_${TB.pop.k}`)) tbPopClose();
+  if(TB.pop && tbPopClick(t)) return;
+  if((TB.colsOpen || TB.sortOpen) && !t.closest(".tblcolwrap")){ TB.colsOpen = TB.sortOpen = false; tbPanes(); }
   if(t.closest("#tblClose")) return closeTable();
-  if(t.closest("#tblColsBtn")){ TB.colsOpen = !TB.colsOpen; $("#tblCols").hidden = !TB.colsOpen; $("#tblColsBtn").setAttribute("aria-expanded", TB.colsOpen); return; }
+  if(t.closest("#tblColsBtn")){ TB.colsOpen = !TB.colsOpen; TB.sortOpen = false; return tbPanes(); }
+  if(t.closest("#tblSortBtn")){ TB.sortOpen = !TB.sortOpen; TB.colsOpen = false; tbPanes(); if(TB.sortOpen) $("#tsl_0")?.focus(); return; }
+  if(t.closest("#tblSort") && tbSortClick(t)) return;
+  if(t.closest("#tblExprBtn")) return tbxToggle(!TB.expr.open);
+  if(t.closest("#tbExpr") && tbxClick(t)) return;
   if(t.closest("#tblColsReset")){ TB.cols = {}; tbSave(); $("#tblCols").outerHTML = tbColsPane(); return tbDraw(true); }
-  if(t.closest("#tblClear")){ TB.filt = {}; tbSave(); tbApply(); return tbDraw(true); }
+  if(t.closest("#tblClear")){ TB.filt = {}; TB.expr.on = false; const on = $("#tbxOn"); if(on) on.checked = false; tbSave(); tbApply(); return tbDraw(true); }
+  const pk = t.closest("[data-tfp]");
+  if(pk){ if(TB.pop?.k===pk.dataset.tfp) return tbPopClose(true); return tbPopOpen(pk.dataset.tfp); }
+  const nt = t.closest("[data-tfnot]");
+  if(nt){ const inp = document.getElementById("tf_"+nt.dataset.tfnot), v = inp.value;
+    inp.value = v.startsWith("!") ? v.slice(1) : "!" + v; tbFilter(inp, true); if(inp.value==="!") inp.focus(); return; }
   const so = t.closest("[data-tsort]");
-  if(so){ const k = so.dataset.tsort, cur = TB.sort.k || "location"; TB.sort = {k, d: cur===k ? -(TB.sort.d||1) : (TBL.BY[k]?.num ? -1 : 1)}; tbSave(); tbApply(); return tbDraw(true); }
+  if(so){ const k = so.dataset.tsort, lv = tbLevels(), i = lv.findIndex(l => l.k===k), first = TBL.BY[k]?.num ? -1 : 1;
+    if(e.shiftKey){ if(i>=0) lv[i].d = -lv[i].d; else lv.push({k, d:first}); return tbSortSet(lv); }
+    if(i===0){ lv[0].d = -lv[0].d; return tbSortSet(lv); } // flip the first level, keep the rest
+    return tbSortSet([{k, d:first}]); }
   const op = t.closest("[data-topen]"); if(op){ const a = document.activeElement; if(a && a.closest("#tableRoot")) a.blur(); return openCard(op.dataset.topen); }
 }
 let tbFiltT = 0;
@@ -3639,11 +3910,19 @@ function tbKey(e){
   const t = e.target;
   if(e.key==="Escape"){
     e.stopPropagation();
-    if(TB.colsOpen){ TB.colsOpen = false; $("#tblCols").hidden = true; $("#tblColsBtn").setAttribute("aria-expanded", false); $("#tblColsBtn").focus(); return; }
+    if(TB.pop){ if(t.id==="tfpQ" && t.value){ t.value = ""; TB.pop.q = ""; $("#tfpList").querySelectorAll(".tfpv").forEach(l => l.hidden = false); return; } return tbPopClose(true); }
+    if(TB.colsOpen){ TB.colsOpen = false; tbPanes(); $("#tblColsBtn").focus(); return; }
+    if(TB.sortOpen){ TB.sortOpen = false; tbPanes(); $("#tblSortBtn").focus(); return; }
+    if(t.id==="tbxName"){ $("#tbxSaveForm").hidden = true; $("#tbxSaveBtn").focus(); return; }
+    if(t.closest(".tbexpr")){ t.blur(); $("#tblWrap")?.focus({preventScroll:true}); return; }
     if(t.dataset.tk && "defaultValue" in t && t.tagName!=="SELECT" && t.type!=="checkbox" && t.value!==t.defaultValue){ e.preventDefault(); t.value = t.defaultValue; return; }
     if(t.dataset.tk || t.dataset.tf){ t.blur(); $("#tblWrap")?.focus({preventScroll:true}); return; }
     return closeTable();
   }
+  if(e.key==="Enter" && t.id==="tbxText"){ e.preventDefault(); return tbxApply(true); } // spaces and lines are the same in an expression
+  if(e.key==="Enter" && t.id==="tbxName"){ e.preventDefault(); return tbxSave(); }
+  if(e.key==="Enter" && t.id==="tbxV"){ e.preventDefault(); return tbxAdd("and"); }
+  if(e.key==="Enter" && t.id==="tfpQ"){ e.preventDefault(); return $("#tfpList").querySelector(".tfpv:not([hidden]) [data-tfv]")?.focus(); }
   if(e.key==="Enter" && t.dataset.tk && !e.ctrlKey && !e.metaKey){
     if(t.tagName==="TEXTAREA" && e.altKey){ e.preventDefault(); t.setRangeText("\n", t.selectionStart, t.selectionEnd, "end"); return; }
     if(t.tagName==="SELECT" && !e.shiftKey && !e.altKey) return; // let Enter open the list
@@ -3653,11 +3932,23 @@ function tbKey(e){
 }
 $("#tableRoot").addEventListener("click", tbClick);
 $("#tableRoot").addEventListener("keydown", tbKey);
-$("#tableRoot").addEventListener("input", e => { e.stopPropagation(); const t = e.target; if(t.dataset.tf && t.tagName==="INPUT") tbFilter(t); });
+$("#tableRoot").addEventListener("input", e => {
+  e.stopPropagation(); const t = e.target;
+  if(t.dataset.tf && t.tagName==="INPUT") return tbFilter(t);
+  if(t.id==="tbxText"){ TB.expr.text = t.value; tbxSuggest(); return tbxApply(); }
+  if(t.id==="tfpQ" && TB.pop){ TB.pop.q = t.value; const q = TBL.norm(t.value); $("#tfpList").querySelectorAll(".tfpv").forEach(l => l.hidden = !!q && !l.dataset.l.includes(q)); }
+});
+/* the caret moved: suggest for where it is now */
+for(const ev of ["click","keyup"]) $("#tableRoot").addEventListener(ev, e => { if(e.target.id==="tbxText" && !(ev==="keyup" && e.key.length===1)) tbxSuggest(); });
 $("#tableRoot").addEventListener("change", e => {
   e.stopPropagation(); const t = e.target;
   if(t.dataset.tk) return void tbCommit(t);
-  if(t.dataset.tf && t.tagName==="SELECT") return tbFilter(t, true);
+  if(t.dataset.tfv!=null && TB.pop){ const v = t.dataset.tfv, on = t.checked; return tbPopSet(f => ({...f, in: on ? [...new Set([...f.in, v])] : f.in.filter(x=>x!==v)})); }
+  if(t.dataset.tfpnot!=null && TB.pop) return tbPopSet(f => ({...f, not: t.value==="1"}));
+  if(t.dataset.tsl!=null){ const lv = tbLevels(), i = +t.dataset.tsl; lv[i] = {k:t.value, d: TBL.BY[t.value].num ? -1 : 1}; return tbSortSet(lv); }
+  if(t.id==="tbxOn"){ TB.expr.on = t.checked; return tbxApply(true); }
+  if(t.id==="tbxF") return tbxBuildOps();
+  if(t.id==="tbxO") return tbxBuildVal();
   if(t.dataset.tcol){ TB.cols[t.dataset.tcol] = t.checked; tbSave(); tbDraw(true); }
 });
 $("#tableRoot").addEventListener("focusout", e => { if(TB.stale && e.target.dataset?.tk){ TB.stale = false; setTimeout(() => { if(TB.open && $("#tblGrid")) tbDraw(); }, 0); } });

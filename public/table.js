@@ -8,9 +8,12 @@
      value(c), paid(c): CAD or null; money(n): formatted
      picture(c): "Official image", "Your photo" or ""; match(c): {group, text} for its price match
 
-   Filters are {column key: text}. A dropdown filter's text is "=" and the value ("=" alone: blank);
-   a text filter matches cells containing it, and (blank) / (not blank) match empty or filled cells;
-   a number filter also takes >, >=, <, <= and from-to ranges ("10-20").
+   Filters are {column key: filter}. A dropdown filter is {in: [values], not}: the cards with any of
+   the ticked values ("" is blank), or with not, the cards with none of them. (An older saved "=value"
+   reads as one ticked value.) A text filter matches cells containing it, and (blank) / (not blank)
+   match empty or filled cells; a number filter also takes >, >=, <, <= and from-to ranges ("10-20").
+   A leading ! turns a text or number filter around: "!promo" is every card without promo.
+   The sort is a list of levels [{k, d}] (1 up, -1 down): by the first, then the next on a tie.
    A plain script: the page uses window.BinderTable, and the tests load it the same way. */
 (function (root) {
   "use strict";
@@ -98,39 +101,69 @@
     return null;
   }
 
+  /* a column's filter in today's shape: {in, not} for a dropdown, text for the others; null if unset */
+  function pickOf(f) {
+    if (typeof f === "string") return f.startsWith("=") ? { in: [f.slice(1)], not: false } : null;
+    if (!f || typeof f !== "object" || !Array.isArray(f.in)) return null;
+    return { in: f.in.map(String), not: !!f.not };
+  }
+  function filterOf(col, f) {
+    if (!col) return null;
+    if (col.filter === "pick") { const p = pickOf(f); return p && p.in.length ? p : null; }
+    return typeof f === "string" && f.replace(/^!/, "") !== "" ? f : null;
+  }
+
   function active(filters) {
-    return Object.entries(filters || {}).filter(([k, f]) => BY[k] && typeof f === "string" && f !== "");
+    return Object.entries(filters || {}).map(([k, f]) => [k, filterOf(BY[k], f)]).filter(([, f]) => f != null);
   }
   const count = filters => active(filters).length;
+
+  /* does a text or number filter (without its !) match the cell? */
+  function textTest(c, col, f, ctx) {
+    const v = raw(c, col, ctx), empty = v == null || String(v).trim() === "";
+    const q = norm(f);
+    if (q === BLANK) return empty;
+    if (q === FILLED) return !empty;
+    if (col.filter === "num") {
+      const t = numTest(f);
+      if (t) return !empty && t(Number(v));
+    }
+    return norm(label(col, v, ctx)).includes(q);
+  }
 
   /* does the card show with these filters? */
   function matches(c, filters, ctx) {
     for (const [k, f] of active(filters)) {
       const col = BY[k];
-      if (col.filter === "pick") { if (group(c, col, ctx) !== f.slice(1)) return false; continue; }
-      const v = raw(c, col, ctx), empty = v == null || String(v).trim() === "";
-      const q = norm(f);
-      if (q === BLANK) { if (!empty) return false; continue; }
-      if (q === FILLED) { if (empty) return false; continue; }
-      if (col.filter === "num") {
-        const t = numTest(f);
-        if (t) { if (empty || !t(Number(v))) return false; continue; }
-      }
-      if (!norm(label(col, v, ctx)).includes(q)) return false;
+      if (col.filter === "pick") { if (f.in.includes(group(c, col, ctx)) === f.not) return false; continue; }
+      const not = f.startsWith("!");
+      if (textTest(c, col, not ? f.slice(1) : f, ctx) === not) return false;
     }
     return true;
   }
 
-  /* the cards in order of sort {k, d} (1 up, -1 down); blanks last either way, then by location */
+  /* the sort levels that count: [{k, d}], location when there are none */
+  function levels(s) {
+    const list = (Array.isArray(s) ? s : [s]).filter(x => x && BY[x.k]).map(x => ({ k: x.k, d: x.d < 0 ? -1 : 1 }));
+    const seen = new Set(), out = list.filter(x => !seen.has(x.k) && seen.add(x.k));
+    return out.length ? out : [{ k: "location", d: 1 }];
+  }
+
+  /* the cards in order of the sort levels (or one {k, d}); blanks last either way at each level,
+     then by location */
   function sort(cards, s, ctx) {
-    const col = BY[s && s.k] || BY.location, d = s && s.d < 0 ? -1 : 1;
-    const key = c => (col.sort ? col.sort(c, ctx) : col.num ? raw(c, col, ctx) : label(col, raw(c, col, ctx), ctx));
-    const keyed = cards.map(c => ({ c, v: key(c), at: ctx.locKey(c) }));
+    const by = levels(s).map(({ k, d }) => ({ col: BY[k], d }));
+    const key = (c, col) => (col.sort ? col.sort(c, ctx) : col.num ? raw(c, col, ctx) : label(col, raw(c, col, ctx), ctx));
+    const keyed = cards.map(c => ({ c, v: by.map(({ col }) => key(c, col)), at: ctx.locKey(c) }));
     const blank = v => v == null || v === "";
     keyed.sort((a, b) => {
-      if (blank(a.v) !== blank(b.v)) return blank(a.v) ? 1 : -1;
-      const x = blank(a.v) ? 0 : col.num ? a.v - b.v : col.sort ? plain(a.v, b.v) : cmp(a.v, b.v);
-      return x * d || plain(a.at, b.at) || cmp(a.c.name || "", b.c.name || "");
+      for (let i = 0; i < by.length; i++) {
+        const { col, d } = by[i], x = a.v[i], y = b.v[i];
+        if (blank(x) !== blank(y)) return blank(x) ? 1 : -1;
+        const r = blank(x) ? 0 : col.num ? x - y : col.sort ? plain(x, y) : cmp(x, y);
+        if (r) return r * d;
+      }
+      return plain(a.at, b.at) || cmp(a.c.name || "", b.c.name || "");
     });
     return keyed.map(x => x.c);
   }
@@ -156,5 +189,5 @@
     return now !== value;
   }
 
-  root.BinderTable = { COLUMNS, BY, BLANK, FILLED, visible, raw, label, group, choices, matches, count, sort, parse, changed };
+  root.BinderTable = { COLUMNS, BY, BLANK, FILLED, norm, cmp, visible, raw, label, group, choices, numTest, pickOf, filterOf, active, matches, count, levels, sort, parse, changed };
 })(typeof window !== "undefined" ? window : globalThis);
