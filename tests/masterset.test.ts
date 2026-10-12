@@ -214,7 +214,7 @@ describe('master sets in the app', () => {
     expect(p.body).toMatchObject({ title: 'Celebrations', cards: 50 });
     const r = await request(a).post('/api/master-sets').send({ set: 'Celebrations', owner: 'Maiya', name: 'Celebrations master set', pockets: 9 }).expect(201);
     expect(r.body).toMatchObject({ cards: 48, pages: 6 });
-    expect(store.get('binders', r.body.binderId)).toMatchObject({ name: 'Celebrations master set', pockets: 9, kind: 'binder', order: 4 });
+    expect(store.get('binders', r.body.binderId)).toMatchObject({ name: 'Celebrations master set', pockets: 9, kind: 'binder', owner: 'Maiya', order: 4 });
     const cards = store.all().cards.filter((c) => (c as { binderId?: string }).binderId === r.body.binderId);
     expect(cards).toHaveLength(48);
     expect(cards.every((c) => (c as { owner?: string }).owner === 'Maiya' && (c as { placeholder?: boolean }).placeholder === true)).toBe(true);

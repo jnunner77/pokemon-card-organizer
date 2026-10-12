@@ -636,12 +636,14 @@ async function undoSale(id, quiet){
 /* ---------- drawer ---------- */
 function selCard(){ return S.sel==="__new" ? S.draft : S.cards.find(c=>c.id===S.sel); }
 function openCard(id){ S.pricePick=null; S.pickRes=null; S.sel=id; S.draft=null; S.dirty=false; S.editPrice=null; S.confirm=null; renderMain(); renderDrawer(true); }
+/* A card added to a binder starts as the binder's owner's; most cards are Justin's, so he's the
+   owner when the binder has none (or the card isn't in a binder). Changeable before saving. */
+const newCardOwner = bid => binderById(bid)?.owner || "Justin";
 function openNew(loc){
   const bid = loc?.binderId ?? (curBinder()?.id || null);
   const spot = loc?.slot ? loc : (bid ? firstFree(bid) : null);
   S.sel="__new"; S.dirty=true; S.editPrice=null; S.confirm=null;
-  // Most cards added are Justin's: he's the owner unless changed before saving.
-  S.draft = {id:"__new", name:"", set:"", setCode:"", number:"", rarity:"", variant:"", language:"English", condition:"Near Mint", grader:"Raw", grade:"", artist:"", notes:"", status:"binder", owner:"Justin", prices:[], imageId:null, binderId: bid, page: spot?.page||null, slot: spot?.slot||null};
+  S.draft = {id:"__new", name:"", set:"", setCode:"", number:"", rarity:"", variant:"", language:"English", condition:"Near Mint", grader:"Raw", grade:"", artist:"", notes:"", status:"binder", owner:newCardOwner(bid), prices:[], imageId:null, binderId: bid, page: spot?.page||null, slot: spot?.slot||null};
   renderMain(); renderDrawer(true);
 }
 function closeDrawer(){ S.pricePick=null; S.pickRes=null; S.sel=null; S.draft=null; S.dirty=false; S.editPrice=null; S.confirm=null; renderMain(); renderDrawer(true); }
@@ -1383,6 +1385,7 @@ function binderModal(id){
       ${isNew && window.ledgerApi ? `<div class="msoffer"><span><b>Master set</b> <span class="hint">every card of one set, in every variant, as placeholders</span></span><button class="btn sm" type="button" id="bMaster">Master set…</button></div>` : ""}
       <div class="field"><label for="b_name">Name</label><input id="b_name" value="${esc(b.name)}" maxlength="40" placeholder="e.g. Vintage holos" autocomplete="off"></div>
       <div class="field"><label>Colour</label><div class="swatches" id="b_colors">${BINDER_COLORS.map(c=>`<button type="button" style="--c:${c}" data-color="${c}" aria-pressed="${(b.color||BINDER_COLORS[0])===c}" aria-label="Colour ${c}"></button>`).join("")}</div></div>
+      <div class="field"><label for="b_owner">Owner</label><select id="b_owner">${opt(OWNERS, b.owner||"")}</select><span class="hint" id="b_ownerHint"></span></div>
       <div class="field" id="b_pocketsF"><label for="b_pockets">Pockets per page</label><select id="b_pockets">${[4,9,12,16].map(p=>`<option value="${p}" ${p===n?"selected":""}>${p}-pocket</option>`).join("")}</select><span class="hint">Changing this doesn't move cards. Pockets past the new size stay listed but won't show on the page.</span></div>
     </div>
     <div class="mfoot" style="justify-content:space-between"><span id="bDelZone"></span>
@@ -1394,6 +1397,8 @@ function binderModal(id){
     $("#bLead").textContent = lead();
     $("#bSave").textContent = isNew ? `Create ${what()}` : "Save";
     $("#b_pocketsF").hidden = kind==="case";
+    const ow = {"":"Justin", Both:"Megan and Justin"}[$("#b_owner").value] ?? $("#b_owner").value;
+    $("#b_ownerHint").textContent = `Cards you add to it start as ${ow}'s${isNew?"":"; the cards already in it keep their owner"}.`;
     $("#bDelZone").innerHTML = isNew ? "" : count ? `<span class="hint">Move or delete its ${count} cards to remove this ${what()}.</span>` : `<button class="btn sm danger" type="button" id="bDel">Delete ${what()}</button>`;
     const del = $("#bDel");
     if(del) del.onclick = () => {
@@ -1401,6 +1406,7 @@ function binderModal(id){
       $("#bDelYes").onclick = async () => { if(await guard(()=> S.db.doc("binders/"+id).delete())){ closeModal(); S.binderId = sortedBinders().find(x=>x.id!==id)?.id || null; persistNav(); toast(`${kind==="case"?"Display case":"Binder"} deleted`); render(); } };
     };
   };
+  $("#b_owner").onchange = () => sync();
   $("#b_kind").onchange = e => {
     const was = kind; kind = e.target.value;
     if(isNew && nameIn.value.trim()===nameFor(was)) nameIn.value = nameFor(kind);
@@ -1413,16 +1419,16 @@ function binderModal(id){
   nameIn.addEventListener("keydown", e => { if(e.key==="Enter"){ e.preventDefault(); $("#bSave").click(); } });
   $("#bSave").onclick = async () => {
     const name = nameIn.value.trim() || b.name;
-    const pockets = +$("#b_pockets").value;
+    const pockets = +$("#b_pockets").value, owner = $("#b_owner").value;
     if(isNew){
       const nid = rid();
-      if(await guard(()=> S.db.collection("binders").doc(nid).set({name, color, pockets, kind, order:Math.max(0,...S.binders.map(x=>x.order||0))+1, createdAt:nowISO()}))){
+      if(await guard(()=> S.db.collection("binders").doc(nid).set({name, color, pockets, kind, owner, order:Math.max(0,...S.binders.map(x=>x.order||0))+1, createdAt:nowISO()}))){
         closeModal(); S.binderId=nid; S.page=1; persistNav(); toast(`${name} created`); render();
       }
       return;
     }
     if(kind!==(isCase(b)?"case":"binder") && cardsIn(id).length) return toast(`Move its cards out to change its type.`);
-    if(await guard(()=> S.db.doc("binders/"+id).update({name, color, pockets, kind}))){ closeModal(); toast(name!==b.name?`Renamed to ${name}`:`${kind==="case"?"Display case":"Binder"} saved`); }
+    if(await guard(()=> S.db.doc("binders/"+id).update({name, color, pockets, kind, owner}))){ closeModal(); toast(name!==b.name?`Renamed to ${name}`:`${kind==="case"?"Display case":"Binder"} saved`); }
   };
   sync();
 }
@@ -2142,7 +2148,7 @@ function importModal(){
         const up = {id: await storePhoto(blob)};
         const c = cardAt(b.id,page,s.slot);
         if(c){ const old=c.imageId; await S.db.doc("cards/"+c.id).update({imageId:up.id, updatedAt:nowISO()}); if(old && !S.cards.some(x=>x.id!==c.id && x.imageId===old)){ try{ await delAsset(old);}catch(e){} } }
-        else await S.db.collection("cards").doc(rid()).set({name:"", set:"", setCode:"", number:"", rarity:"", variant:"", language:"English", condition:"Near Mint", grader:"Raw", grade:"", artist:"", notes:"", status:"binder", prices:[], imageId:up.id, binderId:b.id, page, slot:s.slot, createdAt:nowISO(), updatedAt:nowISO()});
+        else await S.db.collection("cards").doc(rid()).set({name:"", set:"", setCode:"", number:"", rarity:"", variant:"", language:"English", condition:"Near Mint", grader:"Raw", grade:"", artist:"", notes:"", status:"binder", owner:newCardOwner(b.id), prices:[], imageId:up.id, binderId:b.id, page, slot:s.slot, createdAt:nowISO(), updatedAt:nowISO()});
         done++;
       }catch(e){ if(e && e.code && e.code in {too_large:1,unsupported_type:1,quota_or_state:1,rate_limited:1}) uploadErr(e); else writeErr(e); break; }
     }
