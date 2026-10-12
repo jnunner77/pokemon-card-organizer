@@ -92,7 +92,8 @@ On the VM (`gcloud compute ssh boards --zone=us-central1-a --tunnel-through-iap`
    app writes every five minutes, and emails you through healthchecks.io when a check fails or a
    card needs a match.
 
-   Without it, back up nightly from cron (archives in `~/binder-backups`, newest 14 kept):
+   Without it, back up nightly from cron (archives in `~/binder-backups`, newest 14 kept; the
+   folder and archives are readable only by you, since they hold the sign-in accounts):
 
    ```bash
    ( crontab -l; echo "0 3 * * * cd $HOME/pokemon-card-organizer && deploy/backup.sh >> $HOME/binder-backup.log 2>&1" ) | crontab -
