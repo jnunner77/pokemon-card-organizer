@@ -19,8 +19,10 @@ Every morning (after 5:00 in your time zone, catching up if the server was off) 
    pick (or search for). Typos, "VSTAR"/"V Star" spellings and promos filed under other sets are
    handled, and a variant (a pattern, stamp, 1st Edition…) is matched to its own product
    (*Lapras [Master Ball]*). A *Holo* card is the product without a bracket (PriceCharting lists holo
-   rares that way), never *[Reverse Holo]*, and a *Reverse Holo* card is never the holo; a card
-   linked to another printing's product before this was checked is matched again. A card
+   rares that way), never *[Reverse Holo]*, and a *Reverse Holo* card is never the holo. A ball
+   pattern matches only the same ball (*Poke Ball* is PriceCharting's *[Ball]*, never *[Master
+   Ball]*), and a stamp only the same stamp. A card linked to another printing's or ball's product
+   before this was checked is matched again. A card
    PriceCharting had no certain match for is searched again a week later.
 2. **Logs today's market price** in CAD, worked out from PriceCharting's ungraded price (recent
    eBay sales), TCGplayer's market price (recent TCGplayer sales) and Cardmarket's trend (Europe,

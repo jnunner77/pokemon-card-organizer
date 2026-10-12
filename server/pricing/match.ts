@@ -62,6 +62,23 @@ export function otherPrinting(variant: unknown, title: unknown): boolean {
   return product === 'holo' && card === 'normal' && PLAIN_BRACKET.test(v);
 }
 
+/**
+ * The ball a variant or bracket names: "Master Ball" is master, "Poké Ball", "Pokeball" or a bare
+ * "Ball" (PriceCharting's name for the Poké Ball pattern) is poke; null when it names none.
+ */
+function ballOf(s: string): string | null {
+  const t = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const m = t.match(/\b([a-z]*?)\s*-?\s*ball\b/);
+  return m ? m[1] || 'poke' : null;
+}
+
+/** The card and the product name different balls: a Poké Ball card isn't "[Master Ball]", nor a Master Ball card "[Ball]". */
+export function otherBall(variant: unknown, title: unknown): boolean {
+  const a = ballOf(String(variant ?? ''));
+  const b = ballOf(bracket(String(title ?? '')));
+  return !!a && !!b && a !== b;
+}
+
 const OTHER_LANGUAGES = /japanese|chinese|korean|thai|indonesian|german|french|italian|spanish|portuguese/i;
 const PROMO_CODES = new Set(['mep', 'svp', 'swshp', 'smp', 'xyp', 'bwp', 'pr']);
 
@@ -132,7 +149,7 @@ export function detailsFromProduct(card: CardForMatch & { released?: unknown; ra
 
 /** The card's variant agrees with the product's bracket: "Reverse holo" and "[Reverse Holo]", "Poke Ball" and "[Ball]". */
 function variantAgrees(variant: string, title: string): boolean {
-  if (otherPrinting(variant, title)) return false;
+  if (otherPrinting(variant, title) || otherBall(variant, title)) return false;
   const v = norm(variant);
   const br = norm(bracket(title));
   return !!v && !!br && (v.includes(br) || br.includes(v) || sharesWord(variant, bracket(title)));
@@ -180,8 +197,11 @@ export function chooseMatch(card: CardForMatch, all: Candidate[]): MatchResult {
   return { match: certain.length === 1 ? certain[0].c : null, candidates: scored.slice(0, 8).map((x) => x.c) };
 }
 
+/** Words that only say what kind of variant it is: "Pokemon Day Stamp" and "[Prerelease Stamp]" aren't the same one. */
+const KIND_WORDS = ['the', 'and', 'pokemon', 'ball', 'stamp', 'stamped', 'pattern', 'holo', 'reverse', 'foil', 'holofoil', 'edition', 'promo', 'card', 'variant', 'version'];
+
 function sharesWord(a: string, b: string) {
-  const words = (s: string) => new Set(s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !['the', 'and', 'pokemon'].includes(w)));
+  const words = (s: string) => new Set(s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !KIND_WORDS.includes(w)));
   const wb = words(b);
   return [...words(a)].some((w) => wb.has(w));
 }

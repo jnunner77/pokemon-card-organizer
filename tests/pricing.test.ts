@@ -9,7 +9,7 @@ import { makeBackup } from '../server/backup';
 import { Config } from '../server/config';
 import type { CardDetails } from '../server/details';
 import { Catalog, chooseVariant, printingOf, variantPrices, tcgdexCardmarket, tcgdexTcgplayer, type TcgdexCard } from '../server/pricing/catalog';
-import { catalogMismatch, chooseMatch, detailsFromProduct, searchQuery, variantFromProduct } from '../server/pricing/match';
+import { catalogMismatch, chooseMatch, detailsFromProduct, otherBall, searchQuery, variantFromProduct } from '../server/pricing/match';
 import { PriceCharting, PriceGuide, gradedPrice, oldAddress, parseCsv, parseProduct } from '../server/pricing/pricecharting';
 import { type Candidate, type Fetcher, retryPolicy, releaseDate } from '../server/pricing/sources';
 import { PriceUpdater, pricesDisagree, thinAutoPrices } from '../server/pricing/updater';
@@ -197,6 +197,21 @@ describe('matching a card to a product', () => {
     // A product of the other printing the person chooses names the card's variant.
     expect(variantFromProduct({ variant: 'Holo' }, 'Lapras [Reverse Holo]')).toBe('Reverse Holo');
     expect(variantFromProduct({ variant: 'Reverse Holo' }, 'Pikachu [Holo]')).toBe('Holo');
+  });
+
+  it('tells one ball or stamp variant from another', () => {
+    const eevee = (variant: string, titles: string[]) => chooseMatch({ name: 'Eevee', set: 'Prismatic Evolutions', number: '074/131', variant }, titles.map((t) => cand(t, 'Pokemon Prismatic Evolutions', '74'))).match?.title ?? null;
+    // No Poké Ball product listed: the Master Ball one isn't it.
+    expect(eevee('Poke Ball', ['Eevee [Master Ball]', 'Eevee'])).toBeNull();
+    expect(eevee('Master Ball', ['Eevee [Ball]', 'Eevee'])).toBeNull();
+    // Each finds its own, however it's written (PriceCharting calls the Poké Ball pattern "Ball").
+    for (const v of ['Poke Ball', 'Poké Ball pattern', 'pokeball']) expect(eevee(v, ['Eevee [Master Ball]', 'Eevee [Ball]', 'Eevee'])).toBe('Eevee [Ball]');
+    expect(eevee('Master Ball', ['Eevee [Master Ball]', 'Eevee [Ball]', 'Eevee'])).toBe('Eevee [Master Ball]');
+    expect([otherBall('Great Ball', 'X [Ultra Ball]'), otherBall('Poke Ball', 'X [Poké Ball]'), otherBall('Reverse Holo', 'X [Master Ball]')]).toEqual([true, false, false]);
+    // A stamp names its event: "Stamp" alone isn't what makes two the same.
+    const pikachu = (variant: string) => chooseMatch({ name: 'Pikachu', set: 'Temporal Forces', setCode: 'TEF', number: '51/162', variant }, [cand('Pikachu', 'Pokemon Temporal Forces', '51'), cand('Pikachu [Prerelease Stamp]', 'Pokemon Temporal Forces', '51')]).match?.title ?? null;
+    expect(pikachu('Pokemon Day stamp')).toBeNull();
+    expect(pikachu('Prerelease stamp')).toBe('Pikachu [Prerelease Stamp]');
   });
 
   it('leaves the choice to the person when it isn’t certain', () => {
@@ -429,6 +444,26 @@ describe('the daily update with PriceCharting', () => {
     }
   });
 
+  it('matches a card again when it was linked automatically to another ball’s product', async () => {
+    const products = [
+      { id: '7400001', 'product-name': 'Eevee [Master Ball] #74', 'console-name': 'Pokemon Prismatic Evolutions', 'loose-price': 30000 },
+      { id: '7400002', 'product-name': 'Eevee [Ball] #74', 'console-name': 'Pokemon Prismatic Evolutions', 'loose-price': 2500 },
+    ];
+    const net = () =>
+      fakeNet({
+        'q=Eevee': () => Response.json({ status: 'success', products }),
+        ...Object.fromEntries(products.map((p) => [`id=${p.id}`, () => Response.json({ ...p, status: 'success' })])),
+      });
+    const eevee = (linkedBy: string) => card({ name: 'Eevee', set: 'Prismatic Evolutions', setCode: 'PRE', number: '074/131', variant: 'Poke Ball', pricing: { source: 'pricecharting', id: '7400001', title: 'Eevee [Master Ball]', linkedBy } });
+    store.set('cards', 'auto', eevee('auto'));
+    expect(await updater(net()).updateCard('auto')).toBe('updated');
+    expect(store.get('cards', 'auto')!.pricing).toMatchObject({ id: '7400002', title: 'Eevee [Ball]', linkedBy: 'auto' });
+    // A product the person chose stays.
+    store.set('cards', 'user', eevee('user'));
+    expect(await updater(net()).updateCard('user')).toBe('updated');
+    expect(store.get('cards', 'user')!.pricing).toMatchObject({ id: '7400001', linkedBy: 'user' });
+  });
+
   it("stops asking PriceCharting for the rest of an update when it refuses the token", async () => {
     store.set('cards', 'a', linked());
     store.set('cards', 'b', linked());
@@ -618,6 +653,9 @@ describe('prices and pictures from the card databases', () => {
     expect(catalogMismatch({ number: 'SWSH298' }, pc('Pokemon Promo'), 'SWSH Black Star Promos')).toBeNull();
     // A variant product: only when the card is priced for that variant; plain printings are fine.
     expect(catalogMismatch({ number: '1', variant: '' }, pc('Pokemon Prismatic Evolutions', 'Exeggcute [Master Ball]'), 'Prismatic Evolutions')).toBe("PriceCharting's product is the Master Ball variant, which the card database doesn't price for this card");
+    // A Poké Ball card priced from the Master Ball product is another variant too.
+    expect(catalogMismatch({ number: '1', variant: 'Poke Ball' }, pc('Pokemon Prismatic Evolutions', 'Exeggcute [Master Ball]'), 'Prismatic Evolutions')).toMatch(/Master Ball variant/);
+    expect(catalogMismatch({ number: '1', variant: 'Poke Ball' }, pc('Pokemon Prismatic Evolutions', 'Exeggcute [Ball]'), 'Prismatic Evolutions')).toBeNull();
     expect(catalogMismatch({ number: '1', variant: 'Master Ball' }, pc('Pokemon Prismatic Evolutions', 'Exeggcute [Master Ball]'), 'Prismatic Evolutions')).toBeNull();
     expect(catalogMismatch({ number: '1', variant: '' }, pc('Pokemon Prismatic Evolutions', 'Exeggcute [Reverse Holo]'), 'Prismatic Evolutions')).toBeNull();
     // Nothing to judge by.
