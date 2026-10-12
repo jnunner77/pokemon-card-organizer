@@ -45,12 +45,21 @@ const PLAIN_BRACKET = /^(?:reverse(?:\s*holo(?:foil)?)?|holo(?:foil)?|normal|non
 const isReverse = (s: string) => printingOf(s, null).kind === 'reverse';
 
 /**
- * The product's bracket names a plain printing other than the card's: a Holo (or plain) card isn't
- * the "[Reverse Holo]" product, and a Reverse Holo card isn't "[Holo]".
+ * The product is a plain printing other than the card's: a Holo (or plain) card isn't the
+ * "[Reverse Holo]" product, a Reverse Holo card is neither "[Holo]" nor the product without a
+ * bracket, and a card said to be the non-holo printing isn't "[Holo]". Products of other variants
+ * (a stamp, a pattern) are judged by their own words.
  */
 export function otherPrinting(variant: unknown, title: unknown): boolean {
-  const br = bracket(String(title ?? ''));
-  return PLAIN_BRACKET.test(br) && isReverse(String(variant ?? '')) !== isReverse(br);
+  const v = String(variant ?? '').trim();
+  const t = String(title ?? '').trim();
+  const br = bracket(t);
+  // Without its title (a link saved before titles were kept), the product's printing isn't known.
+  if (!t || (br && !PLAIN_BRACKET.test(br))) return false;
+  const card = printingOf(v, null).kind;
+  const product = br ? printingOf(br, null).kind : 'normal';
+  if ((card === 'reverse') !== (product === 'reverse')) return true;
+  return product === 'holo' && card === 'normal' && PLAIN_BRACKET.test(v);
 }
 
 const OTHER_LANGUAGES = /japanese|chinese|korean|thai|indonesian|german|french|italian|spanish|portuguese/i;

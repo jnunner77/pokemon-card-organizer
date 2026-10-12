@@ -1112,7 +1112,8 @@ export class PriceUpdater {
 
   /**
    * A card automatically linked to the PriceCharting product of another plain printing (a Holo card
-   * to "[Reverse Holo]", as matching once allowed): the link is dropped so its own product is found.
+   * to "[Reverse Holo]", as matching once allowed, or a card whose Variant was changed to Reverse Holo
+   * after it was matched to the plain product): the link is dropped so its own product is found.
    * Products the person chose stay.
    */
   private unlinkOtherPrinting(id: string, card: Card): Card {
