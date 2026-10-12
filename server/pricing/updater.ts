@@ -8,7 +8,7 @@ import { safely } from '../recover';
 import type { Doc } from '../schema';
 import type { Store } from '../store';
 import { Catalog, type CatalogQuote } from './catalog';
-import { catalogMismatch, chooseMatch, detailsFromProduct, norm, searchQuery, variantFromProduct, type CardForMatch, type MatchResult } from './match';
+import { catalogMismatch, chooseMatch, detailsFromProduct, norm, otherPrinting, searchQuery, variantFromProduct, type CardForMatch, type MatchResult } from './match';
 import { type PcProduct, type PriceCharting, type PriceGuide, gradedPrice, oldAddress, quoteOf } from './pricecharting';
 import { type TcgCsv, type TcgCsvQuote } from './tcgcsv';
 import { type Candidate, type Fetcher, ProductGone, type Quote, Refused, type Source, SourceError, get, exchangeRates, tcgImage } from './sources';
@@ -825,6 +825,7 @@ export class PriceUpdater {
     const useCardmarket = this.schedule().cardmarket && !!eur;
     const catPriced = (!!cat && (!!cat.tcgplayer || (useCardmarket && cat.cardmarketEur != null))) || tcq?.usd != null;
     card = this.unlinkPlainProduct(id, card, cat);
+    card = this.unlinkOtherPrinting(id, card);
 
     // Without a product yet: find one. If there's none, a card the databases price is still priced.
     let unmatched: CardOutcome | null = null;
@@ -1107,6 +1108,25 @@ export class PriceUpdater {
       this.patchLink(id, { pair: moved ? { ...fresh.pricing.pair, ...moved } : null });
     }
     return p ?? (mainOld ? 'gone' : null);
+  }
+
+  /**
+   * A card automatically linked to the PriceCharting product of another plain printing (a Holo card
+   * to "[Reverse Holo]", as matching once allowed): the link is dropped so its own product is found.
+   * Products the person chose stay.
+   */
+  private unlinkOtherPrinting(id: string, card: Card): Card {
+    if (!card.pricing) return card;
+    const wrong = (l: { source?: string; id?: string | null; title?: string | null; linkedBy?: string | null } | null | undefined) =>
+      !!l && l.source === 'pricecharting' && !!l.id && l.linkedBy !== 'user' && otherPrinting(card.variant, l.title);
+    if (wrong(card.pricing)) {
+      this.log.info('pricing', `${label(card)}: was matched to PriceCharting's ${card.pricing.title}, another printing; matching it again`);
+      this.patchLink(id, { source: 'none', id: null, url: null, title: null, set: null, linkedBy: null, candidates: null, error: null }, true);
+    } else if (wrong(card.pricing.pair)) {
+      this.log.info('pricing', `${label(card)}: its PriceCharting match ${card.pricing.pair!.title} was another printing; looking for its own product instead`);
+      this.patchLink(id, { pair: null });
+    } else return card;
+    return this.store.get('cards', id) as Card;
   }
 
   /**
