@@ -3424,8 +3424,7 @@ const TB = {open:false, rows:[], known:new Set(), html:new Map(), colsOpen:false
   filt:{}, sort:[], cols:{}, expr:{text:"", applied:"", on:true, open:false}, saved:[], ast:null};
 { const s = store.get("table", {}); for(const k of TB_KEEP) if(s && s[k] && typeof s[k]==="object") TB[k] = s[k]; }
 if(!Array.isArray(TB.sort)) TB.sort = TB.sort.k ? [TB.sort] : []; // saved before sorting by several columns
-if(typeof TB.expr.text!=="string") TB.expr = {text:"", applied:"", on:true, open:false};
-if(typeof TB.expr.applied!=="string") TB.expr.applied = TB.expr.text; // saved when every edit applied at once
+TB.expr = EXPR.fromSaved(TB.expr);
 if(!Array.isArray(TB.saved)) TB.saved = [];
 const tbSave = () => store.set("table", Object.fromEntries(TB_KEEP.map(k=>[k, TB[k]])));
 const BACK_TABLE = BACK.layer("table", () => { if(TB.open) closeTable(); });
@@ -3757,14 +3756,15 @@ function tbxClick(t){
   if(t.closest("#tbxApply")){ tbxApply(); return true; }
   if(t.closest("#tbxRevert")){ tbxEdit(TB.expr.applied); return true; }
   // these change what the table shows, so they apply at once
-  // the header filters join the applied expression, so the table shows the same cards; an edit not
-  // applied yet keeps waiting for Apply, with them added too
+  // the header filters join the applied expression, which is turned on so they keep filtering: the
+  // table shows the same cards if it was on (if it was off, its own conditions filter again too). An
+  // edit not applied yet keeps waiting for Apply, with them added too.
   if(t.closest("#tbxFromHead")){ const add = EXPR.fromFilters(TB.filt); if(!add) return true;
-    const was = TB.filt, edit = TB.expr.text, dirty = EXPR.editState(edit, TB.expr.applied).dirty;
+    const was = TB.filt, edit = TB.expr.text, dirty = EXPR.editState(edit, TB.expr.applied).dirty, off = !TB.expr.on && !!TB.expr.applied.trim();
     TB.filt = {};
     if(!tbxApply(tbxJoin(TB.expr.applied, add, "and"))){ TB.filt = was; tbxEdit(edit); return true; }
     if(dirty) tbxEdit(tbxJoin(edit, add, "and"));
-    toast("The header filters are in the expression now");
+    toast(off ? "The header filters are in the expression now, and it's on again" : "The header filters are in the expression now");
     return true; }
   if(t.closest("#tbxClear")){ tbxApply(""); $("#tbxText").focus({preventScroll:true}); return true; }
   if(t.closest("#tbxSaveBtn")){ const fm = $("#tbxSaveForm"); if(!TB.expr.text.trim()) return toast("Write an expression to save first."), true; fm.hidden = !fm.hidden; if(!fm.hidden) $("#tbxName").focus(); return true; }
