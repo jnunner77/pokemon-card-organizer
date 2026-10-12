@@ -321,9 +321,14 @@ priced for its grade (PriceCharting's price for it, see above), so neither is ad
 
 ## Owner
 
-Each card's details have an **Owner**: Megan, Justin, Maiya or Both (Megan and Justin's). A card you add starts as Justin's
-(change it before saving if it isn't); cards imported from CSV without an owner, and older cards,
-are blank until you set it. It's saved with *Save changes*, copied by *Duplicate*, and has its own
+Each card's details have an **Owner**: Megan, Justin, Maiya or Both (Megan and Justin's). A card you add starts as its
+binder's owner, or Justin's when the binder has none or the card isn't in a binder (change it before
+saving if it isn't); cards imported from CSV without an owner, and older cards, are blank until you set it.
+
+Binders and display cases have an owner too: chosen in *New binder* or the binder's settings (tap its
+tab again), and the one picked for a [master set](#master-sets) is kept on its binder. It's only the
+starting owner for cards added to it (with *+ Add card*, an empty pocket, or photos of a page);
+changing it doesn't change the cards already in it. It's saved with *Save changes*, copied by *Duplicate*, and has its own
 *Owner* column in CSV import and export.
 
 ## Filters
@@ -424,7 +429,8 @@ A **master set** is every card of one set in every variant. *+ New binder → Ma
 as a new binder of [placeholders](#placeholders), to fill as you buy the cards:
 
 1. Pick the **set** (*151*, *Ascended Heroes*, *Base Set*; suggestions as you type, from
-   [TCGdex](https://tcgdex.dev)'s English sets), its **owner** and the pockets per page; the binder is
+   [TCGdex](https://tcgdex.dev)'s English sets), its **owner** (kept on the binder, so cards you add
+   to it later start as theirs) and the pockets per page; the binder is
    named *151 master set* unless you name it yourself.
 2. *Find cards* lists every card in it, trainers, energy and secret rares included, with its sub-sets
    after it (Lost Origin's Trainer Gallery, Crown Zenith's Galarian Gallery, Hidden Fates' Shiny

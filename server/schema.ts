@@ -91,6 +91,9 @@ const sale = z.looseObject({
     .nullish(),
 });
 
+/** Who a card or binder belongs to (Both: Megan and Justin); blank when not set. */
+const owner = z.enum(['', 'Megan', 'Justin', 'Maiya', 'Both']);
+
 const card = z.looseObject({
   name: optText(200),
   set: optText(200),
@@ -106,7 +109,7 @@ const card = z.looseObject({
   notes: optText(10_000),
   status: optText(20),
   /** Whose card it is (Both: Megan and Justin's); blank when not set. */
-  owner: z.enum(['', 'Megan', 'Justin', 'Maiya', 'Both']).nullish(),
+  owner: owner.nullish(),
   prices: z.array(price).max(2000).nullish(),
   // A stored photo's id, or (for photos saved while uploads weren't available) a small data: URL.
   imageId: z.string().max(200_000).nullish(),
@@ -141,6 +144,8 @@ const binder = z.looseObject({
   pockets: z.number().int().min(1).max(64).nullish(),
   /** case: a display case, holding cards with no pages or pockets (their page and slot are blank). */
   kind: z.enum(['binder', 'case']).nullish(),
+  /** Whose binder it is: a card added to it starts as theirs (Justin's when not set). */
+  owner: owner.nullish(),
   order: z.number().finite().nullish(),
   createdAt: optText(40),
   /** The binder's own layout, saved when it was first sorted, so it can be put back after sorting. */

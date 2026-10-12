@@ -647,7 +647,8 @@ export function createApp(o: AppOptions) {
     const cards = placeholderCards(entries, { binderId, pockets, owner, now: at }).map((doc) => ({ id: crypto.randomBytes(8).toString('hex'), doc }));
     // Every card is checked before anything is saved (an owner the ledger doesn't know, say).
     for (const c of cards) validateDoc('cards', c.doc);
-    store.set('binders', binderId, { name, color: color ?? null, pockets, kind: 'binder', order, createdAt: at });
+    // The binder keeps its owner, so cards added to it later start as theirs too.
+    store.set('binders', binderId, { name, color: color ?? null, pockets, kind: 'binder', owner, order, createdAt: at });
     try {
       store.setMany('cards', cards);
     } catch (err) {

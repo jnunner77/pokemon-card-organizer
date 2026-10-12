@@ -250,9 +250,13 @@ describe('moving cards to another binder', () => {
     await request(app).post('/api/binders/case/arrange').send({ moves: [{ id: 'x', page: 1, slot: 1 }] }).expect(400);
   });
 
-  it('keeps a binder type that is binder or case', async () => {
+  it('keeps a binder type that is binder or case, and an owner the ledger knows', async () => {
     await request(app).put('/api/docs/binders/c').send({ name: 'Show case', kind: 'case' }).expect(200);
     await request(app).put('/api/docs/binders/d').send({ name: 'Odd', kind: 'box' }).expect(400);
+    // A binder's owner: one the ledger knows, or blank.
+    await request(app).put('/api/docs/binders/m').send({ name: "Maiya's", owner: 'Maiya' }).expect(200);
+    await request(app).patch('/api/docs/binders/m').send({ owner: '' }).expect(200);
+    await request(app).patch('/api/docs/binders/m').send({ owner: 'Someone' }).expect(400);
   });
 });
 
