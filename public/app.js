@@ -3730,7 +3730,7 @@ function tbxEdit(text, caret){
 /* filter with the expression (the one being edited, or text): false if it has a mistake */
 function tbxApply(text){
   if(text != null) TB.expr.text = text;
-  if(EXPR.parse(TB.expr.text).error){ tbxStatus(); toast("Fix the mistake in the expression first."); return false; }
+  if(EXPR.parse(TB.expr.text).error){ tbxEdit(TB.expr.text); toast("Fix the mistake in the expression first."); return false; } // shown where it can be fixed
   TB.expr.applied = TB.expr.text = TB.expr.text.trim(); TB.expr.on = true;
   const ta = $("#tbxText"); if(ta && ta.value !== TB.expr.text) ta.value = TB.expr.text;
   const on = $("#tbxOn"); if(on) on.checked = true;
@@ -3757,10 +3757,14 @@ function tbxClick(t){
   if(t.closest("#tbxApply")){ tbxApply(); return true; }
   if(t.closest("#tbxRevert")){ tbxEdit(TB.expr.applied); return true; }
   // these change what the table shows, so they apply at once
+  // the header filters join the applied expression, so the table shows the same cards; an edit not
+  // applied yet keeps waiting for Apply, with them added too
   if(t.closest("#tbxFromHead")){ const add = EXPR.fromFilters(TB.filt); if(!add) return true;
-    const was = TB.filt; TB.filt = {};
-    if(tbxApply(tbxJoin(TB.expr.text, add, "and"))) toast("The header filters are in the expression now");
-    else { TB.filt = was; TB.expr.text = $("#tbxText").value; }
+    const was = TB.filt, edit = TB.expr.text, dirty = EXPR.editState(edit, TB.expr.applied).dirty;
+    TB.filt = {};
+    if(!tbxApply(tbxJoin(TB.expr.applied, add, "and"))){ TB.filt = was; tbxEdit(edit); return true; }
+    if(dirty) tbxEdit(tbxJoin(edit, add, "and"));
+    toast("The header filters are in the expression now");
     return true; }
   if(t.closest("#tbxClear")){ tbxApply(""); $("#tbxText").focus({preventScroll:true}); return true; }
   if(t.closest("#tbxSaveBtn")){ const fm = $("#tbxSaveForm"); if(!TB.expr.text.trim()) return toast("Write an expression to save first."), true; fm.hidden = !fm.hidden; if(!fm.hidden) $("#tbxName").focus(); return true; }
