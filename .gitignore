@@ -3,3 +3,4 @@ data/
 *.tmp
 .env
 scratch/
+__pycache__/

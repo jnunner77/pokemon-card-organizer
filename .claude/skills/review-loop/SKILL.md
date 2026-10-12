@@ -1,6 +1,6 @@
 ---
 name: review-loop
-description: Get every pushed change reviewed by the code-reviewer agent (Haiku) against its Boards ticket, fix the feedback and re-review until it passes, and only then open the pull request. Use after every push to a wi/ branch, before opening a pull request, and again after any later push to a branch with an open pull request.
+description: Get every pushed change reviewed by the code-reviewer agent (Haiku) against its Boards ticket, fix the feedback and re-review until it passes, and only then open the pull request. Use after the first push of a wi/ branch, before opening a pull request, and before every later push to a branch with an open pull request.
 ---
 
 # Review loop
@@ -19,7 +19,12 @@ push ─▶ review ─▶ PASS ─────────────▶ open t
 ## 1. Push the work
 
 Work as `CLAUDE.md` and the `boards-tickets` skill say: ticket first, branch `wi/<id>-<short-title>`,
-`npm run typecheck` and `npm test` passing, commit subjects ending `(AB#<pbi> AB#<task> …)`. Push.
+`npm run typecheck` and `npm test` passing, commit subjects ending `(AB#<pbi> AB#<task> …)`.
+
+- No pull request yet: push, then review (the branch isn't a pull request until step 4).
+- The branch already has a pull request: don't push yet. Review the local commits first (the
+  reviewer reads local `HEAD` and runs the checks in the checkout) and push only after a pass; see
+  **Later pushes**.
 
 ## 2. Spawn the reviewer
 
@@ -95,7 +100,7 @@ Then link the pull request on the ticket and comment, as `boards-tickets` step 3
 
 ## Later pushes
 
-Every later push to the branch (review comments, CI fixes, a merge of `main`) goes through steps 2–3
-again: review it before or right after pushing, and fix and re-review until it passes before you
-report the pull request ready or ask for its review. Note the new round in the pull request's
-**Code review** section.
+Once the branch has a pull request, every new commit (review comments, CI fixes, a merge of `main`)
+is reviewed before it is pushed: commit locally, run steps 2–3 on the local `HEAD`, fix and re-review
+until it passes, and only then push. Note the new round in the pull request's **Code review**
+section.
