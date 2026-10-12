@@ -350,16 +350,39 @@ number, rarity, variant, language, condition, grader, grade, illustrator, status
 - **Saving:** a change saves when you leave the cell, with *Undo*. **Enter** saves and goes down a row
   (Shift+Enter: up), **Esc** puts the cell back, **Alt+Enter** starts a new line in notes. A card
   can't be left without a name.
-- **Filters in each header:** pick a value (with how many cards have it, and *(blank)*), or type to
-  match part of the name, number or notes (*(blank)* and *(not blank)* work there too). Filters
-  combine, the count of cards shown is at the top, and *Clear filters* shows them all again. Click a
-  header to sort by it, again to flip it. Rows stay put while you edit, until you change a filter or
-  the sort.
+- **Filters in each header:** tick one or more values (with how many cards have it, and *(blank)*;
+  long lists have a search box, *Tick all* and *Clear*), and choose **is any of** or **is none of** to
+  keep or leave out the ticked ones. Or type to match part of the name, number or notes (*(blank)* and
+  *(not blank)* work there too); **not** next to the box (or a leading **!**, like `!promo`) shows the
+  cards that don't match. Filters combine, the count of cards shown is at the top, and *Clear filters*
+  shows them all again (and turns the expression off). Rows stay put while you edit, until you change
+  a filter or the sort.
+- **Sorting:** click a header to sort by it, again to flip it; **Shift+click** another header to sort
+  by it next, for ties (the headers show ▲1, ▼2…). *Sort* lists the levels to change the column, flip
+  it (A to Z, low to high), move it up or remove it, or add *Then by*, without a keyboard too.
+- **Expression:** *Expression* opens a filter you write, for anything the headers can't say, like
+  `set = "30th Celebration" and not owner in (Megan, Both) and (value > 10 or grader != Raw)`:
+  - comparisons: `=` and `!=` (as shown or as stored: `status = sold`, `owner = "Not set"`,
+    `location = "Binder 1"`, `released = 2026`), `~` contains and `!~` doesn't (`name:pika` works
+    too), `> >= < <=` on value, paid, grade, card number and release date (`released >= 2024-06`),
+    `in (a, b)` and `not in (a, b)`, `is blank` and `is not blank`;
+  - `and` (or just a space), `or`, `not` (or `!`) and brackets; `and` goes before `or`;
+  - a word on its own (`pikachu`, or `"full art"`) searches the name, set, number, rarity, variant,
+    illustrator, grade, owner and notes. Columns go by their heading or key; case and accents don't
+    matter.
+
+  As you type, it suggests the columns, the comparisons that suit the column, and the values your
+  cards have; tap one to put it in. It shows how many cards match, or what's wrong and where (the
+  expression doesn't filter until it's fixed). *Add* builds a condition from a column, comparison and
+  value, joined *with and* or *with or* (tick *not* for the opposite). *Use the header filters* moves
+  the header filters into the expression, *Save as…* keeps it under a name to use again (tap it;
+  × deletes it), and *How to write an expression* has examples to try. The expression and the header
+  filters both have to match; untick *Filter with this expression* to set it aside.
 - **Columns:** Location and Released are shown to read but not edit. Picture, value, paid and the
   PriceCharting / TCGplayer match are off unless you turn them on in *Columns*.
 - **↗** next to a name opens the card's details (picture, prices, moving it).
 
-Columns, filters and the sort are remembered on this device. View-only accounts can look and filter,
+Columns, filters, the sort, the expression and saved expressions are remembered on this device. View-only accounts can look and filter,
 but not edit.
 
 ## Pricing

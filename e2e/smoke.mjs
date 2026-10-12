@@ -142,8 +142,21 @@ try {
   await row.locator('textarea[data-tk="notes"]').fill('Centering 60/40');
   await row.locator('textarea[data-tk="notes"]').press('Enter');
   await page.getByText('Saved notes of Charizard ex').waitFor();
-  await page.locator('#tf_owner').selectOption('=Megan');
+  await page.locator('#tf_owner').click();
+  await page.locator('#tfPop label', { hasText: 'Megan' }).locator('input').check();
   await page.locator('#tblCount', { hasText: '1 of' }).waitFor();
+  await page.locator('#tfPop input[data-tfpnot][value="1"]').check(); // is none of
+  await page.locator('#tblCount', { hasText: /^\d+ of/ }).filter({ hasNotText: /^1 of/ }).waitFor();
+  await page.keyboard.press('Escape');
+  await page.locator('#tblClear').click();
+  // An expression filters too, and says what's wrong with one it can't read.
+  await page.locator('#tblExprBtn').click();
+  await page.locator('#tbxText').fill('owner = Megan and setcode = OBF');
+  await page.locator('#tblCount', { hasText: '1 of' }).waitFor();
+  await page.locator('#tbxText').fill('owner = ');
+  await page.locator('#tbxErr', { hasText: 'Put a value after =' }).waitFor();
+  await page.locator('#tbxClear').click();
+  await page.locator('#tblExprBtn').click();
   await page.locator('#tblClose').click();
   await other.locator('[data-card]').filter({ hasText: 'Charizard ex' }).click();
   await other.locator('#f_owner').filter({ has: other.locator('option[value="Megan"]:checked') }).waitFor();

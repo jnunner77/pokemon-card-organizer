@@ -14,9 +14,10 @@ type Table = {
   raw: (c: Card, col: Col, ctx: unknown) => unknown;
   label: (col: Col, v: unknown, ctx: unknown) => string;
   choices: (cards: Card[], col: Col, ctx: unknown) => Choice[];
-  matches: (c: Card, f: Record<string, string>, ctx: unknown) => boolean;
-  count: (f: Record<string, string>) => number;
-  sort: (cards: Card[], s: { k: string; d: number }, ctx: unknown) => Card[];
+  matches: (c: Card, f: Record<string, unknown>, ctx: unknown) => boolean;
+  count: (f: Record<string, unknown>) => number;
+  levels: (s: unknown) => { k: string; d: number }[];
+  sort: (cards: Card[], s: { k: string; d: number } | { k: string; d: number }[], ctx: unknown) => Card[];
   parse: (col: Col, input: unknown, ctx: unknown) => { value?: unknown; error?: string };
   changed: (c: Card, col: Col, value: unknown) => boolean;
 };
@@ -110,6 +111,30 @@ describe('header filters', () => {
     expect(all.filter(c => T.matches(c, { value: '(blank)' }, ctx)).map(c => c.id)).toEqual(['c', 'd']);
   });
 
+  it('matches any of several ticked values, with "" for blank', () => {
+    const ids = (f: Record<string, unknown>) => all.filter(c => T.matches(c, f, ctx)).map(c => c.id);
+    expect(ids({ owner: { in: ['Megan', 'Justin'] } })).toEqual(['a', 'c']);
+    expect(ids({ owner: { in: ['Megan', ''] } })).toEqual(['a', 'b']);
+    expect(ids({ set: { in: ['Promo', ''] } })).toEqual(['b', 'd']);
+    expect(ids({ owner: { in: [] } })).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('turns a dropdown filter around with not: none of the ticked values', () => {
+    const ids = (f: Record<string, unknown>) => all.filter(c => T.matches(c, f, ctx)).map(c => c.id);
+    expect(ids({ owner: { in: ['Megan', 'Both'], not: true } })).toEqual(['b', 'c']);
+    expect(ids({ location: { in: ['Binder 1'], not: true } })).toEqual(['c', 'd']);
+    expect(ids({ placeholder: { in: ['Yes'], not: true } })).toEqual(['a', 'c', 'd']);
+  });
+
+  it('turns a text or number filter around with a leading !', () => {
+    const ids = (f: Record<string, unknown>) => all.filter(c => T.matches(c, f, ctx)).map(c => c.id);
+    expect(ids({ name: '!pika' })).toEqual(['a', 'c', 'd']);
+    expect(ids({ notes: '!(blank)' })).toEqual(['a']);
+    expect(ids({ value: '!>10' })).toEqual(['b', 'c', 'd']);
+    expect(ids({ name: '!' })).toEqual(['a', 'b', 'c', 'd']); // nothing after the ! yet
+    expect(T.count({ name: '!', owner: { in: [] }, set: { in: ['Promo'], not: true } })).toBe(1);
+  });
+
   it('combines filters, and counts only the ones set', () => {
     const f = { set: '=30th Celebration', owner: '=Justin', name: '' };
     expect(T.count(f)).toBe(2);
@@ -128,6 +153,18 @@ describe('sorting', () => {
     expect(T.sort(all, { k: 'set', d: -1 }, ctx).map(c => c.id)).toEqual(['b', 'a', 'c', 'd']);
     expect(T.sort(all, { k: 'number', d: 1 }, ctx).map(c => c.id)).toEqual(['b', 'a', 'c', 'd']);
     expect(T.sort(all, { k: 'value', d: -1 }, ctx).map(c => c.id)).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('sorts by several columns: the next one breaks ties, each its own way', () => {
+    expect(T.sort(all, [{ k: 'set', d: 1 }, { k: 'name', d: -1 }], ctx).map(c => c.id)).toEqual(['a', 'c', 'b', 'd']);
+    expect(T.sort(all, [{ k: 'set', d: 1 }, { k: 'name', d: 1 }], ctx).map(c => c.id)).toEqual(['c', 'a', 'b', 'd']);
+    expect(T.sort(all, [{ k: 'set', d: -1 }, { k: 'owner', d: 1 }], ctx).map(c => c.id)).toEqual(['b', 'c', 'a', 'd']);
+  });
+
+  it('keeps the sort levels that make sense, once each, location when none do', () => {
+    expect(T.levels([{ k: 'set', d: -1 }, { k: 'nope', d: 1 }, { k: 'set', d: 1 }, { k: 'value', d: 5 }])).toEqual([{ k: 'set', d: -1 }, { k: 'value', d: 1 }]);
+    expect(T.levels([])).toEqual([{ k: 'location', d: 1 }]);
+    expect(T.levels({ k: 'owner', d: -1 })).toEqual([{ k: 'owner', d: -1 }]);
   });
 });
 
