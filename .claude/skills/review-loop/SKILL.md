@@ -95,6 +95,7 @@ Then link the pull request on the ticket and comment, as `boards-tickets` step 3
 
 ## Later pushes
 
-Any later push to the branch (review comments, CI fixes, a base-branch merge with conflict
-resolutions) goes through steps 2–3 again before you report the pull request ready. A push that only
-merges `main` with no conflicts needs no new review.
+Every later push to the branch (review comments, CI fixes, a merge of `main`) goes through steps 2–3
+again: review it before or right after pushing, and fix and re-review until it passes before you
+report the pull request ready or ask for its review. Note the new round in the pull request's
+**Code review** section.
