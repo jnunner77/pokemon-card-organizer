@@ -58,6 +58,11 @@ Review it following your instructions and reply in your reply format.
 
 Give the reviewer everything it needs in the prompt: it starts cold, with none of this conversation.
 
+If `code-reviewer` isn't among the available agent types (agent files load when a session starts,
+so one added during the session isn't there yet), use `subagent_type: "general-purpose"` with
+`model: "haiku"` and start the prompt with the body of `.claude/agents/code-reviewer.md` (everything
+after its front matter), then the template above. Tell it to stay read-only.
+
 ## 3. Act on the verdict
 
 - **`VERDICT: PASS`** (no findings): go to step 4.
