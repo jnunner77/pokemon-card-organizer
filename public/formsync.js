@@ -37,6 +37,7 @@
   /* Marks a field's current value as what the drawer shows, so it counts as unchanged. */
   function markShown(el) {
     if (el.tagName === "SELECT") for (const o of Array.from(el.options)) o.defaultSelected = o.selected;
+    else if (el.type === "checkbox" || el.type === "radio") el.defaultChecked = el.checked;
     else if ("defaultValue" in el) el.defaultValue = el.value;
   }
 

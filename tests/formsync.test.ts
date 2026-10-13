@@ -94,6 +94,10 @@ describe('the open card drawer when the card changes', () => {
     expect(edited([notes('a long note about centering'), status])).toBe(true);
     expect(edited([notes('old note'), dropdown(['binder', 'listed', 'sold'], 'binder', 'sold')])).toBe(true);
     expect(edited([placeholder(true)])).toBe(true);
+    // A ticked box that's been saved isn't a change any more.
+    const ticked = placeholder(true);
+    markShown(ticked);
+    expect([ticked.defaultChecked, edited([ticked])]).toEqual([true, false]);
     // Typed and then put back as it was: nothing to lose.
     expect(edited([notes('old note')])).toBe(false);
     // Fields the person can't change, buttons and file pickers don't count.

@@ -572,7 +572,8 @@ when you've rearranged the binder and want to keep the new layout instead.
   A pocket shows its card's variant under the name, so a set's 1st Edition, Shadowless and
   reverse holo copies can be told apart.
   Tap a card to open its details; the phone's Back gesture (or the browser's Back button) closes
-  them and keeps you on the binder. Back also closes the Pricing and Selling views, returning to
+  them and keeps you on the binder. Closing a card's details with changes you haven't saved (Back,
+  ✕, tapping outside, Escape, or opening another card) asks first, and so does leaving the page. Back also closes the Pricing and Selling views, returning to
   the binders instead of leaving the page.
 - **Find a card** (the *Find a card* button, or press `/`): type a Pokémon name, set name, set code
   or set number, in any combination ("pikachu m22", "base set 2 118", "7/15"). Each match shows

@@ -2776,6 +2776,7 @@ document.addEventListener("input", e => {
 async function switchPlaceholder(box){
   const c = selCard(), on = box.checked; if(!c) return;
   if(!(await updateCard(c.id, {placeholder:on}))){ box.checked = !on; return; }
+  box.defaultChecked = on; // saved: not a change to ask about when the drawer closes
   const qs = $("#btnQuickSell"); if(qs) qs.hidden = on;
   toast(on ? `${c.name||"Card"} is a placeholder: not counted in your totals` : `${c.name||"Card"} is counted in your totals now`);
 }
