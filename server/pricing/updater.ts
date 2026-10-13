@@ -968,7 +968,7 @@ export class PriceUpdater {
       const list = graded
         ? `PriceCharting's ${graded.label} price US$${usd.toFixed(2)}${graded.exact ? '' : ` (the nearest it has to ${String(card.grader).trim()} ${String(card.grade).trim()})`}`
         : best.summary;
-      const ungraded = isGraded(card) && !graded ? ' · no graded price on PriceCharting, so the ungraded price' : '';
+      const ungraded = !isGraded(card) || graded ? '' : pcProduct ? ' · no graded price on PriceCharting, so the ungraded price' : ' · no PriceCharting product for its graded price, so the ungraded price';
       prices = [
         ...prices,
         {

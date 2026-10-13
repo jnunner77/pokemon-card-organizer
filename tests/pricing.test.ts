@@ -1054,6 +1054,10 @@ describe('prices and pictures from the card databases', () => {
       expect(store.get('cards', id)!.pricing).toMatchObject({ error: expect.stringMatching(/too many requests/) });
     }
     expect(paused.siteOut('pricecharting')).toMatch(/too many requests/);
+    // A graded card with no PriceCharting product never had a graded price: it gets the ungraded one, saying why.
+    store.set('cards', 'tcgOnly', graded({ source: 'tcgplayer', id: '516694', linkedBy: 'auto' }));
+    expect(await paused.updateCard('tcgOnly')).toBe('updated');
+    expect((store.get('cards', 'tcgOnly')!.prices as { note: string }[])[1].note).toMatch(/no PriceCharting product for its graded price, so the ungraded price$/);
     // PriceCharting answering with no graded prices: the raw card's price, saying so.
     store.set('cards', 'noGrades', graded({ source: 'pricecharting', id: LAPRAS_30TH, linkedBy: 'auto' }));
     const plain = dbNet({ 'product?id=': () => Response.json({ status: 'success', id: LAPRAS_30TH, 'product-name': 'Lapras #131', 'console-name': 'Pokemon 30th Celebration', 'loose-price': 1320 }) });
