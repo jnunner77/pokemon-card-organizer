@@ -739,11 +739,20 @@ function refreshParts(c, o={}){
   const dm=$("#detailsMissing"); if(dm) dm.outerHTML = missingDetails(c);
 }
 /* fields the card's new values reach (a chosen product's variant, say); the person's own edits stay */
+/* What a field showed when the drawer drew it (or last saved): a dropdown's is the option drawn as chosen. */
+const shownValue = el => el.tagName==="SELECT" ? ([...el.options].find(o=>o.defaultSelected) ?? el.options[0])?.value ?? "" : el.defaultValue;
+/* Marks a field's current value as what the drawer shows, so it counts as unchanged. */
+function markShown(el){ if(el.tagName==="SELECT"){ for(const o of el.options) o.defaultSelected = o.selected; } else if("defaultValue" in el) el.defaultValue = el.value; }
 function syncForm(c){
   const f = $("#cardForm"); if(!f) return;
-  const els = window.BinderFormSync.KEYS.map(k=>f.elements[k]).filter(Boolean);
-  const up = window.BinderFormSync.updates(els, c);
-  for(const el of els) if(el.name in up){ el.value = up[el.name]; el.defaultValue = up[el.name]; }
+  const { KEYS, SELECTS, updates } = window.BinderFormSync;
+  const els = [...KEYS, ...Object.keys(SELECTS)].map(k=>f.elements[k]).filter(Boolean);
+  const up = updates(els.map(el => ({name: el.name, value: el.value, defaultValue: shownValue(el)})), c);
+  for(const el of els) if(el.name in up){
+    // A dropdown without the card's value among its choices stays as it is.
+    if(el.tagName==="SELECT" && ![...el.options].some(o=>o.value===up[el.name])) continue;
+    el.value = up[el.name]; markShown(el);
+  }
   const rel = $("#f_released"); if(rel) rel.value = c.released || "";
 }
 function lookupLinks(c){
@@ -1071,7 +1080,7 @@ async function saveCard(){
     return;
   }
   const ok = await guard(()=> S.db.doc("cards/"+c.id).update({...data, updatedAt:nowISO()}));
-  if(ok){ S.dirty=false; const b=$("#btnSave"); if(b) b.disabled=true; for(const el of $("#cardForm")?.elements||[]) if("defaultValue" in el) el.defaultValue = el.value; toast("Saved"); refreshParts(selCard()); }
+  if(ok){ S.dirty=false; const b=$("#btnSave"); if(b) b.disabled=true; for(const el of $("#cardForm")?.elements||[]) markShown(el); toast("Saved"); refreshParts(selCard()); }
 }
 async function updateCard(id, patch){ return guard(()=> S.db.doc("cards/"+id).update({...patch, updatedAt:nowISO()})); }
 async function addPrice(){
