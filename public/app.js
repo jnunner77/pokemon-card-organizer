@@ -2791,7 +2791,7 @@ document.addEventListener("click", e => {
   const pr = t.closest("[data-pr]"); if(pr) return void priceAction(pr.dataset.pr, selCard());
   const cd2 = t.closest("[data-cand]"); if(cd2){ const [from, i] = cd2.dataset.cand.split(":"); const c = selCard(); const list = from==="stored" ? (c?.pricing?.candidates||[]) : (Array.isArray(S.pickRes)?S.pickRes:[]); const x = list[+i]; if(x) priceAction("link", c, {source:x.source, id:x.id, url:x.url, title:x.title, set:x.set}); return; }
   const pc2 = t.closest("[data-pic]"); if(pc2 && !pc2.disabled){ const c = selCard(); if(c && S.sel!=="__new") updateCard(c.id, {imagePref: pc2.dataset.pic}).then(ok=>{ if(ok){ refreshParts(selCard()); renderMain(); } }); return; }
-  if(t.closest("#btnRmImg")){ const c=selCard(); if(S.sel==="__new"){ S.draft.imageId=null; renderDrawer(true); } else updateCard(c.id,{imageId:null}).then(ok=>ok&&toast("Photo removed from card")); return; }
+  if(t.closest("#btnRmImg")){ const c=selCard(); if(S.sel==="__new"){ S.draft = {...S.draft, ...readForm(), imageId:null}; renderDrawer(true); } else updateCard(c.id,{imageId:null}).then(ok=>ok&&toast("Photo removed from card")); return; }
   if(t.closest("#btnMove")){ const c=selCard(); const bid=$("#m_binder").value; return void moveCard(c, bid||null, Math.max(1, +$("#m_page").value||1), +$("#m_slot").value); }
   if(t.closest("#btnFree")){ const bid=$("#m_binder").value; if(!bid) return; const f=firstFree(bid); $("#m_page").value=f.page; $("#m_slot").value=f.slot; updateMoveNote(); return; }
   if(t.closest("#btnTakeOut")){ const c=selCard(); return void moveCard(c, null); }
