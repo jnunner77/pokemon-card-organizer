@@ -1031,6 +1031,25 @@ describe('prices and pictures from the card databases', () => {
     expect((store.get('cards', 'g')!.prices as object[])[0]).toMatchObject({ where: 'PriceCharting', usd: 120, grade: 'PSA 10', quotes: { pricecharting: 120 } });
   });
 
+  it("keeps a graded card's last price when PriceCharting doesn't answer, rather than logging the raw card's", async () => {
+    const earlier = { id: 'y', type: 'market', currency: 'CAD', date: '2026-10-09', auto: true, where: 'PriceCharting', usd: 120, amount: 164.4, quotes: { pricecharting: 120 }, grade: 'PSA 10' };
+    const graded = (pricing: object) => lapras({ variant: '', grader: 'PSA', grade: '10', prices: [earlier], pricing });
+    // PriceCharting as the main product, and as the pair of a TCGplayer product.
+    store.set('cards', 'main', graded({ source: 'pricecharting', id: LAPRAS_30TH, linkedBy: 'auto', pair: { source: 'tcgplayer', id: '516694', linkedBy: 'auto' } }));
+    store.set('cards', 'pair', graded({ source: 'tcgplayer', id: '516694', linkedBy: 'auto', pair: { source: 'pricecharting', id: LAPRAS_30TH, linkedBy: 'auto' } }));
+    const down = () => dbNet({ 'product?id=': () => new Response('down', { status: 503 }) });
+    for (const id of ['main', 'pair']) {
+      expect(await updater(down()).updateCard(id)).toBe('failed');
+      expect(store.get('cards', id)!.prices).toEqual([earlier]);
+      expect(store.get('cards', id)!.pricing).toMatchObject({ error: expect.stringMatching(/503/) });
+    }
+    // PriceCharting answering with no graded prices: the raw card's price, saying so.
+    store.set('cards', 'noGrades', graded({ source: 'pricecharting', id: LAPRAS_30TH, linkedBy: 'auto' }));
+    const plain = dbNet({ 'product?id=': () => Response.json({ status: 'success', id: LAPRAS_30TH, 'product-name': 'Lapras #131', 'console-name': 'Pokemon 30th Celebration', 'loose-price': 1320 }) });
+    expect(await updater(plain).updateCard('noGrades')).toBe('updated');
+    expect((store.get('cards', 'noGrades')!.prices as { note: string }[])[1].note).toMatch(/no graded price on PriceCharting, so the ungraded price$/);
+  });
+
   it('purges everything that came from PriceCharting, and forgets its token', async () => {
     const pcPicture = assets.put(JPEG)!;
     const day = (date: string, where: string, usd: number, quotes: Record<string, number>, over: object = {}) => ({ id: date + where, type: 'market', currency: 'CAD', date, auto: true, where, usd, amount: Math.round(usd * 140) / 100, quotes, ...over });

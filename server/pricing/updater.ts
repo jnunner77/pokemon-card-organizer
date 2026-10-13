@@ -919,6 +919,13 @@ export class PriceUpdater {
     // A graded card is worth PriceCharting's price for its grade (the others price raw cards). When
     // PriceCharting has no graded price for it, it gets the raw card's price, as before.
     const pcQuote = link?.source === 'pricecharting' ? main : pair?.source === 'pricecharting' ? other : null;
+    // PriceCharting didn't answer (paused or failing): its graded price isn't known, so a graded card
+    // keeps its last price instead of being logged at the raw card's.
+    const pcAsked = link?.source === 'pricecharting' ? mainQ : pair?.source === 'pricecharting' ? pairQ : null;
+    if (isGraded(card) && pcAsked?.status === 'rejected') {
+      this.patchLink(id, { error: message(pcAsked.reason), checkedAt, ...withPair, ...(cat ? { catalog: catalogOf(cat) } : {}) });
+      return 'failed';
+    }
     const graded = isGraded(card) ? gradedPrice(pcQuote?.grades, card.grader, card.grade) : null;
     if (graded) quotes = { pricecharting: graded.usd };
     // The day's price, by the chosen method (blend.ts): a blend of the sources by default, leaving
