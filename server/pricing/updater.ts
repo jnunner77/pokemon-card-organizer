@@ -926,6 +926,14 @@ export class PriceUpdater {
       this.patchLink(id, { error: message(pcAsked.reason), checkedAt, ...withPair, ...(cat ? { catalog: catalogOf(cat) } : {}) });
       return 'failed';
     }
+    // Likewise while PriceCharting is paused and the card has no product there to ask (one that
+    // couldn't be looked for, or was just found gone and couldn't be matched again). Without a token
+    // PriceCharting is never asked, so graded cards get the ungraded price as before.
+    const pcOut = this.pc?.ready ? (this.pc.out() ?? this.run?.tripped.get('pricecharting') ?? null) : null;
+    if (isGraded(card) && !pcProduct && pcOut) {
+      this.patchLink(id, { error: `${pcOut} A graded card keeps its last price until PriceCharting answers.`, checkedAt, ...withPair, ...(cat ? { catalog: catalogOf(cat) } : {}) });
+      return 'failed';
+    }
     const graded = isGraded(card) ? gradedPrice(pcQuote?.grades, card.grader, card.grade) : null;
     if (graded) quotes = { pricecharting: graded.usd };
     // The day's price, by the chosen method (blend.ts): a blend of the sources by default, leaving
