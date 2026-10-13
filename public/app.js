@@ -1064,20 +1064,30 @@ async function updateAll(k, btn){
 }
 
 /* ---------- writes ---------- */
+/* One save at a time: a second tap or Enter while one is on its way does nothing (it would add the
+   card twice, in the same pocket). The button comes back once it's answered, if there's still
+   something to save. */
 async function saveCard(){
+  if(S.saving) return;
   const c = selCard(); if(!c) return;
   const data = readForm();
   if(!data.name){ toast("Give the card a name."); $("#f_name").focus(); return; }
-  if(S.sel==="__new"){
-    const loc = {binderId:c.binderId||null, page:c.binderId?c.page:null, slot:c.binderId?c.slot:null};
-    if(loc.binderId && cardAt(loc.binderId, loc.page, loc.slot)){ const f = firstFree(loc.binderId); loc.page=f.page; loc.slot=f.slot; }
-    const id = rid();
-    const ok = await guard(()=> S.db.collection("cards").doc(id).set({...data, ...loc, placeholder:!!$("#f_placeholder")?.checked, imageId:c.imageId||null, prices:[], createdAt:nowISO(), updatedAt:nowISO()}));
-    if(ok){ toast(`Added ${data.name}. Looking up its price and picture…`); S.sel=id; S.draft=null; S.dirty=false; if(loc.binderId){ S.binderId=loc.binderId; if(loc.page) S.page=loc.page; persistNav(); } render(); renderDrawer(true); }
-    return;
+  S.saving = true; const busy = $("#btnSave"); if(busy) busy.disabled = true;
+  try{
+    if(S.sel==="__new"){
+      const loc = {binderId:c.binderId||null, page:c.binderId?c.page:null, slot:c.binderId?c.slot:null};
+      if(loc.binderId && cardAt(loc.binderId, loc.page, loc.slot)){ const f = firstFree(loc.binderId); loc.page=f.page; loc.slot=f.slot; }
+      const id = rid();
+      const ok = await guard(()=> S.db.collection("cards").doc(id).set({...data, ...loc, placeholder:!!$("#f_placeholder")?.checked, imageId:c.imageId||null, prices:[], createdAt:nowISO(), updatedAt:nowISO()}));
+      if(ok){ toast(`Added ${data.name}. Looking up its price and picture…`); S.sel=id; S.draft=null; S.dirty=false; if(loc.binderId){ S.binderId=loc.binderId; if(loc.page) S.page=loc.page; persistNav(); } render(); renderDrawer(true); }
+      return;
+    }
+    const ok = await guard(()=> S.db.doc("cards/"+c.id).update({...data, updatedAt:nowISO()}));
+    if(ok){ S.dirty=false; for(const el of $("#cardForm")?.elements||[]) window.BinderFormSync.markShown(el); toast("Saved"); refreshParts(selCard()); }
+  } finally {
+    S.saving = false;
+    const b = $("#btnSave"); if(b) b.disabled = !S.dirty;
   }
-  const ok = await guard(()=> S.db.doc("cards/"+c.id).update({...data, updatedAt:nowISO()}));
-  if(ok){ S.dirty=false; const b=$("#btnSave"); if(b) b.disabled=true; for(const el of $("#cardForm")?.elements||[]) window.BinderFormSync.markShown(el); toast("Saved"); refreshParts(selCard()); }
 }
 async function updateCard(id, patch){ return guard(()=> S.db.doc("cards/"+id).update({...patch, updatedAt:nowISO()})); }
 async function addPrice(){
