@@ -1081,11 +1081,24 @@ async function saveCard(){
       if(loc.binderId && cardAt(loc.binderId, loc.page, loc.slot)){ const f = firstFree(loc.binderId); loc.page=f.page; loc.slot=f.slot; }
       const id = rid();
       const ok = await guard(()=> S.db.collection("cards").doc(id).set({...data, ...loc, placeholder:!!$("#f_placeholder")?.checked, imageId:c.imageId||null, prices:[], createdAt:nowISO(), updatedAt:nowISO()}));
-      if(ok){ toast(`Added ${data.name}. Looking up its price and picture…`); S.sel=id; S.draft=null; S.dirty=false; if(loc.binderId){ S.binderId=loc.binderId; if(loc.page) S.page=loc.page; persistNav(); } render(); renderDrawer(true); }
+      if(ok){
+        toast(`Added ${data.name}. Looking up its price and picture…`);
+        if(S.sel!=="__new") return; // the person moved on to another card meanwhile
+        // The drawer is drawn again for the added card: what was typed while it was being added stays, to be saved.
+        const later = window.BinderFormSync.changedSince($("#cardForm")?.elements||[], data);
+        S.sel=id; S.draft=null; S.dirty=false; if(loc.binderId){ S.binderId=loc.binderId; if(loc.page) S.page=loc.page; persistNav(); } render(); renderDrawer(true);
+        const f = $("#cardForm");
+        if(f && Object.keys(later).length){ for(const [k, v] of Object.entries(later)) if(f.elements[k]) f.elements[k].value = v; S.dirty = true; }
+      }
       return;
     }
     const ok = await guard(()=> S.db.doc("cards/"+c.id).update({...data, updatedAt:nowISO()}));
-    if(ok){ S.dirty=false; for(const el of $("#cardForm")?.elements||[]) window.BinderFormSync.markShown(el); toast("Saved"); refreshParts(selCard()); }
+    if(ok){
+      toast("Saved");
+      // Still on this card: what was sent counts as saved, and anything typed meanwhile stays to be saved.
+      const f = S.sel===c.id ? $("#cardForm") : null;
+      if(f){ S.dirty = Object.keys(window.BinderFormSync.markSaved(f.elements, data)).length > 0; refreshParts(selCard()); }
+    }
   } finally {
     S.saving = false; syncSaveButton();
   }

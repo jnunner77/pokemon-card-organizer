@@ -18,11 +18,13 @@ const sandbox = {
       edited: (elements: El[]) => boolean;
       unsaved: (fields: El[], draft: { imageId?: string | null } | null) => boolean;
       saveDisabled: (state: { dirty?: boolean; saving?: boolean }) => boolean;
+      changedSince: (elements: (El & { name?: string })[], sent: Record<string, string>) => Record<string, string>;
+      markSaved: (elements: (El & { name?: string })[], sent: Record<string, string>) => Record<string, string>;
     };
   },
 };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../public/formsync.js'), 'utf8'), sandbox);
-const { updates, shownValue, markShown, show, edited, unsaved, saveDisabled } = sandbox.window.BinderFormSync;
+const { updates, shownValue, markShown, show, edited, unsaved, saveDisabled, changedSince, markSaved } = sandbox.window.BinderFormSync;
 
 /** A dropdown as the drawer draws it: `drawn` is the option marked chosen, `value` what it shows now. */
 const dropdown = (values: string[], drawn: string | null, value = drawn ?? values[0]): El => ({
@@ -138,5 +140,22 @@ describe('the open card drawer when the card changes', () => {
     // Typed during the save: still off until it's answered, so a second save can't add the card twice.
     expect(saveDisabled({ dirty: true, saving: true })).toBe(true);
     expect(saveDisabled({})).toBe(true);
+  });
+
+  it('after a save, counts as saved only what was sent: text typed meanwhile stays to be saved', () => {
+    const field = (name: string, value: string, defaultValue: string) => ({ tagName: 'TEXTAREA', name, value, defaultValue });
+    const sent = { notes: 'first', name: 'Lapras' };
+    // Notes typed into while the save was on its way; the name as sent (trailing space trimmed when read).
+    const notes = field('notes', 'first and more', 'old');
+    const name = field('name', 'Lapras ', 'Lapra');
+    const placeholder = { tagName: 'INPUT', type: 'checkbox', value: 'on', checked: true, defaultChecked: false };
+    expect(changedSince([notes, name], sent)).toEqual({ notes: 'first and more' });
+    expect(markSaved([notes, name, placeholder as El & { name?: string }], sent)).toEqual({ notes: 'first and more' });
+    expect([notes.defaultValue, name.defaultValue, placeholder.defaultChecked]).toEqual(['old', 'Lapras ', true]);
+    expect(edited([notes, name])).toBe(true);
+    // Nothing typed meanwhile: everything counts as saved.
+    const quiet = field('notes', 'first', 'old');
+    expect(markSaved([quiet], sent)).toEqual({});
+    expect(edited([quiet])).toBe(false);
   });
 });
