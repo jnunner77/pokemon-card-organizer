@@ -103,6 +103,21 @@ describe('people and sign-in', () => {
     await viewer.post('/api/restore').send({}).expect(403);
   });
 
+  it('shows photos only to people signed in, whatever the address’s case', async () => {
+    const app = makeApp();
+    const admin = await signIn(app, 'admin', 'start password 1');
+    await addUser(admin, 'misty', 'viewer');
+    const viewer = await signIn(app, 'misty', 'a good password');
+    const photo = (await admin.post('/api/assets').set('Content-Type', 'image/jpeg').send(JPEG).expect(201)).body.id;
+    for (const path of [`/blob/${photo}`, `/BLOB/${photo}`, `/Blob/${photo}`]) {
+      await request(app).get(path).expect(401);
+      await viewer.get(path).expect(200).expect('content-type', /jpeg/);
+    }
+    // The pages and the API the same way.
+    expect((await request(app).get('/ADMIN.HTML').expect(302)).headers.location).toBe('login.html');
+    await request(app).get('/API/data').expect(401);
+  });
+
   it('makes people with a temporary password choose their own, and signs them out elsewhere', async () => {
     const app = makeApp();
     const admin = await signIn(app, 'admin', 'start password 1');

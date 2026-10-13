@@ -113,16 +113,18 @@ export function createApp(o: AppOptions) {
     next();
   });
 
-  // Signed-out visitors get the sign-in page; everything with data needs a session or token.
+  // Signed-out visitors get the sign-in page; everything with data needs a session or token. Routes
+  // match whatever the address's case ("/BLOB/…" is "/blob/…"), so the checks do too.
   app.use((req, res, next) => {
     const caller = res.locals.caller as Caller | undefined;
-    if (PUBLIC.some((p) => p.test(req.path))) return next();
-    if (PAGES.has(req.path) && req.method === 'GET') {
+    const at = req.path.toLowerCase();
+    if (PUBLIC.some((p) => p.test(at))) return next();
+    if (PAGES.has(at) && req.method === 'GET') {
       if (!caller) return void res.redirect(302, 'login.html');
-      if (req.path === '/admin.html' && !atLeast(caller.role, 'admin')) return void res.redirect(302, './');
+      if (at === '/admin.html' && !atLeast(caller.role, 'admin')) return void res.redirect(302, './');
       return next();
     }
-    if ((req.path.startsWith('/api/') || req.path.startsWith('/blob/')) && !caller) {
+    if ((at.startsWith('/api/') || at.startsWith('/blob/')) && !caller) {
       return void res.status(401).json({ error: 'Please sign in', code: 'signin' });
     }
     next();
@@ -969,7 +971,7 @@ export function createApp(o: AppOptions) {
   });
   app.use('/api', api);
 
-  app.get('/blob/:id', (req, res) => {
+  app.get('/blob/:id', need('viewer'), (req, res) => {
     const hit = assets.find(String(req.params.id));
     if (!hit) return void res.status(404).end();
     res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
