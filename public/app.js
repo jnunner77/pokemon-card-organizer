@@ -648,7 +648,7 @@ function openNew(loc){
   const bid = loc?.binderId ?? (curBinder()?.id || null);
   const spot = loc?.slot ? loc : (bid ? firstFree(bid) : null);
   S.sel="__new"; S.dirty=true; S.editPrice=null; S.confirm=null;
-  S.draft = {id:"__new", name:"", set:"", setCode:"", number:"", rarity:"", variant:"", language:"English", condition:"Near Mint", grader:"Raw", grade:"", artist:"", notes:"", status:"binder", owner:newCardOwner(bid), prices:[], imageId:null, binderId: bid, page: spot?.page||null, slot: spot?.slot||null};
+  S.draft = {id:"__new", key:rid(), name:"", set:"", setCode:"", number:"", rarity:"", variant:"", language:"English", condition:"Near Mint", grader:"Raw", grade:"", artist:"", notes:"", status:"binder", owner:newCardOwner(bid), prices:[], imageId:null, binderId: bid, page: spot?.page||null, slot: spot?.slot||null};
   renderMain(); renderDrawer(true);
 }
 function closeDrawer(){ S.pricePick=null; S.pickRes=null; S.sel=null; S.draft=null; S.dirty=false; S.editPrice=null; S.confirm=null; renderMain(); renderDrawer(true); }
@@ -1079,13 +1079,14 @@ async function saveCard(){
     if(S.sel==="__new"){
       const loc = {binderId:c.binderId||null, page:c.binderId?c.page:null, slot:c.binderId?c.slot:null};
       if(loc.binderId && cardAt(loc.binderId, loc.page, loc.slot)){ const f = firstFree(loc.binderId); loc.page=f.page; loc.slot=f.slot; }
-      const id = rid(), draft = S.draft;
+      const id = rid(), draftKey = S.draft?.key, sentPhoto = c.imageId||null;
       const ok = await guard(()=> S.db.collection("cards").doc(id).set({...data, ...loc, placeholder:!!$("#f_placeholder")?.checked, imageId:c.imageId||null, prices:[], createdAt:nowISO(), updatedAt:nowISO()}));
       if(ok){
         toast(`Added ${data.name}. Looking up its price and picture…`);
-        if(S.sel!=="__new" || S.draft!==draft) return; // the person moved on (to another card, or a new one) meanwhile
+        if(S.sel!=="__new" || S.draft?.key!==draftKey) return; // the person moved on (to another card, or a new one) meanwhile
         // The drawer is drawn again for the added card: what was typed while it was being added stays, to be saved.
         const later = window.BinderFormSync.changedSince($("#cardForm")?.elements||[], data);
+        const photo = S.draft?.imageId || null; // a photo chosen while it was being added
         S.sel=id; S.draft=null; S.dirty=false; if(loc.binderId){ S.binderId=loc.binderId; if(loc.page) S.page=loc.page; persistNav(); } render(); renderDrawer(true);
         const f = $("#cardForm");
         if(f && Object.keys(later).length){
@@ -1093,6 +1094,7 @@ async function saveCard(){
           if(later.name){ const t = $("#dTitle"); if(t) t.textContent = later.name; }
           S.dirty = true;
         }
+        if(photo && photo!==sentPhoto) updateCard(id, {imageId:photo}).then(ok=>{ if(ok){ toast("Photo saved"); refreshParts(selCard()); } });
       }
       return;
     }
