@@ -574,8 +574,8 @@ when you've rearranged the binder and want to keep the new layout instead.
   Tap a card to open its details; the phone's Back gesture (or the browser's Back button) closes
   them and keeps you on the binder. Closing them with something you haven't saved (a detail, a
   price you're adding or editing, a move you're setting up) asks first, whether by Back, ✕,
-  tapping outside, Escape or opening another card, and so does leaving the page. Back also closes the Pricing and Selling views, returning to
-  the binders instead of leaving the page.
+  tapping outside, Escape or opening another card, and so does leaving the page. Back also closes
+  the Pricing and Selling views, returning to the binders instead of leaving the page.
 - **Find a card** (the *Find a card* button, or press `/`): type a Pokémon name, set name, set code
   or set number, in any combination ("pikachu m22", "base set 2 118", "7/15"). Each match shows
   where it is; **Show in binder** turns to its binder and page and highlights the pocket (loose and

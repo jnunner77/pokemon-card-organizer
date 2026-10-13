@@ -1206,7 +1206,7 @@ function dupModal(ids, done){
 }
 function duplicateCard(){
   const c = selCard(); if(!c || S.sel==="__new") return;
-  if(S.dirty){ toast("Save or discard your changes first, then duplicate."); return; }
+  if(unsaved()){ toast("Save or discard your changes first, then duplicate."); return; }
   dupModal([c.id], (ok, k) => {
     if(!ok.length) return;
     const first = ok[0].data, last = ok[ok.length-1].data, inCase = first.binderId && isCase(binderById(first.binderId));
@@ -2741,7 +2741,7 @@ document.addEventListener("click", e => {
   if(t.closest("#btnDelNo")){ S.confirm=null; $("#delZone").innerHTML=delZone(); return; }
   if(t.closest("#btnDelYes")) return void deleteCard();
   if(t.closest("#btnDup")) return void duplicateCard();
-  if(t.closest("#btnQuickSell")){ if(S.dirty) return toast("Save or discard your changes first."); return quickSellModal([S.sel]); }
+  if(t.closest("#btnQuickSell")){ if(unsaved()) return toast("Save or discard your changes first."); return quickSellModal([S.sel]); }
   if(t.closest("#btnAddPrice")) return void addPrice();
   const pe = t.closest("[data-pedit]"); if(pe){ S.editPrice=pe.dataset.pedit; S.confirm=null; refreshParts(selCard(),{price:true}); return; }
   if(t.closest("[data-pcancel]")){ S.editPrice=null; refreshParts(selCard(),{price:true}); return; }
@@ -2882,7 +2882,7 @@ function findAct(kind, k){
     const list = FIND.res.map(x=>S.cards.find(y=>y.id===x.card.id) || x.card).filter(x=>shown(x));
     closeFind(false); return openViewer(c.id, list);
   }
-  if(S.dirty) return toast("Save or discard the card you're editing first.");
+  if(unsaved()) return toast("Save or discard the card you're editing first.");
   closeFind(false);
   if(kind==="full") toast("No picture of this card yet, so here it is instead.");
   showCard(c.id);
@@ -2890,7 +2890,7 @@ function findAct(kind, k){
 /* Take the person to a card: its binder and page (or the list it's in), scrolled to and highlighted. */
 function showCard(id){
   const c = S.cards.find(x=>x.id===id); if(!c) return toast("That card isn't in the ledger any more.");
-  if(S.dirty) return toast("Save or discard the card you're editing first.");
+  if(unsaved()) return toast("Save or discard the card you're editing first.");
   S.pick = null; S.pickConfirm = false;
   S.pricePick = null; S.pickRes = null; S.sel = null; S.draft = null; S.editPrice = null; S.confirm = null;
   const w = whereIs(c);
@@ -3454,7 +3454,7 @@ const tbCols = () => TBL.visible(TB.cols);
 const tbCellId = (id, k) => `tc_${id}_${k}`;
 
 function openTable(){
-  if(S.dirty) return toast("Save or discard the card you're editing first.");
+  if(unsaved()) return toast("Save or discard the card you're editing first.");
   if(S.sel) closeDrawer();
   if(S.pick) endPick();
   TB.open = true; TB.colsOpen = false; tbApply(); renderTable(true);
