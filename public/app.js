@@ -705,7 +705,7 @@ function renderDrawer(force){
         <datalist id="dl_codes">${codes.map(s=>`<option value="${esc(s)}">`).join("")}</datalist>
         <datalist id="dl_rar">${RARITIES.map(s=>`<option value="${esc(s)}">`).join("")}</datalist>
         <div class="formfoot">
-          <button class="btn primary" type="submit" id="btnSave" ${S.dirty?"":"disabled"}>${isNew?"Add card":"Save changes"}</button>
+          <button class="btn primary" type="submit" id="btnSave" ${window.BinderFormSync.saveDisabled(S)?"disabled":""}>${isNew?"Add card":"Save changes"}</button>
           ${isNew?"":`<span style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">${held(c)?`<button class="btn sm primary" type="button" id="btnQuickSell" ${c.placeholder?"hidden":""}>Quick sell</button>`:""}<button class="btn sm" type="button" id="btnDup" title="Make copies of this card">Duplicate</button><span id="delZone">${delZone()}</span></span>`}
         </div>
       </form>
@@ -1008,7 +1008,7 @@ function applyDetails(m){
     const el = $("#"+DETAIL_INPUTS[f]); if(!el || !vals[f] || !lookupOwns(f)) continue;
     el.value = vals[f]; DL.auto[f] = vals[f]; el.classList.add("autofilled"); filled.push(f);
   }
-  if(filled.length){ S.dirty = true; const b=$("#btnSave"); if(b) b.disabled = false; }
+  if(filled.length){ S.dirty = true; syncSaveButton(); }
   const what = [m.set, m.setCode, m.rarity, m.artist].filter(Boolean).join(" · ");
   detailsHint(`<span class="dok">${filled.length?"Filled in from TCGdex":"Matches TCGdex"}: <b>${esc(what)}</b></span>${filled.length?` <button type="button" class="btn sm ghost" data-dundo>Undo</button>`:""}`);
 }
@@ -1064,6 +1064,8 @@ async function updateAll(k, btn){
 }
 
 /* ---------- writes ---------- */
+/* Add card / Save changes: off while a save is on its way or there's nothing to save (formsync.js) */
+function syncSaveButton(){ const b = $("#btnSave"); if(b) b.disabled = window.BinderFormSync.saveDisabled(S); }
 /* One save at a time: a second tap or Enter while one is on its way does nothing (it would add the
    card twice, in the same pocket). The button comes back once it's answered, if there's still
    something to save. */
@@ -1072,7 +1074,7 @@ async function saveCard(){
   const c = selCard(); if(!c) return;
   const data = readForm();
   if(!data.name){ toast("Give the card a name."); $("#f_name").focus(); return; }
-  S.saving = true; const busy = $("#btnSave"); if(busy) busy.disabled = true;
+  S.saving = true; syncSaveButton();
   try{
     if(S.sel==="__new"){
       const loc = {binderId:c.binderId||null, page:c.binderId?c.page:null, slot:c.binderId?c.slot:null};
@@ -1085,8 +1087,7 @@ async function saveCard(){
     const ok = await guard(()=> S.db.doc("cards/"+c.id).update({...data, updatedAt:nowISO()}));
     if(ok){ S.dirty=false; for(const el of $("#cardForm")?.elements||[]) window.BinderFormSync.markShown(el); toast("Saved"); refreshParts(selCard()); }
   } finally {
-    S.saving = false;
-    const b = $("#btnSave"); if(b) b.disabled = !S.dirty;
+    S.saving = false; syncSaveButton();
   }
 }
 async function updateCard(id, patch){ return guard(()=> S.db.doc("cards/"+id).update({...patch, updatedAt:nowISO()})); }
@@ -2772,7 +2773,7 @@ document.addEventListener("click", e => {
 });
 document.addEventListener("input", e => {
   if(e.target.id==="f_placeholder" && S.sel!=="__new") return;
-  if(e.target.closest("#cardForm")){ S.dirty=true; const b=$("#btnSave"); if(b) b.disabled=false; if(e.target.id==="f_name") $("#dTitle").textContent = e.target.value || "New card";
+  if(e.target.closest("#cardForm")){ S.dirty=true; syncSaveButton(); if(e.target.id==="f_name") $("#dTitle").textContent = e.target.value || "New card";
     if(e.target.classList.contains("autofilled")) e.target.classList.remove("autofilled");
     if(/^f_(name|number|set|setCode)$/.test(e.target.id)) scheduleLookup(); }
   if(e.target.id==="q"){ S.q=e.target.value; clearTimeout(S._qt); S._qt=setTimeout(renderMain,120); }
@@ -2795,7 +2796,7 @@ document.addEventListener("change", e => {
   if(e.target.closest("#priceSec")) S.priceTouched=true;
   if(e.target.closest("#moveSec")) S.moveTouched=true;
   if(e.target.id==="f_placeholder" && S.sel!=="__new") return void switchPlaceholder(e.target);
-  if(e.target.closest("#cardForm")){ S.dirty=true; const b=$("#btnSave"); if(b) b.disabled=false; }
+  if(e.target.closest("#cardForm")){ S.dirty=true; syncSaveButton(); }
   if(e.target.matches && e.target.matches("input[data-photo]")){ const f=e.target.files && e.target.files[0]; if(f){ takePhotoFile(f); try{ e.target.value=""; }catch(_){} } }
   if(e.target.id==="caseSort"){ S.caseSort = e.target.value; store.set("caseSort", S.caseSort); renderMain(); return; }
   if(e.target.id==="m_binder"){ const bid=e.target.value; const b=binderById(bid); $("#m_page").disabled=!bid; $("#m_slot").disabled=!bid;

@@ -17,11 +17,12 @@ const sandbox = {
       show: (el: El, value: string) => boolean;
       edited: (elements: El[]) => boolean;
       unsaved: (fields: El[], draft: { imageId?: string | null } | null) => boolean;
+      saveDisabled: (state: { dirty?: boolean; saving?: boolean }) => boolean;
     };
   },
 };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../public/formsync.js'), 'utf8'), sandbox);
-const { updates, shownValue, markShown, show, edited, unsaved } = sandbox.window.BinderFormSync;
+const { updates, shownValue, markShown, show, edited, unsaved, saveDisabled } = sandbox.window.BinderFormSync;
 
 /** A dropdown as the drawer draws it: `drawn` is the option marked chosen, `value` what it shows now. */
 const dropdown = (values: string[], drawn: string | null, value = drawn ?? values[0]): El => ({
@@ -129,5 +130,13 @@ describe('the open card drawer when the card changes', () => {
     expect(unsaved([name(' '), released], { imageId: null })).toBe(false);
     // A saved card redrawn shows what it has: nothing to lose.
     expect(unsaved([name('Pikachu')], null)).toBe(false);
+  });
+
+  it('keeps Add card / Save changes off while a save is on its way, even after more typing', () => {
+    expect(saveDisabled({ dirty: false, saving: false })).toBe(true);
+    expect(saveDisabled({ dirty: true, saving: false })).toBe(false);
+    // Typed during the save: still off until it's answered, so a second save can't add the card twice.
+    expect(saveDisabled({ dirty: true, saving: true })).toBe(true);
+    expect(saveDisabled({})).toBe(true);
   });
 });

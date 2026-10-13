@@ -77,5 +77,11 @@
     return !!draft.imageId || Array.from(fields).some(typed);
   }
 
-  root.BinderFormSync = { KEYS, SELECTS, updates, shownValue, markShown, show, edited, unsaved };
+  /* Whether Add card / Save changes is off: while a save is on its way (a second one would add the
+     card twice), or when there's nothing to save. state: {dirty, saving}. */
+  function saveDisabled(state) {
+    return !!state.saving || !state.dirty;
+  }
+
+  root.BinderFormSync = { KEYS, SELECTS, updates, shownValue, markShown, show, edited, unsaved, saveDisabled };
 })(typeof window !== "undefined" ? window : globalThis);
