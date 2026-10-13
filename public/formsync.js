@@ -53,5 +53,15 @@
     return true;
   }
 
-  root.BinderFormSync = { KEYS, SELECTS, updates, shownValue, markShown, show };
+  /* Whether the person changed any of a form's fields since the drawer drew them (or last saved
+     them): a box ticked or unticked, or a value that isn't what the field showed. */
+  function edited(elements) {
+    return Array.from(elements).some((el) => {
+      if (!/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName) || el.readOnly || el.disabled || /^(button|submit|reset|hidden|file)$/.test(el.type)) return false;
+      if (el.type === "checkbox" || el.type === "radio") return el.checked !== el.defaultChecked;
+      return el.value !== shownValue(el);
+    });
+  }
+
+  root.BinderFormSync = { KEYS, SELECTS, updates, shownValue, markShown, show, edited };
 })(typeof window !== "undefined" ? window : globalThis);

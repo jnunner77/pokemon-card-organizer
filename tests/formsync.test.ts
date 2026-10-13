@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 // public/formsync.js is a plain browser script; load it the way the page does.
 type Field = { name: string; value: string; defaultValue: string };
 type Opt = { value: string; selected: boolean; defaultSelected: boolean };
-type El = { tagName: string; value: string; defaultValue?: string; options?: Opt[] };
+type El = { tagName: string; value: string; defaultValue?: string; options?: Opt[]; type?: string; checked?: boolean; defaultChecked?: boolean; readOnly?: boolean; disabled?: boolean };
 const sandbox = {
   window: {} as {
     BinderFormSync: {
@@ -15,11 +15,12 @@ const sandbox = {
       shownValue: (el: El) => string;
       markShown: (el: El) => void;
       show: (el: El, value: string) => boolean;
+      edited: (elements: El[]) => boolean;
     };
   },
 };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../public/formsync.js'), 'utf8'), sandbox);
-const { updates, shownValue, markShown, show } = sandbox.window.BinderFormSync;
+const { updates, shownValue, markShown, show, edited } = sandbox.window.BinderFormSync;
 
 /** A dropdown as the drawer draws it: `drawn` is the option marked chosen, `value` what it shows now. */
 const dropdown = (values: string[], drawn: string | null, value = drawn ?? values[0]): El => ({
@@ -83,5 +84,25 @@ describe('the open card drawer when the card changes', () => {
     const typed: El = { tagName: 'INPUT', value: 'Charizard', defaultValue: 'Charmander' };
     markShown(typed);
     expect(typed.defaultValue).toBe('Charizard');
+  });
+
+  it('tells whether the person changed anything, so closing the drawer can ask first', () => {
+    const notes = (value: string): El => ({ tagName: 'TEXTAREA', value, defaultValue: 'old note' });
+    const status = dropdown(['binder', 'listed', 'sold'], 'binder');
+    const placeholder = (checked: boolean): El => ({ tagName: 'INPUT', type: 'checkbox', value: 'on', defaultValue: 'on', checked, defaultChecked: false });
+    expect(edited([notes('old note'), status, placeholder(false)])).toBe(false);
+    expect(edited([notes('a long note about centering'), status])).toBe(true);
+    expect(edited([notes('old note'), dropdown(['binder', 'listed', 'sold'], 'binder', 'sold')])).toBe(true);
+    expect(edited([placeholder(true)])).toBe(true);
+    // Typed and then put back as it was: nothing to lose.
+    expect(edited([notes('old note')])).toBe(false);
+    // Fields the person can't change, buttons and file pickers don't count.
+    const other = [
+      { tagName: 'INPUT', value: '2024-01-01', defaultValue: '', readOnly: true },
+      { tagName: 'INPUT', type: 'file', value: 'C:\\fakepath\\a.jpg', defaultValue: '' },
+      { tagName: 'BUTTON', type: 'submit', value: 'x', defaultValue: '' },
+      { tagName: 'INPUT', value: 'x', defaultValue: '', disabled: true },
+    ];
+    expect(edited(other)).toBe(false);
   });
 });
