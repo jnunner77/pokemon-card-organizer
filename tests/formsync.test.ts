@@ -16,11 +16,12 @@ const sandbox = {
       markShown: (el: El) => void;
       show: (el: El, value: string) => boolean;
       edited: (elements: El[]) => boolean;
+      unsaved: (fields: El[], draft: { imageId?: string | null } | null) => boolean;
     };
   },
 };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../public/formsync.js'), 'utf8'), sandbox);
-const { updates, shownValue, markShown, show, edited } = sandbox.window.BinderFormSync;
+const { updates, shownValue, markShown, show, edited, unsaved } = sandbox.window.BinderFormSync;
 
 /** A dropdown as the drawer draws it: `drawn` is the option marked chosen, `value` what it shows now. */
 const dropdown = (values: string[], drawn: string | null, value = drawn ?? values[0]): El => ({
@@ -106,7 +107,20 @@ describe('the open card drawer when the card changes', () => {
       { tagName: 'INPUT', type: 'file', value: 'C:\\fakepath\\a.jpg', defaultValue: '' },
       { tagName: 'BUTTON', type: 'submit', value: 'x', defaultValue: '' },
       { tagName: 'INPUT', value: 'x', defaultValue: '', disabled: true },
+      { tagName: 'INPUT', type: 'search', value: 'lapras 131', defaultValue: 'Lapras' },
     ];
     expect(edited(other)).toBe(false);
+  });
+
+  it('counts a price being added or a move being set up, and a new card’s photo, as something to lose', () => {
+    const amount = (value: string): El => ({ tagName: 'INPUT', type: 'number', value, defaultValue: '' });
+    const where = { tagName: 'INPUT', value: 'PriceCharting', defaultValue: 'PriceCharting' };
+    const page = (value: string): El => ({ tagName: 'INPUT', type: 'number', value, defaultValue: '3' });
+    expect(unsaved([amount(''), where, page('3')], null)).toBe(false);
+    expect(unsaved([amount('42.50'), where, page('3')], null)).toBe(true);
+    expect(unsaved([amount(''), where, page('5')], null)).toBe(true);
+    // A new card: nothing typed, but a photo chosen.
+    expect(unsaved([amount('')], { imageId: null })).toBe(false);
+    expect(unsaved([amount('')], { imageId: 'a'.repeat(32) })).toBe(true);
   });
 });

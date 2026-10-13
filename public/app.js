@@ -635,8 +635,8 @@ async function undoSale(id, quiet){
 
 /* ---------- drawer ---------- */
 function selCard(){ return S.sel==="__new" ? S.draft : S.cards.find(c=>c.id===S.sel); }
-/* The open drawer has changes the person hasn't saved: a field they changed, or a new card's photo. */
-const unsaved = () => !!S.sel && (window.BinderFormSync.edited($("#cardForm")?.elements || []) || (S.sel==="__new" && !!S.draft?.imageId));
+/* The open drawer has changes the person hasn't saved (formsync.js) */
+const unsaved = () => !!S.sel && window.BinderFormSync.unsaved($("#drawerRoot")?.querySelectorAll("input,select,textarea") || [], S.sel==="__new" ? S.draft : null);
 /* Before the open drawer's unsaved changes would be thrown away: true when there are none, or the person says to discard them. */
 const discardOk = () => !unsaved() || confirm(S.sel==="__new" ? "Discard this new card? Nothing you entered is saved yet." : "Discard your unsaved changes to this card?");
 function openCard(id){ if(!discardOk()) return; S.pricePick=null; S.pickRes=null; S.sel=id; S.draft=null; S.dirty=false; S.editPrice=null; S.confirm=null; renderMain(); renderDrawer(true); }
