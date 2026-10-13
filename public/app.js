@@ -741,9 +741,10 @@ function refreshParts(c, o={}){
 /* fields the card's new values reach (a chosen product's variant, say); the person's own edits stay */
 function syncForm(c){
   const f = $("#cardForm"); if(!f) return;
-  const els = window.BinderFormSync.KEYS.map(k=>f.elements[k]).filter(Boolean);
-  const up = window.BinderFormSync.updates(els, c);
-  for(const el of els) if(el.name in up){ el.value = up[el.name]; el.defaultValue = up[el.name]; }
+  const { KEYS, SELECTS, updates, shownValue, show } = window.BinderFormSync;
+  const els = [...KEYS, ...Object.keys(SELECTS)].map(k=>f.elements[k]).filter(Boolean);
+  const up = updates(els.map(el => ({name: el.name, value: el.value, defaultValue: shownValue(el)})), c);
+  for(const el of els) if(el.name in up) show(el, up[el.name]);
   const rel = $("#f_released"); if(rel) rel.value = c.released || "";
 }
 function lookupLinks(c){
@@ -1071,7 +1072,7 @@ async function saveCard(){
     return;
   }
   const ok = await guard(()=> S.db.doc("cards/"+c.id).update({...data, updatedAt:nowISO()}));
-  if(ok){ S.dirty=false; const b=$("#btnSave"); if(b) b.disabled=true; for(const el of $("#cardForm")?.elements||[]) if("defaultValue" in el) el.defaultValue = el.value; toast("Saved"); refreshParts(selCard()); }
+  if(ok){ S.dirty=false; const b=$("#btnSave"); if(b) b.disabled=true; for(const el of $("#cardForm")?.elements||[]) window.BinderFormSync.markShown(el); toast("Saved"); refreshParts(selCard()); }
 }
 async function updateCard(id, patch){ return guard(()=> S.db.doc("cards/"+id).update({...patch, updatedAt:nowISO()})); }
 async function addPrice(){
