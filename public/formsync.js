@@ -66,10 +66,15 @@
   }
 
   /* Whether closing the open drawer would lose something: a field changed in it (the card's details,
-     a price being added or edited, a move being set up), or, for a card not added yet, its photo.
-     fields: the drawer's fields; draft: the new card being added, or null. */
+     a price being added or edited, a move being set up), or, for a card not added yet, anything
+     typed into it or its photo (the drawer is redrawn as it's filled in, choosing a photo say, so
+     what was typed can look like what the drawer showed). fields: the drawer's fields; draft: the
+     new card being added, or null. */
   function unsaved(fields, draft) {
-    return edited(fields) || !!(draft && draft.imageId);
+    if (edited(fields)) return true;
+    if (!draft) return false;
+    const typed = (el) => /^(INPUT|TEXTAREA)$/.test(el.tagName) && !el.readOnly && !el.disabled && !/^(button|submit|reset|hidden|file|search|checkbox|radio)$/.test(el.type) && String(el.value).trim() !== "";
+    return !!draft.imageId || Array.from(fields).some(typed);
   }
 
   root.BinderFormSync = { KEYS, SELECTS, updates, shownValue, markShown, show, edited, unsaved };

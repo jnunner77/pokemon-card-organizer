@@ -122,5 +122,12 @@ describe('the open card drawer when the card changes', () => {
     // A new card: nothing typed, but a photo chosen.
     expect(unsaved([amount('')], { imageId: null })).toBe(false);
     expect(unsaved([amount('')], { imageId: 'a'.repeat(32) })).toBe(true);
+    // A new card redrawn after its name was typed (choosing and removing a photo): still something to lose.
+    const name = (value: string): El => ({ tagName: 'INPUT', value, defaultValue: value });
+    const released: El = { tagName: 'INPUT', value: 'Filled in after saving', defaultValue: 'Filled in after saving', readOnly: true };
+    expect(unsaved([name('Pikachu'), released], { imageId: null })).toBe(true);
+    expect(unsaved([name(' '), released], { imageId: null })).toBe(false);
+    // A saved card redrawn shows what it has: nothing to lose.
+    expect(unsaved([name('Pikachu')], null)).toBe(false);
   });
 });
