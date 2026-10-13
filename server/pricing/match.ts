@@ -63,13 +63,14 @@ export function otherPrinting(variant: unknown, title: unknown): boolean {
 }
 
 /**
- * The ball a variant or bracket names: "Master Ball" is master, "Poké Ball", "Pokeball" or a bare
- * "Ball" (PriceCharting's name for the Poké Ball pattern) is poke; null when it names none.
+ * The ball a variant or bracket names: "Master Ball" is master, "Poké Ball", "Pokeball", "Pokémon
+ * Ball" or a bare "Ball" (PriceCharting's name for the Poké Ball pattern) is poke; null when it names none.
  */
 function ballOf(s: string): string | null {
   const t = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
   const m = t.match(/\b([a-z]*?)\s*-?\s*ball\b/);
-  return m ? m[1] || 'poke' : null;
+  if (!m) return null;
+  return !m[1] || m[1] === 'pokemon' ? 'poke' : m[1];
 }
 
 /** The card and the product name different balls: a Poké Ball card isn't "[Master Ball]", nor a Master Ball card "[Ball]". */

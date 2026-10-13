@@ -205,7 +205,7 @@ describe('matching a card to a product', () => {
     expect(eevee('Poke Ball', ['Eevee [Master Ball]', 'Eevee'])).toBeNull();
     expect(eevee('Master Ball', ['Eevee [Ball]', 'Eevee'])).toBeNull();
     // Each finds its own, however it's written (PriceCharting calls the Poké Ball pattern "Ball").
-    for (const v of ['Poke Ball', 'Poké Ball pattern', 'pokeball']) expect(eevee(v, ['Eevee [Master Ball]', 'Eevee [Ball]', 'Eevee'])).toBe('Eevee [Ball]');
+    for (const v of ['Poke Ball', 'Poké Ball pattern', 'pokeball', 'Pokémon Ball']) expect(eevee(v, ['Eevee [Master Ball]', 'Eevee [Ball]', 'Eevee'])).toBe('Eevee [Ball]');
     expect(eevee('Master Ball', ['Eevee [Master Ball]', 'Eevee [Ball]', 'Eevee'])).toBe('Eevee [Master Ball]');
     expect([otherBall('Great Ball', 'X [Ultra Ball]'), otherBall('Poke Ball', 'X [Poké Ball]'), otherBall('Reverse Holo', 'X [Master Ball]')]).toEqual([true, false, false]);
     // A stamp names its event: "Stamp" alone isn't what makes two the same.
