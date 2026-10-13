@@ -311,7 +311,7 @@ function ownerModal(){
     endPick();
   };
 }
-function startPick(id){ S.pick = new Set(id?[id]:[]); S.pickConfirm=false; try{ navigator.vibrate?.(15); }catch(_){} if(S.sel) closeDrawer(); else renderMain(); }
+function startPick(id){ if(S.sel && !discardOk()) return; S.pick = new Set(id?[id]:[]); S.pickConfirm=false; try{ navigator.vibrate?.(15); }catch(_){} if(S.sel) closeDrawer(); else renderMain(); }
 function endPick(){ S.pick=null; S.pickConfirm=false; renderMain(); }
 function renderMain(){
   if(S.pick){ for(const id of [...S.pick]) if(!S.cards.some(c=>c.id===id)) S.pick.delete(id); }
@@ -635,11 +635,16 @@ async function undoSale(id, quiet){
 
 /* ---------- drawer ---------- */
 function selCard(){ return S.sel==="__new" ? S.draft : S.cards.find(c=>c.id===S.sel); }
-function openCard(id){ S.pricePick=null; S.pickRes=null; S.sel=id; S.draft=null; S.dirty=false; S.editPrice=null; S.confirm=null; renderMain(); renderDrawer(true); }
+/* The open drawer has changes the person hasn't saved (formsync.js) */
+const unsaved = () => !!S.sel && window.BinderFormSync.unsaved($("#drawerRoot")?.querySelectorAll("input,select,textarea") || [], S.sel==="__new" ? S.draft : null);
+/* Before the open drawer's unsaved changes would be thrown away: true when there are none, or the person says to discard them. */
+const discardOk = () => !unsaved() || confirm(S.sel==="__new" ? "Discard this new card? Nothing you entered is saved yet." : "Discard your unsaved changes to this card?");
+function openCard(id){ if(!discardOk()) return; S.pricePick=null; S.pickRes=null; S.sel=id; S.draft=null; S.dirty=false; S.editPrice=null; S.confirm=null; renderMain(); renderDrawer(true); }
 /* A card added to a binder starts as the binder's owner's; most cards are Justin's, so he's the
    owner when the binder has none (or the card isn't in a binder). Changeable before saving. */
 const newCardOwner = bid => binderById(bid)?.owner || "Justin";
 function openNew(loc){
+  if(!discardOk()) return;
   const bid = loc?.binderId ?? (curBinder()?.id || null);
   const spot = loc?.slot ? loc : (bid ? firstFree(bid) : null);
   S.sel="__new"; S.dirty=true; S.editPrice=null; S.confirm=null;
@@ -651,7 +656,7 @@ function closeDrawer(){ S.pricePick=null; S.pickRes=null; S.sel=null; S.draft=nu
    view, instead of leaving the page */
 const BACK = window.BackClose.create(history);
 const BACK_VIEW = BACK.layer("view", () => { if(PV.open || SV.open){ closeViews(); PV.hover = SV.hover = null; render(); } });
-const BACK_CARD = BACK.layer("card", () => { if(S.sel) closeDrawer(); });
+const BACK_CARD = BACK.layer("card", () => { if(!S.sel) return; if(discardOk()) closeDrawer(); else BACK_CARD.sync(true); });
 addEventListener("popstate", e => BACK.popstate(e.state));
 const opt = (list, v) => list.map(o => { const [val,lab] = Array.isArray(o)?o:[o,o]; return `<option value="${esc(val)}" ${String(v)===String(val)?"selected":""}>${esc(lab)}</option>`; }).join("");
 function renderDrawer(force){
@@ -1201,7 +1206,7 @@ function dupModal(ids, done){
 }
 function duplicateCard(){
   const c = selCard(); if(!c || S.sel==="__new") return;
-  if(S.dirty){ toast("Save or discard your changes first, then duplicate."); return; }
+  if(unsaved()){ toast("Save or discard your changes first, then duplicate."); return; }
   dupModal([c.id], (ok, k) => {
     if(!ok.length) return;
     const first = ok[0].data, last = ok[ok.length-1].data, inCase = first.binderId && isCase(binderById(first.binderId));
@@ -1899,7 +1904,7 @@ const arrDrop = e => {
 };
 document.addEventListener("pointerup", arrDrop);
 document.addEventListener("pointercancel", arrDrop);
-addEventListener("beforeunload", e => { if(S.view==="arrange" && arrDirty()){ e.preventDefault(); e.returnValue = ""; } });
+addEventListener("beforeunload", e => { if((S.view==="arrange" && arrDirty()) || unsaved()){ e.preventDefault(); e.returnValue = ""; } });
 
 /* ---------- sort a binder ----------
    Puts every card of a binder in order (release date or price) from page 1, pocket 1 with no
@@ -2675,7 +2680,7 @@ document.addEventListener("click", e => {
     const sc = t.closest("#main [data-card]"), se = t.closest("#main [data-empty]"), sa = t.closest("#main [data-caseadd]");
     if(sc || se || sa){ e.preventDefault(); return void swapWith(sc ? {id:sc.dataset.card} : sa ? {binderId:curBinder().id, page:null, slot:null} : {binderId:curBinder().id, page:S.page, slot:+se.dataset.empty}); }
   }
-  if(t.closest("#btnSwap")){ const c = selCard(); if(c){ S.swap = {id:c.id}; if(PV.open || SV.open){ closeViews(); render(); } closeDrawer(); renderMain(); } return; }
+  if(t.closest("#btnSwap")){ const c = selCard(); if(c){ if(!discardOk()) return; S.swap = {id:c.id}; if(PV.open || SV.open){ closeViews(); render(); } closeDrawer(); renderMain(); } return; }
   const ar = t.closest("#arrList .arrrow"); if(ar && !t.closest("button,.arrhandle")) return arrTap(+ar.dataset.i);
   if(t.closest("#vPages,#vList,#vArrange,[data-binder],#btnAdd,#btnFind,#btnPricing,#btnSelling") && S.view==="arrange" && arrDirty() && !t.closest("#vArrange")){
     if(!confirm("Leave without saving the new order?")) return;
@@ -2728,7 +2733,7 @@ document.addEventListener("click", e => {
   const ub = t.closest("[data-unbundle]"); if(ub) return void undoBundle(ub.dataset.unbundle);
   const sr = t.closest("[data-sale]"); if(sr){ return openCard(sr.dataset.sale); }
   const cd = t.closest("[data-card]"); if(cd && !t.closest(".drawer")){ return openCard(cd.dataset.card); }
-  if(t.closest("[data-close]")){ return closeDrawer(); }
+  if(t.closest("[data-close]")){ if(discardOk()) closeDrawer(); return; }
   if(t.matches("[data-mclose]") || t.closest("button[data-mclose]")) return closeModal();
   // drawer actions
   if(t.closest("#bigImg img, #bigImg [data-lbopen]")) return openViewer(S.sel);
@@ -2736,7 +2741,7 @@ document.addEventListener("click", e => {
   if(t.closest("#btnDelNo")){ S.confirm=null; $("#delZone").innerHTML=delZone(); return; }
   if(t.closest("#btnDelYes")) return void deleteCard();
   if(t.closest("#btnDup")) return void duplicateCard();
-  if(t.closest("#btnQuickSell")){ if(S.dirty) return toast("Save or discard your changes first."); return quickSellModal([S.sel]); }
+  if(t.closest("#btnQuickSell")){ if(unsaved()) return toast("Save or discard your changes first."); return quickSellModal([S.sel]); }
   if(t.closest("#btnAddPrice")) return void addPrice();
   const pe = t.closest("[data-pedit]"); if(pe){ S.editPrice=pe.dataset.pedit; S.confirm=null; refreshParts(selCard(),{price:true}); return; }
   if(t.closest("[data-pcancel]")){ S.editPrice=null; refreshParts(selCard(),{price:true}); return; }
@@ -2771,6 +2776,7 @@ document.addEventListener("input", e => {
 async function switchPlaceholder(box){
   const c = selCard(), on = box.checked; if(!c) return;
   if(!(await updateCard(c.id, {placeholder:on}))){ box.checked = !on; return; }
+  box.defaultChecked = on; // saved: not a change to ask about when the drawer closes
   const qs = $("#btnQuickSell"); if(qs) qs.hidden = on;
   toast(on ? `${c.name||"Card"} is a placeholder: not counted in your totals` : `${c.name||"Card"} is counted in your totals now`);
 }
@@ -2796,7 +2802,7 @@ document.addEventListener("keydown", e => {
   if(FIND.open) return findKey(e);
   if(!LB.open && !$("#modalRoot").innerHTML && !isTyping(e.target) && !e.altKey && ((e.key==="/" && !e.ctrlKey && !e.metaKey) || ((e.key==="k" || e.key==="K") && (e.ctrlKey || e.metaKey)))){ e.preventDefault(); return openFind(); }
   if(LB.open){ if(e.key==="Escape"){ e.preventDefault(); closeViewer(); } else if(e.key==="ArrowLeft"||e.key==="ArrowRight"){ e.preventDefault(); lbGo(LB.i+(e.key==="ArrowLeft"?-1:1)); } else if(e.key==="Home"||e.key==="End"){ e.preventDefault(); lbGo(e.key==="Home"?0:LB.list.length-1); } return; }
-  if(e.key==="Escape"){ if($("#modalRoot").innerHTML){ if(!CI?.busy || !$("#ci_card")) closeModal(); } else if(S.sel) closeDrawer(); else if(TB.open){ if(TB.pop) tbPopClose(true); else if(TB.colsOpen || TB.sortOpen){ TB.colsOpen = TB.sortOpen = false; tbPanes(); } else closeTable(); } else if(S.pick) endPick(); else if(S.swap){ S.swap = null; renderMain(); } else if(PV.open) closePricing(); else if(SV.open) closeSelling(); } });
+  if(e.key==="Escape"){ if($("#modalRoot").innerHTML){ if(!CI?.busy || !$("#ci_card")) closeModal(); } else if(S.sel){ if(discardOk()) closeDrawer(); } else if(TB.open){ if(TB.pop) tbPopClose(true); else if(TB.colsOpen || TB.sortOpen){ TB.colsOpen = TB.sortOpen = false; tbPanes(); } else closeTable(); } else if(S.pick) endPick(); else if(S.swap){ S.swap = null; renderMain(); } else if(PV.open) closePricing(); else if(SV.open) closeSelling(); } });
 function updateMoveNote(){
   const n=$("#moveNote"); if(!n) return; const c=selCard(); const bid=$("#m_binder").value;
   if(!bid){ n.textContent="The card stays in your ledger under “Not in a binder”."; return; }
@@ -2876,7 +2882,7 @@ function findAct(kind, k){
     const list = FIND.res.map(x=>S.cards.find(y=>y.id===x.card.id) || x.card).filter(x=>shown(x));
     closeFind(false); return openViewer(c.id, list);
   }
-  if(S.dirty) return toast("Save or discard the card you're editing first.");
+  if(unsaved()) return toast("Save or discard the card you're editing first.");
   closeFind(false);
   if(kind==="full") toast("No picture of this card yet, so here it is instead.");
   showCard(c.id);
@@ -2884,7 +2890,7 @@ function findAct(kind, k){
 /* Take the person to a card: its binder and page (or the list it's in), scrolled to and highlighted. */
 function showCard(id){
   const c = S.cards.find(x=>x.id===id); if(!c) return toast("That card isn't in the ledger any more.");
-  if(S.dirty) return toast("Save or discard the card you're editing first.");
+  if(unsaved()) return toast("Save or discard the card you're editing first.");
   S.pick = null; S.pickConfirm = false;
   S.pricePick = null; S.pickRes = null; S.sel = null; S.draft = null; S.editPrice = null; S.confirm = null;
   const w = whereIs(c);
@@ -3448,7 +3454,7 @@ const tbCols = () => TBL.visible(TB.cols);
 const tbCellId = (id, k) => `tc_${id}_${k}`;
 
 function openTable(){
-  if(S.dirty) return toast("Save or discard the card you're editing first.");
+  if(unsaved()) return toast("Save or discard the card you're editing first.");
   if(S.sel) closeDrawer();
   if(S.pick) endPick();
   TB.open = true; TB.colsOpen = false; tbApply(); renderTable(true);

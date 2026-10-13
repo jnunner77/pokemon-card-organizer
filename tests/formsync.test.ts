@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 // public/formsync.js is a plain browser script; load it the way the page does.
 type Field = { name: string; value: string; defaultValue: string };
 type Opt = { value: string; selected: boolean; defaultSelected: boolean };
-type El = { tagName: string; value: string; defaultValue?: string; options?: Opt[] };
+type El = { tagName: string; value: string; defaultValue?: string; options?: Opt[]; type?: string; checked?: boolean; defaultChecked?: boolean; readOnly?: boolean; disabled?: boolean };
 const sandbox = {
   window: {} as {
     BinderFormSync: {
@@ -15,11 +15,13 @@ const sandbox = {
       shownValue: (el: El) => string;
       markShown: (el: El) => void;
       show: (el: El, value: string) => boolean;
+      edited: (elements: El[]) => boolean;
+      unsaved: (fields: El[], draft: { imageId?: string | null } | null) => boolean;
     };
   },
 };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../public/formsync.js'), 'utf8'), sandbox);
-const { updates, shownValue, markShown, show } = sandbox.window.BinderFormSync;
+const { updates, shownValue, markShown, show, edited, unsaved } = sandbox.window.BinderFormSync;
 
 /** A dropdown as the drawer draws it: `drawn` is the option marked chosen, `value` what it shows now. */
 const dropdown = (values: string[], drawn: string | null, value = drawn ?? values[0]): El => ({
@@ -83,5 +85,49 @@ describe('the open card drawer when the card changes', () => {
     const typed: El = { tagName: 'INPUT', value: 'Charizard', defaultValue: 'Charmander' };
     markShown(typed);
     expect(typed.defaultValue).toBe('Charizard');
+  });
+
+  it('tells whether the person changed anything, so closing the drawer can ask first', () => {
+    const notes = (value: string): El => ({ tagName: 'TEXTAREA', value, defaultValue: 'old note' });
+    const status = dropdown(['binder', 'listed', 'sold'], 'binder');
+    const placeholder = (checked: boolean): El => ({ tagName: 'INPUT', type: 'checkbox', value: 'on', defaultValue: 'on', checked, defaultChecked: false });
+    expect(edited([notes('old note'), status, placeholder(false)])).toBe(false);
+    expect(edited([notes('a long note about centering'), status])).toBe(true);
+    expect(edited([notes('old note'), dropdown(['binder', 'listed', 'sold'], 'binder', 'sold')])).toBe(true);
+    expect(edited([placeholder(true)])).toBe(true);
+    // A ticked box that's been saved isn't a change any more.
+    const ticked = placeholder(true);
+    markShown(ticked);
+    expect([ticked.defaultChecked, edited([ticked])]).toEqual([true, false]);
+    // Typed and then put back as it was: nothing to lose.
+    expect(edited([notes('old note')])).toBe(false);
+    // Fields the person can't change, buttons and file pickers don't count.
+    const other = [
+      { tagName: 'INPUT', value: '2024-01-01', defaultValue: '', readOnly: true },
+      { tagName: 'INPUT', type: 'file', value: 'C:\\fakepath\\a.jpg', defaultValue: '' },
+      { tagName: 'BUTTON', type: 'submit', value: 'x', defaultValue: '' },
+      { tagName: 'INPUT', value: 'x', defaultValue: '', disabled: true },
+      { tagName: 'INPUT', type: 'search', value: 'lapras 131', defaultValue: 'Lapras' },
+    ];
+    expect(edited(other)).toBe(false);
+  });
+
+  it('counts a price being added or a move being set up, and a new card’s photo, as something to lose', () => {
+    const amount = (value: string): El => ({ tagName: 'INPUT', type: 'number', value, defaultValue: '' });
+    const where = { tagName: 'INPUT', value: 'PriceCharting', defaultValue: 'PriceCharting' };
+    const page = (value: string): El => ({ tagName: 'INPUT', type: 'number', value, defaultValue: '3' });
+    expect(unsaved([amount(''), where, page('3')], null)).toBe(false);
+    expect(unsaved([amount('42.50'), where, page('3')], null)).toBe(true);
+    expect(unsaved([amount(''), where, page('5')], null)).toBe(true);
+    // A new card: nothing typed, but a photo chosen.
+    expect(unsaved([amount('')], { imageId: null })).toBe(false);
+    expect(unsaved([amount('')], { imageId: 'a'.repeat(32) })).toBe(true);
+    // A new card redrawn after its name was typed (choosing and removing a photo): still something to lose.
+    const name = (value: string): El => ({ tagName: 'INPUT', value, defaultValue: value });
+    const released: El = { tagName: 'INPUT', value: 'Filled in after saving', defaultValue: 'Filled in after saving', readOnly: true };
+    expect(unsaved([name('Pikachu'), released], { imageId: null })).toBe(true);
+    expect(unsaved([name(' '), released], { imageId: null })).toBe(false);
+    // A saved card redrawn shows what it has: nothing to lose.
+    expect(unsaved([name('Pikachu')], null)).toBe(false);
   });
 });

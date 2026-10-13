@@ -37,6 +37,7 @@
   /* Marks a field's current value as what the drawer shows, so it counts as unchanged. */
   function markShown(el) {
     if (el.tagName === "SELECT") for (const o of Array.from(el.options)) o.defaultSelected = o.selected;
+    else if (el.type === "checkbox" || el.type === "radio") el.defaultChecked = el.checked;
     else if ("defaultValue" in el) el.defaultValue = el.value;
   }
 
@@ -53,5 +54,28 @@
     return true;
   }
 
-  root.BinderFormSync = { KEYS, SELECTS, updates, shownValue, markShown, show };
+  /* Whether the person changed any of these fields since the drawer drew them (or last saved
+     them): a box ticked or unticked, or a value that isn't what the field showed. Search boxes and
+     file pickers hold nothing of the card's. */
+  function edited(elements) {
+    return Array.from(elements).some((el) => {
+      if (!/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName) || el.readOnly || el.disabled || /^(button|submit|reset|hidden|file|search)$/.test(el.type)) return false;
+      if (el.type === "checkbox" || el.type === "radio") return el.checked !== el.defaultChecked;
+      return el.value !== shownValue(el);
+    });
+  }
+
+  /* Whether closing the open drawer would lose something: a field changed in it (the card's details,
+     a price being added or edited, a move being set up), or, for a card not added yet, anything
+     typed into it or its photo (the drawer is redrawn as it's filled in, choosing a photo say, so
+     what was typed can look like what the drawer showed). fields: the drawer's fields; draft: the
+     new card being added, or null. */
+  function unsaved(fields, draft) {
+    if (edited(fields)) return true;
+    if (!draft) return false;
+    const typed = (el) => /^(INPUT|TEXTAREA)$/.test(el.tagName) && !el.readOnly && !el.disabled && !/^(button|submit|reset|hidden|file|search|checkbox|radio)$/.test(el.type) && String(el.value).trim() !== "";
+    return !!draft.imageId || Array.from(fields).some(typed);
+  }
+
+  root.BinderFormSync = { KEYS, SELECTS, updates, shownValue, markShown, show, edited, unsaved };
 })(typeof window !== "undefined" ? window : globalThis);
