@@ -32,7 +32,8 @@ Every morning (after 5:00 in your time zone, catching up if the server was off) 
    grader and grade instead (Grade 7, 8, 9, 9.5, PSA 10, BGS 10, CGC 10, SGC 10, TAG 10, ACE 10…),
    or the nearest grade PriceCharting has; when PriceCharting has no graded price for it, it gets
    the ungraded price, and its drawer says so. When PriceCharting doesn't answer for its product, or
-   is paused, a graded card keeps its last price that day rather than getting the ungraded one.
+   is paused, a graded card's last price stays until PriceCharting answers, rather than the
+   ungraded one being logged.
    TCGplayer's and Cardmarket's prices come from TCGdex's free API, refreshed daily, for the
    card's own variant: TCGdex lists each card's regular, reverse holo and holo printings, patterns
    (Poké Ball, Master Ball, Cosmos…), stamps, 1st Edition and Shadowless separately, each with its
