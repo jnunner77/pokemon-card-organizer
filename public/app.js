@@ -1086,7 +1086,7 @@ async function saveCard(){
         if(S.sel!=="__new" || S.draft?.key!==draftKey) return; // the person moved on (to another card, or a new one) meanwhile
         // The drawer is drawn again for the added card: what was typed while it was being added stays, to be saved.
         const later = window.BinderFormSync.changedSince($("#cardForm")?.elements||[], data);
-        const photo = S.draft?.imageId || null; // a photo chosen while it was being added
+        const photo = S.draft?.imageId || null; // the photo now, which may have changed while it was being added
         S.sel=id; S.draft=null; S.dirty=false; if(loc.binderId){ S.binderId=loc.binderId; if(loc.page) S.page=loc.page; persistNav(); } render(); renderDrawer(true);
         const f = $("#cardForm");
         if(f && Object.keys(later).length){
@@ -1094,7 +1094,13 @@ async function saveCard(){
           if(later.name){ const t = $("#dTitle"); if(t) t.textContent = later.name; }
           S.dirty = true;
         }
-        if(photo && photo!==sentPhoto) updateCard(id, {imageId:photo}).then(ok=>{ if(ok){ toast("Photo saved"); refreshParts(selCard()); } });
+        // A photo chosen, replaced or removed while it was being added: the card takes it, and the one
+        // it was added with goes when nothing else uses it (as when a photo is changed).
+        if(photo!==sentPhoto) updateCard(id, {imageId:photo}).then(async ok=>{
+          if(!ok) return;
+          if(sentPhoto && !S.cards.some(x=>x.imageId===sentPhoto)){ try{ await delAsset(sentPhoto); }catch(_){} }
+          toast(photo ? "Photo saved" : "Photo removed from card"); refreshParts(selCard());
+        });
       }
       return;
     }
