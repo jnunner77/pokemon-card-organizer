@@ -682,7 +682,7 @@ function bulkBuyModal(){
   card.addEventListener("click", e => {
     const t = e.target;
     const rm = t.closest("[data-bbdel]"); if(rm){ const i = BB.rows.findIndex(r=>r.key===rm.dataset.bbdel); if(i>=0){ BB.rows.splice(i,1); bbRows(); bbRefresh(); } return; }
-    if(t.closest("#bb_cancel")){ if(bbDiscardOk()){ BB = null; closeModal(); } return; }
+    if(t.closest("#bb_cancel")){ if(!BB?.busy && bbDiscardOk()){ BB = null; closeModal(); } return; }
     if(t.closest("#bb_go")) return void bulkBuySave();
     if(t.closest("#bb_undo")) return void bulkBuyUndo(t.closest("#bb_undo"));
     if(t.closest("#bb_close")){ BB = null; closeModal(); }
@@ -797,7 +797,7 @@ async function bulkBuySave(){
     return render();
   }
   $("#bb_body").innerHTML = `<p class="lead"><b>${esc(what)}.</b></p>
-    ${failed.length?`<p class="bb-flag">${failed.length} didn't save: ${esc(failed.join(", "))}. Try them again in a new bulk buy.</p>`:""}
+    ${failed.length?`<p class="bb-flag">${failed.length} didn't save: ${esc(BB.done.failed.join(", "))}. Try them again in a new bulk buy.</p>`:""}
     ${flagged.length?`<p>${flagged.length===1?"This card wasn't":`These ${flagged.length} cards weren't`} entered: ${flagged.length===1?"it has":"they have"} no placeholder to fill. Add ${flagged.length===1?"it":"them"} with <i>+ Add card</i> if you're keeping ${flagged.length===1?"it":"them"}.</p>
     <ul class="bb-flagged">${flagged.map(f=>`<li><b>${esc(f.name)}</b> <span class="mono">${esc(f.number)}</span>${f.price!=null?` · <span class="mono">${esc(money(f.price,cur))}</span>`:""}<span class="hint">${esc({missing:"No placeholder in your binders", owned:"Already owned, not a placeholder", taken:"No placeholder left for it"}[f.reason])}</span></li>`).join("")}</ul>`:""}`;
   $("#bb_foot").innerHTML = `<button class="btn" type="button" id="bb_undo">Undo</button><button class="btn primary" type="button" id="bb_close">Done</button>`;
