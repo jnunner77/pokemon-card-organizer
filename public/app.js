@@ -243,6 +243,7 @@ function renderTabs(){
   const b = curBinder(); $("#sheet").style.setProperty("--bc", b?.color || "#77838F"); $("#btnBinderSettings").hidden = !b;
   $("#btnBinderSettings").textContent = isCase(b) ? "Rename / edit case" : "Rename / edit binder";
   $("#btnSortBinder").hidden = !b || isCase(b) || S.me?.user?.role==="viewer" || cardsIn(b.id).length < 2;
+  $("#btnBulkBuy").hidden = S.me?.user?.role==="viewer";
 }
 function statsFor(list){
   const heldList = list.filter(owned), ph = list.filter(c => held(c) && c.placeholder).length;
@@ -631,6 +632,203 @@ async function undoSale(id, quiet){
   Object.assign(c, loc, {prices, status:"binder", sale:null});
   if(!quiet) toast(loc.binderId ? `${c.name||"Card"} is back in ${locText(loc)}` : `${c.name||"Card"} is back under Not in a binder`);
   return true;
+}
+
+/* ---------- bulk buy ----------
+   Cards bought together (16 at a card show): each typed by name and number, matched to its
+   placeholder (public/bulkbuy.js), priced, and the tax shared across them by price. Recording it
+   switches each matched placeholder to owned with an "I paid" price of its price and tax share.
+   A card with no placeholder is flagged and left out. */
+let BB = null;
+const bbRow = () => ({key:rid(), name:"", number:"", price:"", pick:""});
+const bbTyped = () => !!BB && !BB.done && BB.rows.some(r => r.name.trim() || r.number.trim() || r.price.trim());
+const bbAmount = s => window.BinderBulkBuy.amount(s);
+/* Where Bulk buy looks: one binder or case, or all of them (blank). */
+const bbScopeName = () => binderById(BB?.scope)?.name || "your binders";
+const bbWhere = ids => { const l = ids.map(id => binderById(id)?.name ? `in ${binderById(id).name}` : "among the cards not in a binder"); return l.length > 1 ? `${l.slice(0,-1).join(", ")} and ${l[l.length-1]}` : l[0]; };
+/* Why a row is flagged: in full under the row, or short in the list afterwards. */
+function bbFlag(m, short){
+  if(m.reason==="elsewhere"){
+    const ids = m.binderIds, one = ids.length===1 && binderById(ids[0]), where = `Its placeholder${ids.length>1?"s are":" is"} ${bbWhere(ids)}`;
+    return short ? where : `${where}, not in ${bbScopeName()}. Choose ${one ? `${one.name} (or All binders and cases)` : "All binders and cases"} under Look in to fill it. It won't be entered.`;
+  }
+  if(m.reason==="missing") return short ? `No placeholder in ${bbScopeName()}` : `No placeholder for this card in ${bbScopeName()}. It won't be entered.`;
+  if(m.reason==="owned") return short ? "Already owned, not a placeholder" : "You have this card already (it isn't a placeholder). It won't be entered.";
+  return short ? "No placeholder left for it" : "Every placeholder for this card is taken by the cards above. It won't be entered.";
+}
+/* The placeholder names to suggest as you type: the ones where Bulk buy is looking. */
+const bbNames = () => [...new Set(S.cards.filter(c => held(c) && c.placeholder && c.name && (!BB?.scope || c.binderId===BB.scope)).map(c => c.name))].sort((a,b)=>a.localeCompare(b)).map(n=>`<option value="${esc(n)}">`).join("");
+/* Closes the dialog; after a purchase is recorded, its Undo stays on in a toast. */
+function bbClose(){
+  const done = BB?.done?.ok; BB = null; closeModal();
+  if(done?.length) toast(`${done.length} card${done.length===1?"":"s"} bought`, {label:"Undo", run:()=>void bulkBuyUndo(null, done)});
+}
+/* Before an unfinished bulk buy would be thrown away: true when nothing is typed, or the person says so. */
+const bbDiscardOk = () => !bbTyped() || confirm("Discard this bulk buy? Nothing you entered is saved yet.");
+function bulkBuyModal(){
+  if(!S.db) return toast("Saving isn't available in this view.");
+  if(!canEdit()) return toast("You have view-only access.");
+  // starts on the binder or case you're in; All binders and cases from anywhere else
+  BB = {rows:[bbRow()], tax:"", res:[], done:null, busy:false, scope:curBinder()?.id || ""};
+  $("#modalRoot").innerHTML = `<div class="modal"><div class="mcard bb-card" id="bb_card" role="dialog" aria-modal="true" aria-labelledby="bbTitle">
+    <h2 id="bbTitle">Bulk buy</h2>
+    <div id="bb_body">
+      <div class="bb-scope"><div class="field"><label for="bb_scope">Look in</label><select id="bb_scope"><option value="">All binders and cases</option>${sortedBinders().map(b=>`<option value="${esc(b.id)}" ${b.id===BB.scope?"selected":""}>${esc(b.name)}${isCase(b)?" (display case)":""}</option>`).join("")}</select></div><span class="hint">Only placeholders here are filled.</span></div>
+      <p class="lead">Type each card you bought by its name and number. When it matches a placeholder where you're looking, enter what you paid. Put in the tax at the end: it's shared across the cards by price, and each placeholder is switched to owned with what it cost. A card with no placeholder is flagged and left out.</p>
+      <div class="bb-list" id="bb_list"></div>
+      <div class="bb-opts">
+        <div class="field"><label for="bb_tax">Tax</label><input id="bb_tax" type="number" step="0.01" min="0" inputmode="decimal" placeholder="0.00"></div>
+        <div class="field"><label for="bb_cur">Currency</label><select id="bb_cur">${opt(["CAD","USD"],"CAD")}</select></div>
+        <div class="field"><label for="bb_date">Date</label><input id="bb_date" type="date" value="${today()}"></div>
+        <div class="field"><label for="bb_where">Bought where <span class="hint">(optional)</span></label><input id="bb_where" list="bb_dl" placeholder="Card show, local card shop…"><datalist id="bb_dl">${["Card show","Local card shop","Facebook Marketplace","eBay","TCGplayer","Friend"].map(s=>`<option value="${s}">`).join("")}</datalist></div>
+      </div>
+      <div class="qs-total" id="bb_total"></div>
+      <datalist id="bb_names">${bbNames()}</datalist>
+    </div>
+    <div class="mfoot" id="bb_foot"><button class="btn" type="button" id="bb_cancel">Cancel</button><button class="btn primary" type="button" id="bb_go" disabled>Record purchase</button></div>
+  </div></div>`;
+  const card = $("#bb_card");
+  card.addEventListener("input", e => {
+    const r = bbRowOf(e.target), f = e.target.dataset.bbf;
+    if(r && f){ r[f] = e.target.value; if(f!=="price") r.pick = ""; }
+    if(e.target.id==="bb_tax") BB.tax = e.target.value;
+    bbRefresh();
+  });
+  card.addEventListener("change", e => {
+    const r = bbRowOf(e.target);
+    if(r && e.target.matches("[data-bbpick]")){ r.pick = e.target.value; bbRefresh(); card.querySelector(`[data-bbrow="${r.key}"] [data-bbf="price"]`)?.focus(); }
+    if(e.target.id==="bb_scope"){ BB.scope = e.target.value; $("#bb_names").innerHTML = bbNames(); }
+    if(e.target.id==="bb_cur" || e.target.id==="bb_scope") bbRefresh();
+  });
+  card.addEventListener("click", e => {
+    const t = e.target;
+    const rm = t.closest("[data-bbdel]"); if(rm){ const i = BB.rows.findIndex(r=>r.key===rm.dataset.bbdel); if(i>=0){ BB.rows.splice(i,1); bbRows(); bbRefresh(); } return; }
+    if(t.closest("#bb_cancel")){ if(!BB?.busy && bbDiscardOk()){ BB = null; closeModal(); } return; }
+    if(t.closest("#bb_go")) return void bulkBuySave();
+    if(t.closest("#bb_undo")) return void bulkBuyUndo(t.closest("#bb_undo"));
+    if(t.closest("#bb_close")) bbClose();
+  });
+  card.addEventListener("keydown", e => {
+    if(e.key!=="Enter" || !e.target.matches("input")) return;
+    if(e.target.id==="bb_tax"){ e.preventDefault(); $("#bb_go").click(); return; }
+    const f = e.target.dataset.bbf; if(!f) return;
+    e.preventDefault();
+    const row = e.target.closest("[data-bbrow]");
+    if(f==="name") return row.querySelector('[data-bbf="number"]').focus();
+    if(f==="number") return row.querySelector('[data-bbf="price"]').focus();
+    const next = row.nextElementSibling;
+    (next ? next.querySelector('[data-bbf="name"]') : $("#bb_tax")).focus();
+  });
+  bbRows(); bbRefresh();
+  setTimeout(()=> card.querySelector('[data-bbf="name"]')?.focus(), 30);
+}
+const bbRowOf = el => { const k = el.closest("[data-bbrow]")?.dataset.bbrow; return k ? BB.rows.find(r=>r.key===k) : null; };
+/* One row's inputs, and the line under them saying what it matched. */
+const bbRowHTML = (r, i) => `<div class="bb-row" data-bbrow="${r.key}">
+    <span class="bb-n mono" aria-hidden="true">${i+1}</span>
+    <div class="bb-in">
+      <input class="bb-name" data-bbf="name" value="${esc(r.name)}" list="bb_names" placeholder="Name, e.g. Pikachu ex" aria-label="Card ${i+1}: name" autocomplete="off" autocapitalize="words" spellcheck="false" enterkeyhint="next">
+      <input class="bb-num mono" data-bbf="number" value="${esc(r.number)}" placeholder="Number" aria-label="Card ${i+1}: number" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="next">
+      <input class="bb-price mono" data-bbf="price" type="number" step="0.01" min="0" inputmode="decimal" value="${esc(r.price)}" placeholder="Price" aria-label="Card ${i+1}: price" enterkeyhint="next">
+      <button class="btn sm ghost bb-del" type="button" data-bbdel="${r.key}" aria-label="Remove card ${i+1}" title="Remove this card">✕</button>
+    </div>
+    <div class="bb-found" aria-live="polite"></div>
+  </div>`;
+/* Draws every row (when one is removed, so the numbers follow); a new row is added on its own, so typing keeps its place. */
+function bbRows(){ $("#bb_list").innerHTML = BB.rows.map(bbRowHTML).join(""); }
+/* Matches every row, shares out the tax and shows what will happen. */
+function bbRefresh(){
+  if(!BB || BB.done) return;
+  // keep one blank row at the end, ready for the next card
+  const last = BB.rows[BB.rows.length-1];
+  if(!last || last.name.trim() || last.number.trim() || last.price.trim()){ const r = bbRow(); BB.rows.push(r); $("#bb_list").insertAdjacentHTML("beforeend", bbRowHTML(r, BB.rows.length-1)); }
+  const cur = $("#bb_cur").value;
+  BB.res = window.BinderBulkBuy.match(BB.rows, S.cards, {order:SORTS.loc, binderId:BB.scope});
+  const prices = BB.rows.map((r,i) => BB.res[i].status==="blank" ? null : bbAmount(r.price));
+  const tax = bbAmount(BB.tax) ?? 0, shares = window.BinderBulkBuy.allocate(tax, prices);
+  let fill = 0, flagged = 0, choose = 0, incomplete = 0, unpriced = 0, sub = 0;
+  BB.rows.forEach((r,i) => {
+    const m = BB.res[i], el = $(`[data-bbrow="${r.key}"]`); if(!el) return;
+    const p = prices[i], share = shares[i];
+    if(p!=null) sub += p;
+    el.dataset.state = m.status==="none" ? "flag" : m.status;
+    let h = "";
+    if(m.status==="match"){
+      fill++; if(p==null) unpriced++;
+      const c = S.cards.find(x=>x.id===m.cardId);
+      h = `${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="">`:`<span class="thumb"></span>`}<span class="bb-what"><b>${esc(c.name||"Unnamed card")}</b><span class="hint">${esc([metaLine(c), c.variant].filter(Boolean).join(" · "))}</span><span class="hint">${esc(locText(c))}</span></span>
+        <span class="bb-cost mono">${p==null ? `<span class="warn-text">Enter its price</span>` : tax ? `${esc(money(p,cur))} + ${esc(money(share,cur))} tax<br><b>${esc(money(window.BinderBulkBuy.cost(p,share),cur))}</b>` : `<b>${esc(money(p,cur))}</b>`}</span>`;
+      if(m.printings?.length > 1) h += bbPicker(m, r, true);
+    } else if(m.status==="choose"){
+      choose++;
+      h = bbPicker(m, r, false);
+    } else if(m.status==="none"){
+      flagged++;
+      h = `<span class="bb-flag">${esc(bbFlag(m))}${p!=null && tax ? ` Its ${esc(money(share,cur))} share of the tax isn't entered either.` : p==null ? " Its price is only used to share out the tax." : ""}</span>`;
+    } else if(m.status==="incomplete"){
+      incomplete++;
+      h = `<span class="hint">Enter its ${r.name.trim() ? "number" : r.number.trim() ? "name" : "name and number"} to find its placeholder.</span>`;
+    }
+    const f = el.querySelector(".bb-found");
+    if(f.dataset.h !== h){ f.innerHTML = h; f.dataset.h = h; } // unchanged: left alone, so a picker keeps its focus
+  });
+  const why = [choose && `pick which card for ${choose}`, unpriced && `enter the price of ${unpriced}`, incomplete && `finish or remove ${incomplete}`].filter(Boolean);
+  const rate = sub > 0 && tax ? ` (${+(tax/sub*100).toFixed(2)}%)` : "";
+  $("#bb_total").innerHTML = fill + flagged + choose + incomplete === 0 ? `<span class="hint">Start with the first card's name and number.</span>`
+    : `<span>Subtotal <b>${esc(money(sub,cur))}</b></span><span>Tax <b>${esc(money(tax,cur))}</b>${rate}</span><span>Total <b>${esc(money(sub+tax,cur))}</b></span>${flagged?`<span class="warn-text">${flagged} flagged: not entered</span>`:""}${why.length?`<span class="warn-text">To record it, ${why.join(", ")}</span>`:""}`;
+  const go = $("#bb_go");
+  go.disabled = BB.busy || !fill || why.length > 0;
+  go.textContent = BB.busy ? "Recording…" : fill ? `Record ${fill} card${fill===1?"":"s"}` : "Record purchase";
+}
+/* Several printings fit (a reverse holo, a Poké Ball pattern, or the same number in two sets): pick one. */
+function bbPicker(m, r, picked){
+  const label = p => [p.card.set || p.card.setCode, p.card.number, p.card.variant || "Regular", p.card.language && p.card.language!=="English" ? p.card.language : "", locShort(p.card) + (p.free>1?` (${p.free} free)`:"")].filter(Boolean).join(" · ");
+  return `<label class="bb-pick${picked?" picked":""}"><span class="hint">${picked ? "Which one" : `${m.printings.length} placeholders fit. Which one did you buy?`}</span><select data-bbpick aria-label="Which ${esc(r.name)} you bought">${picked?"":`<option value="">Pick one…</option>`}${m.printings.map(p=>`<option value="${esc(p.key)}" ${p.key===m.pick?"selected":""}>${esc(label(p))}</option>`).join("")}</select></label>`;
+}
+async function bulkBuySave(){
+  if(!BB || BB.busy) return;
+  bbRefresh();
+  const go = $("#bb_go"); if(go.disabled) return;
+  BB.busy = true; go.disabled = true; go.textContent = "Recording…";
+  const form = [$("#bb_list"), $("#bb_card .bb-opts"), $("#bb_card .bb-scope")]; // nothing changes while it's being recorded
+  form.forEach(el => { el.inert = true; });
+  const cur = $("#bb_cur").value, date = $("#bb_date").value || today(), where = $("#bb_where").value.trim();
+  const {count, tax, buy, flagged} = window.BinderBulkBuy.plan(BB.rows, BB.res, BB.tax);
+  const jobs = [];
+  for(const b of buy){
+    const c = S.cards.find(x=>x.id===b.cardId); if(!c) continue;
+    const note = `Bulk buy of ${count}: ${money(b.price,cur)}${tax?` + ${money(b.share,cur)} tax`:""}`;
+    const price = {id:rid(), at:nowISO(), type:"paid", amount:b.cost, currency:cur, date, where, note};
+    jobs.push({c, price, patch:{placeholder:false, prices:[...(c.prices||[]), price], updatedAt:nowISO()}});
+  }
+  const res = await Promise.allSettled(jobs.map(j => S.db.doc("cards/"+j.c.id).update(j.patch)));
+  const ok = jobs.filter((_,i)=>res[i].status==="fulfilled"), failed = jobs.filter((_,i)=>res[i].status==="rejected");
+  BB.busy = false; form.forEach(el => { el.inert = false; });
+  if(!ok.length){ writeErr(res.find(x=>x.status==="rejected")?.reason); bbRefresh(); return; }
+  BB.done = {ok:ok.map(j=>({id:j.c.id, priceId:j.price.id})), failed:failed.map(j=>j.c.name||"Card")};
+  const paid = ok.reduce((t,j)=>t+j.price.amount,0);
+  const what = `${ok.length} card${ok.length===1?"":"s"} bought for ${money(paid,cur)}: ${ok.length===1?"its placeholder is":"their placeholders are"} owned now`;
+  if(!flagged.length && !failed.length){
+    const done = BB.done.ok; BB = null; closeModal();
+    toast(what, {label:"Undo", run:()=>void bulkBuyUndo(null, done)});
+    return render();
+  }
+  $("#bb_body").innerHTML = `<p class="lead"><b>${esc(what)}.</b></p>
+    ${failed.length?`<p class="bb-flag">${failed.length} didn't save: ${esc(BB.done.failed.join(", "))}. Try them again in a new bulk buy.</p>`:""}
+    ${flagged.length?`<p>${flagged.length===1?"This card wasn't":`These ${flagged.length} cards weren't`} entered.${flagged.some(f=>f.reason==="elsewhere")?" A card whose placeholder is somewhere else can be filled by another bulk buy with that binder (or All binders and cases) under Look in.":""}${flagged.some(f=>f.reason!=="elsewhere")?" A card with no placeholder to fill can be added with <i>+ Add card</i> if you're keeping it.":""}</p>
+    <ul class="bb-flagged">${flagged.map(f=>`<li><b>${esc(f.name)}</b> <span class="mono">${esc(f.number)}</span>${f.price!=null?` · <span class="mono">${esc(money(f.price,cur))}</span>`:""}<span class="hint">${esc(bbFlag(f, true))}</span></li>`).join("")}</ul>`:""}`;
+  $("#bb_foot").innerHTML = `<button class="btn" type="button" id="bb_undo">Undo</button><button class="btn primary" type="button" id="bb_close">Done</button>`;
+  render();
+}
+/* Puts the cards back as placeholders and takes their bulk-buy price off. */
+async function bulkBuyUndo(btn, list){
+  const done = list || BB?.done?.ok; if(!done?.length) return;
+  if(btn) btn.disabled = true;
+  const res = await Promise.allSettled(done.map(d => { const c = S.cards.find(x=>x.id===d.id); return c ? S.db.doc("cards/"+c.id).update({placeholder:true, prices:(c.prices||[]).filter(p=>p.id!==d.priceId), updatedAt:nowISO()}) : Promise.reject(new Error("gone")); }));
+  const ok = res.filter(r=>r.status==="fulfilled").length;
+  if(btn){ BB = null; closeModal(); }
+  toast(ok===done.length ? `Undone: ${ok} card${ok===1?" is a placeholder":"s are placeholders"} again` : `${ok} of ${done.length} undone. Switch the rest back to Placeholder by hand.`);
+  render();
 }
 
 /* ---------- drawer ---------- */
@@ -1940,7 +2138,7 @@ const arrDrop = e => {
 };
 document.addEventListener("pointerup", arrDrop);
 document.addEventListener("pointercancel", arrDrop);
-addEventListener("beforeunload", e => { if((S.view==="arrange" && arrDirty()) || unsaved()){ e.preventDefault(); e.returnValue = ""; } });
+addEventListener("beforeunload", e => { if((S.view==="arrange" && arrDirty()) || unsaved() || bbTyped()){ e.preventDefault(); e.returnValue = ""; } });
 
 /* ---------- sort a binder ----------
    Puts every card of a binder in order (release date or price) from page 1, pocket 1 with no
@@ -2745,6 +2943,7 @@ document.addEventListener("click", e => {
   if(t.closest("#btnAdd")) return openNew();
   if(t.closest("#btnImport")) return importModal();
   if(t.closest("#btnCsvImport")) return csvImportModal();
+  if(t.closest("#btnBulkBuy")) return bulkBuyModal();
   if(t.closest("#btnExport")) return void exportCSV();
   if(t.closest("#btnSettings") || t.closest("#btnFirstRestore") || t.closest("#btnPriceStatus")) return settingsModal();
   const ua = t.closest("[data-uall]"); if(ua) return void updateAll(ua.dataset.uall, ua);
@@ -2838,7 +3037,7 @@ document.addEventListener("keydown", e => {
   if(FIND.open) return findKey(e);
   if(!LB.open && !$("#modalRoot").innerHTML && !isTyping(e.target) && !e.altKey && ((e.key==="/" && !e.ctrlKey && !e.metaKey) || ((e.key==="k" || e.key==="K") && (e.ctrlKey || e.metaKey)))){ e.preventDefault(); return openFind(); }
   if(LB.open){ if(e.key==="Escape"){ e.preventDefault(); closeViewer(); } else if(e.key==="ArrowLeft"||e.key==="ArrowRight"){ e.preventDefault(); lbGo(LB.i+(e.key==="ArrowLeft"?-1:1)); } else if(e.key==="Home"||e.key==="End"){ e.preventDefault(); lbGo(e.key==="Home"?0:LB.list.length-1); } return; }
-  if(e.key==="Escape"){ if($("#modalRoot").innerHTML){ if(!CI?.busy || !$("#ci_card")) closeModal(); } else if(S.sel){ if(discardOk()) closeDrawer(); } else if(TB.open){ if(TB.pop) tbPopClose(true); else if(TB.colsOpen || TB.sortOpen){ TB.colsOpen = TB.sortOpen = false; tbPanes(); } else closeTable(); } else if(S.pick) endPick(); else if(S.swap){ S.swap = null; renderMain(); } else if(PV.open) closePricing(); else if(SV.open) closeSelling(); } });
+  if(e.key==="Escape"){ if($("#modalRoot").innerHTML){ if($("#bb_card")){ if(!BB?.busy && bbDiscardOk()) bbClose(); } else if(!CI?.busy || !$("#ci_card")) closeModal(); } else if(S.sel){ if(discardOk()) closeDrawer(); } else if(TB.open){ if(TB.pop) tbPopClose(true); else if(TB.colsOpen || TB.sortOpen){ TB.colsOpen = TB.sortOpen = false; tbPanes(); } else closeTable(); } else if(S.pick) endPick(); else if(S.swap){ S.swap = null; renderMain(); } else if(PV.open) closePricing(); else if(SV.open) closeSelling(); } });
 function updateMoveNote(){
   const n=$("#moveNote"); if(!n) return; const c=selCard(); const bid=$("#m_binder").value;
   if(!bid){ n.textContent="The card stays in your ledger under “Not in a binder”."; return; }

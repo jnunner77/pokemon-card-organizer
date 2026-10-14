@@ -1,0 +1,173 @@
+/* Bulk buy: several cards bought together (16 cards at a card show), each typed by its name and
+   number, matched to the placeholders holding their pockets, with the tax shared across them.
+   - A row matches the placeholders with its number (51 matches 51/162 and 051/162; 51/162 doesn't
+     match 51/165) and its name (case, accents and spacing don't matter; "pikachu" finds
+     "Pikachu ex" when no card is called just Pikachu).
+   - Placeholders of the same printing (set, number, variant, language) are interchangeable: the
+     first free one is taken. Different printings (a reverse holo and a Poké Ball pattern) are for
+     the person to pick. Two rows for the same card take two different placeholders.
+   - The tax is split in proportion to the prices, in cents, adding up to the tax exactly.
+   A plain script: the page uses window.BinderBulkBuy, and the tests load it the same way. */
+(function (root) {
+  "use strict";
+
+  const norm = s => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase()
+    .replace(/['’`.]/g, "").replace(/[^a-z0-9/]+/g, " ").trim();
+  const words = s => norm(s).split(" ").filter(Boolean);
+  const compact = s => norm(s).replace(/[ /]/g, "");
+  const held = c => !["sold", "traded"].includes(c.status);
+
+  /* "051/162" → {part:"51", total:"162"}; "TG10/TG30" → {part:"tg10", total:"tg30"}; "" → null */
+  function numberKey(s) {
+    const n = norm(s).replace(/\s+/g, "");
+    if (!n) return null;
+    const [a, b] = n.split("/");
+    const lead = x => (/^\d+$/.test(x) ? String(Number(x)) : x);
+    return { part: lead(a || ""), total: b ? lead(b) : "" };
+  }
+  /* Two numbers (numberKey) are the same card's: the same number, and the same set size when both have one. */
+  const sameNumber = (t, c) => !!t && !!c && !!t.part && t.part === c.part && (!t.total || !c.total || t.total === c.total);
+  const numberMatches = (typed, cardNumber) => sameNumber(numberKey(typed), numberKey(cardNumber));
+
+  /* A name as it's compared: its words and its letters run together. */
+  const nameKey = s => ({ words: words(s), compact: compact(s) });
+  /* 2: the same name ("Arceus V Star" is "Arceus VSTAR"); 1: every word typed starts a word of the
+     card's name ("pikachu" for "Pikachu ex"); 0: no match, and never for a name without letters
+     or digits ("?", another script). */
+  function score(t, n) {
+    if (!t.words.length) return 0;
+    if (t.compact === n.compact) return 2;
+    return t.words.every(w => n.words.some(x => x.startsWith(w))) ? 1 : 0;
+  }
+  const nameScore = (typed, cardName) => score(nameKey(typed), nameKey(cardName));
+
+  /* Placeholders of one printing are the same card to whoever bought it. */
+  const printingKey = c => { const n = numberKey(c.number); return [c.set, c.setCode, n ? `${n.part}/${n.total}` : "", c.variant, c.language || "English"].map(norm).join("|"); };
+
+  /* Every card still held, by its number (part before the "/"), each normalised once. Kept for the
+     same list of cards (the page gets a new list with every change), so typing doesn't redo it. */
+  const indexes = new WeakMap();
+  function index(cards) {
+    if (indexes.has(cards)) return indexes.get(cards);
+    const by = new Map();
+    for (const c of cards) {
+      if (!held(c)) continue;
+      const n = numberKey(c.number);
+      if (!n || !n.part) continue;
+      if (!by.has(n.part)) by.set(n.part, []);
+      by.get(n.part).push({ card: c, number: n, name: nameKey(c.name) });
+    }
+    indexes.set(cards, by);
+    return by;
+  }
+
+  /* The cards a row could be: its best name matches with its number. */
+  function found(row, by) {
+    const t = numberKey(row.number), typed = nameKey(row.name);
+    let best = 0, out = [];
+    for (const e of (t && by.get(t.part)) || []) {
+      if (!sameNumber(t, e.number)) continue;
+      const s = score(typed, e.name);
+      if (!s || s < best) continue;
+      if (s > best) { best = s; out = []; }
+      out.push(e.card);
+    }
+    return out;
+  }
+
+  /**
+   * Each row's match. rows: [{name, number, pick?}] where pick is a printing key the person chose.
+   * cards: every card. options.order(card): where it sits, smaller first (the first free pocket is
+   * filled first). options.binderId: look only in that binder or case (blank: in all of them, and
+   * among the cards in none). Returns, per row, {status, cardId, printings, pick}:
+   *   blank       nothing typed (the row is ignored)
+   *   incomplete  the name or the number (or both, with a price typed) still missing
+   *   match       cardId is the placeholder it fills
+   *   choose      several printings fit: printings [{key, card, free}] to pick from
+   *   none        no placeholder: reason "missing" (no such card), "owned" (only cards you have
+   *               already), "taken" (its placeholders are used by the rows above) or "elsewhere"
+   *               (its placeholders are in other binders: binderIds, with "" for no binder)
+   */
+  function match(rows, cards, options) {
+    const order = (options && options.order) || (() => "");
+    const byOrder = (a, b) => { const x = order(a), y = order(b); return x < y ? -1 : x > y ? 1 : 0; }; // as the page sorts: "~" (no binder) last
+    const scope = (options && options.binderId) || "";
+    const inScope = c => !scope || c.binderId === scope;
+    const taken = new Set();
+    let by = null;
+    return (rows || []).map(row => {
+      const name = String(row.name ?? "").trim(), number = String(row.number ?? "").trim();
+      if (!name && !number) return { status: String(row.price ?? "").trim() ? "incomplete" : "blank" };
+      if (!name || !numberKey(number)) return { status: "incomplete" };
+      if (!by) by = index(cards || []);
+      const all = found({ name, number }, by);
+      const ph = all.filter(c => c.placeholder && inScope(c)).sort(byOrder);
+      if (!ph.length) {
+        const away = all.filter(c => c.placeholder);
+        if (away.length) return { status: "none", reason: "elsewhere", binderIds: [...new Set(away.sort(byOrder).map(c => c.binderId || ""))] };
+        return { status: "none", reason: all.length ? "owned" : "missing" };
+      }
+      const free = ph.filter(c => !taken.has(c.id));
+      if (!free.length) return { status: "none", reason: "taken" };
+      const groups = new Map();
+      for (const c of free) {
+        const k = printingKey(c);
+        if (!groups.has(k)) groups.set(k, []);
+        groups.get(k).push(c);
+      }
+      const printings = [...groups].map(([key, list]) => ({ key, card: list[0], free: list.length }));
+      const pick = printings.length === 1 ? printings[0] : printings.find(p => p.key === row.pick);
+      if (!pick) return { status: "choose", printings };
+      taken.add(pick.card.id);
+      return { status: "match", cardId: pick.card.id, printings, pick: pick.key };
+    });
+  }
+
+  const cents = n => Math.round(Number(n) * 100);
+
+  /* Split `tax` (dollars) across cards with these prices, in proportion; a card without a price
+     takes none. The cents left over after rounding go to the cards rounded down the most. When no
+     card costs anything, it's split evenly across the cards priced at 0 (or all of them, when none
+     has a price). Returns each card's share in dollars. */
+  function allocate(tax, prices) {
+    const t = cents(tax), n = (prices || []).length;
+    if (!n || !(t > 0)) return (prices || []).map(() => 0);
+    const priced = p => typeof p === "number" && p >= 0;
+    let w = prices.map(p => (priced(p) && p > 0 ? cents(p) : 0));
+    if (!w.some(x => x > 0)) w = prices.some(priced) ? prices.map(p => (priced(p) ? 1 : 0)) : prices.map(() => 1);
+    const sum = w.reduce((a, b) => a + b, 0);
+    const raw = w.map(x => (t * x) / sum), out = raw.map(Math.floor);
+    let left = t - out.reduce((a, b) => a + b, 0);
+    raw.map((x, i) => ({ i, frac: x - Math.floor(x) }))
+      .filter(({ i }) => w[i] > 0)
+      .sort((a, b) => b.frac - a.frac || a.i - b.i)
+      .forEach(({ i }) => { if (left > 0) { out[i]++; left--; } });
+    return out.map(c => c / 100);
+  }
+
+  /* What a card cost: its price and its share of the tax, to the cent. */
+  const cost = (price, share) => (cents(price) + cents(share || 0)) / 100;
+
+  /* A typed amount in dollars, to the cent; null when blank, not a number or below 0. */
+  const amount = s => { const v = parseFloat(s); return String(s ?? "").trim() === "" || isNaN(v) || v < 0 ? null : cents(v) / 100; };
+
+  /**
+   * What recording the purchase does, from the rows, their matches (match()) and the tax typed:
+   * {count, tax, buy: [{row, cardId, price, share, cost}], flagged: [{row, name, number, price, reason}]}.
+   * Every row with a card (matched or flagged) counts and shares the tax by its price; only the
+   * matched ones are bought. count is how many cards the purchase was.
+   */
+  function plan(rows, results, taxTyped) {
+    const prices = rows.map((r, i) => (results[i].status === "blank" ? null : amount(r.price)));
+    const tax = amount(taxTyped) ?? 0, shares = allocate(tax, prices);
+    const out = { count: results.filter(m => m.status === "match" || m.status === "none").length, tax, buy: [], flagged: [] };
+    rows.forEach((r, i) => {
+      const m = results[i];
+      if (m.status === "match") out.buy.push({ row: i, cardId: m.cardId, price: prices[i], share: shares[i], cost: cost(prices[i] ?? 0, shares[i]) });
+      else if (m.status === "none") out.flagged.push({ row: i, name: String(r.name ?? "").trim(), number: String(r.number ?? "").trim(), price: prices[i], reason: m.reason, ...(m.binderIds ? { binderIds: m.binderIds } : {}) });
+    });
+    return out;
+  }
+
+  root.BinderBulkBuy = { match, allocate, cost, amount, plan, numberMatches, nameScore, printingKey };
+})(typeof window !== "undefined" ? window : globalThis);

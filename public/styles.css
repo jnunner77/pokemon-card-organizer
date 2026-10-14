@@ -501,6 +501,50 @@ tbody tr.sel{background:var(--accent-soft)}
 .qs-total{display:flex;flex-wrap:wrap;gap:4px 18px;margin-top:12px;font-size:13px;color:var(--ink-2)}
 .qs-total b{font-family:var(--f-mono);color:var(--ink)}
 @media (max-width:480px){.qs-row{grid-template-columns:40px minmax(0,1fr) 100px}.qs-opts{grid-template-columns:1fr 1fr}.qs-opts .field:last-child{grid-column:1/-1}}
+/* bulk buy */
+.mcard.bb-card{width:min(720px,100%)}
+.bb-scope{display:flex;flex-wrap:wrap;align-items:flex-end;gap:6px 12px;margin:0 0 10px}
+.bb-scope .field{flex:0 1 300px}
+.bb-scope .hint{padding-bottom:9px}
+.bb-list{display:flex;flex-direction:column;gap:8px;max-height:56vh;overflow-y:auto;padding:2px}
+.bb-row{display:grid;grid-template-columns:22px minmax(0,1fr);gap:6px 8px;border:1px solid var(--line-2);border-radius:8px;padding:8px 10px}
+.bb-row[data-state="flag"]{border-color:var(--bad);background:var(--bad-soft)}
+.bb-row[data-state="choose"],.bb-row[data-state="incomplete"]{border-color:var(--warn)}
+.bb-n{font-size:12px;font-weight:700;color:var(--ink-3);padding-top:9px;text-align:right}
+.bb-in{display:grid;grid-template-columns:minmax(0,1fr) 120px 100px 30px;gap:8px;align-items:center}
+.bb-in input{width:100%;min-width:0;border:1px solid var(--line);border-radius:7px;background:var(--surface-2);padding:7px 9px;font-size:15px}
+.bb-in input:focus{outline:none;border-color:var(--accent-line);background:var(--surface)}
+.bb-in .bb-price{text-align:right}
+.bb-row:last-child .bb-del{visibility:hidden}
+.bb-found{grid-column:2;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font-size:13px}
+.bb-found:empty{display:none}
+.bb-found .thumb{width:36px;height:50px;flex:none}
+.bb-what{flex:1 1 200px;min-width:0;display:flex;flex-direction:column}
+.bb-what .hint{overflow-wrap:anywhere}
+.bb-cost{margin-left:auto;text-align:right;font-size:12px;color:var(--ink-2)}
+.bb-cost b{font-size:14px;color:var(--ink)}
+.bb-cost .warn-text,.bb-row .warn-text{color:var(--warn);font-weight:600;font-family:var(--f-ui)}
+.bb-flag{color:var(--bad);font-weight:600}
+.bb-pick{flex:1 1 100%;display:flex;flex-direction:column;gap:3px}
+.bb-pick select{width:100%;border:1px solid var(--line);border-radius:7px;background:var(--surface-2);padding:7px 9px;font-size:14px}
+.bb-pick.picked{flex-direction:row;align-items:center;gap:8px}
+.bb-pick.picked select{flex:1;min-width:0;font-size:13px;padding:5px 8px}
+.bb-opts{display:grid;grid-template-columns:.9fr .8fr 1fr 1.5fr;gap:10px;margin-top:12px}
+.bb-opts #bb_tax{font-family:var(--f-mono);font-size:15px;text-align:right}
+.bb-flagged{margin:6px 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
+.bb-flagged li{border:1px solid var(--bad);background:var(--bad-soft);border-radius:8px;padding:8px 10px}
+.bb-flagged .hint{display:block}
+@media (max-width:640px){
+  .bb-list{max-height:none;overflow:visible}
+  .bb-row{grid-template-columns:18px minmax(0,1fr);padding:8px}
+  .bb-in{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 30px}
+  .bb-in .bb-name{grid-column:1/-1}
+  .bb-in input,.bb-pick select,.bb-pick.picked select,.bb-opts input,.bb-opts #bb_tax,.bb-opts select,.bb-scope select{font-size:16px}
+  .bb-opts{grid-template-columns:1fr 1fr}
+  .bb-scope .field{flex:1 1 100%}
+  .bb-scope .hint{padding-bottom:0}
+  .bb-cost{flex:1 1 100%;text-align:left;margin-left:0}
+}
 .salesum{display:flex;flex-wrap:wrap;gap:8px 26px;padding:14px 16px;border-bottom:1px solid var(--line-2)}
 .salesum .v.pos{color:var(--good)}.salesum .v.neg{color:var(--bad)}
 .salestbl .show-sm{display:none;font-family:var(--f-ui);font-weight:400}
