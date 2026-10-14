@@ -5,18 +5,19 @@ import { describe, expect, it } from 'vitest';
 
 // public/bulkbuy.js is a plain browser script; load it the way the page does.
 type Card = { id: string; name?: string; number?: string; set?: string; setCode?: string; variant?: string; language?: string; placeholder?: boolean; status?: string; slot?: number };
-type Row = { name?: string; number?: string; pick?: string };
+type Row = { name?: string; number?: string; price?: string; pick?: string };
 type Result = { status: string; cardId?: string; reason?: string; pick?: string; printings?: { key: string; card: Card; free: number }[] };
 type Bulk = {
   match: (rows: Row[], cards: Card[], options?: { order?: (c: Card) => string | number }) => Result[];
   allocate: (tax: number, prices: (number | null)[]) => number[];
+  cost: (price: number, share: number) => number;
   numberMatches: (typed: string, card: string) => boolean;
   nameScore: (typed: string, card: string) => number;
   printingKey: (c: Card) => string;
 };
 const sandbox = { window: {} as { BinderBulkBuy: Bulk } };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../public/bulkbuy.js'), 'utf8'), sandbox);
-const { match, allocate, numberMatches, nameScore, printingKey } = sandbox.window.BinderBulkBuy;
+const { match, allocate, cost, numberMatches, nameScore, printingKey } = sandbox.window.BinderBulkBuy;
 const sum = (a: number[]) => Math.round(a.reduce((x, y) => x + y, 0) * 100) / 100;
 const order = { order: (c: Card) => String(c.slot ?? 0).padStart(3, '0') };
 
@@ -67,6 +68,8 @@ describe('matching rows to placeholders', () => {
   it('ignores blank rows and asks for both the name and number', () => {
     const cards = [ph('a', 'Bulbasaur', '001/165')];
     expect(match([{ name: '', number: '' }, { name: 'Bulbasaur' }, { number: '1' }], cards).map(r => r.status)).toEqual(['blank', 'incomplete', 'incomplete']);
+    // a price typed on its own isn't ignored: the row still needs its card
+    expect(match([{ name: ' ', number: '', price: '4.50' }], cards).map(r => r.status)).toEqual(['incomplete']);
   });
 
   it('flags a card with no placeholder, and says when it is already owned', () => {
@@ -145,7 +148,23 @@ describe('allocating tax', () => {
 
   it('splits evenly when no card has a price, and returns zeros with no tax', () => {
     expect(allocate(1, [null, null, null])).toEqual([0.34, 0.33, 0.33]);
+    // cards priced at 0 share it; a card with no price still takes none
+    expect(allocate(1, [0, 0, null])).toEqual([0.5, 0.5, 0]);
     expect(allocate(0, [5, 6])).toEqual([0, 0]);
     expect(allocate(5, [])).toEqual([]);
+  });
+});
+
+describe('what a card cost', () => {
+  it('adds its price and tax share to the cent', () => {
+    expect(cost(10, 1.19)).toBe(11.19);
+    expect(cost(0.1, 0.2)).toBe(0.3);
+    expect(cost(4, 0)).toBe(4);
+  });
+
+  it('adds up to the subtotal and tax across a purchase', () => {
+    const prices = [10, 4, 4, 6, 3, 20, 0.99];
+    const shares = allocate(6.1, prices);
+    expect(sum(prices.map((p, i) => cost(p, shares[i])))).toBe(Math.round((sum(prices) + 6.1) * 100) / 100);
   });
 });

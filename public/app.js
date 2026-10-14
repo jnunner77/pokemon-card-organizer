@@ -736,7 +736,7 @@ function bbRefresh(){
       fill++; if(p==null) unpriced++;
       const c = S.cards.find(x=>x.id===m.cardId);
       h = `${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="">`:`<span class="thumb"></span>`}<span class="bb-what"><b>${esc(c.name||"Unnamed card")}</b><span class="hint">${esc([metaLine(c), c.variant].filter(Boolean).join(" · "))}</span><span class="hint">${esc(locText(c))}</span></span>
-        <span class="bb-cost mono">${p==null ? `<span class="warn-text">Enter its price</span>` : tax ? `${esc(money(p,cur))} + ${esc(money(share,cur))} tax<br><b>${esc(money(p+share,cur))}</b>` : `<b>${esc(money(p,cur))}</b>`}</span>`;
+        <span class="bb-cost mono">${p==null ? `<span class="warn-text">Enter its price</span>` : tax ? `${esc(money(p,cur))} + ${esc(money(share,cur))} tax<br><b>${esc(money(window.BinderBulkBuy.cost(p,share),cur))}</b>` : `<b>${esc(money(p,cur))}</b>`}</span>`;
       if(m.printings?.length > 1) h += bbPicker(m, r, true);
     } else if(m.status==="choose"){
       choose++;
@@ -746,7 +746,7 @@ function bbRefresh(){
       h = `<span class="bb-flag">${esc(bbFlag[m.reason])}${p!=null && tax ? ` Its ${esc(money(share,cur))} share of the tax isn't entered either.` : p==null ? " Its price is only used to share out the tax." : ""}</span>`;
     } else if(m.status==="incomplete"){
       incomplete++;
-      h = `<span class="hint">Enter its ${r.name.trim() ? "number" : "name"} to find its placeholder.</span>`;
+      h = `<span class="hint">Enter its ${r.name.trim() ? "number" : r.number.trim() ? "name" : "name and number"} to find its placeholder.</span>`;
     }
     const f = el.querySelector(".bb-found");
     if(f.dataset.h !== h){ f.innerHTML = h; f.dataset.h = h; } // unchanged: left alone, so a picker keeps its focus
@@ -779,7 +779,7 @@ async function bulkBuySave(){
     if(m.status==="none") return void flagged.push({name:r.name.trim(), number:r.number.trim(), price:prices[i], reason:m.reason});
     if(m.status!=="match") return;
     const c = S.cards.find(x=>x.id===m.cardId); if(!c) return;
-    const amount = Math.round((prices[i] + shares[i])*100)/100;
+    const amount = window.BinderBulkBuy.cost(prices[i], shares[i]);
     const note = `Bulk buy of ${count}: ${money(prices[i],cur)}${tax?` + ${money(shares[i],cur)} tax`:""}`;
     const price = {id:rid(), at:nowISO(), type:"paid", amount, currency:cur, date, where, note};
     jobs.push({c, price, patch:{placeholder:false, prices:[...(c.prices||[]), price], updatedAt:nowISO()}});

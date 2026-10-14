@@ -62,7 +62,7 @@
    * cards: every card. options.order(card): where it sits, smaller first (the first free pocket is
    * filled first). Returns, per row, {status, cardId, printings, pick}:
    *   blank       nothing typed (the row is ignored)
-   *   incomplete  only the name or only the number
+   *   incomplete  the name or the number (or both, with a price typed) still missing
    *   match       cardId is the placeholder it fills
    *   choose      several printings fit: printings [{key, card, free}] to pick from
    *   none        no placeholder: reason "missing" (no such card), "owned" (only cards you have
@@ -74,7 +74,7 @@
     const taken = new Set();
     return (rows || []).map(row => {
       const name = String(row.name ?? "").trim(), number = String(row.number ?? "").trim();
-      if (!name && !number) return { status: "blank" };
+      if (!name && !number) return { status: String(row.price ?? "").trim() ? "incomplete" : "blank" };
       if (!name || !numberKey(number)) return { status: "incomplete" };
       const all = found({ name, number }, cards || []);
       const ph = all.filter(c => c.placeholder).sort(byOrder);
@@ -99,12 +99,14 @@
 
   /* Split `tax` (dollars) across cards with these prices, in proportion; a card without a price
      takes none. The cents left over after rounding go to the cards rounded down the most. When no
-     card has a price, it's split evenly. Returns each card's share in dollars. */
+     card costs anything, it's split evenly across the cards priced at 0 (or all of them, when none
+     has a price). Returns each card's share in dollars. */
   function allocate(tax, prices) {
     const t = cents(tax), n = (prices || []).length;
     if (!n || !(t > 0)) return (prices || []).map(() => 0);
-    let w = prices.map(p => (typeof p === "number" && p > 0 ? cents(p) : 0));
-    if (!w.some(x => x > 0)) w = w.map(() => 1);
+    const priced = p => typeof p === "number" && p >= 0;
+    let w = prices.map(p => (priced(p) && p > 0 ? cents(p) : 0));
+    if (!w.some(x => x > 0)) w = prices.some(priced) ? prices.map(p => (priced(p) ? 1 : 0)) : prices.map(() => 1);
     const sum = w.reduce((a, b) => a + b, 0);
     const raw = w.map(x => (t * x) / sum), out = raw.map(Math.floor);
     let left = t - out.reduce((a, b) => a + b, 0);
@@ -115,5 +117,8 @@
     return out.map(c => c / 100);
   }
 
-  root.BinderBulkBuy = { match, allocate, numberMatches, nameScore, printingKey };
+  /* What a card cost: its price and its share of the tax, to the cent. */
+  const cost = (price, share) => (cents(price) + cents(share || 0)) / 100;
+
+  root.BinderBulkBuy = { match, allocate, cost, numberMatches, nameScore, printingKey };
 })(typeof window !== "undefined" ? window : globalThis);
