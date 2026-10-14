@@ -648,7 +648,7 @@ function openNew(loc){
   const bid = loc?.binderId ?? (curBinder()?.id || null);
   const spot = loc?.slot ? loc : (bid ? firstFree(bid) : null);
   S.sel="__new"; S.dirty=true; S.editPrice=null; S.confirm=null;
-  S.draft = {id:"__new", name:"", set:"", setCode:"", number:"", rarity:"", variant:"", language:"English", condition:"Near Mint", grader:"Raw", grade:"", artist:"", notes:"", status:"binder", owner:newCardOwner(bid), prices:[], imageId:null, binderId: bid, page: spot?.page||null, slot: spot?.slot||null};
+  S.draft = {id:"__new", key:rid(), name:"", set:"", setCode:"", number:"", rarity:"", variant:"", language:"English", condition:"Near Mint", grader:"Raw", grade:"", artist:"", notes:"", status:"binder", owner:newCardOwner(bid), prices:[], imageId:null, binderId: bid, page: spot?.page||null, slot: spot?.slot||null};
   renderMain(); renderDrawer(true);
 }
 function closeDrawer(){ S.pricePick=null; S.pickRes=null; S.sel=null; S.draft=null; S.dirty=false; S.editPrice=null; S.confirm=null; renderMain(); renderDrawer(true); }
@@ -1079,13 +1079,38 @@ async function saveCard(){
     if(S.sel==="__new"){
       const loc = {binderId:c.binderId||null, page:c.binderId?c.page:null, slot:c.binderId?c.slot:null};
       if(loc.binderId && cardAt(loc.binderId, loc.page, loc.slot)){ const f = firstFree(loc.binderId); loc.page=f.page; loc.slot=f.slot; }
-      const id = rid();
+      const id = rid(), draftKey = S.draft?.key, sentPhoto = c.imageId||null;
       const ok = await guard(()=> S.db.collection("cards").doc(id).set({...data, ...loc, placeholder:!!$("#f_placeholder")?.checked, imageId:c.imageId||null, prices:[], createdAt:nowISO(), updatedAt:nowISO()}));
-      if(ok){ toast(`Added ${data.name}. Looking up its price and picture…`); S.sel=id; S.draft=null; S.dirty=false; if(loc.binderId){ S.binderId=loc.binderId; if(loc.page) S.page=loc.page; persistNav(); } render(); renderDrawer(true); }
+      if(ok){
+        toast(`Added ${data.name}. Looking up its price and picture…`);
+        if(S.sel!=="__new" || S.draft?.key!==draftKey) return; // the person moved on (to another card, or a new one) meanwhile
+        // The drawer is drawn again for the added card: what was typed while it was being added stays, to be saved.
+        const later = window.BinderFormSync.changedSince($("#cardForm")?.elements||[], data);
+        const photo = S.draft?.imageId || null; // the photo now, which may have changed while it was being added
+        S.sel=id; S.draft=null; S.dirty=false; if(loc.binderId){ S.binderId=loc.binderId; if(loc.page) S.page=loc.page; persistNav(); } render(); renderDrawer(true);
+        const f = $("#cardForm");
+        if(f && Object.keys(later).length){
+          for(const [k, v] of Object.entries(later)) if(f.elements[k]) f.elements[k].value = v;
+          if(later.name){ const t = $("#dTitle"); if(t) t.textContent = later.name; }
+          S.dirty = true;
+        }
+        // A photo chosen, replaced or removed while it was being added: the card takes it, and the one
+        // it was added with goes when nothing else uses it (as when a photo is changed).
+        if(photo!==sentPhoto) updateCard(id, {imageId:photo}).then(async ok=>{
+          if(!ok) return;
+          if(sentPhoto && !S.cards.some(x=>x.imageId===sentPhoto)){ try{ await delAsset(sentPhoto); }catch(_){} }
+          toast(photo ? "Photo saved" : "Photo removed from card"); refreshParts(selCard());
+        });
+      }
       return;
     }
     const ok = await guard(()=> S.db.doc("cards/"+c.id).update({...data, updatedAt:nowISO()}));
-    if(ok){ S.dirty=false; for(const el of $("#cardForm")?.elements||[]) window.BinderFormSync.markShown(el); toast("Saved"); refreshParts(selCard()); }
+    if(ok){
+      toast("Saved");
+      // Still on this card: what was sent counts as saved, and anything typed meanwhile stays to be saved.
+      const f = S.sel===c.id ? $("#cardForm") : null;
+      if(f){ S.dirty = Object.keys(window.BinderFormSync.markSaved(f.elements, data)).length > 0; refreshParts(selCard()); }
+    }
   } finally {
     S.saving = false; syncSaveButton();
   }
@@ -2766,7 +2791,7 @@ document.addEventListener("click", e => {
   const pr = t.closest("[data-pr]"); if(pr) return void priceAction(pr.dataset.pr, selCard());
   const cd2 = t.closest("[data-cand]"); if(cd2){ const [from, i] = cd2.dataset.cand.split(":"); const c = selCard(); const list = from==="stored" ? (c?.pricing?.candidates||[]) : (Array.isArray(S.pickRes)?S.pickRes:[]); const x = list[+i]; if(x) priceAction("link", c, {source:x.source, id:x.id, url:x.url, title:x.title, set:x.set}); return; }
   const pc2 = t.closest("[data-pic]"); if(pc2 && !pc2.disabled){ const c = selCard(); if(c && S.sel!=="__new") updateCard(c.id, {imagePref: pc2.dataset.pic}).then(ok=>{ if(ok){ refreshParts(selCard()); renderMain(); } }); return; }
-  if(t.closest("#btnRmImg")){ const c=selCard(); if(S.sel==="__new"){ S.draft.imageId=null; renderDrawer(true); } else updateCard(c.id,{imageId:null}).then(ok=>ok&&toast("Photo removed from card")); return; }
+  if(t.closest("#btnRmImg")){ const c=selCard(); if(S.sel==="__new"){ S.draft = {...S.draft, ...readForm(), imageId:null}; renderDrawer(true); } else updateCard(c.id,{imageId:null}).then(ok=>ok&&toast("Photo removed from card")); return; }
   if(t.closest("#btnMove")){ const c=selCard(); const bid=$("#m_binder").value; return void moveCard(c, bid||null, Math.max(1, +$("#m_page").value||1), +$("#m_slot").value); }
   if(t.closest("#btnFree")){ const bid=$("#m_binder").value; if(!bid) return; const f=firstFree(bid); $("#m_page").value=f.page; $("#m_slot").value=f.slot; updateMoveNote(); return; }
   if(t.closest("#btnTakeOut")){ const c=selCard(); return void moveCard(c, null); }

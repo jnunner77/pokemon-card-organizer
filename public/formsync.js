@@ -83,5 +83,23 @@
     return !!state.saving || !state.dirty;
   }
 
-  root.BinderFormSync = { KEYS, SELECTS, updates, shownValue, markShown, show, edited, unsaved, saveDisabled };
+  /* What was typed after a save read the form: {name: value} for each field no longer holding what
+     was sent. sent: {name: value} as saved (trimmed, as the drawer reads it). */
+  function changedSince(elements, sent) {
+    const out = {};
+    for (const el of Array.from(elements)) {
+      if (el.name && Object.prototype.hasOwnProperty.call(sent, el.name) && String(el.value).trim() !== String(sent[el.name])) out[el.name] = el.value;
+    }
+    return out;
+  }
+
+  /* After a save: the fields still holding what was sent count as saved; one typed into meanwhile
+     stays changed, to be saved next. Returns those (as changedSince). */
+  function markSaved(elements, sent) {
+    const later = changedSince(elements, sent);
+    for (const el of Array.from(elements)) if (!Object.prototype.hasOwnProperty.call(later, el.name)) markShown(el);
+    return later;
+  }
+
+  root.BinderFormSync = { KEYS, SELECTS, updates, shownValue, markShown, show, edited, unsaved, saveDisabled, changedSince, markSaved };
 })(typeof window !== "undefined" ? window : globalThis);
