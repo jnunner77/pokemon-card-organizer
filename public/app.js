@@ -815,7 +815,7 @@ async function bulkBuySave(){
   }
   $("#bb_body").innerHTML = `<p class="lead"><b>${esc(what)}.</b></p>
     ${failed.length?`<p class="bb-flag">${failed.length} didn't save: ${esc(BB.done.failed.join(", "))}. Try them again in a new bulk buy.</p>`:""}
-    ${flagged.length?`<p>${flagged.length===1?"This card wasn't":`These ${flagged.length} cards weren't`} entered: ${flagged.length===1?"it has":"they have"} no placeholder to fill. Add ${flagged.length===1?"it":"them"} with <i>+ Add card</i> if you're keeping ${flagged.length===1?"it":"them"}.</p>
+    ${flagged.length?`<p>${flagged.length===1?"This card wasn't":`These ${flagged.length} cards weren't`} entered.${flagged.some(f=>f.reason==="elsewhere")?" A card whose placeholder is somewhere else can be filled by another bulk buy with that binder (or All binders and cases) under Look in.":""}${flagged.some(f=>f.reason!=="elsewhere")?" A card with no placeholder to fill can be added with <i>+ Add card</i> if you're keeping it.":""}</p>
     <ul class="bb-flagged">${flagged.map(f=>`<li><b>${esc(f.name)}</b> <span class="mono">${esc(f.number)}</span>${f.price!=null?` · <span class="mono">${esc(money(f.price,cur))}</span>`:""}<span class="hint">${esc(bbFlag(f, true))}</span></li>`).join("")}</ul>`:""}`;
   $("#bb_foot").innerHTML = `<button class="btn" type="button" id="bb_undo">Undo</button><button class="btn primary" type="button" id="bb_close">Done</button>`;
   render();

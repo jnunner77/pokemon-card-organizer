@@ -466,8 +466,9 @@ a card show) against the [placeholders](#placeholders) waiting for them:
    starts there), another one, or *All binders and cases* (the cards in no binder too). Only
    placeholders there are filled.
 2. Type each card's **name and number**; a new row opens as you go (**Enter** moves along). As soon as
-   both are in, the row shows the placeholder it found: its picture, set, variant and pocket. Case and accents don't matter, `51` finds *51/162* and *051/162*
-   (but `51/162` never *51/165*), and *Pikachu* finds *Pikachu ex* when no card is called just Pikachu.
+   both are in, the row shows the placeholder it found: its picture, set, variant and pocket. Case
+   and accents don't matter, `51` finds *51/162* and *051/162* (but `51/162` never *51/165*), and
+   *Pikachu* finds *Pikachu ex* when no card is called just Pikachu.
 3. When several placeholders fit (a regular, reverse holo and Poké Ball copy, or the same number in
    two sets), the row asks **which one** you bought. Copies of the same printing aren't asked about:
    the first free pocket is filled. Two rows for the same card fill two placeholders.
@@ -480,7 +481,8 @@ a card show) against the [placeholders](#placeholders) waiting for them:
    already owned (not a placeholder), or every placeholder for it already taken by the rows above. Its price still counts for sharing out the tax, so the other cards only get their own share.
 6. *Record* switches every matched placeholder to owned and logs an **I paid** price of its price plus
    its tax share (noted *Bulk buy of 16: $10.00 + $1.19 tax*), all at once, with **Undo**. Flagged
-   cards are listed afterwards, to add with *+ Add card* if you're keeping them.
+   cards are listed afterwards: one whose placeholder is in another binder can be filled by another
+   bulk buy looking there, and one with no placeholder added with *+ Add card* if you're keeping it.
 
 Closing it with cards typed asks first. View-only accounts don't see it.
 

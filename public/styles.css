@@ -539,7 +539,7 @@ tbody tr.sel{background:var(--accent-soft)}
   .bb-row{grid-template-columns:18px minmax(0,1fr);padding:8px}
   .bb-in{grid-template-columns:minmax(0,1fr) minmax(0,1fr) 30px}
   .bb-in .bb-name{grid-column:1/-1}
-  .bb-in input,.bb-pick select,.bb-opts input,.bb-opts select{font-size:16px}
+  .bb-in input,.bb-pick select,.bb-opts input,.bb-opts select,.bb-scope select{font-size:16px}
   .bb-opts{grid-template-columns:1fr 1fr}
   .bb-scope .field{flex:1 1 100%}
   .bb-scope .hint{padding-bottom:0}
