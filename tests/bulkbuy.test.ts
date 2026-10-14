@@ -11,13 +11,19 @@ type Bulk = {
   match: (rows: Row[], cards: Card[], options?: { order?: (c: Card) => string | number }) => Result[];
   allocate: (tax: number, prices: (number | null)[]) => number[];
   cost: (price: number, share: number) => number;
+  amount: (s: string | null | undefined) => number | null;
+  plan: (rows: Row[], results: Result[], tax: string) => {
+    count: number; tax: number;
+    buy: { row: number; cardId: string; price: number | null; share: number; cost: number }[];
+    flagged: { row: number; name: string; number: string; price: number | null; reason: string }[];
+  };
   numberMatches: (typed: string, card: string) => boolean;
   nameScore: (typed: string, card: string) => number;
   printingKey: (c: Card) => string;
 };
 const sandbox = { window: {} as { BinderBulkBuy: Bulk } };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../public/bulkbuy.js'), 'utf8'), sandbox);
-const { match, allocate, cost, numberMatches, nameScore, printingKey } = sandbox.window.BinderBulkBuy;
+const { match, allocate, cost, amount, plan, numberMatches, nameScore, printingKey } = sandbox.window.BinderBulkBuy;
 const sum = (a: number[]) => Math.round(a.reduce((x, y) => x + y, 0) * 100) / 100;
 const order = { order: (c: Card) => String(c.slot ?? 0).padStart(3, '0') };
 
@@ -76,6 +82,11 @@ describe('matching rows to placeholders', () => {
     const cards = [ph('a', 'Bulbasaur', '001/165'), { id: 'b', name: 'Ivysaur', number: '002/165' }];
     const r = match([{ name: 'Mew', number: '151' }, { name: 'Ivysaur', number: '2' }], cards);
     expect(r).toEqual([{ status: 'none', reason: 'missing' }, { status: 'none', reason: 'owned' }]);
+  });
+
+  it('matches nothing from a name without letters or digits', () => {
+    const cards = [ph('a', 'Pikachu', '025/165')];
+    for (const name of ['?', '—', 'ピカチュウ']) expect(match([{ name, number: '25' }], cards)).toEqual([{ status: 'none', reason: 'missing' }]);
   });
 
   it('never fills a sold or traded card', () => {
@@ -173,5 +184,38 @@ describe('what a card cost', () => {
     const prices = [10, 4, 4, 6, 3, 20, 0.99];
     const shares = allocate(6.1, prices);
     expect(sum(prices.map((p, i) => cost(p, shares[i])))).toBe(Math.round((sum(prices) + 6.1) * 100) / 100);
+  });
+});
+
+describe('planning the purchase', () => {
+  it('reads typed amounts to the cent, and nothing from a blank or a negative', () => {
+    expect(amount('4.5')).toBe(4.5);
+    expect(amount(' 10.006 ')).toBe(10.01);
+    expect([amount(''), amount('  '), amount('abc'), amount('-1'), amount(null)]).toEqual([null, null, null, null, null]);
+  });
+
+  it('buys the matched cards at their price and tax share, and lists the flagged ones', () => {
+    const cards = [ph('a', 'Bulbasaur', '001/165'), ph('b', 'Ivysaur', '002/165')];
+    const rows = [
+      { name: 'Bulbasaur', number: '1', price: '10' },
+      { name: 'Mewtwo', number: '150', price: '20' },
+      { name: 'Ivysaur', number: '2', price: '4.99' },
+      { name: '', number: '', price: '' },
+    ];
+    const p = plan(rows, match(rows, cards), '6.10');
+    expect(p.count).toBe(3);
+    expect(p.tax).toBe(6.1);
+    expect(p.buy.map(b => [b.row, b.cardId, b.price])).toEqual([[0, 'a', 10], [2, 'b', 4.99]]);
+    expect(p.flagged).toEqual([{ row: 1, name: 'Mewtwo', number: '150', price: 20, reason: 'missing' }]);
+    // the flagged card keeps its share of the tax, so the matched ones only pay theirs
+    const shares = allocate(6.1, [10, 20, 4.99]);
+    expect(p.buy.map(b => b.share)).toEqual([shares[0], shares[2]]);
+    expect(p.buy.map(b => b.cost)).toEqual([cost(10, shares[0]), cost(4.99, shares[2])]);
+  });
+
+  it('takes no tax when none is typed', () => {
+    const cards = [ph('a', 'Abra', '63')];
+    const rows = [{ name: 'Abra', number: '63', price: '4' }];
+    expect(plan(rows, match(rows, cards), '').buy).toEqual([{ row: 0, cardId: 'a', price: 4, share: 0, cost: 4 }]);
   });
 });

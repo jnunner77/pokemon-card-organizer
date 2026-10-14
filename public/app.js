@@ -642,14 +642,14 @@ async function undoSale(id, quiet){
 let BB = null;
 const bbRow = () => ({key:rid(), name:"", number:"", price:"", pick:""});
 const bbTyped = () => !!BB && !BB.done && BB.rows.some(r => r.name.trim() || r.number.trim() || r.price.trim());
-const bbAmount = s => { const v = parseFloat(s); return String(s).trim()==="" || isNaN(v) || v < 0 ? null : Math.round(v*100)/100; };
+const bbAmount = s => window.BinderBulkBuy.amount(s);
 const bbFlag = {missing:"No placeholder for this card in your binders. It won't be entered.", owned:"You have this card already (it isn't a placeholder). It won't be entered.", taken:"Every placeholder for this card is taken by the cards above. It won't be entered."};
-/* Before an unfinished bulk buy would be thrown away: true when nothing is typed, or the person says so. */
 /* Closes the dialog; after a purchase is recorded, its Undo stays on in a toast. */
 function bbClose(){
   const done = BB?.done?.ok; BB = null; closeModal();
   if(done?.length) toast(`${done.length} card${done.length===1?"":"s"} bought`, {label:"Undo", run:()=>void bulkBuyUndo(null, done)});
 }
+/* Before an unfinished bulk buy would be thrown away: true when nothing is typed, or the person says so. */
 const bbDiscardOk = () => !bbTyped() || confirm("Discard this bulk buy? Nothing you entered is saved yet.");
 function bulkBuyModal(){
   if(!S.db) return toast("Saving isn't available in this view.");
@@ -775,20 +775,14 @@ async function bulkBuySave(){
   const go = $("#bb_go"); if(go.disabled) return;
   BB.busy = true; go.disabled = true; go.textContent = "Recording…";
   const cur = $("#bb_cur").value, date = $("#bb_date").value || today(), where = $("#bb_where").value.trim();
-  const prices = BB.rows.map((r,i) => BB.res[i].status==="blank" ? null : bbAmount(r.price));
-  const tax = bbAmount(BB.tax) ?? 0, shares = window.BinderBulkBuy.allocate(tax, prices);
-  const count = BB.res.filter(m => m.status==="match" || m.status==="none").length;
-  const jobs = [], flagged = [];
-  BB.rows.forEach((r,i) => {
-    const m = BB.res[i];
-    if(m.status==="none") return void flagged.push({name:r.name.trim(), number:r.number.trim(), price:prices[i], reason:m.reason});
-    if(m.status!=="match") return;
-    const c = S.cards.find(x=>x.id===m.cardId); if(!c) return;
-    const amount = window.BinderBulkBuy.cost(prices[i], shares[i]);
-    const note = `Bulk buy of ${count}: ${money(prices[i],cur)}${tax?` + ${money(shares[i],cur)} tax`:""}`;
-    const price = {id:rid(), at:nowISO(), type:"paid", amount, currency:cur, date, where, note};
+  const {count, tax, buy, flagged} = window.BinderBulkBuy.plan(BB.rows, BB.res, BB.tax);
+  const jobs = [];
+  for(const b of buy){
+    const c = S.cards.find(x=>x.id===b.cardId); if(!c) continue;
+    const note = `Bulk buy of ${count}: ${money(b.price,cur)}${tax?` + ${money(b.share,cur)} tax`:""}`;
+    const price = {id:rid(), at:nowISO(), type:"paid", amount:b.cost, currency:cur, date, where, note};
     jobs.push({c, price, patch:{placeholder:false, prices:[...(c.prices||[]), price], updatedAt:nowISO()}});
-  });
+  }
   const res = await Promise.allSettled(jobs.map(j => S.db.doc("cards/"+j.c.id).update(j.patch)));
   const ok = jobs.filter((_,i)=>res[i].status==="fulfilled"), failed = jobs.filter((_,i)=>res[i].status==="rejected");
   BB.busy = false;

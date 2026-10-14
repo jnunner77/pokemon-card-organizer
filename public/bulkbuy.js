@@ -64,6 +64,7 @@
   /* The cards a row could be: its best name matches with its number. */
   function found(row, by) {
     const t = numberKey(row.number), typed = words(row.name), tc = compact(row.name);
+    if (!typed.length) return []; // no letters or digits to go on ("?", another script): matches nothing
     let best = 0, out = [];
     for (const e of by.get(t.part) || []) {
       if (t.total && e.total && t.total !== e.total) continue;
@@ -140,5 +141,26 @@
   /* What a card cost: its price and its share of the tax, to the cent. */
   const cost = (price, share) => (cents(price) + cents(share || 0)) / 100;
 
-  root.BinderBulkBuy = { match, allocate, cost, numberMatches, nameScore, printingKey };
+  /* A typed amount in dollars, to the cent; null when blank, not a number or below 0. */
+  const amount = s => { const v = parseFloat(s); return String(s ?? "").trim() === "" || isNaN(v) || v < 0 ? null : cents(v) / 100; };
+
+  /**
+   * What recording the purchase does, from the rows, their matches (match()) and the tax typed:
+   * {count, tax, buy: [{row, cardId, price, share, cost}], flagged: [{row, name, number, price, reason}]}.
+   * Every row with a card (matched or flagged) counts and shares the tax by its price; only the
+   * matched ones are bought. count is how many cards the purchase was.
+   */
+  function plan(rows, results, taxTyped) {
+    const prices = rows.map((r, i) => (results[i].status === "blank" ? null : amount(r.price)));
+    const tax = amount(taxTyped) ?? 0, shares = allocate(tax, prices);
+    const out = { count: results.filter(m => m.status === "match" || m.status === "none").length, tax, buy: [], flagged: [] };
+    rows.forEach((r, i) => {
+      const m = results[i];
+      if (m.status === "match") out.buy.push({ row: i, cardId: m.cardId, price: prices[i], share: shares[i], cost: cost(prices[i] ?? 0, shares[i]) });
+      else if (m.status === "none") out.flagged.push({ row: i, name: String(r.name ?? "").trim(), number: String(r.number ?? "").trim(), price: prices[i], reason: m.reason });
+    });
+    return out;
+  }
+
+  root.BinderBulkBuy = { match, allocate, cost, amount, plan, numberMatches, nameScore, printingKey };
 })(typeof window !== "undefined" ? window : globalThis);
