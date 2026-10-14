@@ -88,7 +88,7 @@
    */
   function match(rows, cards, options) {
     const order = (options && options.order) || (() => "");
-    const byOrder = (a, b) => String(order(a)).localeCompare(String(order(b)));
+    const byOrder = (a, b) => { const x = order(a), y = order(b); return x < y ? -1 : x > y ? 1 : 0; }; // as the page sorts: "~" (no binder) last
     const taken = new Set();
     let by = null;
     return (rows || []).map(row => {

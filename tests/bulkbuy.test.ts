@@ -105,6 +105,12 @@ describe('matching rows to placeholders', () => {
     expect(match([{ name: 'abra', number: '63' }], cards, order)[0]).toMatchObject({ status: 'match', cardId: 'early' });
   });
 
+  it('fills a pocket in a binder before a placeholder in no binder', () => {
+    const cards = [ph('loose', 'Abra', '63'), ph('pocket', 'Abra', '63')];
+    const where = { order: (c: Card) => (c.id === 'loose' ? '~' : '000100010003') };
+    expect(match([{ name: 'Abra', number: '63' }], cards, where)[0].cardId).toBe('pocket');
+  });
+
   it('gives two copies of a card two different placeholders, then flags the third', () => {
     const cards = [ph('a', 'Abra', '63', { slot: 1 }), ph('b', 'Abra', '63', { slot: 2 })];
     const r = match([{ name: 'Abra', number: '63' }, { name: 'Abra', number: '63' }, { name: 'Abra', number: '63' }], cards, order);
