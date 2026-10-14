@@ -10,7 +10,7 @@ import type { Store } from '../store';
 import { Catalog, type CatalogQuote } from './catalog';
 import { catalogMismatch, chooseMatch, detailsFromProduct, norm, otherBall, otherPrinting, searchQuery, variantFromProduct, type CardForMatch, type MatchResult } from './match';
 import { type PcProduct, type PriceCharting, type PriceGuide, gradedPrice, oldAddress, quoteOf } from './pricecharting';
-import { type TcgCsv, type TcgCsvQuote } from './tcgcsv';
+import { type TcgCsv, type TcgCsvCard, type TcgCsvQuote } from './tcgcsv';
 import { type Candidate, type Fetcher, ProductGone, type Quote, Refused, type Source, SourceError, get, exchangeRates, tcgImage } from './sources';
 
 // The daily price and image update. For every card still in the collection it finds the card's
@@ -278,6 +278,8 @@ const productOf = (l: { source: Source; id?: string | null; url?: string | null;
   linkedBy: l.linkedBy ?? null,
   linkedAt: l.linkedAt ?? null,
 });
+/** Looking up cards (lookup.ts) asks PriceCharting only while the day's calls are under this share of its budget. */
+export const LOOKUP_SHARE = 0.75;
 /** How long before the other site is searched again for a card it had no certain match for. */
 const PAIR_RETRY_MS = 7 * 86_400_000;
 const label = (c: Card) => [c.name || 'Unnamed card', c.setCode || c.set, c.number].filter(Boolean).join(' ');
@@ -1316,6 +1318,37 @@ export class PriceUpdater {
     const ranked = chooseMatch(card, pc).candidates.concat(pc).filter((c, i, a) => a.findIndex((x) => x.id === c.id) === i);
     const known = catalogProduct(cat);
     return [...ranked.slice(0, 12), ...(known ? [known] : [])];
+  }
+
+  /**
+   * PriceCharting's products for a search, for a card looked up without being in the ledger (Find
+   * a card → Any card, lookup.ts). Throws why PriceCharting isn't asked (no token, paused, or the
+   * day's calls past LOOKUP_SHARE of its budget, kept for the daily update) or its error. Not
+   * counted against a running update's failures.
+   */
+  async lookupProducts(q: string): Promise<PcProduct[]> {
+    const out = this.siteOut('pricecharting');
+    if (out) throw new SiteOut(out);
+    const use = this.pc!.usageNow();
+    if (use.calls >= Math.floor(use.limit * LOOKUP_SHARE)) {
+      throw new SiteOut(`today's PriceCharting calls (${use.calls} of ${use.limit}) are kept for the daily price update; looking cards up asks it again tomorrow.`);
+    }
+    return this.pc!.search(q);
+  }
+
+  /**
+   * TCGplayer's own catalog (tcgcsv.ts) for a looked-up card's printing the card databases have no
+   * TCGplayer price for, as the daily update asks it (tcgcsvQuote); null when it isn't found or doesn't answer.
+   */
+  async lookupTcgplayer(card: TcgCsvCard, productId: string | null): Promise<TcgCsvQuote | null> {
+    if (!this.tcgcsv) return null;
+    return this.tcgcsv.quote(card, productId).catch(() => null);
+  }
+
+  /** The exchange rates the last update saved: CAD per US dollar, and per euro when known. */
+  savedRates(): { usd: number; eur: number | null } {
+    const main = this.store.get('settings', 'main') ?? {};
+    return { usd: this.savedRate().rate, eur: this.eur ?? (Number(main.eurToCad) > 0 ? Number(main.eurToCad) : null) };
   }
 
   /**

@@ -2850,7 +2850,8 @@ function updateMoveNote(){
 /* ---------- find a card ---------- */
 /* Find (button or "/"): type a Pokémon name, set, set code or number; each match can be shown where
    it sits (binder page, Not in a binder, or Sales) or opened full screen. Matching is in search.js. */
-const FIND = {open:false, q:"", res:[], i:0, back:null};
+/* mode "mine": your cards (search.js); "any": any card, from the card database (Any card, below) */
+const FIND = {open:false, q:"", res:[], i:0, back:null, mode:"mine", any:{q:null, busy:false, error:"", more:false, seq:0, t:0}, look:null};
 const FOUND_MS = 6000;
 const reduceMotion = () => !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
 const isTyping = t => !!t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
@@ -2866,11 +2867,16 @@ function openFind(){
   $("#findRoot").innerHTML = `<div class="find" data-find="backdrop">
     <div class="find-card" role="dialog" aria-modal="true" aria-label="Find a card">
       <div class="find-bar">
-        <label class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="findQ" type="search" placeholder="Name, set, set code or number" value="${esc(FIND.q)}" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" aria-label="Find a card" aria-describedby="findNote" aria-controls="findList"></label>
+        <label class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="findQ" type="search" value="${esc(FIND.q)}" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" aria-label="Find a card" aria-describedby="findNote" aria-controls="findList"></label>
         <button type="button" class="btn ghost" data-find="close">Close</button>
       </div>
+      <div class="find-modes"><div class="seg" role="group" aria-label="Look in">
+        <button type="button" data-find="mode" data-mode="mine" title="The cards in your ledger">Your cards</button>
+        <button type="button" data-find="mode" data-mode="any" title="Any Pokémon card, from the card database: its picture and today's prices, without adding it">Any card</button>
+      </div></div>
       <p class="find-note hint" id="findNote" aria-live="polite"></p>
       <ul class="find-list" id="findList" aria-label="Matching cards"></ul>
+      <div class="find-look" id="findLook" hidden></div>
     </div></div>`;
   document.documentElement.style.overflow = "hidden";
   findRun();
@@ -2878,16 +2884,23 @@ function openFind(){
 }
 function closeFind(restoreFocus=true){
   if(!FIND.open) return;
-  FIND.open = false; $("#findRoot").innerHTML = ""; document.documentElement.style.overflow = "";
+  FIND.open = false; FIND.look = null; clearTimeout(FIND.any.t); FIND.any.seq++; FIND.any.busy = false; $("#findRoot").innerHTML = ""; document.documentElement.style.overflow = "";
   const b = FIND.back; FIND.back = null;
   if(restoreFocus && b && document.contains(b)) try{ b.focus({preventScroll:true}); }catch(_){}
 }
 function findRun(){
+  if(FIND.mode==="any") return anyRun();
   FIND.res = window.BinderSearch ? window.BinderSearch.search(S.cards, FIND.q, {limit:50, order:SORTS.loc}) : [];
   FIND.i = 0; findRender();
 }
 function findRender(){
   const list = $("#findList"), note = $("#findNote"); if(!list) return;
+  document.querySelectorAll("#findRoot [data-mode]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode===FIND.mode)));
+  $("#findQ").placeholder = FIND.mode==="any" ? "Any card: name, set or number" : "Name, set, set code or number";
+  list.setAttribute("aria-label", FIND.mode==="any" ? "Cards in the card database" : "Matching cards");
+  list.hidden = !!FIND.look; note.hidden = !!FIND.look; $("#findLook").hidden = !FIND.look;
+  if(FIND.look) return lookRender();
+  if(FIND.mode==="any") return anyRender();
   const q = FIND.q.trim(), n = FIND.res.length;
   const keys = window.matchMedia && matchMedia("(pointer: fine)").matches ? " · Enter shows it, Shift+Enter opens it full screen" : "";
   note.textContent = !q ? (S.cards.length ? `Type a Pokémon name, a set (Base Set), a set code (PBS) or a number (7/15). ${S.cards.length} cards to look through.` : "No cards yet.")
@@ -2904,7 +2917,7 @@ function findRender(){
       </button>
       <span class="find-acts"><button type="button" class="btn sm" data-find="show" data-fi="${k}">${esc(w.act)}</button><button type="button" class="btn sm" data-find="full" data-fi="${k}" ${pic?"":`disabled title="No picture of this card yet"`}>Full screen</button></span>
     </li>`;
-  }).join("");
+  }).join("") + (q ? `<li class="find-other"><button type="button" class="btn sm" data-find="mode" data-mode="any">${n ? "Not one of yours? " : ""}Look up “${esc(q)}” in any card</button></li>` : "");
   findSync();
 }
 function findSync(){
@@ -2943,11 +2956,131 @@ function showCard(id){
   toast(`${c.name||"Card"}: ${w.label}`);
 }
 function findKey(e){
-  if(e.key==="Escape"){ e.preventDefault(); return closeFind(); }
+  if(e.key==="Escape"){ e.preventDefault(); return FIND.look ? lookBack() : closeFind(); }
   if(e.target.id!=="findQ") return;
   const n = FIND.res.length;
-  if(e.key==="ArrowDown" || e.key==="ArrowUp"){ if(!n) return; e.preventDefault(); FIND.i = (FIND.i + (e.key==="ArrowDown" ? 1 : -1) + n) % n; return findSync(); }
-  if(e.key==="Enter"){ e.preventDefault(); if(n) findAct(e.shiftKey ? "full" : "show", FIND.i); }
+  if(e.key==="ArrowDown" || e.key==="ArrowUp"){ if(!n || FIND.look) return; e.preventDefault(); FIND.i = (FIND.i + (e.key==="ArrowDown" ? 1 : -1) + n) % n; return findSync(); }
+  if(e.key==="Enter"){
+    e.preventDefault();
+    if(FIND.mode==="any"){ if(FIND.any.q!==FIND.q.trim() || FIND.any.busy){ clearTimeout(FIND.any.t); return anySearch(); } if(n) lookOpen(FIND.i); return; }
+    if(n) findAct(e.shiftKey ? "full" : "show", FIND.i);
+  }
+}
+
+/* ---------- any card ---------- */
+/* Find a card → Any card: any card from the card database (TCGdex), found by name, set and number on
+   the server (lookup.ts); choosing one shows its picture and today's prices for each printing, worked
+   out as the daily update would. Nothing is saved; Add to a binder opens the new card form filled in. */
+function findMode(mode){
+  if(mode===FIND.mode && !FIND.look) return;
+  FIND.mode = mode; FIND.look = null; FIND.i = 0; FIND.res = [];
+  // A search still on its way is for the other mode: it's dropped.
+  clearTimeout(FIND.any.t); FIND.any.seq++; FIND.any.busy = false;
+  if(mode==="any") FIND.any.q = null;
+  findRun(); $("#findQ")?.focus();
+}
+function anyRun(){
+  // A search still on its way is for earlier text: it's dropped.
+  clearTimeout(FIND.any.t); FIND.any.seq++;
+  FIND.look = null;
+  if(!FIND.q.trim()){ FIND.any = {...FIND.any, q:"", busy:false, error:"", more:false}; FIND.res = []; return findRender(); }
+  FIND.any.busy = true; findRender();
+  FIND.any.t = setTimeout(anySearch, 350);
+}
+async function anySearch(){
+  const q = FIND.q.trim(), seq = ++FIND.any.seq;
+  if(!q) return;
+  FIND.any.busy = true; findRender();
+  try{
+    const r = await window.ledgerApi.call("GET", "api/lookup/search?q=" + encodeURIComponent(q));
+    if(seq!==FIND.any.seq || !FIND.open || FIND.mode!=="any") return;
+    FIND.any = {...FIND.any, q, busy:false, error:"", more:!!r.more}; FIND.res = r.hits || []; FIND.i = 0;
+  }catch(err){
+    if(seq!==FIND.any.seq || !FIND.open || FIND.mode!=="any") return;
+    FIND.any = {...FIND.any, q, busy:false, error: err.message || "The card database didn't answer.", more:false}; FIND.res = [];
+  }
+  findRender();
+}
+const cardNo = window.BinderLookup.cardNo;
+function anyRender(){
+  const list = $("#findList"), note = $("#findNote"), q = FIND.q.trim(), n = FIND.res.length, a = FIND.any;
+  note.classList.toggle("err", !!a.error && !a.busy);
+  note.textContent = !q ? "Look up any Pokémon card, yours or not: type its name, and its set or number to narrow it (charizard base set 4, pikachu 58/102). You'll see its picture and today's prices; nothing is added to your ledger."
+    : a.busy && !n ? "Looking it up…"
+    : a.error ? a.error
+    : !n ? `No card named “${q}” in the card database. Check the spelling, or try just the Pokémon's name.`
+    : `${a.more ? `The first ${n} cards` : `${n} card${n===1?"":"s"}`}${a.busy ? " · looking up…" : ""}. Choose one for its prices.`;
+  list.innerHTML = FIND.res.map((c, k) => `<li class="find-item" id="fi${k}" data-fi="${k}">
+      <button type="button" class="find-main" data-find="look" data-fi="${k}" aria-label="${esc(`${c.name}, ${c.set} ${cardNo(c)}. Show its prices`)}">
+        ${c.thumb?`<img class="thumb" src="${esc(c.thumb)}" alt="" loading="lazy">`:`<span class="thumb"></span>`}
+        <span class="find-txt"><b>${esc(c.name)}</b><span class="mono">${esc(`${c.set} · ${cardNo(c)}`)}</span></span>
+      </button>
+      <span class="find-acts"><button type="button" class="btn sm" data-find="look" data-fi="${k}">Prices</button></span>
+    </li>`).join("");
+  findSync();
+}
+async function lookOpen(k){
+  const hit = FIND.res[k]; if(!hit) return;
+  FIND.i = k;
+  const look = FIND.look = {id:hit.id, hit, card:null, error:"", pi:0};
+  findRender(); $("#findLook [data-find=back]")?.focus();
+  try{
+    const card = await window.ledgerApi.call("GET", "api/lookup/cards/" + encodeURIComponent(hit.id));
+    if(FIND.look!==look) return;
+    look.card = card;
+    look.pi = window.BinderLookup.firstPrinting(card.printings);
+  }catch(err){
+    if(FIND.look!==look) return;
+    look.error = err.message || "The card database didn't answer.";
+  }
+  const back = document.activeElement?.dataset?.find==="back";
+  findRender();
+  if(back) $("#findLook [data-find=back]")?.focus();
+}
+function lookBack(){
+  FIND.look = null; findRender();
+  const q = $("#findQ"); q?.focus(); findSync();
+}
+const eur = n => n==null || isNaN(n) ? "—" : "€" + Number(n).toFixed(2);
+function lookRender(){
+  const L = FIND.look, box = $("#findLook"), c = L.card, h = L.hit;
+  const head = `<div class="look-top"><button type="button" class="btn ghost sm" data-find="back">← ${esc(FIND.res.length>1 ? "All results" : "Back")}</button><span class="hint">Nothing here is added to your ledger.</span></div>`;
+  if(!c){
+    box.innerHTML = head + `<div class="look-main"><div class="look-pic">${h.thumb?`<img src="${esc(h.thumb)}" alt="">`:""}</div><div class="look-info"><h3>${esc(h.name)}</h3><p class="mono">${esc(`${h.set} · ${cardNo(h)}`)}</p>
+      <p class="hint${L.error?" err":""}" role="status">${esc(L.error || "Getting today's prices…")}</p>${L.error?`<button type="button" class="btn sm" data-find="look" data-fi="${FIND.i}">Try again</button>`:""}</div></div>`;
+    return;
+  }
+  const p = c.printings[L.pi] || c.printings[0];
+  const srcs = x => [x.tcgplayer && `TCGplayer ${money(x.tcgplayer.usd,"USD")}`, x.cardmarket && `Cardmarket ${eur(x.cardmarket.eur)}`, x.pricecharting && x.pricecharting.usd!=null && `PriceCharting ${money(x.pricecharting.usd,"USD")}`].filter(Boolean).join(" · ") || "No prices";
+  const meta = [c.set, c.setCode, cardNo(c)].filter(Boolean).join(" · ");
+  const about = [c.rarity, c.artist && `Illus. ${c.artist}`, c.released && `Released ${dLabel(c.released)}`].filter(Boolean).join(" · ");
+  const links = [p?.tcgplayer?.url && `<a href="${esc(p.tcgplayer.url)}" target="_blank" rel="noopener noreferrer">TCGplayer</a>`, p?.pricecharting && `<a href="${esc(p.pricecharting.url)}" target="_blank" rel="noopener noreferrer">PriceCharting</a>`, `<a href="${esc(window.BinderGoogle.priceUrl({name:c.name, set:c.set, number:cardNo(c), variant:p?.variant}))}" target="_blank" rel="noopener noreferrer">Google</a>`].filter(Boolean).join("");
+  box.innerHTML = head + `<div class="look-main">
+      <div class="look-pic">${c.image?`<img src="${esc(c.image)}" alt="${esc(c.name)}">`:`<span class="hint">No picture</span>`}</div>
+      <div class="look-info">
+        <h3>${esc(c.name)}</h3>
+        <p class="mono">${esc(meta)}</p>
+        ${about?`<p class="hint">${esc(about)}</p>`:""}
+        <div class="look-price"><span class="hint">Worth today${c.printings.length>1?` · ${esc(p.label)}`:""}</span><b>${p?.price ? money(p.price.cad) : "No price"}</b>${p?.price?`<span class="hint">${esc(p.price.summary)}</span>`:""}</div>
+        ${p?.leftOut?`<p class="hint">TCGplayer's and Cardmarket's prices aren't counted: ${esc(p.leftOut)}.</p>`:""}
+        <div class="look-acts">${canEdit()?`<button type="button" class="btn primary sm" data-find="add">+ Add to a binder</button>`:""}<span class="look-links">${links}</span></div>
+      </div>
+    </div>
+    ${c.printings.length>1?`<h4 class="look-h">Printings</h4><div class="look-prs" role="group" aria-label="Printings">${c.printings.map((x,i)=>`<button type="button" class="look-pr" data-find="pr" data-pi="${i}" aria-pressed="${i===L.pi}"><span class="lab">${esc(x.label[0].toUpperCase()+x.label.slice(1))}</span><b>${x.price?money(x.price.cad):"—"}</b><span class="src">${esc(srcs(x))}</span></button>`).join("")}</div>`
+      : `<p class="hint look-src">${esc(srcs(p||{}))}</p>`}
+    ${p?.pricecharting?.grades?.length?`<h4 class="look-h">Graded (PriceCharting)</h4><div class="look-grades">${p.pricecharting.grades.map(g=>`<span><span class="hint">${esc(g.label)}</span> <b>${money(g.cad)}</b></span>`).join("")}</div>`:""}
+    ${c.notes.map(t=>`<p class="hint">${esc(t)}</p>`).join("")}
+    <p class="hint">In CAD at US$1 = ${money(c.rates.usd)}${c.rates.eur?` and €1 = ${money(c.rates.eur)}`:""}, the rates the last price update used.</p>`;
+}
+function lookAdd(){
+  const c = FIND.look?.card; if(!c || !canEdit()) return;
+  const p = c.printings[FIND.look.pi];
+  if(unsaved()) return toast("Save or discard the card you're editing first.");
+  closeFind(false);
+  openNew();
+  if(S.sel!=="__new" || !S.draft) return;
+  S.draft = {...S.draft, ...window.BinderLookup.draftFields(c, p)};
+  renderDrawer(true);
 }
 $("#findRoot").addEventListener("click", e => {
   e.stopPropagation();
@@ -2956,6 +3089,11 @@ $("#findRoot").addEventListener("click", e => {
   if(k==="backdrop"){ if(e.target===a) closeFind(); return; }
   if(k==="close") return closeFind();
   if(k==="show" || k==="full") return findAct(k, +a.dataset.fi);
+  if(k==="mode") return findMode(a.dataset.mode);
+  if(k==="look") return lookOpen(+a.dataset.fi);
+  if(k==="back") return lookBack();
+  if(k==="pr"){ if(FIND.look){ FIND.look.pi = +a.dataset.pi; findRender(); $(`#findLook [data-pi="${a.dataset.pi}"]`)?.focus(); } return; }
+  if(k==="add") return lookAdd();
 });
 $("#findRoot").addEventListener("pointermove", e => {
   const li = e.target.closest && e.target.closest(".find-item"); if(!li || e.pointerType!=="mouse") return;

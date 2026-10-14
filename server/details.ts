@@ -115,6 +115,8 @@ const setSize = (s: unknown) => {
 const withoutBrackets = (name: string) => name.replace(/\s*[([].*?[)\]]\s*/g, ' ').trim();
 /** TCGdex's search doesn't ignore accents, so these are searched as printed on the card. */
 const ACCENTED: Record<string, string> = { pokemon: 'Pokémon', pokedex: 'Pokédex', flabebe: 'Flabébé' };
+/** A word as TCGdex's search needs it: "pokemon" → "Pokémon". */
+export const asPrinted = (word: string) => ACCENTED[word.toLowerCase()] ?? word;
 /**
  * The word to search TCGdex by: the longest word of the name, which avoids its punctuation
  * ("N's", "Hole-Digging"), and not "Pokémon" when there's another word ("Pokémon Center Lady").
@@ -126,7 +128,7 @@ const searchWord = (name: string) => {
     .split(/[^A-Za-z0-9]+/)
     .filter((w) => w && !/^(ex|gx|v|vmax|vstar|star|mega|lv|x)$/i.test(w));
   const pick = (words.length > 1 ? words.filter((w) => !/^pokemon$/i.test(w)) : words).reduce((a, b) => (b.length >= a.length ? b : a), '');
-  return ACCENTED[pick.toLowerCase()] ?? pick;
+  return asPrinted(pick);
 };
 
 /** How alike two names are, 0 to 1, by edit distance: "Mega Eelktross EX" vs "Mega Eelektross ex" ≈ 0.94. */

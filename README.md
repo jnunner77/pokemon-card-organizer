@@ -581,6 +581,17 @@ when you've rearranged the binder and want to keep the new layout instead.
   where it is; **Show in binder** turns to its binder and page and highlights the pocket (loose and
   sold cards are highlighted in their list), and **Full screen** opens it in the photo viewer,
   flipping through all the matches. Arrow keys and Enter (Shift+Enter for full screen) work too.
+- **Look up any card** (*Find a card* → **Any card**, or *Look up … in any card* under your own
+  matches): any Pokémon card, yours or not, from the TCGdex card database, by its name with its set
+  or number to narrow it ("charizard base set 4", "pikachu 58/102", "SWSH050"). Choose one to see
+  its picture, set, number, rarity and illustrator, and what it's worth today in CAD, worked out as
+  the daily update would price it (see *How a card's daily price is worked out*), for each of its
+  printings (regular, reverse holo, patterns, stamps, 1st Edition…), with TCGplayer's, Cardmarket's
+  and PriceCharting's prices, PriceCharting's graded prices, and links to its products. Nothing is
+  added to the ledger; **Add to a binder** opens a new card filled in with it and the printing
+  chosen. Each card looked at is one PriceCharting call; once the day's calls pass three quarters of
+  its budget, lookups leave PriceCharting out (and say so), keeping the rest for the daily update.
+  Turned off with `CARD_LOOKUPS=off`.
 - **Your photos**: choose, take, browse, paste or drop one; or photograph a whole binder page
   and slice it into one photo per pocket. Flip through pictures full screen.
 - **Duplicate** a card (in its details) or several (press and hold to select): choose how many
@@ -742,7 +753,7 @@ the existing free Google Cloud VM, at `binder.nunner.duckdns.org`).
 | `PRICE_UPDATE_HOUR` | `5` | Daily update starts after this hour |
 | `PRICECHARTING_DAILY_LIMIT` | `2000` | Most PriceCharting API calls a day (UTC), counted across restarts |
 | `PRICE_UPDATES` | `on` | `off` turns automatic prices and pictures off |
-| `CARD_LOOKUPS` | `on` | `off` turns card details lookups (TCGdex) off |
+| `CARD_LOOKUPS` | `on` | `off` turns card details lookups (TCGdex) off, and *Find a card*'s Any card |
 | `TRUST_PROXY` | _(unset)_ | Set behind a reverse proxy (`1`) |
 
 ## Data

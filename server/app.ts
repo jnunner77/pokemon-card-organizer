@@ -15,6 +15,7 @@ import { Config, priceMethodSchema, pricingConfigSchema, retentionSchema } from 
 import type { CardDetails } from './details';
 import { GUEST_COOKIE, GUEST_IDLE_MS, GuestFeed, type Guests, guestSchemas, isListed, shownImage } from './guests';
 import { CATEGORIES, LEVELS, type Logger, quietLogger } from './log';
+import { CardLookup } from './lookup';
 import { MasterSets, placeholderCards } from './masterset';
 import type { TcgCsv } from './pricing/tcgcsv';
 import { NoToken, type PriceCharting } from './pricing/pricecharting';
@@ -592,6 +593,31 @@ export function createApp(o: AppOptions) {
     const cards = o.autofill.fillAll(req.query.force === '1');
     if (!already) log.info('pricing', `${who(res)} started Fill in missing details (${cards} cards)`);
     res.status(202).json({ started: !already, cards });
+  });
+
+  // ---- any card, in the ledger or not (lookup.ts) --------------------------------------
+  // Find a card → Any card: search the card database, then one card's prices today. Nothing is saved.
+  const cardLookup = o.details ? new CardLookup({ details: o.details, updater }) : null;
+  const needLookup = () => {
+    if (!cardLookup) throw new HttpError(503, 'Card lookups are turned off on this server.', 'unavailable');
+    return cardLookup;
+  };
+  const lookupSearch = z.object({ q: z.string().trim().min(1).max(120) });
+  api.get('/lookup/search', need('viewer'), async (req, res) => {
+    const q = lookupSearch.safeParse(req.query);
+    if (!q.success) throw new HttpError(400, 'Type a card name, set or number.');
+    res.json(await needLookup().search(q.data.q));
+  });
+  api.get('/lookup/cards/:id', need('viewer'), async (req, res) => {
+    const id = z.string().regex(/^[A-Za-z0-9._-]{1,80}$/).safeParse(req.params.id);
+    if (!id.success) throw new HttpError(404, 'No such card in the card database.', 'not_found');
+    const lookup = needLookup();
+    try {
+      res.json(await lookup.card(id.data));
+    } catch (err) {
+      if (err instanceof SourceError && /\b404\b/.test(err.message)) throw new HttpError(404, 'No such card in the card database.', 'not_found');
+      throw err;
+    }
   });
 
   // ---- master sets (masterset.ts) ----------------------------------------------------
