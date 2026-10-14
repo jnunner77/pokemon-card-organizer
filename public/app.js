@@ -762,7 +762,7 @@ function bbRefresh(){
     : `<span>Subtotal <b>${esc(money(sub,cur))}</b></span><span>Tax <b>${esc(money(tax,cur))}</b>${rate}</span><span>Total <b>${esc(money(sub+tax,cur))}</b></span>${flagged?`<span class="warn-text">${flagged} flagged: not entered</span>`:""}${why.length?`<span class="warn-text">To record it, ${why.join(", ")}</span>`:""}`;
   const go = $("#bb_go");
   go.disabled = BB.busy || !fill || why.length > 0;
-  go.textContent = fill ? `Record ${fill} card${fill===1?"":"s"}` : "Record purchase";
+  go.textContent = BB.busy ? "Recording…" : fill ? `Record ${fill} card${fill===1?"":"s"}` : "Record purchase";
 }
 /* Several printings fit (a reverse holo, a Poké Ball pattern, or the same number in two sets): pick one. */
 function bbPicker(m, r, picked){
@@ -774,6 +774,8 @@ async function bulkBuySave(){
   bbRefresh();
   const go = $("#bb_go"); if(go.disabled) return;
   BB.busy = true; go.disabled = true; go.textContent = "Recording…";
+  const form = [$("#bb_list"), $("#bb_card .bb-opts")]; // nothing changes while it's being recorded
+  form.forEach(el => { el.inert = true; });
   const cur = $("#bb_cur").value, date = $("#bb_date").value || today(), where = $("#bb_where").value.trim();
   const {count, tax, buy, flagged} = window.BinderBulkBuy.plan(BB.rows, BB.res, BB.tax);
   const jobs = [];
@@ -785,7 +787,7 @@ async function bulkBuySave(){
   }
   const res = await Promise.allSettled(jobs.map(j => S.db.doc("cards/"+j.c.id).update(j.patch)));
   const ok = jobs.filter((_,i)=>res[i].status==="fulfilled"), failed = jobs.filter((_,i)=>res[i].status==="rejected");
-  BB.busy = false;
+  BB.busy = false; form.forEach(el => { el.inert = false; });
   if(!ok.length){ writeErr(res.find(x=>x.status==="rejected")?.reason); bbRefresh(); return; }
   BB.done = {ok:ok.map(j=>({id:j.c.id, priceId:j.price.id})), failed:failed.map(j=>j.c.name||"Card")};
   const paid = ok.reduce((t,j)=>t+j.price.amount,0);

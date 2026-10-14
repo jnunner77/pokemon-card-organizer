@@ -25,21 +25,21 @@
     const lead = x => (/^\d+$/.test(x) ? String(Number(x)) : x);
     return { part: lead(a || ""), total: b ? lead(b) : "" };
   }
-  function numberMatches(typed, cardNumber) {
-    const t = numberKey(typed), c = numberKey(cardNumber);
-    if (!t || !c || !t.part || t.part !== c.part) return false;
-    return !t.total || !c.total || t.total === c.total;
-  }
+  /* Two numbers (numberKey) are the same card's: the same number, and the same set size when both have one. */
+  const sameNumber = (t, c) => !!t && !!c && !!t.part && t.part === c.part && (!t.total || !c.total || t.total === c.total);
+  const numberMatches = (typed, cardNumber) => sameNumber(numberKey(typed), numberKey(cardNumber));
 
+  /* A name as it's compared: its words and its letters run together. */
+  const nameKey = s => ({ words: words(s), compact: compact(s) });
   /* 2: the same name ("Arceus V Star" is "Arceus VSTAR"); 1: every word typed starts a word of the
-     card's name ("pikachu" for "Pikachu ex"); 0: no match. */
-  function nameScore(typed, cardName) {
-    const t = words(typed);
-    if (!t.length) return 0;
-    if (compact(typed) === compact(cardName)) return 2;
-    const n = words(cardName);
-    return t.every(w => n.some(x => x.startsWith(w))) ? 1 : 0;
+     card's name ("pikachu" for "Pikachu ex"); 0: no match, and never for a name without letters
+     or digits ("?", another script). */
+  function score(t, n) {
+    if (!t.words.length) return 0;
+    if (t.compact === n.compact) return 2;
+    return t.words.every(w => n.words.some(x => x.startsWith(w))) ? 1 : 0;
   }
+  const nameScore = (typed, cardName) => score(nameKey(typed), nameKey(cardName));
 
   /* Placeholders of one printing are the same card to whoever bought it. */
   const printingKey = c => { const n = numberKey(c.number); return [c.set, c.setCode, n ? `${n.part}/${n.total}` : "", c.variant, c.language || "English"].map(norm).join("|"); };
@@ -55,7 +55,7 @@
       const n = numberKey(c.number);
       if (!n || !n.part) continue;
       if (!by.has(n.part)) by.set(n.part, []);
-      by.get(n.part).push({ card: c, total: n.total, compact: compact(c.name), words: words(c.name) });
+      by.get(n.part).push({ card: c, number: n, name: nameKey(c.name) });
     }
     indexes.set(cards, by);
     return by;
@@ -63,12 +63,11 @@
 
   /* The cards a row could be: its best name matches with its number. */
   function found(row, by) {
-    const t = numberKey(row.number), typed = words(row.name), tc = compact(row.name);
-    if (!typed.length) return []; // no letters or digits to go on ("?", another script): matches nothing
+    const t = numberKey(row.number), typed = nameKey(row.name);
     let best = 0, out = [];
-    for (const e of by.get(t.part) || []) {
-      if (t.total && e.total && t.total !== e.total) continue;
-      const s = tc === e.compact ? 2 : typed.every(w => e.words.some(x => x.startsWith(w))) ? 1 : 0;
+    for (const e of (t && by.get(t.part)) || []) {
+      if (!sameNumber(t, e.number)) continue;
+      const s = score(typed, e.name);
       if (!s || s < best) continue;
       if (s > best) { best = s; out = []; }
       out.push(e.card);
