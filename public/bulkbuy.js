@@ -44,15 +44,33 @@
   /* Placeholders of one printing are the same card to whoever bought it. */
   const printingKey = c => { const n = numberKey(c.number); return [c.set, c.setCode, n ? `${n.part}/${n.total}` : "", c.variant, c.language || "English"].map(norm).join("|"); };
 
-  /* The cards a row could be: its best name matches with its number, among cards still held. */
-  function found(row, cards) {
-    let best = 0, out = [];
+  /* Every card still held, by its number (part before the "/"), each normalised once. Kept for the
+     same list of cards (the page gets a new list with every change), so typing doesn't redo it. */
+  const indexes = new WeakMap();
+  function index(cards) {
+    if (indexes.has(cards)) return indexes.get(cards);
+    const by = new Map();
     for (const c of cards) {
-      if (!held(c) || !numberMatches(row.number, c.number)) continue;
-      const s = nameScore(row.name, c.name);
+      if (!held(c)) continue;
+      const n = numberKey(c.number);
+      if (!n || !n.part) continue;
+      if (!by.has(n.part)) by.set(n.part, []);
+      by.get(n.part).push({ card: c, total: n.total, compact: compact(c.name), words: words(c.name) });
+    }
+    indexes.set(cards, by);
+    return by;
+  }
+
+  /* The cards a row could be: its best name matches with its number. */
+  function found(row, by) {
+    const t = numberKey(row.number), typed = words(row.name), tc = compact(row.name);
+    let best = 0, out = [];
+    for (const e of by.get(t.part) || []) {
+      if (t.total && e.total && t.total !== e.total) continue;
+      const s = tc === e.compact ? 2 : typed.every(w => e.words.some(x => x.startsWith(w))) ? 1 : 0;
       if (!s || s < best) continue;
       if (s > best) { best = s; out = []; }
-      out.push(c);
+      out.push(e.card);
     }
     return out;
   }
@@ -72,11 +90,13 @@
     const order = (options && options.order) || (() => "");
     const byOrder = (a, b) => String(order(a)).localeCompare(String(order(b)));
     const taken = new Set();
+    let by = null;
     return (rows || []).map(row => {
       const name = String(row.name ?? "").trim(), number = String(row.number ?? "").trim();
       if (!name && !number) return { status: String(row.price ?? "").trim() ? "incomplete" : "blank" };
       if (!name || !numberKey(number)) return { status: "incomplete" };
-      const all = found({ name, number }, cards || []);
+      if (!by) by = index(cards || []);
+      const all = found({ name, number }, by);
       const ph = all.filter(c => c.placeholder).sort(byOrder);
       if (!ph.length) return { status: "none", reason: all.length ? "owned" : "missing" };
       const free = ph.filter(c => !taken.has(c.id));

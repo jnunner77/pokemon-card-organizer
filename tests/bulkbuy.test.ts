@@ -121,6 +121,13 @@ describe('matching rows to placeholders', () => {
     expect(r2.map(x => x.cardId)).toEqual(['rev', 'reg', 'ball']);
   });
 
+  it('sees the cards as they are now: a new list of cards is looked through again', () => {
+    const cards = [ph('a', 'Abra', '63')];
+    expect(match([{ name: 'Abra', number: '63' }], cards)[0].cardId).toBe('a');
+    const next = [{ ...cards[0], placeholder: false }, ph('b', 'Abra', '63')];
+    expect(match([{ name: 'Abra', number: '63' }], next)[0].cardId).toBe('b');
+  });
+
   it('tells the same number in two sets apart by its set size', () => {
     const cards = [ph('mew', 'Charmander', '4/165'), ph('base', 'Charmander', '4/102', { set: 'Base Set', setCode: 'BS' })];
     expect(match([{ name: 'Charmander', number: '4' }], cards)[0].status).toBe('choose');

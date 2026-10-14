@@ -645,6 +645,11 @@ const bbTyped = () => !!BB && !BB.done && BB.rows.some(r => r.name.trim() || r.n
 const bbAmount = s => { const v = parseFloat(s); return String(s).trim()==="" || isNaN(v) || v < 0 ? null : Math.round(v*100)/100; };
 const bbFlag = {missing:"No placeholder for this card in your binders. It won't be entered.", owned:"You have this card already (it isn't a placeholder). It won't be entered.", taken:"Every placeholder for this card is taken by the cards above. It won't be entered."};
 /* Before an unfinished bulk buy would be thrown away: true when nothing is typed, or the person says so. */
+/* Closes the dialog; after a purchase is recorded, its Undo stays on in a toast. */
+function bbClose(){
+  const done = BB?.done?.ok; BB = null; closeModal();
+  if(done?.length) toast(`${done.length} card${done.length===1?"":"s"} bought`, {label:"Undo", run:()=>void bulkBuyUndo(null, done)});
+}
 const bbDiscardOk = () => !bbTyped() || confirm("Discard this bulk buy? Nothing you entered is saved yet.");
 function bulkBuyModal(){
   if(!S.db) return toast("Saving isn't available in this view.");
@@ -685,7 +690,7 @@ function bulkBuyModal(){
     if(t.closest("#bb_cancel")){ if(!BB?.busy && bbDiscardOk()){ BB = null; closeModal(); } return; }
     if(t.closest("#bb_go")) return void bulkBuySave();
     if(t.closest("#bb_undo")) return void bulkBuyUndo(t.closest("#bb_undo"));
-    if(t.closest("#bb_close")){ BB = null; closeModal(); }
+    if(t.closest("#bb_close")) bbClose();
   });
   card.addEventListener("keydown", e => {
     if(e.key!=="Enter" || !e.target.matches("input")) return;
@@ -788,7 +793,7 @@ async function bulkBuySave(){
   const ok = jobs.filter((_,i)=>res[i].status==="fulfilled"), failed = jobs.filter((_,i)=>res[i].status==="rejected");
   BB.busy = false;
   if(!ok.length){ writeErr(res.find(x=>x.status==="rejected")?.reason); bbRefresh(); return; }
-  BB.done = {ok:ok.map(j=>({id:j.c.id, priceId:j.price.id})), flagged, failed:failed.map(j=>j.c.name||"Card")};
+  BB.done = {ok:ok.map(j=>({id:j.c.id, priceId:j.price.id})), failed:failed.map(j=>j.c.name||"Card")};
   const paid = ok.reduce((t,j)=>t+j.price.amount,0);
   const what = `${ok.length} card${ok.length===1?"":"s"} bought for ${money(paid,cur)}: ${ok.length===1?"its placeholder is":"their placeholders are"} owned now`;
   if(!flagged.length && !failed.length){
@@ -3020,7 +3025,7 @@ document.addEventListener("keydown", e => {
   if(FIND.open) return findKey(e);
   if(!LB.open && !$("#modalRoot").innerHTML && !isTyping(e.target) && !e.altKey && ((e.key==="/" && !e.ctrlKey && !e.metaKey) || ((e.key==="k" || e.key==="K") && (e.ctrlKey || e.metaKey)))){ e.preventDefault(); return openFind(); }
   if(LB.open){ if(e.key==="Escape"){ e.preventDefault(); closeViewer(); } else if(e.key==="ArrowLeft"||e.key==="ArrowRight"){ e.preventDefault(); lbGo(LB.i+(e.key==="ArrowLeft"?-1:1)); } else if(e.key==="Home"||e.key==="End"){ e.preventDefault(); lbGo(e.key==="Home"?0:LB.list.length-1); } return; }
-  if(e.key==="Escape"){ if($("#modalRoot").innerHTML){ if($("#bb_card")){ if(!BB?.busy && bbDiscardOk()){ BB = null; closeModal(); } } else if(!CI?.busy || !$("#ci_card")) closeModal(); } else if(S.sel){ if(discardOk()) closeDrawer(); } else if(TB.open){ if(TB.pop) tbPopClose(true); else if(TB.colsOpen || TB.sortOpen){ TB.colsOpen = TB.sortOpen = false; tbPanes(); } else closeTable(); } else if(S.pick) endPick(); else if(S.swap){ S.swap = null; renderMain(); } else if(PV.open) closePricing(); else if(SV.open) closeSelling(); } });
+  if(e.key==="Escape"){ if($("#modalRoot").innerHTML){ if($("#bb_card")){ if(!BB?.busy && bbDiscardOk()) bbClose(); } else if(!CI?.busy || !$("#ci_card")) closeModal(); } else if(S.sel){ if(discardOk()) closeDrawer(); } else if(TB.open){ if(TB.pop) tbPopClose(true); else if(TB.colsOpen || TB.sortOpen){ TB.colsOpen = TB.sortOpen = false; tbPanes(); } else closeTable(); } else if(S.pick) endPick(); else if(S.swap){ S.swap = null; renderMain(); } else if(PV.open) closePricing(); else if(SV.open) closeSelling(); } });
 function updateMoveNote(){
   const n=$("#moveNote"); if(!n) return; const c=selCard(); const bid=$("#m_binder").value;
   if(!bid){ n.textContent="The card stays in your ledger under “Not in a binder”."; return; }
