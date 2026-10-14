@@ -1319,6 +1319,23 @@ export class PriceUpdater {
   }
 
   /**
+   * PriceCharting's products for a search, for a card looked up without being in the ledger (Find
+   * a card → Any card, lookup.ts). Throws why PriceCharting isn't asked (no token, paused) or its
+   * error. Not counted against a running update's failures.
+   */
+  async lookupProducts(q: string): Promise<PcProduct[]> {
+    const out = this.siteOut('pricecharting');
+    if (out) throw new SiteOut(out);
+    return this.pc!.search(q);
+  }
+
+  /** The exchange rates the last update saved: CAD per US dollar, and per euro when known. */
+  savedRates(): { usd: number; eur: number | null } {
+    const main = this.store.get('settings', 'main') ?? {};
+    return { usd: this.savedRate().rate, eur: this.eur ?? (Number(main.eurToCad) > 0 ? Number(main.eurToCad) : null) };
+  }
+
+  /**
    * The owner's PriceCharting subscription ended: everything that came from PriceCharting is
    * removed, as its terms ask. Its products are unlinked (a card's TCGplayer product becomes its
    * main one), its prices are taken out of the daily entries (an entry it set is re-priced from the
