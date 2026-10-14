@@ -258,7 +258,7 @@ export class CardLookup {
       if (p.tcgplayer) quotes.tcgplayer = p.tcgplayer.usd;
       if (useCardmarket && p.cardmarketEur != null) quotes.cardmarket = round2((p.cardmarketEur * rates.eur!) / rates.usd);
       // As the daily update does: TCGdex's prices count only when its card is PriceCharting's product's set and printing.
-      const leftOut = quotes.pricecharting != null ? catalogMismatch(card, pc, td.set.name, parent?.name) : null;
+      const leftOut = quotes.pricecharting != null && (quotes.tcgplayer != null || quotes.cardmarket != null) ? catalogMismatch(card, pc, td.set.name, parent?.name) : null;
       if (leftOut) {
         delete quotes.tcgplayer;
         delete quotes.cardmarket;
