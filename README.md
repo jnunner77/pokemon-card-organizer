@@ -462,21 +462,23 @@ placeholders aren't counted.
 **Bulk buy** (at the top, next to *Import CSV*) records a stack of cards bought together (16 cards at
 a card show) against the [placeholders](#placeholders) waiting for them:
 
-1. Type each card's **name and number**; a new row opens as you go (**Enter** moves along). As soon as
-   both are in, the row shows the placeholder it found in your binders and display cases: its
-   picture, set, variant and pocket. Case and accents don't matter, `51` finds *51/162* and *051/162*
+1. **Look in** picks where the placeholders are: the binder or display case you opened it from (it
+   starts there), another one, or *All binders and cases* (the cards in no binder too). Only
+   placeholders there are filled.
+2. Type each card's **name and number**; a new row opens as you go (**Enter** moves along). As soon as
+   both are in, the row shows the placeholder it found: its picture, set, variant and pocket. Case and accents don't matter, `51` finds *51/162* and *051/162*
    (but `51/162` never *51/165*), and *Pikachu* finds *Pikachu ex* when no card is called just Pikachu.
-2. When several placeholders fit (a regular, reverse holo and Poké Ball copy, or the same number in
+3. When several placeholders fit (a regular, reverse holo and Poké Ball copy, or the same number in
    two sets), the row asks **which one** you bought. Copies of the same printing aren't asked about:
    the first free pocket is filled. Two rows for the same card fill two placeholders.
-3. Enter what you paid for each card, then the **tax** for the whole purchase at the end, with the
+4. Enter what you paid for each card, then the **tax** for the whole purchase at the end, with the
    currency, date and (optionally) where. The tax is shared across the cards **in proportion to their
    prices**, to the cent, and each row shows its price, its share of the tax and the two together;
    the total shows the subtotal, tax (and its rate) and total.
-4. A card with **no placeholder** is **flagged in red** and **not entered**: no placeholder in your
-   binders, already owned (not a placeholder), or every placeholder for it already taken by the rows
-   above. Its price still counts for sharing out the tax, so the other cards only get their own share.
-5. *Record* switches every matched placeholder to owned and logs an **I paid** price of its price plus
+5. A card with **no placeholder** is **flagged in red** and **not entered**: no placeholder in your
+   binders, its placeholder is in another binder than the one you're looking in (the row says which),
+   already owned (not a placeholder), or every placeholder for it already taken by the rows above. Its price still counts for sharing out the tax, so the other cards only get their own share.
+6. *Record* switches every matched placeholder to owned and logs an **I paid** price of its price plus
    its tax share (noted *Bulk buy of 16: $10.00 + $1.19 tax*), all at once, with **Undo**. Flagged
    cards are listed afterwards, to add with *+ Add card* if you're keeping them.
 

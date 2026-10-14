@@ -78,17 +78,21 @@
   /**
    * Each row's match. rows: [{name, number, pick?}] where pick is a printing key the person chose.
    * cards: every card. options.order(card): where it sits, smaller first (the first free pocket is
-   * filled first). Returns, per row, {status, cardId, printings, pick}:
+   * filled first). options.binderId: look only in that binder or case (blank: in all of them, and
+   * among the cards in none). Returns, per row, {status, cardId, printings, pick}:
    *   blank       nothing typed (the row is ignored)
    *   incomplete  the name or the number (or both, with a price typed) still missing
    *   match       cardId is the placeholder it fills
    *   choose      several printings fit: printings [{key, card, free}] to pick from
    *   none        no placeholder: reason "missing" (no such card), "owned" (only cards you have
-   *               already) or "taken" (its placeholders are used by the rows above)
+   *               already), "taken" (its placeholders are used by the rows above) or "elsewhere"
+   *               (its placeholders are in other binders: binderIds, with "" for no binder)
    */
   function match(rows, cards, options) {
     const order = (options && options.order) || (() => "");
     const byOrder = (a, b) => { const x = order(a), y = order(b); return x < y ? -1 : x > y ? 1 : 0; }; // as the page sorts: "~" (no binder) last
+    const scope = (options && options.binderId) || "";
+    const inScope = c => !scope || c.binderId === scope;
     const taken = new Set();
     let by = null;
     return (rows || []).map(row => {
@@ -97,8 +101,12 @@
       if (!name || !numberKey(number)) return { status: "incomplete" };
       if (!by) by = index(cards || []);
       const all = found({ name, number }, by);
-      const ph = all.filter(c => c.placeholder).sort(byOrder);
-      if (!ph.length) return { status: "none", reason: all.length ? "owned" : "missing" };
+      const ph = all.filter(c => c.placeholder && inScope(c)).sort(byOrder);
+      if (!ph.length) {
+        const away = all.filter(c => c.placeholder);
+        if (away.length) return { status: "none", reason: "elsewhere", binderIds: [...new Set(away.sort(byOrder).map(c => c.binderId || ""))] };
+        return { status: "none", reason: all.length ? "owned" : "missing" };
+      }
       const free = ph.filter(c => !taken.has(c.id));
       if (!free.length) return { status: "none", reason: "taken" };
       const groups = new Map();
@@ -156,7 +164,7 @@
     rows.forEach((r, i) => {
       const m = results[i];
       if (m.status === "match") out.buy.push({ row: i, cardId: m.cardId, price: prices[i], share: shares[i], cost: cost(prices[i] ?? 0, shares[i]) });
-      else if (m.status === "none") out.flagged.push({ row: i, name: String(r.name ?? "").trim(), number: String(r.number ?? "").trim(), price: prices[i], reason: m.reason });
+      else if (m.status === "none") out.flagged.push({ row: i, name: String(r.name ?? "").trim(), number: String(r.number ?? "").trim(), price: prices[i], reason: m.reason, ...(m.binderIds ? { binderIds: m.binderIds } : {}) });
     });
     return out;
   }

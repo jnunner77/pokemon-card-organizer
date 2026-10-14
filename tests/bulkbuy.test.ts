@@ -4,11 +4,11 @@ import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
 
 // public/bulkbuy.js is a plain browser script; load it the way the page does.
-type Card = { id: string; name?: string; number?: string; set?: string; setCode?: string; variant?: string; language?: string; placeholder?: boolean; status?: string; slot?: number };
+type Card = { id: string; binderId?: string; name?: string; number?: string; set?: string; setCode?: string; variant?: string; language?: string; placeholder?: boolean; status?: string; slot?: number };
 type Row = { name?: string; number?: string; price?: string; pick?: string };
-type Result = { status: string; cardId?: string; reason?: string; pick?: string; printings?: { key: string; card: Card; free: number }[] };
+type Result = { status: string; cardId?: string; reason?: string; binderIds?: string[]; pick?: string; printings?: { key: string; card: Card; free: number }[] };
 type Bulk = {
-  match: (rows: Row[], cards: Card[], options?: { order?: (c: Card) => string | number }) => Result[];
+  match: (rows: Row[], cards: Card[], options?: { order?: (c: Card) => string | number; binderId?: string | null }) => Result[];
   allocate: (tax: number, prices: (number | null)[]) => number[];
   cost: (price: number, share: number) => number;
   amount: (s: string | null | undefined) => number | null;
@@ -143,6 +143,28 @@ describe('matching rows to placeholders', () => {
     expect(match([{ name: 'Abra', number: '63' }], cards)[0].cardId).toBe('a');
     const next = [{ ...cards[0], placeholder: false }, ph('b', 'Abra', '63')];
     expect(match([{ name: 'Abra', number: '63' }], next)[0].cardId).toBe('b');
+  });
+
+  it('looks only in the binder chosen, and says where else the card waits', () => {
+    const cards = [ph('in151', 'Abra', '63', { binderId: 'b151' }), ph('inOther', 'Abra', '63', { binderId: 'bOther' }), ph('loose', 'Mew', '151')];
+    expect(match([{ name: 'Abra', number: '63' }], cards, { binderId: 'bOther' })[0].cardId).toBe('inOther');
+    expect(match([{ name: 'Abra', number: '63' }], cards, { binderId: 'b151' })[0].cardId).toBe('in151');
+    expect(match([{ name: 'Mew', number: '151' }], cards, { binderId: 'b151' })).toEqual([{ status: 'none', reason: 'elsewhere', binderIds: [''] }]);
+    expect(match([{ name: 'Abra', number: '63' }], cards, { binderId: 'bEmpty' })[0]).toEqual({ status: 'none', reason: 'elsewhere', binderIds: ['b151', 'bOther'] });
+    // two copies: the second isn't taken from another binder
+    const r = match([{ name: 'Abra', number: '63' }, { name: 'Abra', number: '63' }], cards, { binderId: 'b151' });
+    expect(r.map(x => x.cardId ?? x.reason)).toEqual(['in151', 'taken']);
+  });
+
+  it('looks everywhere, loose cards included, when no binder is chosen', () => {
+    const cards = [ph('loose', 'Mew', '151'), ph('in', 'Abra', '63', { binderId: 'b' })];
+    expect(match([{ name: 'Mew', number: '151' }, { name: 'Abra', number: '63' }], cards, { binderId: '' }).map(x => x.cardId)).toEqual(['loose', 'in']);
+    expect(match([{ name: 'Mew', number: '151' }], cards, { binderId: null })[0].cardId).toBe('loose');
+  });
+
+  it('flags a card owned in the binder chosen but with no placeholder anywhere as owned', () => {
+    const cards = [{ id: 'a', name: 'Abra', number: '63', binderId: 'b' }];
+    expect(match([{ name: 'Abra', number: '63' }], cards, { binderId: 'b' })).toEqual([{ status: 'none', reason: 'owned' }]);
   });
 
   it('tells the same number in two sets apart by its set size', () => {

@@ -643,7 +643,21 @@ let BB = null;
 const bbRow = () => ({key:rid(), name:"", number:"", price:"", pick:""});
 const bbTyped = () => !!BB && !BB.done && BB.rows.some(r => r.name.trim() || r.number.trim() || r.price.trim());
 const bbAmount = s => window.BinderBulkBuy.amount(s);
-const bbFlag = {missing:"No placeholder for this card in your binders. It won't be entered.", owned:"You have this card already (it isn't a placeholder). It won't be entered.", taken:"Every placeholder for this card is taken by the cards above. It won't be entered."};
+/* Where Bulk buy looks: one binder or case, or all of them (blank). */
+const bbScopeName = () => binderById(BB?.scope)?.name || "your binders";
+const bbWhere = ids => { const l = ids.map(id => binderById(id)?.name ? `in ${binderById(id).name}` : "among the cards not in a binder"); return l.length > 1 ? `${l.slice(0,-1).join(", ")} and ${l[l.length-1]}` : l[0]; };
+/* Why a row is flagged: in full under the row, or short in the list afterwards. */
+function bbFlag(m, short){
+  if(m.reason==="elsewhere"){
+    const ids = m.binderIds, one = ids.length===1 && binderById(ids[0]), where = `Its placeholder${ids.length>1?"s are":" is"} ${bbWhere(ids)}`;
+    return short ? where : `${where}, not in ${bbScopeName()}. Choose ${one ? `${one.name} (or All binders and cases)` : "All binders and cases"} under Look in to fill it. It won't be entered.`;
+  }
+  if(m.reason==="missing") return short ? `No placeholder in ${bbScopeName()}` : `No placeholder for this card in ${bbScopeName()}. It won't be entered.`;
+  if(m.reason==="owned") return short ? "Already owned, not a placeholder" : "You have this card already (it isn't a placeholder). It won't be entered.";
+  return short ? "No placeholder left for it" : "Every placeholder for this card is taken by the cards above. It won't be entered.";
+}
+/* The placeholder names to suggest as you type: the ones where Bulk buy is looking. */
+const bbNames = () => [...new Set(S.cards.filter(c => held(c) && c.placeholder && c.name && (!BB?.scope || c.binderId===BB.scope)).map(c => c.name))].sort((a,b)=>a.localeCompare(b)).map(n=>`<option value="${esc(n)}">`).join("");
 /* Closes the dialog; after a purchase is recorded, its Undo stays on in a toast. */
 function bbClose(){
   const done = BB?.done?.ok; BB = null; closeModal();
@@ -654,12 +668,13 @@ const bbDiscardOk = () => !bbTyped() || confirm("Discard this bulk buy? Nothing 
 function bulkBuyModal(){
   if(!S.db) return toast("Saving isn't available in this view.");
   if(!canEdit()) return toast("You have view-only access.");
-  BB = {rows:[bbRow()], tax:"", res:[], done:null, busy:false};
-  const names = [...new Set(S.cards.filter(c => held(c) && c.placeholder && c.name).map(c => c.name))].sort((a,b)=>a.localeCompare(b));
+  // starts on the binder or case you're in; All binders and cases from anywhere else
+  BB = {rows:[bbRow()], tax:"", res:[], done:null, busy:false, scope:curBinder()?.id || ""};
   $("#modalRoot").innerHTML = `<div class="modal"><div class="mcard bb-card" id="bb_card" role="dialog" aria-modal="true" aria-labelledby="bbTitle">
     <h2 id="bbTitle">Bulk buy</h2>
     <div id="bb_body">
-      <p class="lead">Type each card you bought by its name and number. When it matches a placeholder in your binders, enter what you paid. Put in the tax at the end: it's shared across the cards by price, and each placeholder is switched to owned with what it cost. A card with no placeholder is flagged and left out.</p>
+      <div class="bb-scope"><div class="field"><label for="bb_scope">Look in</label><select id="bb_scope"><option value="">All binders and cases</option>${sortedBinders().map(b=>`<option value="${esc(b.id)}" ${b.id===BB.scope?"selected":""}>${esc(b.name)}${isCase(b)?" (display case)":""}</option>`).join("")}</select></div><span class="hint">Only placeholders here are filled.</span></div>
+      <p class="lead">Type each card you bought by its name and number. When it matches a placeholder where you're looking, enter what you paid. Put in the tax at the end: it's shared across the cards by price, and each placeholder is switched to owned with what it cost. A card with no placeholder is flagged and left out.</p>
       <div class="bb-list" id="bb_list"></div>
       <div class="bb-opts">
         <div class="field"><label for="bb_tax">Tax</label><input id="bb_tax" type="number" step="0.01" min="0" inputmode="decimal" placeholder="0.00"></div>
@@ -668,7 +683,7 @@ function bulkBuyModal(){
         <div class="field"><label for="bb_where">Bought where <span class="hint">(optional)</span></label><input id="bb_where" list="bb_dl" placeholder="Card show, local card shop…"><datalist id="bb_dl">${["Card show","Local card shop","Facebook Marketplace","eBay","TCGplayer","Friend"].map(s=>`<option value="${s}">`).join("")}</datalist></div>
       </div>
       <div class="qs-total" id="bb_total"></div>
-      <datalist id="bb_names">${names.map(n=>`<option value="${esc(n)}">`).join("")}</datalist>
+      <datalist id="bb_names">${bbNames()}</datalist>
     </div>
     <div class="mfoot" id="bb_foot"><button class="btn" type="button" id="bb_cancel">Cancel</button><button class="btn primary" type="button" id="bb_go" disabled>Record purchase</button></div>
   </div></div>`;
@@ -682,7 +697,8 @@ function bulkBuyModal(){
   card.addEventListener("change", e => {
     const r = bbRowOf(e.target);
     if(r && e.target.matches("[data-bbpick]")){ r.pick = e.target.value; bbRefresh(); card.querySelector(`[data-bbrow="${r.key}"] [data-bbf="price"]`)?.focus(); }
-    if(e.target.id==="bb_cur") bbRefresh();
+    if(e.target.id==="bb_scope"){ BB.scope = e.target.value; $("#bb_names").innerHTML = bbNames(); }
+    if(e.target.id==="bb_cur" || e.target.id==="bb_scope") bbRefresh();
   });
   card.addEventListener("click", e => {
     const t = e.target;
@@ -727,7 +743,7 @@ function bbRefresh(){
   const last = BB.rows[BB.rows.length-1];
   if(!last || last.name.trim() || last.number.trim() || last.price.trim()){ const r = bbRow(); BB.rows.push(r); $("#bb_list").insertAdjacentHTML("beforeend", bbRowHTML(r, BB.rows.length-1)); }
   const cur = $("#bb_cur").value;
-  BB.res = window.BinderBulkBuy.match(BB.rows, S.cards, {order:SORTS.loc});
+  BB.res = window.BinderBulkBuy.match(BB.rows, S.cards, {order:SORTS.loc, binderId:BB.scope});
   const prices = BB.rows.map((r,i) => BB.res[i].status==="blank" ? null : bbAmount(r.price));
   const tax = bbAmount(BB.tax) ?? 0, shares = window.BinderBulkBuy.allocate(tax, prices);
   let fill = 0, flagged = 0, choose = 0, incomplete = 0, unpriced = 0, sub = 0;
@@ -748,7 +764,7 @@ function bbRefresh(){
       h = bbPicker(m, r, false);
     } else if(m.status==="none"){
       flagged++;
-      h = `<span class="bb-flag">${esc(bbFlag[m.reason])}${p!=null && tax ? ` Its ${esc(money(share,cur))} share of the tax isn't entered either.` : p==null ? " Its price is only used to share out the tax." : ""}</span>`;
+      h = `<span class="bb-flag">${esc(bbFlag(m))}${p!=null && tax ? ` Its ${esc(money(share,cur))} share of the tax isn't entered either.` : p==null ? " Its price is only used to share out the tax." : ""}</span>`;
     } else if(m.status==="incomplete"){
       incomplete++;
       h = `<span class="hint">Enter its ${r.name.trim() ? "number" : r.number.trim() ? "name" : "name and number"} to find its placeholder.</span>`;
@@ -774,7 +790,7 @@ async function bulkBuySave(){
   bbRefresh();
   const go = $("#bb_go"); if(go.disabled) return;
   BB.busy = true; go.disabled = true; go.textContent = "Recording…";
-  const form = [$("#bb_list"), $("#bb_card .bb-opts")]; // nothing changes while it's being recorded
+  const form = [$("#bb_list"), $("#bb_card .bb-opts"), $("#bb_card .bb-scope")]; // nothing changes while it's being recorded
   form.forEach(el => { el.inert = true; });
   const cur = $("#bb_cur").value, date = $("#bb_date").value || today(), where = $("#bb_where").value.trim();
   const {count, tax, buy, flagged} = window.BinderBulkBuy.plan(BB.rows, BB.res, BB.tax);
@@ -800,7 +816,7 @@ async function bulkBuySave(){
   $("#bb_body").innerHTML = `<p class="lead"><b>${esc(what)}.</b></p>
     ${failed.length?`<p class="bb-flag">${failed.length} didn't save: ${esc(BB.done.failed.join(", "))}. Try them again in a new bulk buy.</p>`:""}
     ${flagged.length?`<p>${flagged.length===1?"This card wasn't":`These ${flagged.length} cards weren't`} entered: ${flagged.length===1?"it has":"they have"} no placeholder to fill. Add ${flagged.length===1?"it":"them"} with <i>+ Add card</i> if you're keeping ${flagged.length===1?"it":"them"}.</p>
-    <ul class="bb-flagged">${flagged.map(f=>`<li><b>${esc(f.name)}</b> <span class="mono">${esc(f.number)}</span>${f.price!=null?` · <span class="mono">${esc(money(f.price,cur))}</span>`:""}<span class="hint">${esc({missing:"No placeholder in your binders", owned:"Already owned, not a placeholder", taken:"No placeholder left for it"}[f.reason])}</span></li>`).join("")}</ul>`:""}`;
+    <ul class="bb-flagged">${flagged.map(f=>`<li><b>${esc(f.name)}</b> <span class="mono">${esc(f.number)}</span>${f.price!=null?` · <span class="mono">${esc(money(f.price,cur))}</span>`:""}<span class="hint">${esc(bbFlag(f, true))}</span></li>`).join("")}</ul>`:""}`;
   $("#bb_foot").innerHTML = `<button class="btn" type="button" id="bb_undo">Undo</button><button class="btn primary" type="button" id="bb_close">Done</button>`;
   render();
 }
