@@ -2974,6 +2974,8 @@ function findKey(e){
 function findMode(mode){
   if(mode===FIND.mode && !FIND.look) return;
   FIND.mode = mode; FIND.look = null; FIND.i = 0; FIND.res = [];
+  // A search still on its way is for the other mode: it's dropped.
+  clearTimeout(FIND.any.t); FIND.any.seq++; FIND.any.busy = false;
   if(mode==="any") FIND.any.q = null;
   findRun(); $("#findQ")?.focus();
 }
@@ -2990,10 +2992,10 @@ async function anySearch(){
   FIND.any.busy = true; findRender();
   try{
     const r = await window.ledgerApi.call("GET", "api/lookup/search?q=" + encodeURIComponent(q));
-    if(seq!==FIND.any.seq || !FIND.open) return;
+    if(seq!==FIND.any.seq || !FIND.open || FIND.mode!=="any") return;
     FIND.any = {...FIND.any, q, busy:false, error:"", more:!!r.more}; FIND.res = r.hits || []; FIND.i = 0;
   }catch(err){
-    if(seq!==FIND.any.seq || !FIND.open) return;
+    if(seq!==FIND.any.seq || !FIND.open || FIND.mode!=="any") return;
     FIND.any = {...FIND.any, q, busy:false, error: err.message || "The card database didn't answer.", more:false}; FIND.res = [];
   }
   findRender();

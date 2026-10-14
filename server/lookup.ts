@@ -83,6 +83,8 @@ export const MAX_HITS = 48;
 /** Most searches by runs of two or more words one query makes; each word on its own is tried too (each a TCGdex request, remembered for an hour). */
 const MAX_TRIES = 6;
 /** Words that say which printing, not which card: left out of the search ("pikachu base set holo"); the card view lists every printing. */
+/** Words that name no card or set ("pokemon card"): left out when other words come with them. */
+const FILLER_WORDS = new Set(['pokemon', 'card', 'cards', 'tcg']);
 const PRINTING_WORDS = new Set(['holo', 'holofoil', 'foil', 'reverse', 'rev', 'rh', 'non', 'nonholo', 'normal', 'regular', 'unlimited', '1st', 'first', 'edition', 'ed', 'shadowless', 'stamp', 'stamped', 'pattern']);
 const round2 = (n: number) => Math.round(n * 100) / 100;
 /** A card number as typed: "4", "4/102", "SWSH050", "TG10", "GG01/GG70". */
@@ -129,7 +131,10 @@ export class CardLookup {
     const tokens = query.trim().split(/\s+/).filter(Boolean).slice(0, 8);
     if (!tokens.length) return { hits: [], more: false };
     const numbers = tokens.filter((t) => NUMBER.test(t) && /\d/.test(t));
-    const words = tokens.filter((t) => !numbers.includes(t) && !wordsOf(t).every((w) => PRINTING_WORDS.has(w)));
+    const named = tokens.filter((t) => !numbers.includes(t) && !wordsOf(t).every((w) => PRINTING_WORDS.has(w)));
+    const words = named.some((t) => !wordsOf(t).every((w) => FILLER_WORDS.has(w))) ? named.filter((t) => !wordsOf(t).every((w) => FILLER_WORDS.has(w))) : named;
+    // Only printing words ("holo"): nothing to search by.
+    if (!words.length && !numbers.length) return { hits: [], more: false };
     const [sets, isPocket] = await Promise.all([this.details.json<SetBrief[]>('/sets'), this.details.pocketTest()]);
     const setList = Array.isArray(sets) ? sets : [];
     const setById = new Map(setList.map((s, i) => [s.id, { ...s, order: i }]));

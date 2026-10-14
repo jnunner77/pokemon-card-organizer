@@ -109,6 +109,16 @@ describe('searching for any card', () => {
     expect(calls.some((c) => /holo|unlimited/.test(c))).toBe(false);
   });
 
+  it('leaves out "pokemon" and "card" beside other words, and searches nothing for printing words alone', async () => {
+    const calls: string[] = [];
+    const lookup = new CardLookup({ details: new CardDetails({ fetcher: tcgdex(calls) }) });
+    expect((await lookup.search('pokemon charizard base set 2 card')).hits.map((h) => h.id)).toEqual(['base4-4']);
+    expect((await lookup.search('charizard pokemon')).hits.map((h) => h.id)).toContain('base1-4');
+    calls.length = 0;
+    expect(await lookup.search('1st edition holo')).toEqual({ hits: [], more: false });
+    expect(calls).toEqual([]);
+  });
+
   it('finds every card with a number when only a number is typed', async () => {
     const lookup = new CardLookup({ details: new CardDetails({ fetcher: tcgdex() }) });
     expect((await lookup.search('4/130')).hits.map((h) => h.id)).toEqual(['base4-4']);
@@ -190,6 +200,13 @@ describe("one card's prices", () => {
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
+  });
+
+  it('prices a card from the card database alone on a server without automatic prices', async () => {
+    const card = await new CardLookup({ details: new CardDetails({ fetcher: tcgdex() }) }).card('base1-4');
+    expect(card.notes).toEqual(["Cardmarket's prices aren't counted until a price update has the euro's exchange rate."]);
+    expect(card.rates).toEqual({ usd: 1.37, eur: null });
+    expect(card.printings[0]).toMatchObject({ pricecharting: null, price: { usd: 928.32, cad: 1271.8, where: 'TCGplayer' } });
   });
 
   it('says when PriceCharting has no certain match', async () => {
