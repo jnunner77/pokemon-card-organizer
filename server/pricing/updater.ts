@@ -278,6 +278,8 @@ const productOf = (l: { source: Source; id?: string | null; url?: string | null;
   linkedBy: l.linkedBy ?? null,
   linkedAt: l.linkedAt ?? null,
 });
+/** Looking up cards (lookup.ts) asks PriceCharting only while the day's calls are under this share of its budget. */
+export const LOOKUP_SHARE = 0.75;
 /** How long before the other site is searched again for a card it had no certain match for. */
 const PAIR_RETRY_MS = 7 * 86_400_000;
 const label = (c: Card) => [c.name || 'Unnamed card', c.setCode || c.set, c.number].filter(Boolean).join(' ');
@@ -1320,12 +1322,17 @@ export class PriceUpdater {
 
   /**
    * PriceCharting's products for a search, for a card looked up without being in the ledger (Find
-   * a card → Any card, lookup.ts). Throws why PriceCharting isn't asked (no token, paused) or its
-   * error. Not counted against a running update's failures.
+   * a card → Any card, lookup.ts). Throws why PriceCharting isn't asked (no token, paused, or the
+   * day's calls past LOOKUP_SHARE of its budget, kept for the daily update) or its error. Not
+   * counted against a running update's failures.
    */
   async lookupProducts(q: string): Promise<PcProduct[]> {
     const out = this.siteOut('pricecharting');
     if (out) throw new SiteOut(out);
+    const use = this.pc!.usageNow();
+    if (use.calls >= Math.floor(use.limit * LOOKUP_SHARE)) {
+      throw new SiteOut(`today's PriceCharting calls (${use.calls} of ${use.limit}) are kept for the daily price update; looking cards up asks it again tomorrow.`);
+    }
     return this.pc!.search(q);
   }
 

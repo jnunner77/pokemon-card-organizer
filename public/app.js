@@ -2998,7 +2998,7 @@ async function anySearch(){
   }
   findRender();
 }
-const cardNo = c => c.total && /^\d+$/.test(c.number) ? `${c.number}/${c.total}` : c.number;
+const cardNo = window.BinderLookup.cardNo;
 function anyRender(){
   const list = $("#findList"), note = $("#findNote"), q = FIND.q.trim(), n = FIND.res.length, a = FIND.any;
   note.classList.toggle("err", !!a.error && !a.busy);
@@ -3025,8 +3025,7 @@ async function lookOpen(k){
     const card = await window.ledgerApi.call("GET", "api/lookup/cards/" + encodeURIComponent(hit.id));
     if(FIND.look!==look) return;
     look.card = card;
-    // The printing the card database prices first: the regular card's, else the first priced.
-    const i = card.printings.findIndex(p => p.price); look.pi = i < 0 ? 0 : i;
+    look.pi = window.BinderLookup.firstPrinting(card.printings);
   }catch(err){
     if(FIND.look!==look) return;
     look.error = err.message || "The card database didn't answer.";
@@ -3072,12 +3071,12 @@ function lookRender(){
 }
 function lookAdd(){
   const c = FIND.look?.card; if(!c || !canEdit()) return;
-  const p = c.printings[FIND.look.pi] || {variant:""};
+  const p = c.printings[FIND.look.pi];
   if(unsaved()) return toast("Save or discard the card you're editing first.");
   closeFind(false);
   openNew();
   if(S.sel!=="__new" || !S.draft) return;
-  S.draft = {...S.draft, name:c.name, set:c.set, setCode:c.setCode||"", number:cardNo(c), rarity:c.rarity||"", variant:p.variant||"", artist:c.artist||""};
+  S.draft = {...S.draft, ...window.BinderLookup.draftFields(c, p)};
   renderDrawer(true);
 }
 $("#findRoot").addEventListener("click", e => {

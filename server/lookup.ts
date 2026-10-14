@@ -80,8 +80,10 @@ interface SetInfo {
 
 /** Most results a search returns. */
 export const MAX_HITS = 48;
-/** Most name searches one query makes (each a TCGdex request, remembered for an hour). */
+/** Most searches by runs of two or more words one query makes; each word on its own is tried too (each a TCGdex request, remembered for an hour). */
 const MAX_TRIES = 6;
+/** Words that say which printing, not which card: left out of the search ("pikachu base set holo"); the card view lists every printing. */
+const PRINTING_WORDS = new Set(['holo', 'holofoil', 'foil', 'reverse', 'rev', 'rh', 'non', 'nonholo', 'normal', 'regular', 'unlimited', '1st', 'first', 'edition', 'ed', 'shadowless', 'stamp', 'stamped', 'pattern']);
 const round2 = (n: number) => Math.round(n * 100) / 100;
 /** A card number as typed: "4", "4/102", "SWSH050", "TG10", "GG01/GG70". */
 const NUMBER = /^[a-z]{0,6}\d+[a-z]?(?:\/[a-z]{0,6}\d+)?$/i;
@@ -127,7 +129,7 @@ export class CardLookup {
     const tokens = query.trim().split(/\s+/).filter(Boolean).slice(0, 8);
     if (!tokens.length) return { hits: [], more: false };
     const numbers = tokens.filter((t) => NUMBER.test(t) && /\d/.test(t));
-    const words = tokens.filter((t) => !numbers.includes(t));
+    const words = tokens.filter((t) => !numbers.includes(t) && !wordsOf(t).every((w) => PRINTING_WORDS.has(w)));
     const [sets, isPocket] = await Promise.all([this.details.json<SetBrief[]>('/sets'), this.details.pocketTest()]);
     const setList = Array.isArray(sets) ? sets : [];
     const setById = new Map(setList.map((s, i) => [s.id, { ...s, order: i }]));
@@ -141,7 +143,9 @@ export class CardLookup {
         runs.push({ name: run.map(asPrinted).join(' '), rest: [...words.slice(0, at), ...words.slice(at + len)] });
       }
     }
-    const tries = runs.slice(0, MAX_TRIES).map((r) => ({ path: `/cards?name=${encodeURIComponent(r.name)}`, ...r }));
+    // The longest runs first, then every word on its own, so a name is found however many set words come with it.
+    const longer = runs.filter((r) => r.name.includes(' ')).slice(0, MAX_TRIES);
+    const tries = [...longer, ...runs.filter((r) => !r.name.includes(' '))].map((r) => ({ path: `/cards?name=${encodeURIComponent(r.name)}`, ...r }));
     // Only numbers: every card with the first one.
     const own = numbers[0]?.split('/')[0] ?? '';
     if (!words.length) tries.push({ path: `/cards?localId=${encodeURIComponent(/^\d+$/.test(own) ? String(Number(own)) : own)}`, name: '', rest: [] });

@@ -100,6 +100,15 @@ describe('searching for any card', () => {
     expect((await lookup.search('charizard jungle')).hits).toEqual([]);
   });
 
+  it('finds a name among several set and printing words', async () => {
+    const calls: string[] = [];
+    const lookup = new CardLookup({ details: new CardDetails({ fetcher: tcgdex(calls) }) });
+    expect((await lookup.search('charizard base set holo')).hits.map((h) => h.id)).toEqual(['base1-4', 'base4-4']);
+    expect((await lookup.search('base set 2 unlimited charizard')).hits.map((h) => h.id)).toEqual(['base4-4']);
+    // Printing words aren't searched for.
+    expect(calls.some((c) => /holo|unlimited/.test(c))).toBe(false);
+  });
+
   it('finds every card with a number when only a number is typed', async () => {
     const lookup = new CardLookup({ details: new CardDetails({ fetcher: tcgdex() }) });
     expect((await lookup.search('4/130')).hits.map((h) => h.id)).toEqual(['base4-4']);
@@ -109,8 +118,9 @@ describe('searching for any card', () => {
   it("asks TCGdex only a few times for words that name nothing, and remembers its answers", async () => {
     const calls: string[] = [];
     const lookup = new CardLookup({ details: new CardDetails({ fetcher: tcgdex(calls) }) });
-    expect((await lookup.search('zz qq ww ee rr tt')).hits).toEqual([]);
-    expect(calls.filter((c) => c.startsWith('/cards?')).length).toBeLessThanOrEqual(6);
+    // At most 6 runs of several words, then each word of 3 letters or more on its own.
+    expect((await lookup.search('zzz qq ww ee rr tt')).hits).toEqual([]);
+    expect(calls.filter((c) => c.startsWith('/cards?')).length).toBe(7);
     const before = calls.length;
     await lookup.search('charizard');
     await lookup.search('charizard');
@@ -163,6 +173,23 @@ describe("one card's prices", () => {
     expect(noRate.printings[0].price).toMatchObject({ usd: 400, where: 'PriceCharting' });
     expect(noRate.notes).toEqual(["Cardmarket's prices aren't counted until a price update has the euro's exchange rate."]);
     expect((await lookup({ cardmarket: false })).notes).toEqual(["Cardmarket's prices aren't counted: it's left out under Administration → Prices."]);
+  });
+
+  it("keeps PriceCharting's calls for the daily update once lookups have used their share of its budget", async () => {
+    const { PriceUpdater, LOOKUP_SHARE } = await import('../server/pricing/updater');
+    const usage = { calls: 0, limit: 100 };
+    const search = vi.fn(async () => PC);
+    const pricecharting = { ready: true, out: () => null, usageNow: () => usage, search };
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'binder-lookup-'));
+    try {
+      const updater = new PriceUpdater({ store: new Store(tmp), assets: {} as Assets, pricecharting: pricecharting as never });
+      expect(await updater.lookupProducts('Charizard 4')).toBe(PC);
+      usage.calls = Math.floor(usage.limit * LOOKUP_SHARE);
+      await expect(updater.lookupProducts('Charizard 4')).rejects.toThrow("today's PriceCharting calls (75 of 100) are kept for the daily price update");
+      expect(search).toHaveBeenCalledTimes(1);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 
   it('says when PriceCharting has no certain match', async () => {

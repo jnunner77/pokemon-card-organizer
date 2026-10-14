@@ -589,7 +589,9 @@ when you've rearranged the binder and want to keep the new layout instead.
   printings (regular, reverse holo, patterns, stamps, 1st Edition…), with TCGplayer's, Cardmarket's
   and PriceCharting's prices, PriceCharting's graded prices, and links to its products. Nothing is
   added to the ledger; **Add to a binder** opens a new card filled in with it and the printing
-  chosen. Turned off with `CARD_LOOKUPS=off`.
+  chosen. Each card looked at is one PriceCharting call; once the day's calls pass three quarters of
+  its budget, lookups leave PriceCharting out (and say so), keeping the rest for the daily update.
+  Turned off with `CARD_LOOKUPS=off`.
 - **Your photos**: choose, take, browse, paste or drop one; or photograph a whole binder page
   and slice it into one photo per pocket. Flip through pictures full screen.
 - **Duplicate** a card (in its details) or several (press and hold to select): choose how many
