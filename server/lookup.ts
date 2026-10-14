@@ -3,7 +3,7 @@
 // daily update would price it (updater.ts). Nothing is saved: the ledger isn't touched.
 
 import { blend } from './blend';
-import { type CardDetails, asPrinted, isoDate, mapRarity } from './details';
+import { type CardDetails, asPrinted, isSubSet, isoDate, mapRarity } from './details';
 import { type TcgdexCard, type TcgdexVariant, featuresOf, tcgdexCardmarket, tcgdexTcgplayer, variantLabel, variantPrices } from './pricing/catalog';
 import { cardNumber, catalogMismatch, chooseMatch, norm, searchQuery } from './pricing/match';
 import type { PcProduct } from './pricing/pricecharting';
@@ -82,9 +82,9 @@ interface SetInfo {
 export const MAX_HITS = 48;
 /** Most searches by runs of two or more words one query makes; each word on its own is tried too (each a TCGdex request, remembered for an hour). */
 const MAX_TRIES = 6;
-/** Words that say which printing, not which card: left out of the search ("pikachu base set holo"); the card view lists every printing. */
 /** Words that name no card or set ("pokemon card"): left out when other words come with them. */
 const FILLER_WORDS = new Set(['pokemon', 'card', 'cards', 'tcg']);
+/** Words that say which printing, not which card: left out of the search ("pikachu base set holo"); the card view lists every printing. */
 const PRINTING_WORDS = new Set(['holo', 'holofoil', 'foil', 'reverse', 'rev', 'rh', 'non', 'nonholo', 'normal', 'regular', 'unlimited', '1st', 'first', 'edition', 'ed', 'shadowless', 'stamp', 'stamped', 'pattern']);
 const round2 = (n: number) => Math.round(n * 100) / 100;
 /** A card number as typed: "4", "4/102", "SWSH050", "TG10", "GG01/GG70". */
@@ -208,17 +208,36 @@ export class CardLookup {
       { kind: 'holo', variant: 'Holo', label: 'holo' },
       { kind: 'reverse', variant: 'Reverse Holo', label: 'reverse' },
     ] as const;
-    const base = (td.variants_detailed ?? []).length
+    type Base = { label: string; variant: string; tcgplayer: { usd: number; productId: string | null } | null; cardmarketEur: number | null; product: string | null };
+    const base: Base[] = (td.variants_detailed ?? []).length
       ? td.variants_detailed!.map((v) => {
           const p = variantPrices(v);
-          return { label: variantLabel(v), variant: variantText(v), tcgplayer: p.tcgplayer, cardmarketEur: p.cardmarketEur };
+          const product = p.tcgplayer?.productId ?? (v.thirdParty?.tcgplayer ? String(Math.trunc(v.thirdParty.tcgplayer)) : null);
+          return { label: variantLabel(v), variant: variantText(v), tcgplayer: p.tcgplayer, cardmarketEur: p.cardmarketEur, product };
         })
       : kinds
           .map((k) => {
             const want = { kind: k.kind, first: false, strict: true };
-            return { label: k.label, variant: k.variant, tcgplayer: tcgdexTcgplayer(td, want), cardmarketEur: tcgdexCardmarket(td, want) };
+            const tcgplayer = tcgdexTcgplayer(td, want);
+            return { label: k.label, variant: k.variant, tcgplayer, cardmarketEur: tcgdexCardmarket(td, want), product: tcgplayer?.productId ?? null };
           })
           .filter((p, i) => i === 0 || p.tcgplayer || p.cardmarketEur != null);
+    const setCode = info?.abbreviation?.official ?? info?.tcgOnline ?? null;
+    const total = td.set.cardCount?.official || null;
+    // As the daily update does: TCGplayer's own catalog for a printing the card databases have no TCGplayer price for.
+    if (this.updater) {
+      await Promise.all(
+        base.map(async (p) => {
+          if (p.tcgplayer) return;
+          const number = total && /^\d+$/.test(td.localId) ? `${td.localId}/${total}` : td.localId;
+          const q = await this.updater!.lookupTcgplayer({ name: td.name, set: td.set.name, setCode, number, variant: p.variant, rarity: mapRarity(td.rarity), tcgdexSet: td.set.name }, p.product);
+          if (q?.usd != null) p.tcgplayer = { usd: q.usd, productId: q.productId };
+        }),
+      );
+    }
+    // A reprint sub-set's card (30th Classic Collection) is PriceCharting's under the set it belongs to (30th Celebration).
+    const sets = await this.details.json<SetBrief[]>('/sets').catch(() => [] as SetBrief[]);
+    const parent = (Array.isArray(sets) ? sets : []).find((x) => isSubSet(x.id, td.set.id)) ?? null;
 
     let products: PcProduct[] = [];
     if (this.updater) {
@@ -232,13 +251,14 @@ export class CardLookup {
 
     const printings = base.map((p): LookupPrinting => {
       const card = { name: td.name, number: td.localId, set: td.set.name, variant: p.variant };
-      const pc = asked ? (chooseMatch(card, products).match as PcProduct | null) : null;
+      let pc = asked ? (chooseMatch(card, products).match as PcProduct | null) : null;
+      if (asked && !pc && parent) pc = chooseMatch({ ...card, set: parent.name }, products).match as PcProduct | null;
       const quotes: Record<string, number> = {};
       if (pc?.usd != null) quotes.pricecharting = pc.usd;
       if (p.tcgplayer) quotes.tcgplayer = p.tcgplayer.usd;
       if (useCardmarket && p.cardmarketEur != null) quotes.cardmarket = round2((p.cardmarketEur * rates.eur!) / rates.usd);
       // As the daily update does: TCGdex's prices count only when its card is PriceCharting's product's set and printing.
-      const leftOut = quotes.pricecharting != null ? catalogMismatch(card, pc, td.set.name) : null;
+      const leftOut = quotes.pricecharting != null ? catalogMismatch(card, pc, td.set.name, parent?.name) : null;
       if (leftOut) {
         delete quotes.tcgplayer;
         delete quotes.cardmarket;
@@ -266,9 +286,9 @@ export class CardLookup {
       id: td.id,
       name: td.name,
       number: td.localId,
-      total: td.set.cardCount?.official || null,
+      total,
       set: td.set.name,
-      setCode: info?.abbreviation?.official ?? info?.tcgOnline ?? null,
+      setCode,
       rarity: mapRarity(td.rarity),
       artist: td.illustrator?.trim() || null,
       released: isoDate(info?.releaseDate),

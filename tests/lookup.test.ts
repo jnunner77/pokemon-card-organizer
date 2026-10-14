@@ -10,6 +10,7 @@ import { CardLookup, variantText } from '../server/lookup';
 import { type TcgdexCard, chooseVariant } from '../server/pricing/catalog';
 import { parseProduct } from '../server/pricing/pricecharting';
 import { type Fetcher, retryPolicy } from '../server/pricing/sources';
+import type { TcgCsvCard } from '../server/pricing/tcgcsv';
 import type { PriceUpdater } from '../server/pricing/updater';
 import { Store } from '../server/store';
 
@@ -25,6 +26,8 @@ const SETS = [
   { id: 'A1', name: 'Genetic Apex', cardCount: { official: 226 } },
   { id: 'sv03.5', name: '151', cardCount: { official: 165 } },
   { id: 'swshp', name: 'SWSH Black Star Promos', cardCount: { official: 307 } },
+  { id: '30th', name: '30th Celebration', cardCount: { official: 128 } },
+  { id: '30th-c', name: '30th Classic Collection', cardCount: { official: 25 } },
 ];
 const img = (set: string, n: string) => `https://assets.tcgdex.net/en/x/${set}/${n}`;
 const CARDS = [
@@ -42,6 +45,8 @@ function tcgdex(calls: string[] = []): Fetcher {
     '/series/tcgp': { sets: [{ id: 'A1' }] },
     '/sets/base1': { id: 'base1', name: 'Base Set', releaseDate: '1999-01-09', abbreviation: { official: 'BS' } },
     '/cards/base1-4': CHARIZARD,
+    // A reprint in a sub-set, which PriceCharting lists under the set it belongs to.
+    '/cards/30th-c-4': { ...CHARIZARD, id: '30th-c-4', set: { id: '30th-c', name: '30th Classic Collection', cardCount: { official: 25 } } },
   };
   return async (url) => {
     const p = url.replace(API, '');
@@ -67,15 +72,17 @@ const PC = [
   { id: '632', 'product-name': 'Charizard #4', 'console-name': 'Pokemon Base Set 2', 'loose-price': 30000 },
 ].map(parseProduct);
 
-function fakeUpdater(o: { products?: () => Promise<unknown>; method?: string; eur?: number | null; cardmarket?: boolean } = {}) {
+function fakeUpdater(o: { products?: () => Promise<unknown>; method?: string; eur?: number | null; cardmarket?: boolean; tcgcsv?: (card: TcgCsvCard, product: string | null) => Promise<unknown> } = {}) {
   const lookupProducts = vi.fn(o.products ?? (async () => PC));
+  const lookupTcgplayer = vi.fn(o.tcgcsv ?? (async () => null));
   const updater = {
     lookupProducts,
+    lookupTcgplayer,
     savedRates: () => ({ usd: 1.4, eur: o.eur === undefined ? 1.6 : o.eur }),
     schedule: () => ({ enabled: true, hour: 5, timeZone: 'UTC', cardmarket: o.cardmarket ?? true }),
     priceMethod: () => ({ method: o.method ?? 'blend', weights: { pricecharting: 40, tcgplayer: 40, cardmarket: 20 }, tolerance: 25 }),
   } as unknown as PriceUpdater;
-  return { updater, lookupProducts };
+  return { updater, lookupProducts, lookupTcgplayer };
 }
 
 describe('searching for any card', () => {
@@ -207,6 +214,23 @@ describe("one card's prices", () => {
     expect(card.notes).toEqual(["Cardmarket's prices aren't counted until a price update has the euro's exchange rate."]);
     expect(card.rates).toEqual({ usd: 1.37, eur: null });
     expect(card.printings[0]).toMatchObject({ pricecharting: null, price: { usd: 928.32, cad: 1271.8, where: 'TCGplayer' } });
+  });
+
+  it("asks TCGplayer's own catalog for a printing the card database has no TCGplayer price for, as the daily update does", async () => {
+    const { updater, lookupTcgplayer } = fakeUpdater({ tcgcsv: async (_card, product) => (product === '106999' ? { productId: '106999', usd: 12000, name: 'Charizard', number: '4/102', set: 'Base Set', url: '', rarity: null, released: null } : null) });
+    const card = await new CardLookup({ details: new CardDetails({ fetcher: tcgdex() }), updater }).card('base1-4');
+    // Only the printings without a TCGplayer price are looked for, by their own TCGplayer product.
+    expect(lookupTcgplayer).toHaveBeenCalledTimes(3);
+    expect(lookupTcgplayer).toHaveBeenCalledWith(expect.objectContaining({ name: 'Charizard', number: '4/102', set: 'Base Set', setCode: 'BS', variant: '1st Edition Shadowless Holo' }), '106999');
+    expect(card.printings[1]).toMatchObject({ variant: '1st Edition Shadowless Holo', tcgplayer: { usd: 12000, url: 'https://www.tcgplayer.com/product/106999' } });
+    expect(card.printings[0].tcgplayer).toMatchObject({ usd: 928.32 });
+  });
+
+  it("matches a reprint sub-set's card on PriceCharting under the set it belongs to, counting the card database's prices", async () => {
+    const products = [parseProduct({ id: '700', 'product-name': 'Charizard #4', 'console-name': 'Pokemon 30th Celebration', 'loose-price': 90000 })];
+    const { updater } = fakeUpdater({ products: async () => products });
+    const card = await new CardLookup({ details: new CardDetails({ fetcher: tcgdex() }), updater }).card('30th-c-4');
+    expect(card.printings[0]).toMatchObject({ pricecharting: { id: '700', usd: 900 }, leftOut: null, price: { where: 'Blend' } });
   });
 
   it('says when PriceCharting has no certain match', async () => {

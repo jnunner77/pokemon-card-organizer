@@ -2884,7 +2884,7 @@ function openFind(){
 }
 function closeFind(restoreFocus=true){
   if(!FIND.open) return;
-  FIND.open = false; FIND.look = null; clearTimeout(FIND.any.t); $("#findRoot").innerHTML = ""; document.documentElement.style.overflow = "";
+  FIND.open = false; FIND.look = null; clearTimeout(FIND.any.t); FIND.any.seq++; FIND.any.busy = false; $("#findRoot").innerHTML = ""; document.documentElement.style.overflow = "";
   const b = FIND.back; FIND.back = null;
   if(restoreFocus && b && document.contains(b)) try{ b.focus({preventScroll:true}); }catch(_){}
 }
@@ -2980,9 +2980,10 @@ function findMode(mode){
   findRun(); $("#findQ")?.focus();
 }
 function anyRun(){
-  clearTimeout(FIND.any.t);
+  // A search still on its way is for earlier text: it's dropped.
+  clearTimeout(FIND.any.t); FIND.any.seq++;
   FIND.look = null;
-  if(!FIND.q.trim()){ FIND.any = {...FIND.any, q:"", busy:false, error:"", more:false}; FIND.res = []; FIND.any.seq++; return findRender(); }
+  if(!FIND.q.trim()){ FIND.any = {...FIND.any, q:"", busy:false, error:"", more:false}; FIND.res = []; return findRender(); }
   FIND.any.busy = true; findRender();
   FIND.any.t = setTimeout(anySearch, 350);
 }

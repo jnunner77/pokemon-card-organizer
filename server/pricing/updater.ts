@@ -10,7 +10,7 @@ import type { Store } from '../store';
 import { Catalog, type CatalogQuote } from './catalog';
 import { catalogMismatch, chooseMatch, detailsFromProduct, norm, otherBall, otherPrinting, searchQuery, variantFromProduct, type CardForMatch, type MatchResult } from './match';
 import { type PcProduct, type PriceCharting, type PriceGuide, gradedPrice, oldAddress, quoteOf } from './pricecharting';
-import { type TcgCsv, type TcgCsvQuote } from './tcgcsv';
+import { type TcgCsv, type TcgCsvCard, type TcgCsvQuote } from './tcgcsv';
 import { type Candidate, type Fetcher, ProductGone, type Quote, Refused, type Source, SourceError, get, exchangeRates, tcgImage } from './sources';
 
 // The daily price and image update. For every card still in the collection it finds the card's
@@ -1334,6 +1334,15 @@ export class PriceUpdater {
       throw new SiteOut(`today's PriceCharting calls (${use.calls} of ${use.limit}) are kept for the daily price update; looking cards up asks it again tomorrow.`);
     }
     return this.pc!.search(q);
+  }
+
+  /**
+   * TCGplayer's own catalog (tcgcsv.ts) for a looked-up card's printing the card databases have no
+   * TCGplayer price for, as the daily update asks it (tcgcsvQuote); null when it isn't found or doesn't answer.
+   */
+  async lookupTcgplayer(card: TcgCsvCard, productId: string | null): Promise<TcgCsvQuote | null> {
+    if (!this.tcgcsv) return null;
+    return this.tcgcsv.quote(card, productId).catch(() => null);
   }
 
   /** The exchange rates the last update saved: CAD per US dollar, and per euro when known. */
