@@ -24,7 +24,8 @@ import type { Event, Store } from './store';
 //   up to the dollar), never what was paid, sales, notes, owner, binder location or price logs.
 // - Settings and the guest log (who signed in, when and how their visit ended) are in
 //   <data>/guests.json, which never reaches the ledger's copies, full backup downloads or API
-//   responses other than Administration. The server's archives (deploy/backup.sh) do hold it.
+//   responses other than Administration. The server's archives (deploy/backup.sh) do hold it;
+//   only the owner can read them.
 
 export const GUEST_COOKIE = 'binder_guest';
 export const GUEST_IDLE_MS = 15 * 60_000;
