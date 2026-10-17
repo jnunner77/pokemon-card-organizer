@@ -338,7 +338,7 @@ export function createApp(o: AppOptions) {
   // A card's price entries added, changed or removed by id (priceops.ts), with other fields that
   // change with them (a sale's status and location). Applied to the server's list as it is now,
   // so an entry the daily update or someone else added meanwhile is kept.
-  const priceEntry = z.object({ id: z.string().min(1).max(64) }).passthrough();
+  const priceEntry = z.looseObject({ id: z.string().min(1).max(64) });
   const priceOpsBody = z
     .object({
       add: z.array(priceEntry).max(2000).optional(),
