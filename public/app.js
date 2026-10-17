@@ -626,10 +626,8 @@ async function undoSale(id, quiet){
   const f = c.sale.from || {};
   let loc = {binderId:null, page:null, slot:null};
   if(f.binderId && binderById(f.binderId)){ loc = f.page && f.slot && !cardAt(f.binderId, f.page, f.slot) ? {binderId:f.binderId, page:f.page, slot:f.slot} : {binderId:f.binderId, ...firstFree(f.binderId)}; }
-  const prices = (c.prices||[]).filter(p => p.id !== c.sale.priceId);
-  if(!(await changePrices(id, {remove:[c.sale.priceId]}, {...loc, status:"binder", sale:null}))) return false;
-  // Seen at once by the next card of a bundle, before the live update arrives.
-  Object.assign(c, loc, {prices, status:"binder", sale:null});
+  // An older sale may not name its price entry: then only the card comes back.
+  if(!(await changePrices(id, {remove:c.sale.priceId ? [c.sale.priceId] : []}, {...loc, status:"binder", sale:null}))) return false;
   if(!quiet) toast(loc.binderId ? `${c.name||"Card"} is back in ${locText(loc)}` : `${c.name||"Card"} is back under Not in a binder`);
   return true;
 }

@@ -85,6 +85,13 @@ describe('POST /api/cards/:id/prices', () => {
     expect(ids()).toEqual(['a', 'daily']);
   });
 
+  it('undoes a sale that names no price entry: the card comes back, its entries stay', async () => {
+    store.update('cards', 'c1', { status: 'sold', sale: { soldCAD: 40 } });
+    await request(app).post('/api/cards/c1/prices').send({ remove: [], fields: { status: 'binder', sale: null } }).expect(200);
+    expect(store.get('cards', 'c1')).toMatchObject({ status: 'binder', sale: null });
+    expect(ids()).toEqual(['a']);
+  });
+
   it('refuses an edit of an entry removed meanwhile, the whole list in fields, and bad entries', async () => {
     await request(app).post('/api/cards/c1/prices').send({ update: [entry('gone')] }).expect(409);
     await request(app).post('/api/cards/c1/prices').send({ fields: { prices: [] } }).expect(400);
