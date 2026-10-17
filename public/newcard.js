@@ -13,5 +13,12 @@
     if (key && added && added[key]) return added[key];
     return "gone";
   }
-  window.BinderNewCard = { photoTarget };
+  /**
+   * The Placeholder switch when the add came back: `sent` is what the card was added with, `now` the
+   * switch then. Returns the value to save on the added card, or null when it didn't change.
+   */
+  function placeholderAfterAdd(sent, now) {
+    return !!now === !!sent ? null : !!now;
+  }
+  window.BinderNewCard = { photoTarget, placeholderAfterAdd };
 })();

@@ -5,10 +5,21 @@ import { describe, expect, it } from 'vitest';
 
 // public/newcard.js is a plain browser script; load it the way the page does.
 type Where = { target: string; key?: string | null; sel: string | null; draftKey?: string | null; added?: Record<string, string> | null };
-const sandbox = { window: {} as { BinderNewCard: { photoTarget: (w: Where) => string } } };
+const sandbox = { window: {} as { BinderNewCard: { photoTarget: (w: Where) => string; placeholderAfterAdd: (sent: boolean, now: boolean) => boolean | null } } };
 vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync(path.join(__dirname, '../public/newcard.js'), 'utf8'), sandbox);
-const { photoTarget } = sandbox.window.BinderNewCard;
+const { photoTarget, placeholderAfterAdd } = sandbox.window.BinderNewCard;
+
+describe('the Placeholder switch changed while a new card was being added', () => {
+  it('is saved on the added card when it differs from what the card was added with', () => {
+    expect(placeholderAfterAdd(false, true)).toBe(true);
+    expect(placeholderAfterAdd(true, false)).toBe(false);
+  });
+  it('leaves the card alone when it was not changed', () => {
+    expect(placeholderAfterAdd(false, false)).toBeNull();
+    expect(placeholderAfterAdd(true, true)).toBeNull();
+  });
+});
 
 describe("a new card's photo that's ready after the card was added", () => {
   it('goes on a saved card it was picked for, as before', () => {

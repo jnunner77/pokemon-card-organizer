@@ -1296,7 +1296,8 @@ async function saveCard(){
         }
         // The Placeholder switch changed while it was being added: on the added card it saves at once, as on any saved card.
         const box = $("#f_placeholder");
-        if(box && phNow!==sentPh){ box.checked = phNow; void switchPlaceholder(box); }
+        const phSave = window.BinderNewCard.placeholderAfterAdd(sentPh, phNow);
+        if(box && phSave!==null){ box.checked = phSave; void switchPlaceholder(box); }
         // A photo chosen, replaced or removed while it was being added: the card takes it, and the one
         // it was added with goes when nothing else uses it (as when a photo is changed).
         if(photo!==sentPhoto) updateCard(id, {imageId:photo}).then(async ok=>{
@@ -2844,7 +2845,7 @@ function takePhotoFile(f, how){
   if(!f){ photoNote("No photo came back. Try again, or paste one in the box above."); return; }
   if(Date.now()-lastTakeAt < 800) return; lastTakeAt = Date.now();
   const target = S.photoFor ?? S.sel, key = S.photoFor ? S.photoForKey : S.draft?.key; S.pickAt = 0;
-  S.photoFor = null; S.photoForKey = null; // used once: a later photo is for whatever is open then, or picked for
+  S.photoFor = null; S.photoForKey = null; // used once: a later photo goes to the drawer open (or picked for) then
   const looksImg = !f.type || /^image\//.test(f.type) || f.type==="application/octet-stream" || /\.(jpe?g|png|gif|webp|hei[cf]|bmp|tiff?)$/i.test(f.name||"");
   if(!looksImg){ uploadErr({code:"notimage"}); photoNote("That file isn't a picture. Pick a JPG, PNG or screenshot."); return; }
   const snap = snapshot(f);
