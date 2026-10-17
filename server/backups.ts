@@ -4,7 +4,7 @@ import type { Assets } from './assets';
 import type { Config, Retention } from './config';
 import type { Logger } from './log';
 import { HttpError } from './security';
-import type { Data, Store } from './store';
+import { type Data, type Store, imagesIn } from './store';
 
 // Copies of the ledger (db.json) kept on the server, in <data>/backups:
 //
@@ -16,7 +16,8 @@ import type { Data, Store } from './store';
 // - before-restore: db-before-restore-<time>.json, taken automatically before any restore.
 //
 // Photos aren't copied: they never change once stored, and deleted ones stay in the photo
-// trash for 400 days (longer than the oldest monthly copy), so restoring a copy brings them back.
+// trash for at least 400 days, and for as long as any kept copy refers to them, so restoring a
+// copy brings them back.
 
 export type BackupKind = 'daily' | 'snapshot' | 'before-restore';
 export interface BackupFile {
@@ -148,6 +149,30 @@ export class Backups {
     for (const id of this.store.referencedImages()) if (!this.assets.find(id) && this.assets.untrash(id)) recovered++;
     this.log.warn('backup', `${by} restored the ledger from ${name}`, { by, name, photosRecovered: recovered });
     return { cards: this.store.all().cards.length, photosRecovered: recovered };
+  }
+
+  private refsCache: { key: string; ids: Set<string> } | null = null;
+
+  /**
+   * The photos the ledger or any kept copy of it refers to, so the photo trash keeps them. Null
+   * when a copy can't be read (then no trashed photo is deleted). The copies are read again only
+   * when they change.
+   */
+  referencedImages(): Set<string> | null {
+    const files = this.list();
+    const key = files.map((f) => `${f.name}:${f.bytes}:${f.at}`).join('|');
+    if (this.refsCache?.key === key) return new Set([...this.refsCache.ids, ...this.store.referencedImages()]);
+    const ids = new Set<string>();
+    for (const f of files) {
+      try {
+        imagesIn(JSON.parse(fs.readFileSync(path.join(this.dir, f.name), 'utf8')) as Partial<Data>, ids);
+      } catch (err) {
+        this.log.warn('backup', `Couldn't read the copy ${f.name}, so no trashed photo is deleted: ${err instanceof Error ? err.message : err}`);
+        return null;
+      }
+    }
+    this.refsCache = { key, ids };
+    return new Set([...ids, ...this.store.referencedImages()]);
   }
 
   /** For the Checks page: the newest daily copy and how much is kept. */

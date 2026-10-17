@@ -276,6 +276,33 @@ describe('backups', () => {
     await admin.get('/api/admin/backups/..%2Fauth.json').expect(404);
   });
 
+  it('keeps a trashed photo while any kept copy refers to it, however old', () => {
+    const backups = new Backups(store, assets, config, log);
+    const kept = assets.put(JPEG)!.id;
+    const loose = assets.put(JPEG)!.id;
+    // An old monthly copy has a card with the first photo; nothing refers to the second.
+    fs.writeFileSync(path.join(store.backupDir, 'db-2025-01-31.json'), JSON.stringify({ cards: { c1: { ...card, imageId: kept } } }));
+    assets.remove(kept);
+    assets.remove(loose);
+    const later = Date.now() + 500 * 86_400_000;
+    expect(assets.purgeTrash(later, () => backups.referencedImages())).toBe(1);
+    expect(assets.untrash(loose)).toBe(false);
+    // Restoring that copy brings its photo back.
+    expect(backups.restore('db-2025-01-31.json', 'admin')).toMatchObject({ photosRecovered: 1 });
+    expect(assets.find(kept)).not.toBeNull();
+    // With no copies left, the ledger's own card still keeps it; a copy that can't be read keeps
+    // them all; once nothing refers to it, an old trashed photo goes.
+    assets.remove(kept);
+    for (const b of backups.list()) fs.rmSync(path.join(store.backupDir, b.name));
+    expect(assets.purgeTrash(later, () => backups.referencedImages())).toBe(0);
+    store.delete('cards', 'c1');
+    for (const b of backups.list()) fs.rmSync(path.join(store.backupDir, b.name)); // incl. the day's copy the delete took
+    fs.writeFileSync(path.join(store.backupDir, 'db-2025-01-31.json'), '{not json');
+    expect(assets.purgeTrash(later, () => backups.referencedImages())).toBe(0);
+    fs.rmSync(path.join(store.backupDir, 'db-2025-01-31.json'));
+    expect(assets.purgeTrash(later, () => backups.referencedImages())).toBe(1);
+  });
+
   it('takes the daily copy and applies retention', () => {
     const backups = new Backups(store, assets, config, log);
     store.set('cards', 'c1', card);
