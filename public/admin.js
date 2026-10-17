@@ -165,7 +165,7 @@
       <div class="tablewrap"><table><thead><tr><th>Name</th><th>Phone or email</th><th>Signed in</th><th>Last active</th><th>Address</th><th></th></tr></thead><tbody>${active || `<tr><td colspan="6" class="empty-state">No guests are looking right now.</td></tr>`}</tbody></table></div>
       <h3 class="pad">Guest log</h3>
       <div class="tablewrap"><table><thead><tr><th>Name</th><th>Phone or email</th><th>Signed in</th><th>Last active</th><th>Ended</th></tr></thead><tbody>${visits || `<tr><td colspan="5" class="empty-state">No guests yet.</td></tr>`}</tbody></table></div>
-      <div class="formfoot pad"><span class="hint">Kept on this server only (not in backups), the newest 2,000 visits.</span><button class="btn sm danger" type="button" id="guestClear" ${g.log.length ? "" : "disabled"}>Clear the log</button></div>`;
+      <div class="formfoot pad"><span class="hint">Not in the ledger's backups or full backup downloads; the server's own archives (and the nightly job's Cloud Storage copies of them) hold it. The newest 2,000 visits are kept.</span><button class="btn sm danger" type="button" id="guestClear" ${g.log.length ? "" : "disabled"}>Clear the log</button></div>`;
   }
   function wireGuests() {
     const g = guestData;
