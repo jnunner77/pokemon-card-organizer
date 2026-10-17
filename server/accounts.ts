@@ -16,7 +16,8 @@ import { HttpError } from './security';
 // - Wrong passwords lock the username after a few tries, for longer each time (1, 2, 4 … minutes,
 //   up to a day).
 // - Sessions are random tokens kept as hashes in <data>/sessions.json, so signing in survives
-//   restarts; they end after a period without use and after a maximum age.
+//   restarts; they end after a period without use and after a maximum age. Like auth.json, it
+//   never reaches the ledger's copies or full backup downloads; the server's archives hold it.
 // - API tokens act as one person, read-only or read & write (never admin), always expire.
 // - The first administrator comes from BINDER_PASSWORD (username "admin") or, without it, from
 //   a one-time setup code written to the server log.
