@@ -74,7 +74,8 @@
     if (edited(fields)) return true;
     if (!draft) return false;
     const typed = (el) => /^(INPUT|TEXTAREA)$/.test(el.tagName) && !el.readOnly && !el.disabled && !/^(button|submit|reset|hidden|file|search|checkbox|radio)$/.test(el.type) && String(el.value).trim() !== "";
-    return !!draft.imageId || Array.from(fields).some(typed);
+    // A new card's photo, or its Placeholder tick kept through a redraw (after a photo), is something to lose too.
+    return !!draft.imageId || !!draft.placeholder || Array.from(fields).some(typed);
   }
 
   /* Whether Add card / Save changes is off: while a save is on its way (a second one would add the

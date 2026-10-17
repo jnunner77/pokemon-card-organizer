@@ -835,7 +835,7 @@ function selCard(){ return S.sel==="__new" ? S.draft : S.cards.find(c=>c.id===S.
 const unsaved = () => !!S.sel && window.BinderFormSync.unsaved($("#drawerRoot")?.querySelectorAll("input,select,textarea") || [], S.sel==="__new" ? S.draft : null);
 /* Before the open drawer's unsaved changes would be thrown away: true when there are none, or the person says to discard them. */
 const discardOk = () => !unsaved() || confirm(S.sel==="__new" ? "Discard this new card? Nothing you entered is saved yet." : "Discard your unsaved changes to this card?");
-function openCard(id){ if(!discardOk()) return; S.pricePick=null; S.pickRes=null; S.sel=id; S.draft=null; S.dirty=false; S.editPrice=null; S.confirm=null; renderMain(); renderDrawer(true); }
+function openCard(id){ if(!discardOk()) return; S.photoFor=null; S.photoForKey=null; S.pricePick=null; S.pickRes=null; S.sel=id; S.draft=null; S.dirty=false; S.editPrice=null; S.confirm=null; renderMain(); renderDrawer(true); }
 /* A card added to a binder starts as the binder's owner's; most cards are Justin's, so he's the
    owner when the binder has none (or the card isn't in a binder). Changeable before saving. */
 const newCardOwner = bid => binderById(bid)?.owner || "Justin";
@@ -844,6 +844,7 @@ function openNew(loc){
   const bid = loc?.binderId ?? (curBinder()?.id || null);
   const spot = loc?.slot ? loc : (bid ? firstFree(bid) : null);
   S.sel="__new"; S.dirty=true; S.editPrice=null; S.confirm=null;
+  S.photoFor = null; S.photoForKey = null; // a photo picked for the last drawer isn't this one's
   S.draft = {id:"__new", key:rid(), name:"", set:"", setCode:"", number:"", rarity:"", variant:"", language:"English", condition:"Near Mint", grader:"Raw", grade:"", artist:"", notes:"", status:"binder", owner:newCardOwner(bid), prices:[], imageId:null, binderId: bid, page: spot?.page||null, slot: spot?.slot||null};
   renderMain(); renderDrawer(true);
 }
@@ -1275,14 +1276,17 @@ async function saveCard(){
     if(S.sel==="__new"){
       const loc = {binderId:c.binderId||null, page:c.binderId?c.page:null, slot:c.binderId?c.slot:null};
       if(loc.binderId && cardAt(loc.binderId, loc.page, loc.slot)){ const f = firstFree(loc.binderId); loc.page=f.page; loc.slot=f.slot; }
-      const id = rid(), draftKey = S.draft?.key, sentPhoto = c.imageId||null;
-      const ok = await guard(()=> S.db.collection("cards").doc(id).set({...data, ...loc, placeholder:!!$("#f_placeholder")?.checked, imageId:c.imageId||null, prices:[], createdAt:nowISO(), updatedAt:nowISO()}));
+      const id = rid(), draftKey = S.draft?.key, sentPhoto = c.imageId||null, sentPh = !!$("#f_placeholder")?.checked;
+      const ok = await guard(()=> S.db.collection("cards").doc(id).set({...data, ...loc, placeholder:sentPh, imageId:c.imageId||null, prices:[], createdAt:nowISO(), updatedAt:nowISO()}));
       if(ok){
         toast(`Added ${data.name}. Looking up its price and picture…`);
+        // A photo still uploading for this draft goes onto the added card when it's done (setPhoto).
+        if(draftKey) (S.added ||= {})[draftKey] = id;
         if(S.sel!=="__new" || S.draft?.key!==draftKey) return; // the person moved on (to another card, or a new one) meanwhile
         // The drawer is drawn again for the added card: what was typed while it was being added stays, to be saved.
         const later = window.BinderFormSync.changedSince($("#cardForm")?.elements||[], data);
         const photo = S.draft?.imageId || null; // the photo now, which may have changed while it was being added
+        const ph = $("#f_placeholder"), phNow = ph ? ph.checked : sentPh; // the Placeholder switch now
         S.sel=id; S.draft=null; S.dirty=false; if(loc.binderId){ S.binderId=loc.binderId; if(loc.page) S.page=loc.page; persistNav(); } render(); renderDrawer(true);
         const f = $("#cardForm");
         if(f && Object.keys(later).length){
@@ -1290,6 +1294,10 @@ async function saveCard(){
           if(later.name){ const t = $("#dTitle"); if(t) t.textContent = later.name; }
           S.dirty = true;
         }
+        // The Placeholder switch changed while it was being added: on the added card it saves at once, as on any saved card.
+        const box = $("#f_placeholder");
+        const phSave = window.BinderNewCard.placeholderAfterAdd(sentPh, phNow);
+        if(box && phSave!==null){ box.checked = phSave; void switchPlaceholder(box); }
         // A photo chosen, replaced or removed while it was being added: the card takes it, and the one
         // it was added with goes when nothing else uses it (as when a photo is changed).
         if(photo!==sentPhoto) updateCard(id, {imageId:photo}).then(async ok=>{
@@ -1311,6 +1319,8 @@ async function saveCard(){
     S.saving = false; syncSaveButton();
   }
 }
+/* The new card's draft as the form has it now, so redrawing the drawer (after a photo) keeps what was typed and the Placeholder switch. */
+const draftFromForm = extra => ({...S.draft, ...readForm(), placeholder:!!$("#f_placeholder")?.checked, ...extra});
 async function updateCard(id, patch){ return guard(()=> S.db.doc("cards/"+id).update({...patch, updatedAt:nowISO()})); }
 /* A card's price entries added, changed or removed by id ({add, update, remove}), with other fields
    that change with them: the server applies them to its own list, so an entry the daily update or
@@ -1563,9 +1573,11 @@ function uploadErr(e){
   const msg = m[code] || `The photo didn't save${code?` (${code})`:""}. Try again, or take a screenshot of the picture and use that.`;
   toast(msg); console.error(e); return msg;
 }
-async function setPhoto(input, targetId, orig){
+async function setPhoto(input, targetId, orig, forKey){
   if(!S.db) return toast("Saving isn't available in this view.");
-  const tid = targetId ?? S.sel; if(!tid) return;
+  let tid = targetId ?? S.sel; if(!tid) return;
+  // Which new card it's for: the draft open when the photo was picked (it may be added before the photo is ready).
+  const draftKey = tid==="__new" ? (forKey ?? S.draft?.key) : null;
   photoNote("Saving the photo…");
   S.photoBusy = true; let errMsg = "", saved = null;
   try{
@@ -1580,9 +1592,12 @@ async function setPhoto(input, targetId, orig){
       else throw e;
     }
     const r = {id: raw ? await storeRaw(blob) : await storePhoto(blob)};
+    // A new card added while the photo was being picked or uploaded gets it (public/newcard.js).
     if(tid==="__new"){
-      if(S.sel==="__new" && S.draft){ S.draft = {...S.draft, ...readForm(), imageId:r.id}; renderDrawer(true); }
-      toast("Photo added"); return;
+      const to = window.BinderNewCard.photoTarget({target:tid, key:draftKey, sel:S.sel, draftKey:S.draft?.key, added:S.added});
+      if(to==="draft"){ S.draft = draftFromForm({imageId:r.id}); renderDrawer(true); toast("Photo added"); return; }
+      if(to==="gone"){ errMsg = "That new card was closed before the photo was ready, so the photo wasn't added to a card."; toast(errMsg); return; }
+      tid = to;
     }
     const c = S.cards.find(x=>x.id===tid); if(!c) return;
     const old = c.imageId;
@@ -2829,14 +2844,15 @@ let lastTakeAt = 0;
 function takePhotoFile(f, how){
   if(!f){ photoNote("No photo came back. Try again, or paste one in the box above."); return; }
   if(Date.now()-lastTakeAt < 800) return; lastTakeAt = Date.now();
-  const target = S.photoFor ?? S.sel; S.pickAt = 0;
+  const target = S.photoFor ?? S.sel, key = S.photoFor ? S.photoForKey : S.draft?.key; S.pickAt = 0;
+  S.photoFor = null; S.photoForKey = null; // used once: a later photo goes to the drawer open (or picked for) then
   const looksImg = !f.type || /^image\//.test(f.type) || f.type==="application/octet-stream" || /\.(jpe?g|png|gif|webp|hei[cf]|bmp|tiff?)$/i.test(f.name||"");
   if(!looksImg){ uploadErr({code:"notimage"}); photoNote("That file isn't a picture. Pick a JPG, PNG or screenshot."); return; }
   const snap = snapshot(f);
   photoNote(`Got the photo${how?` (${how})`:""}. Saving…`);
-  setPhoto(snap, target, f);
+  setPhoto(snap, target, f, key);
 }
-document.addEventListener("click", e => { if(e.target.closest && e.target.closest("[data-pick]")){ S.photoFor = S.sel; S.pickAt = Date.now(); photoNote("Opening… If nothing opens, copy the picture and paste it in the box instead."); } });
+document.addEventListener("click", e => { if(e.target.closest && e.target.closest("[data-pick]")){ S.photoFor = S.sel; S.photoForKey = S.draft?.key; S.pickAt = Date.now(); photoNote("Opening… If nothing opens, copy the picture and paste it in the box instead."); } });
 /* catch the picker's result even if the drawer redrew while the phone's picker was open */
 function watchPicker(){
   document.querySelectorAll("input[data-photo]").forEach(p => { if(p._w) return; p._w = 1; const h = () => { const f = p.files && p.files[0]; if(!f) return; takePhotoFile(f); try{ p.value = ""; }catch(_){} }; p.addEventListener("change",h); p.addEventListener("input",h); });
@@ -2863,11 +2879,11 @@ function clipImageFile(dt){
   return f;
 }
 function imgSrcFromHtml(dt){ try{ const h = dt && dt.getData && dt.getData("text/html"); const m = h && h.match(/<img[^>]+src=["'](data:image\/[^"']+|blob:[^"']+)["']/i); return m ? m[1] : null; }catch(_){ return null; } }
-async function fromSrc(src){ try{ const r = await fetch(src); const b = await r.blob(); if(!b.size) return false; S.photoFor = S.sel; takePhotoFile(b, "pasted"); return true; }catch(e){ console.error(e); return false; } }
+async function fromSrc(src){ try{ const r = await fetch(src); const b = await r.blob(); if(!b.size) return false; S.photoFor = S.sel; S.photoForKey = S.draft?.key; takePhotoFile(b, "pasted"); return true; }catch(e){ console.error(e); return false; } }
 document.addEventListener("paste", e => {
   if(!e.target.closest || !e.target.closest("#photoPaste")) return;
   const f = clipImageFile(e.clipboardData);
-  if(f){ e.preventDefault(); S.photoFor = S.sel; takePhotoFile(f, "pasted"); resetPasteBox(); return; }
+  if(f){ e.preventDefault(); S.photoFor = S.sel; S.photoForKey = S.draft?.key; takePhotoFile(f, "pasted"); resetPasteBox(); return; }
   const src = imgSrcFromHtml(e.clipboardData);
   if(src){ e.preventDefault(); resetPasteBox(); fromSrc(src); return; }
   /* let the phone paste it into the box: the watcher above picks up any picture that lands there */
@@ -2878,14 +2894,14 @@ document.addEventListener("paste", e => {
 });
 document.addEventListener("beforeinput", e => {
   if(!(e.target.closest && e.target.closest("#photoPaste"))) return;
-  if(e.inputType==="insertFromPaste" || e.inputType==="insertReplacementText"){ const f = clipImageFile(e.dataTransfer); if(f){ e.preventDefault(); S.photoFor = S.sel; takePhotoFile(f, "pasted"); resetPasteBox(); } return; }
+  if(e.inputType==="insertFromPaste" || e.inputType==="insertReplacementText"){ const f = clipImageFile(e.dataTransfer); if(f){ e.preventDefault(); S.photoFor = S.sel; S.photoForKey = S.draft?.key; takePhotoFile(f, "pasted"); resetPasteBox(); } return; }
   e.preventDefault();
 });
 document.addEventListener("dragover", e => { const b=e.target.closest && e.target.closest("#photoPaste"); if(b){ e.preventDefault(); b.classList.add("over"); } });
 document.addEventListener("dragleave", e => { const b=e.target.closest && e.target.closest("#photoPaste"); if(b) b.classList.remove("over"); });
-document.addEventListener("drop", e => { const b=e.target.closest && e.target.closest("#photoPaste"); if(!b) return; e.preventDefault(); b.classList.remove("over"); const f=clipImageFile(e.dataTransfer); if(f){ S.photoFor=S.sel; takePhotoFile(f,"dropped"); } else toast("Drop a picture file here."); });
+document.addEventListener("drop", e => { const b=e.target.closest && e.target.closest("#photoPaste"); if(!b) return; e.preventDefault(); b.classList.remove("over"); const f=clipImageFile(e.dataTransfer); if(f){ S.photoFor=S.sel; S.photoForKey=S.draft?.key; takePhotoFile(f,"dropped"); } else toast("Drop a picture file here."); });
 async function pasteFromClipboard(){
-  S.photoFor = S.sel;
+  S.photoFor = S.sel; S.photoForKey = S.draft?.key;
   try{
     const items = await navigator.clipboard.read();
     for(const it of items){ const t = it.types.find(x => /^image\//.test(x)); if(t){ const b = await it.getType(t); takePhotoFile(b.type ? b : new Blob([b],{type:t}), "pasted"); return; } }
@@ -2993,7 +3009,7 @@ document.addEventListener("click", e => {
   const pr = t.closest("[data-pr]"); if(pr) return void priceAction(pr.dataset.pr, selCard());
   const cd2 = t.closest("[data-cand]"); if(cd2){ const [from, i] = cd2.dataset.cand.split(":"); const c = selCard(); const list = from==="stored" ? (c?.pricing?.candidates||[]) : (Array.isArray(S.pickRes)?S.pickRes:[]); const x = list[+i]; if(x) priceAction("link", c, {source:x.source, id:x.id, url:x.url, title:x.title, set:x.set}); return; }
   const pc2 = t.closest("[data-pic]"); if(pc2 && !pc2.disabled){ const c = selCard(); if(c && S.sel!=="__new") updateCard(c.id, {imagePref: pc2.dataset.pic}).then(ok=>{ if(ok){ refreshParts(selCard()); renderMain(); } }); return; }
-  if(t.closest("#btnRmImg")){ const c=selCard(); if(S.sel==="__new"){ S.draft = {...S.draft, ...readForm(), imageId:null}; renderDrawer(true); } else updateCard(c.id,{imageId:null}).then(ok=>ok&&toast("Photo removed from card")); return; }
+  if(t.closest("#btnRmImg")){ const c=selCard(); if(S.sel==="__new"){ S.draft = draftFromForm({imageId:null}); renderDrawer(true); } else updateCard(c.id,{imageId:null}).then(ok=>ok&&toast("Photo removed from card")); return; }
   if(t.closest("#btnMove")){ const c=selCard(); const bid=$("#m_binder").value; return void moveCard(c, bid||null, Math.max(1, +$("#m_page").value||1), +$("#m_slot").value); }
   if(t.closest("#btnFree")){ const bid=$("#m_binder").value; if(!bid) return; const f=firstFree(bid); $("#m_page").value=f.page; $("#m_slot").value=f.slot; updateMoveNote(); return; }
   if(t.closest("#btnTakeOut")){ const c=selCard(); return void moveCard(c, null); }

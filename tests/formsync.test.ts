@@ -16,7 +16,7 @@ const sandbox = {
       markShown: (el: El) => void;
       show: (el: El, value: string) => boolean;
       edited: (elements: El[]) => boolean;
-      unsaved: (fields: El[], draft: { imageId?: string | null } | null) => boolean;
+      unsaved: (fields: El[], draft: { imageId?: string | null; placeholder?: boolean } | null) => boolean;
       saveDisabled: (state: { dirty?: boolean; saving?: boolean }) => boolean;
       changedSince: (elements: (El & { name?: string })[], sent: Record<string, string>) => Record<string, string>;
       markSaved: (elements: (El & { name?: string })[], sent: Record<string, string>) => Record<string, string>;
@@ -125,6 +125,9 @@ describe('the open card drawer when the card changes', () => {
     // A new card: nothing typed, but a photo chosen.
     expect(unsaved([amount('')], { imageId: null })).toBe(false);
     expect(unsaved([amount('')], { imageId: 'a'.repeat(32) })).toBe(true);
+    // A new card ticked Placeholder, redrawn after a photo that was then removed: the tick is still something to lose.
+    expect(unsaved([amount('')], { imageId: null, placeholder: true })).toBe(true);
+    expect(unsaved([amount('')], { imageId: null, placeholder: false })).toBe(false);
     // A new card redrawn after its name was typed (choosing and removing a photo): still something to lose.
     const name = (value: string): El => ({ tagName: 'INPUT', value, defaultValue: value });
     const released: El = { tagName: 'INPUT', value: 'Filled in after saving', defaultValue: 'Filled in after saving', readOnly: true };
