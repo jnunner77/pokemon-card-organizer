@@ -92,8 +92,11 @@ On the VM (`gcloud compute ssh boards --zone=us-central1-a --tunnel-through-iap`
    app writes every five minutes, and emails you through healthchecks.io when a check fails or a
    card needs a match.
 
-   Without it, back up nightly from cron (archives in `~/binder-backups`, newest 14 kept; the
-   folder and archives are readable only by you, since they hold the sign-in accounts):
+   Without it, back up nightly from cron (archives in `~/binder-backups`, newest 14 kept). An
+   archive is the whole data volume except secrets, so unlike the ledger's copies and full backup
+   downloads it holds the sign-in accounts, sessions and guests' contacts (`auth.json`,
+   `sessions.json`, `guests.json`), which a restored server needs; the folder and archives are
+   readable only by you, and the nightly job's Cloud Storage bucket is private:
 
    ```bash
    ( crontab -l; echo "0 3 * * * cd $HOME/pokemon-card-organizer && deploy/backup.sh >> $HOME/binder-backup.log 2>&1" ) | crontab -

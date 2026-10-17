@@ -871,7 +871,11 @@ export class PriceUpdater {
     const fromCatalog = (l: { id: string; linkedBy?: 'auto' | 'user' | null }) => !!cat?.tcgplayer && (cat.tcgplayer.productId ? cat.tcgplayer.productId === l.id : l.linkedBy !== 'user');
     const quote = (l: { source: Source; id: string; linkedBy?: 'auto' | 'user' | null }): Promise<Quote> => {
       if (l.source === 'pricecharting') {
-        const known = (moved && typeof moved === 'object' && moved.id === l.id ? moved : null) ?? this.run?.guide?.get(l.id) ?? null;
+        // The price guide's product, unless the card is graded and the guide has no graded prices
+        // for it (as with a guide without graded columns): then PriceCharting's product API, which may.
+        const inGuide = this.run?.guide?.get(l.id);
+        const fromGuide = inGuide && (!isGraded(card) || Object.keys(inGuide.grades).length) ? inGuide : undefined;
+        const known = (moved && typeof moved === 'object' && moved.id === l.id ? moved : null) ?? fromGuide ?? null;
         return known ? Promise.resolve(quoteOf(known)) : this.ask('pricecharting', () => this.pc!.product(l.id)).then(quoteOf);
       }
       if (fromCatalog(l)) return Promise.resolve({ usd: cat!.tcgplayer!.usd, image: tcgImage(l.id, 1000), info: null });
@@ -1338,11 +1342,12 @@ export class PriceUpdater {
 
   /**
    * TCGplayer's own catalog (tcgcsv.ts) for a looked-up card's printing the card databases have no
-   * TCGplayer price for, as the daily update asks it (tcgcsvQuote); null when it isn't found or doesn't answer.
+   * TCGplayer price for, as the daily update asks it (tcgcsvQuote); null when it isn't found. Throws
+   * when tcgcsv.com doesn't answer, so the card view can say so.
    */
   async lookupTcgplayer(card: TcgCsvCard, productId: string | null): Promise<TcgCsvQuote | null> {
     if (!this.tcgcsv) return null;
-    return this.tcgcsv.quote(card, productId).catch(() => null);
+    return this.tcgcsv.quote(card, productId);
   }
 
   /** The exchange rates the last update saved: CAD per US dollar, and per euro when known. */

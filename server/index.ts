@@ -107,12 +107,12 @@ const app = createApp({
   trustProxy: trust === undefined ? undefined : /^\d+$/.test(trust) ? Number(trust) : trust === 'true',
 });
 
-// Housekeeping: today's copy of the ledger, and trashed photos older than the oldest backup.
+// Housekeeping: today's copy of the ledger, and old trashed photos no copy of it refers to.
 const housekeeping = () => {
   try {
     backups.ensureDaily();
-    const purged = assets.purgeTrash();
-    if (purged) log.info('backup', `Deleted ${purged} trashed photo${purged === 1 ? '' : 's'} older than the oldest backup`);
+    const purged = assets.purgeTrash(Date.now(), () => backups.referencedImages());
+    if (purged) log.info('backup', `Deleted ${purged} trashed photo${purged === 1 ? '' : 's'} that no kept copy of the ledger refers to`);
   } catch (err) {
     log.error('backup', `Housekeeping failed: ${err instanceof Error ? err.message : err}`);
   }

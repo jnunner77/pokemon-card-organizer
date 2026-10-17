@@ -132,7 +132,8 @@ No site's pages are read: every price comes from an API.
   PriceCharting about half a minute to send); a product it doesn't have, a card added during the
   day, and *Change match* still ask the API, and if the download fails each card is asked about on
   its own as before. Graded prices and release dates are read from it when the subscription
-  includes those columns. Purging PriceCharting forgets it.
+  includes those columns; a graded card whose product has no graded prices in the guide is asked
+  about on its own, so it still gets the price for its grade when PriceCharting's API has one. Purging PriceCharting forgets it.
 - **TCGplayer's own catalog** from [tcgcsv.com](https://tcgcsv.com), a free public copy of
   TCGplayer's catalog API (sets, products, prices, pictures), refreshed daily, with no key. It fills
   what TCGdex doesn't have: a card TCGdex has no TCGplayer price for (Lost Origin's
@@ -621,7 +622,8 @@ when you've rearranged the binder and want to keep the new layout instead.
   added to the ledger; **Add to a binder** opens a new card filled in with it and the printing
   chosen. Each card looked at is one PriceCharting call; once the day's calls pass three quarters of
   its budget, lookups leave PriceCharting out (and say so), keeping the rest for the daily update.
-  Turned off with `CARD_LOOKUPS=off`.
+  When TCGplayer's own catalog (tcgcsv.com) doesn't answer, the card says which printings have no
+  TCGplayer price because of it. Turned off with `CARD_LOOKUPS=off`.
 - **Your photos**: choose, take, browse, paste or drop one; or photograph a whole binder page
   and slice it into one photo per pocket. Flip through pictures full screen.
 - **Duplicate** a card (in its details) or several (press and hold to select): choose how many
@@ -664,7 +666,8 @@ the same name and contact again carries on where that guest was (another device 
 The Guests page shows who's looking now (with *End*), and a **guest log** of every visit: name,
 phone or email, when they signed in, were last active and how the visit ended. *New QR code* makes
 codes already printed or shared stop working; turning guest viewing off signs every guest out.
-Guests' names and contacts stay on the server, never in backups; *Clear the log* deletes them.
+Guests' names and contacts are never in the ledger's copies or full backup downloads; only the
+server's own archives hold them (see *Data*). *Clear the log* deletes them.
 
 ## People and administration
 
@@ -738,7 +741,8 @@ the problems banner:
 
 ## Security on the public internet
 
-- **Sign-in:** scrypt password hashes in `auth.json` (never in backups or responses); at least
+- **Sign-in:** scrypt password hashes in `auth.json` (never in responses, the ledger's copies or
+  full backup downloads; only in the server's archives, readable by the owner alone); at least
   10 characters, not the username, not a common password; after 5 wrong passwords a username is
   locked for 1 minute, then 2, 4 … up to a day. Sessions are random tokens stored as hashes, end
   after two weeks unused and 30 days at most, and end when the password changes or the person is
@@ -757,7 +761,8 @@ the problems banner:
 - **Price sites** are retried with exponential backoff (honouring `Retry-After`), and a site
   that fails five cards in a row is left alone for the rest of that run.
 - **Backups:** a copy of the ledger every day, kept 14 days, then one a week for 8 weeks and one
-  a month for 12 months; deleted pictures are kept 400 days so any copy restores completely.
+  a month for 12 months; deleted pictures are kept at least 400 days, and for as long as any kept
+  copy refers to them, so any copy restores completely.
 - **Container:** read-only file system apart from the data volume, no Linux capabilities,
   unprivileged user, memory and process limits.
 
@@ -789,14 +794,25 @@ the existing free Google Cloud VM, at `binder.nunner.duckdns.org`).
 ## Data
 
 `DATA_DIR` holds `db.json` (binders, cards and their price logs, settings), `assets/` (your
-photos and the official pictures; deleted ones in `assets/.trash` for 400 days), `backups/`
+photos and the official pictures; deleted ones in `assets/.trash` for at least 400 days, and while
+any kept copy refers to them), `backups/`
 (daily, weekly and monthly copies, snapshots, and the ledger before every restore), `logs/` (a
 file per day, two weeks), `admin.json` (backup retention, price schedule), `auth.json` and
-`sessions.json` (people, password hashes, API token hashes and sessions; never in backups or
-responses), `guests.json` (guest viewing on/off, the QR code's key and the guest log; never in
-backups), `status.txt` (the Overview's checks and the cards that need a person, rewritten every
-five minutes for the server's nightly job) and `offsite.json` (written by that job after it copies
-a backup off the server).
+`sessions.json` (people, password hashes, API token hashes and sessions; never in responses),
+`guests.json` (guest viewing on/off, the QR code's key and the guest log), `status.txt` (the
+Overview's checks and the cards that need a person, rewritten every five minutes for the server's
+nightly job) and `offsite.json` (written by that job after it copies a backup off the server).
+
+What each kind of backup holds:
+
+- **The ledger's copies** (Administration → Backups: daily, weekly, monthly, snapshots) and **full
+  backup downloads** hold binders, cards, settings and (downloads only) photos. They never contain
+  accounts, password or token hashes, sessions, or guests' names and contacts.
+- **The server's archives** (`deploy/backup.sh`, and the copies the nightly job puts in Cloud
+  Storage) hold the whole data volume except secrets, so they do contain `auth.json`,
+  `sessions.json` and `guests.json`: that's what lets a server be restored with its accounts. The
+  archives and their folder are readable only by the owner, and the Cloud Storage bucket is
+  private.
 
 To restore without a browser, stop the app and run `npm run import-backup -- backup.json`.
 
@@ -820,7 +836,9 @@ BASE_URL=http://localhost:4100/ npm run test:e2e    # browser smoke test
   (full backups), `backups.ts` (copies and retention), `accounts.ts` (people, sessions, API
   tokens), `security.ts` (rate limits and blocks), `log.ts`, `checks.ts` (Overview checks),
   `config.ts` (administrators' settings), `guests.ts` (guest sign-in, sessions, log, and what guests
-  see of a card; tested in `tests/guests.test.ts`), `app.ts` (HTTP API).
+  see of a card; tested in `tests/guests.test.ts`), `priceops.ts` (a card's price entries added,
+  changed or removed one by one against the server's list, with `public/priceops.js` working out
+  what the page changed; tested in `tests/priceops.test.ts`), `app.ts` (HTTP API).
 - `public/`: `admin.html`/`admin.js` (Administration), `login.html`/`login.js` (sign-in),
   `guest.html`/`guest.js` (the guest page).
 - `public/`: the page. `app.js` is the ledger UI; `search.js` matches cards for Find (tested in

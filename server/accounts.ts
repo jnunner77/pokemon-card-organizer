@@ -11,11 +11,13 @@ import { HttpError } from './security';
 // - Roles: admin (everything, including the Administration pages), editor (changes the
 //   ledger), viewer (looks only).
 // - Passwords are hashed with scrypt; only the hash is kept, in <data>/auth.json, which never
-//   reaches browsers or backups.
+//   reaches browsers, the ledger's copies or full backup downloads. The server's archives
+//   (deploy/backup.sh) do hold it, so a server restores with its accounts; only the owner reads them.
 // - Wrong passwords lock the username after a few tries, for longer each time (1, 2, 4 … minutes,
 //   up to a day).
 // - Sessions are random tokens kept as hashes in <data>/sessions.json, so signing in survives
-//   restarts; they end after a period without use and after a maximum age.
+//   restarts; they end after a period without use and after a maximum age. Like auth.json, it
+//   never reaches the ledger's copies or full backup downloads; the server's archives hold it.
 // - API tokens act as one person, read-only or read & write (never admin), always expire.
 // - The first administrator comes from BINDER_PASSWORD (username "admin") or, without it, from
 //   a one-time setup code written to the server log.
@@ -158,7 +160,8 @@ export class Accounts {
   /** One-time code for creating the first administrator (only while there are no users). */
   setupCode: string | null = null;
   private sessionsDirty = false;
-  private dummyHash: Promise<string> | null = null;
+  /** Made at start, so even the first sign-in attempt for a missing username does one check only. */
+  private readonly dummyHash = hashPassword(crypto.randomBytes(12).toString('hex'));
 
   constructor(
     dataDir: string,
@@ -301,9 +304,7 @@ export class Accounts {
 
   // ---- signing in --------------------------------------------------------------------
 
-  private async wrong(uname: string) {
-    // Same work as a real check, so a missing username takes as long as a wrong password.
-    await verifyPassword('x', await (this.dummyHash ??= hashPassword(crypto.randomBytes(12).toString('hex'))));
+  private wrong(uname: string) {
     const s = this.data.settings;
     const f = this.failures.get(uname) ?? { count: 0, locks: 0, lockedUntil: 0 };
     f.count++;
@@ -331,8 +332,12 @@ export class Accounts {
     const uname = rawUser.trim().toLowerCase();
     this.assertUnlocked(uname);
     const u = this.data.users.find((x) => x.username === uname && x.active);
-    if (!u || !u.passwordHash || !(await verifyPassword(pw, u.passwordHash))) {
-      const err = await this.wrong(uname);
+    // One password check per attempt: a missing username is checked against a dummy hash, so it
+    // takes as long as a wrong password and doesn't show which usernames exist.
+    const hash = u?.passwordHash || (await this.dummyHash);
+    const right = await verifyPassword(pw, hash);
+    if (!u || !u.passwordHash || !right) {
+      const err = this.wrong(uname);
       this.log.warn('auth', `Failed sign-in for "${uname}"`, { username: uname, ip });
       throw err;
     }
