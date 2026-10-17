@@ -132,7 +132,8 @@ No site's pages are read: every price comes from an API.
   PriceCharting about half a minute to send); a product it doesn't have, a card added during the
   day, and *Change match* still ask the API, and if the download fails each card is asked about on
   its own as before. Graded prices and release dates are read from it when the subscription
-  includes those columns. Purging PriceCharting forgets it.
+  includes those columns; a graded card whose product has no graded prices in the guide is asked
+  about on its own, so it still gets the price for its grade when PriceCharting's API has one. Purging PriceCharting forgets it.
 - **TCGplayer's own catalog** from [tcgcsv.com](https://tcgcsv.com), a free public copy of
   TCGplayer's catalog API (sets, products, prices, pictures), refreshed daily, with no key. It fills
   what TCGdex doesn't have: a card TCGdex has no TCGplayer price for (Lost Origin's
