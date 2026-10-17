@@ -274,6 +274,31 @@ describe('filling in a stored card', () => {
     expect(store.get('cards', 'a')).toMatchObject({ set: 'Temporal Forces', setCode: 'TEF', rarity: 'Mine', released: '2024-03-22', details: { result: 'filled', id: 'sv05-051' } });
   });
 
+  it('keeps the match the person chose when a lookup fails, and uses it next time', async () => {
+    // Pikachu 51 is in two sets; the person chose Temporal Forces'. Its rarity is still blank.
+    const chosen = { source: 'tcgdex', result: 'filled', v: DETAILS_VERSION, id: 'sv05-051', setId: 'sv05', set: 'Temporal Forces', setCode: 'TEF', chosen: true, checkedAt: '2026-10-01T00:00:00Z' };
+    store.set('cards', 'a', { name: 'Pikachu', number: '51', details: chosen });
+    expect(await new CardDetails({ fetcher: down }).fill(store, 'a', true)).toBe('error');
+    const { checkedAt: _, result: __, ...match } = chosen;
+    expect(store.get('cards', 'a')!.details).toEqual({ ...match, result: 'error', error: expect.stringContaining('ENOTFOUND'), checkedAt: expect.any(String) });
+    // TCGdex is back: the chosen card is fetched by its id, not offered as one of several again.
+    const calls: string[] = [];
+    expect(await new CardDetails({ fetcher: replay(calls) }).fill(store, 'a', true)).not.toBe('several');
+    expect(store.get('cards', 'a')!.details).toMatchObject({ id: 'sv05-051', chosen: true });
+    expect(calls.some((u) => u.includes('/cards/sv05-051'))).toBe(true);
+  });
+
+  it('searches again when TCGdex no longer has the matched card', async () => {
+    const gone = { source: 'tcgdex', result: 'filled', v: DETAILS_VERSION, id: 'sv05-999', setId: 'sv05', set: 'Temporal Forces', chosen: true, checkedAt: '2026-10-01T00:00:00Z' };
+    store.set('cards', 'a', { name: 'Pikachu', number: '51', details: gone });
+    expect(await new CardDetails({ fetcher: replay() }).fill(store, 'a', true)).toBe('error');
+    const details = store.get('cards', 'a')!.details as Record<string, unknown>;
+    expect(details).toMatchObject({ result: 'error', error: expect.stringContaining('404') });
+    expect(details).not.toHaveProperty('id');
+    expect(details).not.toHaveProperty('chosen');
+    expect(await new CardDetails({ fetcher: replay() }).fill(store, 'a', true)).toBe('several');
+  });
+
   it('records a failed lookup without changing the card', async () => {
     store.set('cards', 'a', { name: 'Pikachu', number: '51/162' });
     expect(await new CardDetails({ fetcher: down }).fill(store, 'a')).toBe('error');
