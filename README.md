@@ -664,8 +664,8 @@ the same name and contact again carries on where that guest was (another device 
 The Guests page shows who's looking now (with *End*), and a **guest log** of every visit: name,
 phone or email, when they signed in, were last active and how the visit ended. *New QR code* makes
 codes already printed or shared stop working; turning guest viewing off signs every guest out.
-Guests' names and contacts stay on the server: never in the ledger's copies or full backup
-downloads, only in the server's own archives (see *Data*); *Clear the log* deletes them.
+Guests' names and contacts are never in the ledger's copies or full backup downloads; only the
+server's own archives hold them (see *Data*). *Clear the log* deletes them.
 
 ## People and administration
 
