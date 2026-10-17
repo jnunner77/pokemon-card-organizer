@@ -111,11 +111,7 @@ const app = createApp({
 const housekeeping = () => {
   try {
     backups.ensureDaily();
-    const purged = assets.purgeTrash(Date.now(), () => {
-      const ids = backups.referencedImages();
-      if (ids) for (const id of store.referencedImages()) ids.add(id);
-      return ids;
-    });
+    const purged = assets.purgeTrash(Date.now(), () => backups.referencedImages());
     if (purged) log.info('backup', `Deleted ${purged} trashed photo${purged === 1 ? '' : 's'} that no kept copy of the ledger refers to`);
   } catch (err) {
     log.error('backup', `Housekeeping failed: ${err instanceof Error ? err.message : err}`);

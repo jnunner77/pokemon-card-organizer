@@ -90,7 +90,7 @@ export class Assets {
    * gives the photos the copies refer to (asked only when there's an old photo to delete), or null
    * when that can't be known, and then nothing is deleted.
    */
-  purgeTrash(now = Date.now(), kept: () => Set<string> | null = () => new Set()) {
+  purgeTrash(now: number, kept: () => Set<string> | null) {
     if (!fs.existsSync(this.trash)) return 0;
     const old = fs.readdirSync(this.trash).filter((f) => now - fs.statSync(path.join(this.trash, f)).mtimeMs > TRASH_DAYS * 86_400_000);
     if (!old.length) return 0;

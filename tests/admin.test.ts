@@ -273,11 +273,16 @@ describe('backups', () => {
     // Restoring that copy brings its photo back.
     expect(backups.restore('db-2025-01-31.json', 'admin')).toMatchObject({ photosRecovered: 1 });
     expect(assets.find(kept)).not.toBeNull();
-    // Once no copy refers to it, an old trashed photo goes; and a copy that can't be read keeps them all.
+    // With no copies left, the ledger's own card still keeps it; a copy that can't be read keeps
+    // them all; once nothing refers to it, an old trashed photo goes.
     assets.remove(kept);
+    for (const b of backups.list()) fs.rmSync(path.join(store.backupDir, b.name));
+    expect(assets.purgeTrash(later, () => backups.referencedImages())).toBe(0);
+    store.delete('cards', 'c1');
+    for (const b of backups.list()) fs.rmSync(path.join(store.backupDir, b.name)); // incl. the day's copy the delete took
     fs.writeFileSync(path.join(store.backupDir, 'db-2025-01-31.json'), '{not json');
     expect(assets.purgeTrash(later, () => backups.referencedImages())).toBe(0);
-    for (const b of backups.list()) fs.rmSync(path.join(store.backupDir, b.name));
+    fs.rmSync(path.join(store.backupDir, 'db-2025-01-31.json'));
     expect(assets.purgeTrash(later, () => backups.referencedImages())).toBe(1);
   });
 

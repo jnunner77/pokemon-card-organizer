@@ -154,13 +154,14 @@ export class Backups {
   private refsCache: { key: string; ids: Set<string> } | null = null;
 
   /**
-   * The photos any kept copy refers to, so the photo trash keeps them. Null when a copy can't be
-   * read (then no trashed photo is deleted). Read again only when the copies change.
+   * The photos the ledger or any kept copy of it refers to, so the photo trash keeps them. Null
+   * when a copy can't be read (then no trashed photo is deleted). The copies are read again only
+   * when they change.
    */
   referencedImages(): Set<string> | null {
     const files = this.list();
     const key = files.map((f) => `${f.name}:${f.bytes}:${f.at}`).join('|');
-    if (this.refsCache?.key === key) return new Set(this.refsCache.ids);
+    if (this.refsCache?.key === key) return new Set([...this.refsCache.ids, ...this.store.referencedImages()]);
     const ids = new Set<string>();
     for (const f of files) {
       try {
@@ -171,7 +172,7 @@ export class Backups {
       }
     }
     this.refsCache = { key, ids };
-    return new Set(ids);
+    return new Set([...ids, ...this.store.referencedImages()]);
   }
 
   /** For the Checks page: the newest daily copy and how much is kept. */
