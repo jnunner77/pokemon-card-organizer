@@ -1319,6 +1319,8 @@ async function saveCard(){
     S.saving = false; syncSaveButton();
   }
 }
+/* The new card's draft as the form has it now, so redrawing the drawer (after a photo) keeps what was typed and the Placeholder switch. */
+const draftFromForm = extra => ({...S.draft, ...readForm(), placeholder:!!$("#f_placeholder")?.checked, ...extra});
 async function updateCard(id, patch){ return guard(()=> S.db.doc("cards/"+id).update({...patch, updatedAt:nowISO()})); }
 async function addPrice(){
   const c = selCard(); const p = readPriceFields("n"); if(!p) return;
@@ -1585,12 +1587,12 @@ async function setPhoto(input, targetId, orig, forKey){
       else throw e;
     }
     const r = {id: raw ? await storeRaw(blob) : await storePhoto(blob)};
-    // The new card was added while the photo was being picked or uploaded: the photo goes onto the added card.
-    if(tid==="__new" && draftKey && S.added?.[draftKey] && !(S.sel==="__new" && S.draft?.key===draftKey)) tid = S.added[draftKey];
+    // A new card added while the photo was being picked or uploaded gets it (public/newcard.js).
     if(tid==="__new"){
-      if(S.sel==="__new" && S.draft && (!draftKey || S.draft.key===draftKey)){ S.draft = {...S.draft, ...readForm(), imageId:r.id}; renderDrawer(true); toast("Photo added"); }
-      else { errMsg = "That new card was closed before the photo was ready, so the photo wasn't added to a card."; toast(errMsg); }
-      return;
+      const to = window.BinderNewCard.photoTarget({target:tid, key:draftKey, sel:S.sel, draftKey:S.draft?.key, added:S.added});
+      if(to==="draft"){ S.draft = draftFromForm({imageId:r.id}); renderDrawer(true); toast("Photo added"); return; }
+      if(to==="gone"){ errMsg = "That new card was closed before the photo was ready, so the photo wasn't added to a card."; toast(errMsg); return; }
+      tid = to;
     }
     const c = S.cards.find(x=>x.id===tid); if(!c) return;
     const old = c.imageId;
@@ -2838,6 +2840,7 @@ function takePhotoFile(f, how){
   if(!f){ photoNote("No photo came back. Try again, or paste one in the box above."); return; }
   if(Date.now()-lastTakeAt < 800) return; lastTakeAt = Date.now();
   const target = S.photoFor ?? S.sel, key = S.photoFor ? S.photoForKey : S.draft?.key; S.pickAt = 0;
+  S.photoFor = null; S.photoForKey = null; // used once: a later photo is for whatever is open then, or picked for
   const looksImg = !f.type || /^image\//.test(f.type) || f.type==="application/octet-stream" || /\.(jpe?g|png|gif|webp|hei[cf]|bmp|tiff?)$/i.test(f.name||"");
   if(!looksImg){ uploadErr({code:"notimage"}); photoNote("That file isn't a picture. Pick a JPG, PNG or screenshot."); return; }
   const snap = snapshot(f);
@@ -3001,7 +3004,7 @@ document.addEventListener("click", e => {
   const pr = t.closest("[data-pr]"); if(pr) return void priceAction(pr.dataset.pr, selCard());
   const cd2 = t.closest("[data-cand]"); if(cd2){ const [from, i] = cd2.dataset.cand.split(":"); const c = selCard(); const list = from==="stored" ? (c?.pricing?.candidates||[]) : (Array.isArray(S.pickRes)?S.pickRes:[]); const x = list[+i]; if(x) priceAction("link", c, {source:x.source, id:x.id, url:x.url, title:x.title, set:x.set}); return; }
   const pc2 = t.closest("[data-pic]"); if(pc2 && !pc2.disabled){ const c = selCard(); if(c && S.sel!=="__new") updateCard(c.id, {imagePref: pc2.dataset.pic}).then(ok=>{ if(ok){ refreshParts(selCard()); renderMain(); } }); return; }
-  if(t.closest("#btnRmImg")){ const c=selCard(); if(S.sel==="__new"){ S.draft = {...S.draft, ...readForm(), imageId:null}; renderDrawer(true); } else updateCard(c.id,{imageId:null}).then(ok=>ok&&toast("Photo removed from card")); return; }
+  if(t.closest("#btnRmImg")){ const c=selCard(); if(S.sel==="__new"){ S.draft = draftFromForm({imageId:null}); renderDrawer(true); } else updateCard(c.id,{imageId:null}).then(ok=>ok&&toast("Photo removed from card")); return; }
   if(t.closest("#btnMove")){ const c=selCard(); const bid=$("#m_binder").value; return void moveCard(c, bid||null, Math.max(1, +$("#m_page").value||1), +$("#m_slot").value); }
   if(t.closest("#btnFree")){ const bid=$("#m_binder").value; if(!bid) return; const f=firstFree(bid); $("#m_page").value=f.page; $("#m_slot").value=f.slot; updateMoveNote(); return; }
   if(t.closest("#btnTakeOut")){ const c=selCard(); return void moveCard(c, null); }
