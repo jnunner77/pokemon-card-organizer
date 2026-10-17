@@ -1,8 +1,9 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import request from 'supertest';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Accounts } from '../server/accounts';
 import { createApp } from '../server/app';
 import { Assets } from '../server/assets';
@@ -116,6 +117,22 @@ describe('people and sign-in', () => {
     // The pages and the API the same way.
     expect((await request(app).get('/ADMIN.HTML').expect(302)).headers.location).toBe('login.html');
     await request(app).get('/API/data').expect(401);
+  });
+
+  it('checks one password per sign-in attempt, so a real username takes no longer than a made-up one', async () => {
+    await accounts.createUser({ username: 'ash', name: 'Ash', role: 'viewer', password: 'a good password', mustChange: false }, 'admin');
+    const tries = async (username: string, password: string) => {
+      const spy = vi.spyOn(crypto, 'scrypt');
+      try {
+        await accounts.login(username, password, '1.2.3.4').catch(() => null);
+        return spy.mock.calls.length;
+      } finally {
+        spy.mockRestore();
+      }
+    };
+    expect(await tries('nobody', 'the wrong password')).toBe(1);
+    expect(await tries('ash', 'the wrong password')).toBe(1);
+    expect(await tries('ash', 'a good password')).toBe(1);
   });
 
   it('makes people with a temporary password choose their own, and signs them out elsewhere', async () => {
