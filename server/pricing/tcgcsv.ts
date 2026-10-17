@@ -179,7 +179,7 @@ export class TcgCsv {
   }
 
   private async json<T>(path: string): Promise<T> {
-    if (this.streak >= TcgCsv.breakerAfter) throw new SourceError('Skipped: tcgcsv.com kept failing during this update.');
+    if (this.streak >= TcgCsv.breakerAfter) throw new SourceError("Skipped: tcgcsv.com kept failing, so it isn't asked again until the next price update.");
     const wait = this.last + this.gapMs - Date.now();
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     try {

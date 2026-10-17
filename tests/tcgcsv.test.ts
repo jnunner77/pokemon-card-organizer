@@ -97,7 +97,9 @@ describe("TCGplayer's catalog from tcgcsv.com", () => {
     // Down: three failures, then not asked again until the next update.
     const down = fakeTcgcsv(true);
     const d = new TcgCsv({ fetcher: down.fetcher, gapMs: 0 });
-    for (let i = 0; i < 4; i++) await expect(d.quote({ name: 'Snorlax', set: 'Lost Origin', number: 'TG10' })).rejects.toThrow();
+    for (let i = 0; i < 3; i++) await expect(d.quote({ name: 'Snorlax', set: 'Lost Origin', number: 'TG10' })).rejects.toThrow('answered 500');
+    // The reason a card lookup shows between updates too.
+    await expect(d.quote({ name: 'Snorlax', set: 'Lost Origin', number: 'TG10' })).rejects.toThrow("Skipped: tcgcsv.com kept failing, so it isn't asked again until the next price update.");
     expect(down.calls).toHaveLength(3 * 2); // 2 tries each
     d.reset();
     await expect(d.quote({ name: 'Snorlax', set: 'Lost Origin', number: 'TG10' })).rejects.toThrow('answered 500');
