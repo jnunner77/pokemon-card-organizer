@@ -871,7 +871,11 @@ export class PriceUpdater {
     const fromCatalog = (l: { id: string; linkedBy?: 'auto' | 'user' | null }) => !!cat?.tcgplayer && (cat.tcgplayer.productId ? cat.tcgplayer.productId === l.id : l.linkedBy !== 'user');
     const quote = (l: { source: Source; id: string; linkedBy?: 'auto' | 'user' | null }): Promise<Quote> => {
       if (l.source === 'pricecharting') {
-        const known = (moved && typeof moved === 'object' && moved.id === l.id ? moved : null) ?? this.run?.guide?.get(l.id) ?? null;
+        // The price guide's product, unless the card is graded and the guide has no graded prices:
+        // then PriceCharting's product API, which has them.
+        const guide = this.run?.guide;
+        const fromGuide = guide && (guide.graded || !isGraded(card)) ? guide.get(l.id) : undefined;
+        const known = (moved && typeof moved === 'object' && moved.id === l.id ? moved : null) ?? fromGuide ?? null;
         return known ? Promise.resolve(quoteOf(known)) : this.ask('pricecharting', () => this.pc!.product(l.id)).then(quoteOf);
       }
       if (fromCatalog(l)) return Promise.resolve({ usd: cat!.tcgplayer!.usd, image: tcgImage(l.id, 1000), info: null });

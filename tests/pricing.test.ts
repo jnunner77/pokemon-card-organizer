@@ -293,6 +293,19 @@ describe('the daily update with PriceCharting', () => {
     expect(pcCalls(net).filter((c) => c.includes('price-guide'))).toHaveLength(1);
   });
 
+  it("prices a graded card from PriceCharting's product API when the price guide has no graded columns", async () => {
+    const GUIDE = ['id,console-name,product-name,loose-price,release-date', '14330011,Pokemon 30th Celebration,Lapras #131,$13.20,2026-09-16'].join('\r\n');
+    store.set('cards', 'raw', linked());
+    store.set('cards', 'psa', linked({ grader: 'PSA', grade: '10' }));
+    const net = fakeNet({ 'price-guide/download-custom': () => new Response(GUIDE, { headers: { 'Content-Type': 'text/csv' } }) });
+    const s = await updater(net).runAll('manual');
+    expect(s.counts).toMatchObject({ updated: 2, failed: 0 });
+    // The raw card is priced from the guide; the graded one from the API, at its grade.
+    expect(store.get('cards', 'raw')!.prices).toEqual([expect.objectContaining({ usd: 13.2, where: 'PriceCharting' })]);
+    expect(store.get('cards', 'psa')!.prices).toEqual([expect.objectContaining({ usd: 120, grade: 'PSA 10' })]);
+    expect(pcCalls(net)).toEqual(['https://www.pricecharting.com/price-guide/download-custom', `https://www.pricecharting.com/api/product?id=${LAPRAS_30TH}`]);
+  });
+
   it('reads the price guide: quoted names with commas, dollar prices, and products by number and name', async () => {
     const rows = parseCsv('id,console-name,product-name,loose-price\r\n1,Pokemon Base Set,Charizard #4,"$1,250.00"\n2,Pokemon 1999 Topps Movie,"C\'Mon, We Need Help #53",$2.50\n3,Pokemon Base Set,"Charizard [1st Edition] #4",\n');
     expect(rows).toEqual([
