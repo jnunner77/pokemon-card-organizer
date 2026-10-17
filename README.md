@@ -757,7 +757,8 @@ the problems banner:
 - **Price sites** are retried with exponential backoff (honouring `Retry-After`), and a site
   that fails five cards in a row is left alone for the rest of that run.
 - **Backups:** a copy of the ledger every day, kept 14 days, then one a week for 8 weeks and one
-  a month for 12 months; deleted pictures are kept 400 days so any copy restores completely.
+  a month for 12 months; deleted pictures are kept at least 400 days, and for as long as any kept
+  copy refers to them, so any copy restores completely.
 - **Container:** read-only file system apart from the data volume, no Linux capabilities,
   unprivileged user, memory and process limits.
 
@@ -789,7 +790,8 @@ the existing free Google Cloud VM, at `binder.nunner.duckdns.org`).
 ## Data
 
 `DATA_DIR` holds `db.json` (binders, cards and their price logs, settings), `assets/` (your
-photos and the official pictures; deleted ones in `assets/.trash` for 400 days), `backups/`
+photos and the official pictures; deleted ones in `assets/.trash` for at least 400 days, and while
+any kept copy refers to them), `backups/`
 (daily, weekly and monthly copies, snapshots, and the ledger before every restore), `logs/` (a
 file per day, two weeks), `admin.json` (backup retention, price schedule), `auth.json` and
 `sessions.json` (people, password hashes, API token hashes and sessions; never in backups or

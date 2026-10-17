@@ -24,7 +24,10 @@ export function sniffImage(buf: Buffer): ImageType | null {
   return null;
 }
 
-/** Days a deleted photo is kept: longer than the oldest (monthly) copy of the ledger. */
+/**
+ * Days a deleted photo is kept at least: longer than the oldest monthly copy with the default
+ * retention. After that it's kept for as long as any kept copy of the ledger still refers to it.
+ */
 export const TRASH_DAYS = 400;
 
 export class Assets {
@@ -59,8 +62,8 @@ export class Assets {
   }
 
   /**
-   * Move a photo to the trash folder. It stays there for TRASH_DAYS, longer than the daily
-   * copies of the ledger are kept, so restoring a copy can bring it back.
+   * Move a photo to the trash folder. It stays there for TRASH_DAYS, and after that while any kept
+   * copy of the ledger refers to it, so restoring a copy can bring it back.
    */
   remove(id: string) {
     const hit = this.find(id);
@@ -82,16 +85,22 @@ export class Assets {
     return true;
   }
 
-  /** Delete trashed photos older than TRASH_DAYS. */
-  purgeTrash(now = Date.now()) {
+  /**
+   * Delete trashed photos older than TRASH_DAYS that no kept copy of the ledger refers to. `kept`
+   * gives the photos the copies refer to (asked only when there's an old photo to delete), or null
+   * when that can't be known, and then nothing is deleted.
+   */
+  purgeTrash(now = Date.now(), kept: () => Set<string> | null = () => new Set()) {
     if (!fs.existsSync(this.trash)) return 0;
+    const old = fs.readdirSync(this.trash).filter((f) => now - fs.statSync(path.join(this.trash, f)).mtimeMs > TRASH_DAYS * 86_400_000);
+    if (!old.length) return 0;
+    const refs = kept();
+    if (!refs) return 0;
     let n = 0;
-    for (const f of fs.readdirSync(this.trash)) {
-      const p = path.join(this.trash, f);
-      if (now - fs.statSync(p).mtimeMs > TRASH_DAYS * 86_400_000) {
-        fs.rmSync(p, { force: true });
-        n++;
-      }
+    for (const f of old) {
+      if (refs.has(f.replace(/\..*$/, ''))) continue;
+      fs.rmSync(path.join(this.trash, f), { force: true });
+      n++;
     }
     return n;
   }

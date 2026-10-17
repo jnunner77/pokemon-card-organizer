@@ -10,6 +10,15 @@ import { COLLECTIONS, type Collection, type Doc, validateDoc } from './schema';
 
 export type Data = Record<Collection, Record<string, Doc>>;
 
+/** The photos a ledger (this one, or a copy of it) refers to. */
+export function imagesIn(data: Partial<Data> | null | undefined, ids = new Set<string>()) {
+  for (const c of Object.values(data?.cards ?? {})) {
+    if (typeof c?.imageId === 'string' && !c.imageId.startsWith('data:')) ids.add(c.imageId);
+    if (typeof c?.officialImageId === 'string') ids.add(c.officialImageId);
+  }
+  return ids;
+}
+
 export interface Change {
   collection: Collection;
   id: string;
@@ -174,12 +183,7 @@ export class Store {
 
   /** Every image id the ledger points at: people's photos (not inline data: URLs) and official images. */
   referencedImages() {
-    const ids = new Set<string>();
-    for (const c of Object.values(this.data.cards)) {
-      if (typeof c.imageId === 'string' && !c.imageId.startsWith('data:')) ids.add(c.imageId);
-      if (typeof c.officialImageId === 'string') ids.add(c.officialImageId);
-    }
-    return ids;
+    return imagesIn(this.data);
   }
 
   /** Make a change; if it can't be saved, it's undone (memory never differs from the file) and SaveFailed thrown. */
