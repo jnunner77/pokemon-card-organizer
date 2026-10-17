@@ -602,10 +602,10 @@ async function doQuickSell(card, bundleOpts){
     const note = bundle ? `Bundle of ${bundle.count} · ${money(bundle.total, cur)} together` : "Quick sell";
     const price = {id:pid, at, type:"mysale", amount, currency:cur, date, where, note};
     const sale = {amount, currency:cur, soldCAD, cost: cb.cost!=null ? Math.round(cb.cost*100)/100 : null, basis:cb.basis, profit: cb.cost!=null ? Math.round((soldCAD-cb.cost)*100)/100 : null, date, where, at, priceId:pid, from:{binderId:c.binderId||null, page:c.page||null, slot:c.slot||null}, ...(bundle?{bundle}:{})};
-    jobs.push({c, sale, patch:{prices:[...(c.prices||[]), price], status:"sold", binderId:null, page:null, slot:null, sale, updatedAt:nowISO()}});
+    jobs.push({c, sale, ops:{add:[price], fields:{status:"sold", binderId:null, page:null, slot:null, sale, updatedAt:nowISO()}}});
   });
   if(!jobs.length || (bundle && jobs.length!==rowsIn.length)){ go.disabled=false; return; }
-  const res = await Promise.allSettled(jobs.map(j => S.db.doc("cards/"+j.c.id).update(j.patch)));
+  const res = await Promise.allSettled(jobs.map(j => S.db.doc("cards/"+j.c.id).prices(j.ops)));
   const ok = jobs.filter((_,i)=>res[i].status==="fulfilled"), failed = jobs.length-ok.length;
   if(failed){ const err = res.find(r=>r.status==="rejected")?.reason; console.error(err); if(!ok.length){ go.disabled=false; writeErr(err); return; } }
   closeModal(); if(S.pick) endPick(); if(ok.some(j=>j.c.id===S.sel)) closeDrawer();
@@ -626,10 +626,8 @@ async function undoSale(id, quiet){
   const f = c.sale.from || {};
   let loc = {binderId:null, page:null, slot:null};
   if(f.binderId && binderById(f.binderId)){ loc = f.page && f.slot && !cardAt(f.binderId, f.page, f.slot) ? {binderId:f.binderId, page:f.page, slot:f.slot} : {binderId:f.binderId, ...firstFree(f.binderId)}; }
-  const prices = (c.prices||[]).filter(p => p.id !== c.sale.priceId);
-  if(!(await updateCard(id, {...loc, prices, status:"binder", sale:null}))) return false;
-  // Seen at once by the next card of a bundle, before the live update arrives.
-  Object.assign(c, loc, {prices, status:"binder", sale:null});
+  // An older sale may not name its price entry: then only the card comes back.
+  if(!(await changePrices(id, {remove:c.sale.priceId ? [c.sale.priceId] : []}, {...loc, status:"binder", sale:null}))) return false;
   if(!quiet) toast(loc.binderId ? `${c.name||"Card"} is back in ${locText(loc)}` : `${c.name||"Card"} is back under Not in a binder`);
   return true;
 }
@@ -799,9 +797,9 @@ async function bulkBuySave(){
     const c = S.cards.find(x=>x.id===b.cardId); if(!c) continue;
     const note = `Bulk buy of ${count}: ${money(b.price,cur)}${tax?` + ${money(b.share,cur)} tax`:""}`;
     const price = {id:rid(), at:nowISO(), type:"paid", amount:b.cost, currency:cur, date, where, note};
-    jobs.push({c, price, patch:{placeholder:false, prices:[...(c.prices||[]), price], updatedAt:nowISO()}});
+    jobs.push({c, price, ops:{add:[price], fields:{placeholder:false, updatedAt:nowISO()}}});
   }
-  const res = await Promise.allSettled(jobs.map(j => S.db.doc("cards/"+j.c.id).update(j.patch)));
+  const res = await Promise.allSettled(jobs.map(j => S.db.doc("cards/"+j.c.id).prices(j.ops)));
   const ok = jobs.filter((_,i)=>res[i].status==="fulfilled"), failed = jobs.filter((_,i)=>res[i].status==="rejected");
   BB.busy = false; form.forEach(el => { el.inert = false; });
   if(!ok.length){ writeErr(res.find(x=>x.status==="rejected")?.reason); bbRefresh(); return; }
@@ -824,7 +822,7 @@ async function bulkBuySave(){
 async function bulkBuyUndo(btn, list){
   const done = list || BB?.done?.ok; if(!done?.length) return;
   if(btn) btn.disabled = true;
-  const res = await Promise.allSettled(done.map(d => { const c = S.cards.find(x=>x.id===d.id); return c ? S.db.doc("cards/"+c.id).update({placeholder:true, prices:(c.prices||[]).filter(p=>p.id!==d.priceId), updatedAt:nowISO()}) : Promise.reject(new Error("gone")); }));
+  const res = await Promise.allSettled(done.map(d => { const c = S.cards.find(x=>x.id===d.id); return c ? S.db.doc("cards/"+c.id).prices({remove:[d.priceId], fields:{placeholder:true, updatedAt:nowISO()}}) : Promise.reject(new Error("gone")); }));
   const ok = res.filter(r=>r.status==="fulfilled").length;
   if(btn){ BB = null; closeModal(); }
   toast(ok===done.length ? `Undone: ${ok} card${ok===1?" is a placeholder":"s are placeholders"} again` : `${ok} of ${done.length} undone. Switch the rest back to Placeholder by hand.`);
@@ -1314,18 +1312,22 @@ async function saveCard(){
   }
 }
 async function updateCard(id, patch){ return guard(()=> S.db.doc("cards/"+id).update({...patch, updatedAt:nowISO()})); }
+/* A card's price entries added, changed or removed by id ({add, update, remove}), with other fields
+   that change with them: the server applies them to its own list, so an entry the daily update or
+   someone else added meanwhile isn't lost. */
+async function changePrices(id, ops, fields={}){ return guard(()=> S.db.doc("cards/"+id).prices({...ops, fields:{...fields, updatedAt:nowISO()}})); }
 async function addPrice(){
   const c = selCard(); const p = readPriceFields("n"); if(!p) return;
   p.id = rid(); p.at = nowISO();
-  const patch = {prices:[...(c.prices||[]), p]};
-  if(p.type==="mysale") patch.status="sold";
-  if(p.type==="listed" && (c.status||"binder")==="binder") patch.status="listed";
-  if(await updateCard(c.id, patch)){ S.priceTouched=false; refreshParts(selCard(),{price:true}); toast(p.type==="mysale"?"Sale logged. Card marked sold.":"Price added"); }
+  const fields = {};
+  if(p.type==="mysale") fields.status="sold";
+  if(p.type==="listed" && (c.status||"binder")==="binder") fields.status="listed";
+  if(await changePrices(c.id, {add:[p]}, fields)){ S.priceTouched=false; refreshParts(selCard(),{price:true}); toast(p.type==="mysale"?"Sale logged. Card marked sold.":"Price added"); }
 }
 async function savePrice(pid){
   const c = selCard(); const p = readPriceFields("e"); if(!p) return;
-  const list = (c.prices||[]).map(x => x.id===pid ? {...x, ...p} : x);
-  if(await updateCard(c.id, {prices:list})){ S.editPrice=null; refreshParts(selCard(),{price:true}); toast("Entry updated"); }
+  const was = (c.prices||[]).find(x => x.id===pid); if(!was) return;
+  if(await changePrices(c.id, {update:[{...was, ...p}]})){ S.editPrice=null; refreshParts(selCard(),{price:true}); toast("Entry updated"); }
 }
 /* ---------- fixing past daily prices (public/pastprices.js) ----------
    A source that was matched to the wrong card (a reprint priced as its original) is left out of a
@@ -1363,14 +1365,15 @@ async function saveFixPast(){
   const r = window.BinderPastPrices.keepOnly(before, [...FP.keep], priceMethod());
   if(!r.rows.length) return;
   $("#fpSave").disabled = true;
-  if(!(await updateCard(c.id, {prices:r.prices}))){ $("#fpSave").disabled = false; return; }
+  const diff = window.BinderPriceOps.diff;
+  if(!(await changePrices(c.id, diff(before, r.prices)))){ $("#fpSave").disabled = false; return; }
   closeModal(); refreshParts(selCard(), {price:true});
-  toast(`${c.name||"Card"}: ${r.changed} daily price${r.changed===1?"":"s"} fixed${r.removed?`, ${r.removed} removed`:""}`, {label:"Undo", run:() => void updateCard(c.id, {prices:before}).then(ok => { if(ok){ refreshParts(selCard(), {price:true}); toast("Past prices put back"); } })});
+  toast(`${c.name||"Card"}: ${r.changed} daily price${r.changed===1?"":"s"} fixed${r.removed?`, ${r.removed} removed`:""}`, {label:"Undo", run:() => void changePrices(c.id, diff(r.prices, before)).then(ok => { if(ok){ refreshParts(selCard(), {price:true}); toast("Past prices put back"); } })});
 }
 
 async function delPrice(pid){
   const c = selCard();
-  if(await updateCard(c.id, {prices:(c.prices||[]).filter(x=>x.id!==pid)})){ S.confirm=null; refreshParts(selCard(),{price:true}); toast("Entry deleted"); }
+  if(await changePrices(c.id, {remove:[pid]})){ S.confirm=null; refreshParts(selCard(),{price:true}); toast("Entry deleted"); }
 }
 async function moveCard(c, bid, page, slot){
   if(!bid){ const from = isCase(binderById(c.binderId)) ? "case" : "binder"; if(await updateCard(c.id,{binderId:null,page:null,slot:null})){ S.moveTouched=false; render(); refreshParts(selCard(),{move:true}); toast(`${c.name||"Card"} taken out of the ${from}`); } return; }

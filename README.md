@@ -836,7 +836,9 @@ BASE_URL=http://localhost:4100/ npm run test:e2e    # browser smoke test
   (full backups), `backups.ts` (copies and retention), `accounts.ts` (people, sessions, API
   tokens), `security.ts` (rate limits and blocks), `log.ts`, `checks.ts` (Overview checks),
   `config.ts` (administrators' settings), `guests.ts` (guest sign-in, sessions, log, and what guests
-  see of a card; tested in `tests/guests.test.ts`), `app.ts` (HTTP API).
+  see of a card; tested in `tests/guests.test.ts`), `priceops.ts` (a card's price entries added,
+  changed or removed one by one against the server's list, with `public/priceops.js` working out
+  what the page changed; tested in `tests/priceops.test.ts`), `app.ts` (HTTP API).
 - `public/`: `admin.html`/`admin.js` (Administration), `login.html`/`login.js` (sign-in),
   `guest.html`/`guest.js` (the guest page).
 - `public/`: the page. `app.js` is the ledger UI; `search.js` matches cards for Find (tested in

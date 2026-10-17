@@ -114,6 +114,8 @@
     id,
     async set(data) { const d = await call("PUT", `api/docs/${col}/${encodeURIComponent(id)}`, data); apply(col, id, d); },
     async update(patch) { const d = await call("PATCH", `api/docs/${col}/${encodeURIComponent(id)}`, patch); apply(col, id, d); },
+    /* A card's price entries to add, update and remove by id, and other fields to change with them (server/priceops.ts). */
+    async prices(ops) { const d = await call("POST", `api/cards/${encodeURIComponent(id)}/prices`, ops); apply(col, id, d); },
     async delete() { await call("DELETE", `api/docs/${col}/${encodeURIComponent(id)}`); apply(col, id, null); },
     onSnapshot(fn) {
       const key = col + "/" + id; if (!docWatchers.has(key)) docWatchers.set(key, new Set());
