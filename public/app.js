@@ -835,7 +835,7 @@ function selCard(){ return S.sel==="__new" ? S.draft : S.cards.find(c=>c.id===S.
 const unsaved = () => !!S.sel && window.BinderFormSync.unsaved($("#drawerRoot")?.querySelectorAll("input,select,textarea") || [], S.sel==="__new" ? S.draft : null);
 /* Before the open drawer's unsaved changes would be thrown away: true when there are none, or the person says to discard them. */
 const discardOk = () => !unsaved() || confirm(S.sel==="__new" ? "Discard this new card? Nothing you entered is saved yet." : "Discard your unsaved changes to this card?");
-function openCard(id){ if(!discardOk()) return; S.pricePick=null; S.pickRes=null; S.sel=id; S.draft=null; S.dirty=false; S.editPrice=null; S.confirm=null; renderMain(); renderDrawer(true); }
+function openCard(id){ if(!discardOk()) return; S.photoFor=null; S.photoForKey=null; S.pricePick=null; S.pickRes=null; S.sel=id; S.draft=null; S.dirty=false; S.editPrice=null; S.confirm=null; renderMain(); renderDrawer(true); }
 /* A card added to a binder starts as the binder's owner's; most cards are Justin's, so he's the
    owner when the binder has none (or the card isn't in a binder). Changeable before saving. */
 const newCardOwner = bid => binderById(bid)?.owner || "Justin";
@@ -844,6 +844,7 @@ function openNew(loc){
   const bid = loc?.binderId ?? (curBinder()?.id || null);
   const spot = loc?.slot ? loc : (bid ? firstFree(bid) : null);
   S.sel="__new"; S.dirty=true; S.editPrice=null; S.confirm=null;
+  S.photoFor = null; S.photoForKey = null; // a photo picked for the last drawer isn't this one's
   S.draft = {id:"__new", key:rid(), name:"", set:"", setCode:"", number:"", rarity:"", variant:"", language:"English", condition:"Near Mint", grader:"Raw", grade:"", artist:"", notes:"", status:"binder", owner:newCardOwner(bid), prices:[], imageId:null, binderId: bid, page: spot?.page||null, slot: spot?.slot||null};
   renderMain(); renderDrawer(true);
 }
@@ -2897,7 +2898,7 @@ document.addEventListener("beforeinput", e => {
 });
 document.addEventListener("dragover", e => { const b=e.target.closest && e.target.closest("#photoPaste"); if(b){ e.preventDefault(); b.classList.add("over"); } });
 document.addEventListener("dragleave", e => { const b=e.target.closest && e.target.closest("#photoPaste"); if(b) b.classList.remove("over"); });
-document.addEventListener("drop", e => { const b=e.target.closest && e.target.closest("#photoPaste"); if(!b) return; e.preventDefault(); b.classList.remove("over"); const f=clipImageFile(e.dataTransfer); if(f){ S.photoFor=S.sel; takePhotoFile(f,"dropped"); } else toast("Drop a picture file here."); });
+document.addEventListener("drop", e => { const b=e.target.closest && e.target.closest("#photoPaste"); if(!b) return; e.preventDefault(); b.classList.remove("over"); const f=clipImageFile(e.dataTransfer); if(f){ S.photoFor=S.sel; S.photoForKey=S.draft?.key; takePhotoFile(f,"dropped"); } else toast("Drop a picture file here."); });
 async function pasteFromClipboard(){
   S.photoFor = S.sel; S.photoForKey = S.draft?.key;
   try{
