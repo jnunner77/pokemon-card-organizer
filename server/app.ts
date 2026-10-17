@@ -17,6 +17,7 @@ import { GUEST_COOKIE, GUEST_IDLE_MS, GuestFeed, type Guests, guestSchemas, isLi
 import { CATEGORIES, LEVELS, type Logger, quietLogger } from './log';
 import { CardLookup } from './lookup';
 import { MasterSets, placeholderCards } from './masterset';
+import { applyPriceOps } from './priceops';
 import type { TcgCsv } from './pricing/tcgcsv';
 import { NoToken, type PriceCharting } from './pricing/pricecharting';
 import { Refused, SourceError } from './pricing/sources';
@@ -332,6 +333,30 @@ export function createApp(o: AppOptions) {
     const { collection, id } = docParams(req);
     store.delete(collection, id);
     res.status(204).end();
+  });
+
+  // A card's price entries added, changed or removed by id (priceops.ts), with other fields that
+  // change with them (a sale's status and location). Applied to the server's list as it is now,
+  // so an entry the daily update or someone else added meanwhile is kept.
+  const priceEntry = z.object({ id: z.string().min(1).max(64) }).passthrough();
+  const priceOpsBody = z
+    .object({
+      add: z.array(priceEntry).max(2000).optional(),
+      update: z.array(priceEntry).max(2000).optional(),
+      remove: z.array(z.string().min(1).max(64)).max(2000).optional(),
+      fields: z.record(z.string(), z.unknown()).optional(),
+    })
+    .strict();
+  api.post('/cards/:id/prices', need('editor'), json, (req, res) => {
+    const id = idSchema.safeParse(req.params.id);
+    if (!id.success) throw new HttpError(400, id.error.issues[0].message);
+    const body = priceOpsBody.safeParse(req.body);
+    if (!body.success) throw new HttpError(400, 'Send the price entries to add, change or remove.');
+    const { fields = {}, ...ops } = body.data;
+    if ('prices' in fields || 'id' in fields) throw new HttpError(400, 'Price entries are sent as add, update and remove.');
+    const card = store.get('cards', id.data);
+    if (!card) throw new HttpError(404, 'That card no longer exists.', 'not_found');
+    res.json({ id: id.data, ...store.update('cards', id.data, { ...fields, prices: applyPriceOps(card.prices, ops) }) });
   });
 
   // Sort a binder: the page puts its cards in an order (release date, price) and sends where each
