@@ -288,6 +288,17 @@ describe('filling in a stored card', () => {
     expect(calls.some((u) => u.includes('/cards/sv05-051'))).toBe(true);
   });
 
+  it('searches again when TCGdex no longer has the matched card', async () => {
+    const gone = { source: 'tcgdex', result: 'filled', v: DETAILS_VERSION, id: 'sv05-999', setId: 'sv05', set: 'Temporal Forces', chosen: true, checkedAt: '2026-10-01T00:00:00Z' };
+    store.set('cards', 'a', { name: 'Pikachu', number: '51', details: gone });
+    expect(await new CardDetails({ fetcher: replay() }).fill(store, 'a', true)).toBe('error');
+    const details = store.get('cards', 'a')!.details as Record<string, unknown>;
+    expect(details).toMatchObject({ result: 'error', error: expect.stringContaining('404') });
+    expect(details).not.toHaveProperty('id');
+    expect(details).not.toHaveProperty('chosen');
+    expect(await new CardDetails({ fetcher: replay() }).fill(store, 'a', true)).toBe('several');
+  });
+
   it('records a failed lookup without changing the card', async () => {
     store.set('cards', 'a', { name: 'Pikachu', number: '51/162' });
     expect(await new CardDetails({ fetcher: down }).fill(store, 'a')).toBe('error');

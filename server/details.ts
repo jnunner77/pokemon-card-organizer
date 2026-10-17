@@ -45,10 +45,10 @@ export interface DetailsOption {
   thumb: string | null;
 }
 
-/** What the last lookup for a card found, stored on the card as `details`. */
 /** What a failed lookup keeps of the card's match. */
 const KEPT_ON_ERROR = ['v', 'id', 'setId', 'set', 'setCode', 'released', 'filedUnder', 'parentSet', 'chosen'] as const;
 
+/** What the last lookup for a card found, stored on the card as `details`. */
 export interface DetailsStatus {
   source: 'tcgdex';
   result: 'filled' | 'complete' | 'several' | 'notFound' | 'error';
@@ -474,10 +474,12 @@ export class CardDetails {
         status = { ...base, result: 'notFound', suggest: suggest.length ? suggest : null };
       }
     } catch (err) {
-      // The match it had (and whether the person chose it) stays for the next lookup.
+      // A hiccup: the match it had (and whether the person chose it) stays for the next lookup.
+      // TCGdex no longer having the card (404): it's searched for by name and number again.
       const prev = card.details as DetailsStatus | null | undefined;
+      const gone = err instanceof SourceError && /\b404\b/.test(err.message);
       const kept: Partial<DetailsStatus> = {};
-      if (prev?.id) for (const k of KEPT_ON_ERROR) if (prev[k] != null) Object.assign(kept, { [k]: prev[k] });
+      if (prev?.id && !gone) for (const k of KEPT_ON_ERROR) if (prev[k] != null) Object.assign(kept, { [k]: prev[k] });
       status = { ...kept, source: 'tcgdex', result: 'error', error: err instanceof SourceError || err instanceof Error ? err.message.slice(0, 300) : String(err), checkedAt };
     }
     if (!store.get('cards', id)) return 'skipped';
