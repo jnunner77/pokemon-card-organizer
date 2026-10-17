@@ -190,10 +190,7 @@ const pennies = (v: string) => {
 export class PriceGuide {
   private readonly byId = new Map<string, PcProduct>();
   private readonly byNumber = new Map<string, PcProduct[]>();
-  /** It has graded price columns (a subscription's guide may have none, though its product API does). */
-  readonly graded: boolean;
   constructor(rows: Record<string, string>[]) {
-    this.graded = rows.some((row) => GRADES.some((g) => g.key in row));
     for (const row of rows) {
       const p: Record<string, unknown> = { ...row };
       for (const k of Object.keys(row)) if (k.endsWith('-price')) p[k] = pennies(row[k]);
