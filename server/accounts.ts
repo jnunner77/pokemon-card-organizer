@@ -11,7 +11,8 @@ import { HttpError } from './security';
 // - Roles: admin (everything, including the Administration pages), editor (changes the
 //   ledger), viewer (looks only).
 // - Passwords are hashed with scrypt; only the hash is kept, in <data>/auth.json, which never
-//   reaches browsers or backups.
+//   reaches browsers, the ledger's copies or full backup downloads. The server's archives
+//   (deploy/backup.sh) do hold it, so a server restores with its accounts; only the owner reads them.
 // - Wrong passwords lock the username after a few tries, for longer each time (1, 2, 4 … minutes,
 //   up to a day).
 // - Sessions are random tokens kept as hashes in <data>/sessions.json, so signing in survives

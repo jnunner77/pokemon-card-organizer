@@ -664,7 +664,8 @@ the same name and contact again carries on where that guest was (another device 
 The Guests page shows who's looking now (with *End*), and a **guest log** of every visit: name,
 phone or email, when they signed in, were last active and how the visit ended. *New QR code* makes
 codes already printed or shared stop working; turning guest viewing off signs every guest out.
-Guests' names and contacts stay on the server, never in backups; *Clear the log* deletes them.
+Guests' names and contacts stay on the server: never in the ledger's copies or full backup
+downloads, only in the server's own archives (see *Data*); *Clear the log* deletes them.
 
 ## People and administration
 
@@ -738,7 +739,8 @@ the problems banner:
 
 ## Security on the public internet
 
-- **Sign-in:** scrypt password hashes in `auth.json` (never in backups or responses); at least
+- **Sign-in:** scrypt password hashes in `auth.json` (never in responses, the ledger's copies or
+  full backup downloads; only in the server's archives, readable by the owner alone); at least
   10 characters, not the username, not a common password; after 5 wrong passwords a username is
   locked for 1 minute, then 2, 4 … up to a day. Sessions are random tokens stored as hashes, end
   after two weeks unused and 30 days at most, and end when the password changes or the person is
@@ -792,11 +794,21 @@ the existing free Google Cloud VM, at `binder.nunner.duckdns.org`).
 photos and the official pictures; deleted ones in `assets/.trash` for 400 days), `backups/`
 (daily, weekly and monthly copies, snapshots, and the ledger before every restore), `logs/` (a
 file per day, two weeks), `admin.json` (backup retention, price schedule), `auth.json` and
-`sessions.json` (people, password hashes, API token hashes and sessions; never in backups or
-responses), `guests.json` (guest viewing on/off, the QR code's key and the guest log; never in
-backups), `status.txt` (the Overview's checks and the cards that need a person, rewritten every
+`sessions.json` (people, password hashes, API token hashes and sessions; never in responses),
+`guests.json` (guest viewing on/off, the QR code's key and the guest log), `status.txt` (the Overview's checks and the cards that need a person, rewritten every
 five minutes for the server's nightly job) and `offsite.json` (written by that job after it copies
 a backup off the server).
+
+What each kind of backup holds:
+
+- **The ledger's copies** (Administration → Backups: daily, weekly, monthly, snapshots) and **full
+  backup downloads** hold binders, cards, settings and (downloads only) photos. They never contain
+  accounts, password or token hashes, sessions, or guests' names and contacts.
+- **The server's archives** (`deploy/backup.sh`, and the copies the nightly job puts in Cloud
+  Storage) hold the whole data volume except secrets, so they do contain `auth.json`,
+  `sessions.json` and `guests.json`: that's what lets a server be restored with its accounts. The
+  archives and their folder are readable only by the owner, and the Cloud Storage bucket is
+  private.
 
 To restore without a browser, stop the app and run `npm run import-backup -- backup.json`.
 
