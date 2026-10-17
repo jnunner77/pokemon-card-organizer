@@ -1338,11 +1338,12 @@ export class PriceUpdater {
 
   /**
    * TCGplayer's own catalog (tcgcsv.ts) for a looked-up card's printing the card databases have no
-   * TCGplayer price for, as the daily update asks it (tcgcsvQuote); null when it isn't found or doesn't answer.
+   * TCGplayer price for, as the daily update asks it (tcgcsvQuote); null when it isn't found. Throws
+   * when tcgcsv.com doesn't answer, so the card view can say so.
    */
   async lookupTcgplayer(card: TcgCsvCard, productId: string | null): Promise<TcgCsvQuote | null> {
     if (!this.tcgcsv) return null;
-    return this.tcgcsv.quote(card, productId).catch(() => null);
+    return this.tcgcsv.quote(card, productId);
   }
 
   /** The exchange rates the last update saved: CAD per US dollar, and per euro when known. */
