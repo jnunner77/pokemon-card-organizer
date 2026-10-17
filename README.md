@@ -621,7 +621,8 @@ when you've rearranged the binder and want to keep the new layout instead.
   added to the ledger; **Add to a binder** opens a new card filled in with it and the printing
   chosen. Each card looked at is one PriceCharting call; once the day's calls pass three quarters of
   its budget, lookups leave PriceCharting out (and say so), keeping the rest for the daily update.
-  Turned off with `CARD_LOOKUPS=off`.
+  When TCGplayer's own catalog (tcgcsv.com) doesn't answer, the card says which printings have no
+  TCGplayer price because of it. Turned off with `CARD_LOOKUPS=off`.
 - **Your photos**: choose, take, browse, paste or drop one; or photograph a whole binder page
   and slice it into one photo per pocket. Flip through pictures full screen.
 - **Duplicate** a card (in its details) or several (press and hold to select): choose how many

@@ -226,28 +226,38 @@ export class CardLookup {
     const total = td.set.cardCount?.official || null;
     // As the daily update does: TCGplayer's own catalog for a printing the card databases have no TCGplayer price for.
     if (this.updater) {
+      const failed: { label: string; reason: string }[] = [];
       await Promise.all(
         base.map(async (p) => {
           if (p.tcgplayer) return;
           const number = total && /^\d+$/.test(td.localId) ? `${td.localId}/${total}` : td.localId;
-          const q = await this.updater!.lookupTcgplayer({ name: td.name, set: td.set.name, setCode, number, variant: p.variant, rarity: mapRarity(td.rarity), tcgdexSet: td.set.name }, p.product);
-          if (q?.usd != null) p.tcgplayer = { usd: q.usd, productId: q.productId };
+          try {
+            const q = await this.updater!.lookupTcgplayer({ name: td.name, set: td.set.name, setCode, number, variant: p.variant, rarity: mapRarity(td.rarity), tcgdexSet: td.set.name }, p.product);
+            if (q?.usd != null) p.tcgplayer = { usd: q.usd, productId: q.productId };
+          } catch (err) {
+            failed.push({ label: p.label, reason: err instanceof Error ? err.message : String(err) });
+          }
         }),
       );
+      if (failed.length) {
+        const which = base.filter((p) => failed.some((f) => f.label === p.label)).map((p) => p.label);
+        notes.push(`No TCGplayer price from TCGplayer's catalog (tcgcsv.com) for the ${which.join(', ')} printing${which.length === 1 ? '' : 's'}: it didn't answer (${failed[0].reason}).`);
+      }
     }
     // A reprint sub-set's card (30th Classic Collection) is PriceCharting's under the set it belongs to (30th Celebration).
     const sets = await this.details.json<SetBrief[]>('/sets').catch(() => [] as SetBrief[]);
     const parent = (Array.isArray(sets) ? sets : []).find((x) => isSubSet(x.id, td.set.id)) ?? null;
 
     let products: PcProduct[] = [];
+    let asked = !!this.updater;
     if (this.updater) {
       try {
         products = await this.updater.lookupProducts(searchQuery({ name: td.name, number: td.localId }));
       } catch (err) {
+        asked = false;
         notes.push(`No PriceCharting prices: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
-    const asked = !!this.updater && !notes.length;
 
     const printings = base.map((p): LookupPrinting => {
       const card = { name: td.name, number: td.localId, set: td.set.name, variant: p.variant };

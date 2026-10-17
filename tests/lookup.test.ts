@@ -226,6 +226,31 @@ describe("one card's prices", () => {
     expect(card.printings[0].tcgplayer).toMatchObject({ usd: 928.32 });
   });
 
+  it("says when TCGplayer's catalog didn't answer, and still prices the card from the other sources", async () => {
+    const { updater } = fakeUpdater({ tcgcsv: async () => Promise.reject(new Error('tcgcsv.com answered 503')) });
+    const card = await new CardLookup({ details: new CardDetails({ fetcher: tcgdex() }), updater }).card('base1-4');
+    const missing = card.printings.slice(1).map((p) => p.label);
+    expect(card.notes).toEqual([`No TCGplayer price from TCGplayer's catalog (tcgcsv.com) for the ${missing.join(', ')} printings: it didn't answer (tcgcsv.com answered 503).`]);
+    // TCGdex's TCGplayer and Cardmarket prices and PriceCharting's match are as before.
+    expect(card.printings[0]).toMatchObject({ tcgplayer: { usd: 928.32 }, cardmarket: { eur: 432.4 }, pricecharting: { id: '630', usd: 400 }, price: { usd: 418.83, where: 'Blend' } });
+    expect(card.printings[1]).toMatchObject({ tcgplayer: null, pricecharting: { id: '631', usd: 9000 } });
+  });
+
+  it("lets a lookup tell a tcgcsv.com failure from a card TCGplayer's catalog doesn't have", async () => {
+    const { PriceUpdater } = await import('../server/pricing/updater');
+    const quote = vi.fn(async () => Promise.reject(new Error('tcgcsv.com answered 503')));
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'binder-lookup-'));
+    try {
+      const updater = new PriceUpdater({ store: new Store(tmp), assets: {} as Assets, tcgcsv: { quote } as never });
+      const card = { name: 'Charizard', set: 'Base Set', setCode: 'BS', number: '4/102', variant: 'Holo', rarity: 'Rare', tcgdexSet: 'Base Set' };
+      await expect(updater.lookupTcgplayer(card, null)).rejects.toThrow('tcgcsv.com answered 503');
+      quote.mockResolvedValueOnce(null as never);
+      expect(await updater.lookupTcgplayer(card, null)).toBeNull();
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   it("matches a reprint sub-set's card on PriceCharting under the set it belongs to, counting the card database's prices", async () => {
     const products = [parseProduct({ id: '700', 'product-name': 'Charizard #4', 'console-name': 'Pokemon 30th Celebration', 'loose-price': 90000 })];
     const { updater } = fakeUpdater({ products: async () => products });
