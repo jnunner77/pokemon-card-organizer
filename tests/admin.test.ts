@@ -130,9 +130,8 @@ describe('people and sign-in', () => {
         spy.mockRestore();
       }
     };
-    await tries('nobody', 'warm up the dummy hash');
-    expect(await tries('ash', 'the wrong password')).toBe(1);
     expect(await tries('nobody', 'the wrong password')).toBe(1);
+    expect(await tries('ash', 'the wrong password')).toBe(1);
     expect(await tries('ash', 'a good password')).toBe(1);
   });
 
