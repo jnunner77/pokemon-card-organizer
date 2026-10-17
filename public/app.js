@@ -1282,7 +1282,7 @@ async function saveCard(){
       if(ok){
         toast(`Added ${data.name}. Looking up its price and picture…`);
         // A photo still uploading for this draft goes onto the added card when it's done (setPhoto).
-        if(draftKey) S.added = {key:draftKey, id};
+        if(draftKey) (S.added ||= {})[draftKey] = id;
         if(S.sel!=="__new" || S.draft?.key!==draftKey) return; // the person moved on (to another card, or a new one) meanwhile
         // The drawer is drawn again for the added card: what was typed while it was being added stays, to be saved.
         const later = window.BinderFormSync.changedSince($("#cardForm")?.elements||[], data);
@@ -1566,10 +1566,11 @@ function uploadErr(e){
   const msg = m[code] || `The photo didn't save${code?` (${code})`:""}. Try again, or take a screenshot of the picture and use that.`;
   toast(msg); console.error(e); return msg;
 }
-async function setPhoto(input, targetId, orig){
+async function setPhoto(input, targetId, orig, forKey){
   if(!S.db) return toast("Saving isn't available in this view.");
   let tid = targetId ?? S.sel; if(!tid) return;
-  const draftKey = tid==="__new" ? S.draft?.key : null;
+  // Which new card it's for: the draft open when the photo was picked (it may be added before the photo is ready).
+  const draftKey = tid==="__new" ? (forKey ?? S.draft?.key) : null;
   photoNote("Saving the photo…");
   S.photoBusy = true; let errMsg = "", saved = null;
   try{
@@ -1584,11 +1585,12 @@ async function setPhoto(input, targetId, orig){
       else throw e;
     }
     const r = {id: raw ? await storeRaw(blob) : await storePhoto(blob)};
-    // The new card was added while the photo uploaded: the photo goes onto the added card.
-    if(tid==="__new" && draftKey && S.added?.key===draftKey && !(S.sel==="__new" && S.draft?.key===draftKey)) tid = S.added.id;
+    // The new card was added while the photo was being picked or uploaded: the photo goes onto the added card.
+    if(tid==="__new" && draftKey && S.added?.[draftKey] && !(S.sel==="__new" && S.draft?.key===draftKey)) tid = S.added[draftKey];
     if(tid==="__new"){
-      if(S.sel==="__new" && S.draft){ S.draft = {...S.draft, ...readForm(), imageId:r.id}; renderDrawer(true); }
-      toast("Photo added"); return;
+      if(S.sel==="__new" && S.draft && (!draftKey || S.draft.key===draftKey)){ S.draft = {...S.draft, ...readForm(), imageId:r.id}; renderDrawer(true); toast("Photo added"); }
+      else { errMsg = "That new card was closed before the photo was ready, so the photo wasn't added to a card."; toast(errMsg); }
+      return;
     }
     const c = S.cards.find(x=>x.id===tid); if(!c) return;
     const old = c.imageId;
@@ -2835,14 +2837,14 @@ let lastTakeAt = 0;
 function takePhotoFile(f, how){
   if(!f){ photoNote("No photo came back. Try again, or paste one in the box above."); return; }
   if(Date.now()-lastTakeAt < 800) return; lastTakeAt = Date.now();
-  const target = S.photoFor ?? S.sel; S.pickAt = 0;
+  const target = S.photoFor ?? S.sel, key = S.photoFor ? S.photoForKey : S.draft?.key; S.pickAt = 0;
   const looksImg = !f.type || /^image\//.test(f.type) || f.type==="application/octet-stream" || /\.(jpe?g|png|gif|webp|hei[cf]|bmp|tiff?)$/i.test(f.name||"");
   if(!looksImg){ uploadErr({code:"notimage"}); photoNote("That file isn't a picture. Pick a JPG, PNG or screenshot."); return; }
   const snap = snapshot(f);
   photoNote(`Got the photo${how?` (${how})`:""}. Saving…`);
-  setPhoto(snap, target, f);
+  setPhoto(snap, target, f, key);
 }
-document.addEventListener("click", e => { if(e.target.closest && e.target.closest("[data-pick]")){ S.photoFor = S.sel; S.pickAt = Date.now(); photoNote("Opening… If nothing opens, copy the picture and paste it in the box instead."); } });
+document.addEventListener("click", e => { if(e.target.closest && e.target.closest("[data-pick]")){ S.photoFor = S.sel; S.photoForKey = S.draft?.key; S.pickAt = Date.now(); photoNote("Opening… If nothing opens, copy the picture and paste it in the box instead."); } });
 /* catch the picker's result even if the drawer redrew while the phone's picker was open */
 function watchPicker(){
   document.querySelectorAll("input[data-photo]").forEach(p => { if(p._w) return; p._w = 1; const h = () => { const f = p.files && p.files[0]; if(!f) return; takePhotoFile(f); try{ p.value = ""; }catch(_){} }; p.addEventListener("change",h); p.addEventListener("input",h); });
@@ -2869,11 +2871,11 @@ function clipImageFile(dt){
   return f;
 }
 function imgSrcFromHtml(dt){ try{ const h = dt && dt.getData && dt.getData("text/html"); const m = h && h.match(/<img[^>]+src=["'](data:image\/[^"']+|blob:[^"']+)["']/i); return m ? m[1] : null; }catch(_){ return null; } }
-async function fromSrc(src){ try{ const r = await fetch(src); const b = await r.blob(); if(!b.size) return false; S.photoFor = S.sel; takePhotoFile(b, "pasted"); return true; }catch(e){ console.error(e); return false; } }
+async function fromSrc(src){ try{ const r = await fetch(src); const b = await r.blob(); if(!b.size) return false; S.photoFor = S.sel; S.photoForKey = S.draft?.key; takePhotoFile(b, "pasted"); return true; }catch(e){ console.error(e); return false; } }
 document.addEventListener("paste", e => {
   if(!e.target.closest || !e.target.closest("#photoPaste")) return;
   const f = clipImageFile(e.clipboardData);
-  if(f){ e.preventDefault(); S.photoFor = S.sel; takePhotoFile(f, "pasted"); resetPasteBox(); return; }
+  if(f){ e.preventDefault(); S.photoFor = S.sel; S.photoForKey = S.draft?.key; takePhotoFile(f, "pasted"); resetPasteBox(); return; }
   const src = imgSrcFromHtml(e.clipboardData);
   if(src){ e.preventDefault(); resetPasteBox(); fromSrc(src); return; }
   /* let the phone paste it into the box: the watcher above picks up any picture that lands there */
@@ -2884,14 +2886,14 @@ document.addEventListener("paste", e => {
 });
 document.addEventListener("beforeinput", e => {
   if(!(e.target.closest && e.target.closest("#photoPaste"))) return;
-  if(e.inputType==="insertFromPaste" || e.inputType==="insertReplacementText"){ const f = clipImageFile(e.dataTransfer); if(f){ e.preventDefault(); S.photoFor = S.sel; takePhotoFile(f, "pasted"); resetPasteBox(); } return; }
+  if(e.inputType==="insertFromPaste" || e.inputType==="insertReplacementText"){ const f = clipImageFile(e.dataTransfer); if(f){ e.preventDefault(); S.photoFor = S.sel; S.photoForKey = S.draft?.key; takePhotoFile(f, "pasted"); resetPasteBox(); } return; }
   e.preventDefault();
 });
 document.addEventListener("dragover", e => { const b=e.target.closest && e.target.closest("#photoPaste"); if(b){ e.preventDefault(); b.classList.add("over"); } });
 document.addEventListener("dragleave", e => { const b=e.target.closest && e.target.closest("#photoPaste"); if(b) b.classList.remove("over"); });
 document.addEventListener("drop", e => { const b=e.target.closest && e.target.closest("#photoPaste"); if(!b) return; e.preventDefault(); b.classList.remove("over"); const f=clipImageFile(e.dataTransfer); if(f){ S.photoFor=S.sel; takePhotoFile(f,"dropped"); } else toast("Drop a picture file here."); });
 async function pasteFromClipboard(){
-  S.photoFor = S.sel;
+  S.photoFor = S.sel; S.photoForKey = S.draft?.key;
   try{
     const items = await navigator.clipboard.read();
     for(const it of items){ const t = it.types.find(x => /^image\//.test(x)); if(t){ const b = await it.getType(t); takePhotoFile(b.type ? b : new Blob([b],{type:t}), "pasted"); return; } }
