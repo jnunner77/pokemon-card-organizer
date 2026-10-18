@@ -30,6 +30,7 @@ export function setUpGuests(cards: DocumentView[] = [], settings: DocumentView[]
   const deps: GuestDeps = {
     desk,
     ledger: { read: async () => ({ binders: [], cards, settings }) },
+    cards: { card: async (id) => cards.find((c) => c.id === id) },
     photos,
     condition: new NoConditionRules(),
     qr: new TextQrCodes(),

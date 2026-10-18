@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { OpenGuestPicture } from '#application/guests/open-guest-picture.ts';
 import type { DocumentView } from '#application/ledger/ledger-reader.ts';
 import { setUpGuests } from './fixtures.ts';
 
@@ -143,5 +144,14 @@ describe('what guests see', () => {
     assert.equal(await t.use.openPicture.execute({ cardId: 'kept' }), null);
     assert.equal(await t.use.openPicture.execute({ cardId: 'gone' }), null);
     assert.equal(await t.use.openPicture.execute({ cardId: '../c1' }), null);
+  });
+
+  it('looks up only the card whose picture is asked for', async () => {
+    const t = setUpGuests([listed({ imageId: PHOTO })]);
+    await t.photos.save(PHOTO as never, JPEG);
+    const asked: string[] = [];
+    const open = new OpenGuestPicture({ ...t.deps, cards: { card: async (id) => (asked.push(id), t.deps.cards.card(id)) } });
+    assert.equal((await open.execute({ cardId: 'c1' }))?.kind, 'photo');
+    assert.deepEqual(asked, ['c1']);
   });
 });

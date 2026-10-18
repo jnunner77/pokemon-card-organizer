@@ -33,12 +33,15 @@ export async function checkCredentials(deps: AccountDeps, rawUsername: string, p
     return err({ code: 'WRONG_PASSWORD' });
   }
   await deps.failures.clear(username);
-  if (person.mustChange) return ok({ status: 'change', person });
+  // The password was checked against the account as it was a moment ago: if it was reset, turned
+  // off or removed meanwhile, the check no longer counts.
   const at = deps.clock.now().toISOString();
-  const signedIn = await deps.accounts.change((draft) => {
+  const signedIn = await deps.accounts.change((draft): Result<Checked, SignInError> => {
     const current = draft.users.find((u) => u.id === person.id);
-    return ok(current ? replacePerson(draft, { ...current, lastSignInAt: at }) : person);
+    if (!current || !current.active || current.passwordHash !== person.passwordHash) return err({ code: 'WRONG_PASSWORD' });
+    if (current.mustChange) return ok({ status: 'change', person: current });
+    return ok({ status: 'ok', person: replacePerson(draft, { ...current, lastSignInAt: at }) });
   });
-  deps.authLog.info(`${person.username} signed in`, { username: person.username, ip });
-  return ok({ status: 'ok', person: signedIn.ok ? signedIn.value : person });
+  if (signedIn.ok && signedIn.value.status === 'ok') deps.authLog.info(`${person.username} signed in`, { username: person.username, ip });
+  return signedIn;
 }

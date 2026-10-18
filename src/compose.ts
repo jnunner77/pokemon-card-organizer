@@ -70,6 +70,7 @@ import { FileKeptCopies } from '#infrastructure/backups/file-kept-copies.ts';
 import { PageConditionRules } from '#infrastructure/guests/condition-rules.ts';
 import { FileGuestDesk } from '#infrastructure/guests/guest-file.ts';
 import { QrSvg } from '#infrastructure/guests/qr-svg.ts';
+import { StoreCardLookup } from '#infrastructure/json-store/card-lookup.ts';
 import { StoreLedgerChanges } from '#infrastructure/json-store/ledger-changes.ts';
 import { MemoryFailedSignIns, MemoryFirstRunSetup } from '#infrastructure/memory/accounts.ts';
 import { NodeSecrets } from '#infrastructure/node-secrets.ts';
@@ -245,6 +246,7 @@ export function createGuests(o: CreateGuestsOptions) {
   const deps: GuestDeps = {
     desk: new FileGuestDesk({ dataDir: o.store.dataDir, now, newKey: () => secrets.guestKey(), onDamaged: (message) => log.error('app', message) }),
     ledger: new StoreLedgerReader(o.store),
+    cards: new StoreCardLookup(o.store),
     photos: new FilePhotoStore(o.assets),
     condition: new PageConditionRules(),
     qr: new QrSvg(),

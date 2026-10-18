@@ -31,12 +31,22 @@ export function setUpAccounts() {
   const log = (into: string[]) => ({ info: (m: string) => void into.push(m), warn: (m: string) => void into.push(m) });
   const sessions = new MemorySessionStore();
   const hasher = new PlainHasher();
+  /** While set, password checks wait for it: what happens meanwhile happens mid-check. */
+  const hold: { until: Promise<void> | null } = { until: null };
+  const slowHasher = {
+    hash: (password: string) => hasher.hash(password),
+    verify: async (password: string, stored: string | null) => {
+      const right = await hasher.verify(password, stored);
+      if (hold.until) await hold.until;
+      return right;
+    },
+  };
   const deps: AccountDeps = {
     accounts: new MemoryAccountStore(),
     sessions,
     failures: new MemoryFailedSignIns(),
     setup: new MemoryFirstRunSetup(),
-    hasher,
+    hasher: slowHasher,
     secrets: new CountingSecrets(),
     clock: { now: () => new Date(clock.at) },
     authLog: log(logged.auth),
@@ -81,5 +91,5 @@ export function setUpAccounts() {
     if (!r.ok || r.value.status !== 'ok') throw new Error(`couldn't sign in as ${username}`);
     return r.value.token;
   };
-  return { deps, use, clock, logged, sessions, hasher, where, withAdmin, add, signIn };
+  return { deps, use, clock, logged, sessions, hasher, hold, where, withAdmin, add, signIn };
 }

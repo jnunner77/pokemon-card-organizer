@@ -11,15 +11,15 @@ export type GuestPicture = { readonly kind: 'inline'; readonly type: string; rea
 
 /** The picture of a card listed for sale, or null for any other card (or one without a picture). */
 export class OpenGuestPicture {
-  readonly #deps: Pick<GuestDeps, 'ledger' | 'photos' | 'base64'>;
+  readonly #deps: Pick<GuestDeps, 'cards' | 'photos' | 'base64'>;
 
-  constructor(deps: Pick<GuestDeps, 'ledger' | 'photos' | 'base64'>) {
+  constructor(deps: Pick<GuestDeps, 'cards' | 'photos' | 'base64'>) {
     this.#deps = deps;
   }
 
   async execute(input: { readonly cardId: string }): Promise<GuestPicture | null> {
     if (!isDocumentId(input.cardId)) return null;
-    const card = (await this.#deps.ledger.read()).cards.find((c) => c.id === input.cardId);
+    const card = await this.#deps.cards.card(input.cardId);
     const image = card && isListed(card) ? shownImage(card) : null;
     if (!image) return null;
     const inline = INLINE.exec(image);

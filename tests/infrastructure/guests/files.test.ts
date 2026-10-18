@@ -6,6 +6,7 @@ import { after, describe, it } from 'node:test';
 import { guestValue } from '#domain/guests/guest-card.ts';
 import { PageConditionRules } from '#infrastructure/guests/condition-rules.ts';
 import { FileGuestDesk } from '#infrastructure/guests/guest-file.ts';
+import { StoreCardLookup } from '#infrastructure/json-store/card-lookup.ts';
 import { StoreLedgerChanges } from '#infrastructure/json-store/ledger-changes.ts';
 import { ok } from '#shared/result.ts';
 import { tempStore } from '../json-store/fixtures.ts';
@@ -86,5 +87,15 @@ describe('StoreLedgerChanges', () => {
     stop();
     store.set('cards', 'c2', { name: 'Mew' });
     assert.deepEqual(seen, ['cards', null]);
+  });
+});
+
+describe('StoreCardLookup', () => {
+  it('reads one card from the store, with its id', async () => {
+    const store = tempStore();
+    store.set('cards', 'c1', { name: 'Mew', status: 'listed' });
+    const cards = new StoreCardLookup(store);
+    assert.deepEqual(await cards.card('c1'), { id: 'c1', name: 'Mew', status: 'listed' });
+    assert.equal(await cards.card('nope'), undefined);
   });
 });

@@ -90,6 +90,25 @@ describe('signing in', () => {
     assert.equal(t.logged.auth.at(-1), 'gary changed their password');
   });
 
+  it('no longer counts a password checked just before an administrator reset it', async () => {
+    const t = setUpAccounts();
+    await t.withAdmin();
+    const ash = await t.add('ash', 'editor');
+    let release = () => {};
+    t.hold.until = new Promise((r) => (release = r));
+    const signingIn = t.use.signIn.execute({ username: 'ash', password: 'a good password', ...t.where });
+    const changing = t.use.changeOwnPassword.execute({ username: 'ash', currentPassword: 'a good password', newPassword: 'my own password 3', ...t.where });
+    await new Promise((r) => setTimeout(r, 0));
+    t.hold.until = null;
+    assert.equal((await t.use.setPersonPassword.execute({ actor: 'admin', id: ash.id, password: 'reset by admin 4', mustChange: true })).ok, true);
+    release();
+    assert.deepEqual(await signingIn, { ok: false, error: { code: 'WRONG_PASSWORD' } });
+    assert.deepEqual(await changing, { ok: false, error: { code: 'WRONG_PASSWORD' } });
+    assert.deepEqual((await t.sessions.list()).length, 0);
+    // The administrator's reset stands: the new password, chosen again before signing in.
+    assert.deepEqual(await t.use.signIn.execute({ username: 'ash', password: 'reset by admin 4', ...t.where }), { ok: true, value: { status: 'change' } });
+  });
+
   it('refuses passwords over 200 characters before checking them', async () => {
     const t = setUpAccounts();
     await t.withAdmin();

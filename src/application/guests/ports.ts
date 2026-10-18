@@ -20,6 +20,11 @@ export interface GuestDesk {
   change<T, E>(work: (state: GuestState) => Result<T, E>): Promise<Result<T, E>>;
 }
 
+/** One card of the ledger by its id, for guests' pictures. */
+export interface CardLookup {
+  card(id: string): Promise<CardRecord | undefined>;
+}
+
 /** The page's condition adjustment (public/condition.js), so guests see the value the ledger shows. */
 export interface ConditionRules {
   adjust(card: CardRecord, price: Readonly<Record<string, unknown>>): number | null;

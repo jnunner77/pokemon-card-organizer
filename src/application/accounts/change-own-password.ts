@@ -1,6 +1,6 @@
 import { replacePerson } from '#domain/accounts/account-book.ts';
 import { checkNewPassword } from '#domain/accounts/password.ts';
-import { readPassword } from '#domain/accounts/person.ts';
+import { type Person, readPassword } from '#domain/accounts/person.ts';
 import { err, ok, type Result } from '#shared/result.ts';
 import { checkCredentials } from './credentials.ts';
 import type { AccountDeps } from './deps.ts';
@@ -39,11 +39,15 @@ export class ChangeOwnPassword {
     if (!strong.ok) return strong;
     const passwordHash = await d.hasher.hash(input.newPassword);
     const at = d.clock.now().toISOString();
-    const changed = await d.accounts.change((draft) => {
+    // The current password was checked a moment ago: if an administrator reset it, or the account
+    // was turned off or removed meanwhile, nothing changes.
+    const changed = await d.accounts.change((draft): Result<Person, AccountError> => {
       const current = draft.users.find((u) => u.id === person.id);
-      return ok(replacePerson(draft, { ...(current ?? person), passwordHash, passwordSetAt: at, mustChange: false, lastSignInAt: at }));
+      if (!current || !current.active || current.passwordHash !== person.passwordHash) return err({ code: 'WRONG_PASSWORD' });
+      return ok(replacePerson(draft, { ...current, passwordHash, passwordSetAt: at, mustChange: false, lastSignInAt: at }));
     });
-    const updated = changed.ok ? changed.value : person;
+    if (!changed.ok) return changed;
+    const updated = changed.value;
     await endSessionsOf(d, updated.id);
     d.authLog.info(`${updated.username} changed their password`, { username: updated.username, ip: input.ip });
     const token = await startSession(d, updated, input);
