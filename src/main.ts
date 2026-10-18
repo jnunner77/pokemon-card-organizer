@@ -4,12 +4,10 @@ import path from 'node:path';
 import { LocalEventBus } from '#infrastructure/local-event-bus.ts';
 import { Store } from '#infrastructure/json-store/store.ts';
 import { PhotoFiles } from '#infrastructure/photos/photo-files.ts';
-import { Accounts } from '../server/accounts.ts';
 import { Autofill } from '../server/autofill.ts';
 import { CardDetails } from '../server/details.ts';
 import { Catalog } from '../server/pricing/catalog.ts';
 import { Config } from '../server/config.ts';
-import { Guests } from '../server/guests.ts';
 import { Logger } from '../server/log.ts';
 import { PriceCharting } from '../server/pricing/pricecharting.ts';
 import { PriceUpdater } from '../server/pricing/updater.ts';
@@ -17,7 +15,7 @@ import { Secret } from '../server/secrets.ts';
 import { Security } from '../server/security.ts';
 import { TcgCsv } from '../server/pricing/tcgcsv.ts';
 import { every } from '../server/recover.ts';
-import { createApp, createBackups } from './compose.ts';
+import { createAccounts, createApp, createBackups, createGuests } from './compose.ts';
 
 const env = process.env;
 const dataDir = path.resolve(env['DATA_DIR'] ?? 'data');
@@ -48,17 +46,22 @@ const backups = createBackups({ store, assets, config, log });
 store.onDailyCopy = () => void backups.pruneCopies.execute().catch((err: unknown) => log.error('backup', `Applying retention failed: ${err instanceof Error ? err.message : String(err)}`));
 
 // AUTH=off is only for running on your own computer: no sign-in at all.
-const accounts = env['AUTH'] === 'off' ? undefined : orStop('the accounts', () => new Accounts(dataDir, log));
-if (accounts) await accounts.bootstrap(env['BINDER_PASSWORD']);
-else log.warn('security', 'AUTH=off: sign-in is turned off and anyone who can reach this server can use the ledger.');
+const accounts = env['AUTH'] === 'off' ? undefined : orStop('the accounts', () => createAccounts({ dataDir, log }));
+if (accounts) {
+  // The first administrator from BINDER_PASSWORD, or a one-time setup code.
+  const boot = await accounts.bootstrap.execute({ envPassword: env['BINDER_PASSWORD'] });
+  if (!boot.ok) throw new Error(`BINDER_PASSWORD must be at least ${boot.error.min} characters`);
+  // Also print the code plainly: the log entry hides values that look secret.
+  if (boot.value.setupCode) process.stdout.write(`\n  First-run setup code: ${boot.value.setupCode}\n\n`);
+} else log.warn('security', 'AUTH=off: sign-in is turned off and anyone who can reach this server can use the ledger.');
 
 // SECURITY_ALLOWLIST: comma-separated IPs or IPv4 ranges never rate limited or blocked.
 const security = new Security({ allowlist: (env['SECURITY_ALLOWLIST'] ?? '').split(',').map((s) => s.trim()).filter(Boolean) }, log);
 security.start();
 
 // Guests from the QR code (off until an administrator turns guest viewing on).
-const guests = new Guests(dataDir, log);
-guests.start();
+const guests = createGuests({ store, assets, log });
+const guestSweep = every(log, 'app', 'Closing idle guest visits', 60_000, () => guests.sweep.execute());
 
 // CARD_LOOKUPS=off: no TCGdex lookups (card details) at all.
 const details = env['CARD_LOOKUPS'] === 'off' ? undefined : new CardDetails();
@@ -125,7 +128,7 @@ const writeStatus = () => app.writeStatusFile().catch((err) => log.error('app', 
 void writeStatus();
 every(log, 'app', 'Writing the status file', 5 * 60_000, writeStatus);
 // Save sessions' last-seen times once a minute rather than on every request.
-every(log, 'auth', 'Saving sessions', 60_000, () => accounts?.flush());
+every(log, 'auth', 'Saving sessions', 60_000, () => accounts?.flushSessions.execute());
 
 const server = app.listen(port, () => {
   const n = store.all();
@@ -143,8 +146,8 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) {
     updater.shutdown(`The server was stopped (${sig}: a restart or an update)`);
     autofill?.stop();
     security.stop();
-    guests.stop();
-    accounts?.flush();
+    clearInterval(guestSweep);
+    void accounts?.flushSessions.execute();
     server.close(() => process.exit(0));
     server.closeAllConnections();
     setTimeout(() => process.exit(0), 2000).unref();

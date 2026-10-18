@@ -21,3 +21,6 @@ export async function serve(handle: RouteHandler): Promise<string> {
 }
 
 export const json = (body: unknown, method = 'POST'): RequestInit => ({ method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+/** A JSON answer read loosely, for tests that pick fields out of it. */
+export const body = async (r: Response): Promise<any> => r.json();

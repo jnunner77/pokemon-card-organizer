@@ -4,8 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Accounts } from '../../server/accounts.ts';
-import { createApp } from '../../src/compose.ts';
+import { type Accounts, createAccounts, createApp } from '../../src/compose.ts';
 import { PhotoFiles as Assets } from '../../src/infrastructure/photos/photo-files.ts';
 import { createBackups } from '../../src/compose.ts';
 import { Config } from '../../server/config.ts';
@@ -36,9 +35,9 @@ beforeEach(async () => {
   store = new Store(dir);
   assets = new Assets(dir);
   log = new Logger({ dir: path.join(dir, 'logs'), stdout: false, now: () => new Date(clock) });
-  accounts = new Accounts(dir, log, () => clock);
+  accounts = createAccounts({ dataDir: dir, log, now: () => new Date(clock) });
   config = new Config(dir);
-  await accounts.bootstrap('start password 1');
+  await accounts.bootstrap.execute({ envPassword: 'start password 1' });
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
@@ -72,13 +71,14 @@ describe('people and sign-in', () => {
   it('without BINDER_PASSWORD, the first administrator needs the setup code from the log', async () => {
     const d2 = fs.mkdtempSync(path.join(os.tmpdir(), 'binder-setup-'));
     try {
-      const acc = new Accounts(d2, log);
-      await acc.bootstrap(undefined);
+      const acc = createAccounts({ dataDir: d2, log });
+      const boot = await acc.bootstrap.execute({ envPassword: undefined });
+      const setupCode = boot.ok ? boot.value.setupCode : null;
       const app = createApp({ store: new Store(d2), assets: new Assets(d2), accounts: acc, log });
       expect((await request(app).get('/api/auth/me')).body.setupRequired).toBe(true);
       await request(app).post('/api/auth/setup').send({ setupCode: 'WRONG', username: 'ash', name: 'Ash', password: 'pallet town 99' }).expect(401);
       const agent = request.agent(app);
-      await agent.post('/api/auth/setup').send({ setupCode: acc.setupCode!.toLowerCase(), username: 'ash', name: 'Ash', password: 'pallet town 99' }).expect(200);
+      await agent.post('/api/auth/setup').send({ setupCode: setupCode!.toLowerCase(), username: 'ash', name: 'Ash', password: 'pallet town 99' }).expect(200);
       await agent.get('/api/admin/users').expect(200);
       await request(app).post('/api/auth/setup').send({ setupCode: 'x', username: 'eve', name: 'Eve', password: 'pallet town 99' }).expect(400);
     } finally {
@@ -132,11 +132,11 @@ describe('people and sign-in', () => {
   });
 
   it('checks one password per sign-in attempt, so a real username takes no longer than a made-up one', async () => {
-    await accounts.createUser({ username: 'ash', name: 'Ash', role: 'viewer', password: 'a good password', mustChange: false }, 'admin');
+    await accounts.createPerson.execute({ actor: 'admin', username: 'ash', name: 'Ash', role: 'viewer', password: 'a good password', mustChange: false });
     const tries = async (username: string, password: string) => {
       const spy = vi.spyOn(crypto, 'scrypt');
       try {
-        await accounts.login(username, password, '1.2.3.4').catch(() => null);
+        await accounts.signIn.execute({ username, password, ip: '1.2.3.4', agent: '' });
         return spy.mock.calls.length;
       } finally {
         spy.mockRestore();
@@ -199,7 +199,7 @@ describe('people and sign-in', () => {
   it('keeps sessions across restarts', async () => {
     const app = makeApp();
     const login = await request(app).post('/api/auth/login').send({ username: 'admin', password: 'start password 1' }).expect(200);
-    const restarted = createApp({ store, assets, accounts: new Accounts(dir, log, () => clock), log, config });
+    const restarted = createApp({ store, assets, accounts: createAccounts({ dataDir: dir, log, now: () => new Date(clock) }), log, config });
     await request(restarted).get('/api/data').set('Cookie', login.headers['set-cookie']).expect(200);
   });
 });

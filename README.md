@@ -847,28 +847,42 @@ in `src/` is its own TypeScript project that may only import the layers inside i
   sorting a binder (`ledger/arrange.ts`) and moving cards (`ledger/place.ts`); photos (`photos/`:
   a picture's type from its bytes, ids, the trash that keeps a deleted photo while any copy of the
   ledger refers to it) and backups (`backups/`: retention, the copies' names and kinds, the full
-  backup format and what makes one restorable). No Node APIs; time is passed in.
+  backup format and what makes one restorable); people and sign-in (`accounts/`: roles, usernames,
+  what makes a password acceptable, lockouts that double each time, sessions, API tokens, and the
+  account book that always keeps an administrator who can sign in) and guests (`guests/`: names and
+  contacts, visits and the guest log, and what guests see of a card). No Node APIs; time is passed in.
 - `src/application/`: one use case per action (`ledger/`: save, merge or delete a document, change
   price entries, sort a binder, move cards, read the ledger; `photos/`: upload, delete, show;
   `backups/`: download and restore a full backup, list, snapshot, download, restore and delete kept
-  copies, change retention, the hourly housekeeping), ports for the clock, the unit of work, events,
-  the activity log, the photo store and the kept copies, and who may do what (`access.ts`).
+  copies, change retention, the hourly housekeeping; `accounts/`: sign in, change your password,
+  set up the first administrator, sign out, `IdentifyCaller` (who is behind a session cookie or API
+  token), and administering people, sign-in settings, sessions and API tokens; `guests/`: a guest
+  signing in and out, who a guest is, the cards and pictures they see, and Administration → Guests),
+  ports for the clock, the unit of work, events, the activity log, the photo store, the kept copies,
+  password hashing, random secrets, the account and guest files and the QR code, and who may do
+  what (`access.ts`).
   Replacing the whole ledger (a restore) goes only through the `WholeLedger` port, which keeps a
   before-restore copy first.
 - `src/infrastructure/`: `json-store/store.ts` (the ledger file, daily copies and the change feed
   to open pages), a unit of work over it (`unit-of-work.ts`: all or nothing, one at a time, and run
   again if the store changed meanwhile), its repositories, the photo files (`photos/`), the kept
-  copies (`backups/`), and in-memory versions for tests (`memory/`).
-- `src/presentation/`: the ledger's, photos' and backups' routes (`ledger/`, `photos/`,
-  `backups/`) on `node:http`, with hand-written checks of each request and an exhaustive switch from
-  error codes to HTTP statuses.
+  copies (`backups/`), `auth.json` and `sessions.json` with scrypt password hashing (`accounts/`),
+  `guests.json`, the page's condition rules and the QR code (`guests/`), random secrets
+  (`node-secrets.ts`), and in-memory versions for tests (`memory/`; wrong-password counts and the
+  setup code are only ever kept in memory).
+- `src/presentation/`: the ledger's, photos', backups', sign-in and people's, and guests' routes
+  (`ledger/`, `photos/`, `backups/`, `accounts/`, `guests/`) on `node:http`, with hand-written checks
+  of each request and an exhaustive switch from error codes to HTTP statuses; the guest page's live
+  updates (`guests/feed.ts`).
 - `src/compose.ts` wires the layers together and `src/main.ts` starts the server, building the
   store and the rest it hands over: within `src/`, they are the only files that know the concrete
   classes. `scripts/import-backup.ts` restores through the same use case as the page. The Express
   code in `server/` still uses the store and the photo files directly until its slices move.
 
-Everything else still runs on the Express code in `server/`, which hands the ledger's, photos' and
-backups' routes to the layered code, and moves into the layers one slice at a time:
+Everything else still runs on the Express code in `server/`, which hands those routes to the layered
+code, and moves into the layers one slice at a time. Express still runs the request pipeline: it
+asks `IdentifyCaller` and `IdentifyGuest` who is calling, decides which pages need signing in, and
+applies the rate limits.
 
 - `server/pricing/`: `pricecharting.ts` (PriceCharting's API, price guide download and graded prices), `tcgcsv.ts` (TCGplayer's own catalog), `catalog.ts`
   (TCGdex: TCGplayer and Cardmarket prices, pictures), `sources.ts` (requests,
@@ -876,10 +890,9 @@ backups' routes to the layered code, and moves into the layers one slice at a ti
   updates and the PriceCharting purge). `server/secrets.ts` keeps PriceCharting's token.
 - `server/details.ts` (card details from TCGdex), `server/autofill.ts` (new cards filling themselves
   in, and Update all cards → Details).
-- `server/`: `accounts.ts` (people, sessions, API tokens), `security.ts` (rate limits and blocks),
-  `log.ts`, `checks.ts` (Overview checks), `config.ts` (administrators' settings), `guests.ts`
-  (guest sign-in, sessions, log, and what guests see of a card; tested in
-  `tests/legacy/guests.test.ts`), `app.ts` (the rest of the HTTP API).
+- `server/`: `security.ts` (rate limits and blocks), `log.ts`, `checks.ts` (Overview checks),
+  `config.ts` (administrators' settings), `app.ts` (the request pipeline and the rest of the HTTP
+  API).
 - `public/`: `admin.html`/`admin.js` (Administration), `login.html`/`login.js` (sign-in),
   `guest.html`/`guest.js` (the guest page).
 - `public/`: the page. `app.js` is the ledger UI; `search.js` matches cards for Find (tested in

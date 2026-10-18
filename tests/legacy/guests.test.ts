@@ -5,11 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { Accounts } from '../../server/accounts.ts';
-import { createApp } from '../../src/compose.ts';
+import { type Accounts, createAccounts, createApp, createGuests, type Guests } from '../../src/compose.ts';
 import { PhotoFiles as Assets } from '../../src/infrastructure/photos/photo-files.ts';
 import { Config } from '../../server/config.ts';
-import { Guests, guestCard, guestValue, nameKey, parseContact } from '../../server/guests.ts';
 import { Logger } from '../../server/log.ts';
 import { Security } from '../../server/security.ts';
 import { Store } from '../../src/infrastructure/json-store/store.ts';
@@ -30,9 +28,9 @@ beforeEach(async () => {
   store = new Store(dir);
   assets = new Assets(dir);
   log = new Logger({ dir: path.join(dir, 'logs'), stdout: false, now: () => new Date(clock) });
-  accounts = new Accounts(dir, log, () => clock);
-  guests = new Guests(dir, log, () => clock);
-  await accounts.bootstrap('start password 1');
+  accounts = createAccounts({ dataDir: dir, log, now: () => new Date(clock) });
+  guests = createGuests({ store, assets, log, now: () => new Date(clock) });
+  await accounts.bootstrap.execute({ envPassword: 'start password 1' });
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
@@ -60,7 +58,8 @@ async function signInAdmin(app: ReturnType<typeof makeApp>) {
   return agent;
 }
 
-async function guest(app: ReturnType<typeof makeApp>, name: string, contact: string, key = guests.settings.key) {
+async function guest(app: ReturnType<typeof makeApp>, name: string, contact: string, key?: string) {
+  key ??= (await guests.viewing.execute()).key;
   const agent = request.agent(app);
   const r = await agent.post('/api/guest/login').send({ key, name, contact });
   return { agent, r };
@@ -104,41 +103,8 @@ const until = async (ok: () => boolean) => {
   expect(ok()).toBe(true);
 };
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-describe('who a guest is', () => {
-  it('compares names without case or extra spaces', () => {
-    expect(nameKey('  Ash   KETCHUM ')).toBe('ash ketchum');
-  });
-
-  it('takes an email or a phone number, and compares phone numbers by their digits', () => {
-    expect(parseContact(' Ash@Pallet.town ')).toEqual({ kind: 'email', key: 'ash@pallet.town', display: 'Ash@Pallet.town' });
-    expect(parseContact('(604) 555-0199').key).toBe('6045550199');
-    expect(parseContact('+1 604 555 0199').key).toBe('6045550199');
-    expect(() => parseContact('ash@')).toThrow(/email/);
-    expect(() => parseContact('12')).toThrow(/phone/);
-    expect(() => parseContact('call me')).toThrow(/phone number or an email/);
-  });
-});
-
-describe('what guests see of a card', () => {
-  it("is the ledger's market value, rounded up to the dollar", () => {
-    expect(guestValue({ prices: [price({ amount: 20.2 })] }, 1.37)).toBe(21);
-    expect(guestValue({ prices: [price({ amount: 21 })] }, 1.37)).toBe(21);
-    // the newest market price or sold comp; what was paid and listing prices don't count
-    expect(guestValue({ prices: [price({ amount: 5, date: '2026-09-01' }), price({ type: 'comp', amount: 7.5, date: '2026-09-20' }), price({ type: 'paid', amount: 100, date: '2026-10-02' })] }, 1.37)).toBe(8);
-    expect(guestValue({ prices: [price({ amount: 10, currency: 'USD' })] }, 1.37)).toBe(14);
-    // automatic prices are near-mint prices, adjusted for the card's condition like the ledger does
-    expect(guestValue({ condition: 'Lightly Played', prices: [price({ amount: 10, auto: true })] }, 1.37)).toBe(9);
-    expect(guestValue({ prices: [price({ type: 'paid' })] }, 1.37)).toBeNull();
-    expect(guestValue({}, 1.37)).toBeNull();
-  });
-
-  it('is only its details, value and picture', () => {
-    const c = guestCard({ id: 'c1', name: 'Lapras', set: '30th Celebration', status: 'listed', owner: 'Megan', notes: 'secret', binderId: 'b1', page: 2, slot: 3, prices: [price({ type: 'paid' })], imageId: 'abc', sale: { soldCAD: 5 } }, 1.37);
-    expect(Object.keys(c).sort()).toEqual(['artist', 'condition', 'grade', 'grader', 'id', 'image', 'language', 'name', 'number', 'rarity', 'released', 'set', 'setCode', 'value', 'variant'].sort());
-    expect(c.image).toMatch(/^api\/guest\/cards\/c1\/image\?v=[0-9a-f]{12}$/);
-  });
-});
+/** What Administration → Guests shows: who is looking and the guest log. */
+const overview = (g: Guests = guests) => g.overview.execute({ linkFor: (key) => key });
 
 describe('guest viewing', () => {
   it('shows a signed-in guest the cards listed for sale, and nothing else in the ledger', async () => {
@@ -188,7 +154,7 @@ describe('guest viewing', () => {
 
   it('lets several guests in at once, each with their own name and contact', async () => {
     const app = makeApp();
-    guests.setEnabled(true, 'test');
+    await guests.setViewing.execute({ actor: 'test', enabled: true });
     const ash = await guest(app, 'Ash Ketchum', '604-555-0199');
     expect(ash.r.status).toBe(200);
     expect((await guest(app, 'Misty', 'misty@cerulean.gym')).r.status).toBe(200);
@@ -204,7 +170,7 @@ describe('guest viewing', () => {
     expect(again.r.status).toBe(200);
     await again.agent.get('/api/guest/cards').expect(200);
     await ash.agent.get('/api/guest/cards').expect(401);
-    expect(guests.active().map((g) => g.name).sort()).toEqual(['Ash Ketchum', 'Misty']);
+    expect((await overview()).active.map((g) => g.name).sort()).toEqual(['Ash Ketchum', 'Misty']);
     // Once Ash signs out, the name is free.
     await again.agent.post('/api/guest/logout').expect(204);
     expect((await guest(app, 'Ash Ketchum', 'other@mail.com')).r.status).toBe(200);
@@ -212,7 +178,7 @@ describe('guest viewing', () => {
 
   it('signs a guest out after 15 minutes without use', async () => {
     const app = makeApp();
-    guests.setEnabled(true, 'test');
+    await guests.setViewing.execute({ actor: 'test', enabled: true });
     const { agent } = await guest(app, 'Brock', 'brock@pewter.gym');
     clock += 14 * 60_000;
     await agent.post('/api/guest/ping').expect(200); // used it: another 15 minutes
@@ -224,16 +190,16 @@ describe('guest viewing', () => {
     expect((await agent.get('/api/guest/cards').expect(401)).body.code).toBe('guest_signin');
     // They can sign in again, and the log has both visits.
     expect((await guest(app, 'Brock', 'brock@pewter.gym')).r.status).toBe(200);
-    const visits = guests.visits();
+    const visits = (await overview()).log;
     expect(visits.map((v) => v.ended)).toEqual([null, 'timeout']);
     expect(visits[1].endedAt).toBe(new Date(Date.parse('2026-10-05T18:29:00Z')).toISOString());
   });
 
   it('tells the page whether guest viewing is open and the QR code still works', async () => {
     const app = makeApp();
-    const key = guests.settings.key;
+    const key = (await guests.viewing.execute()).key;
     expect((await request(app).get(`/api/guest/me?k=${key}`)).body).toMatchObject({ open: false, keyOk: true, idleMinutes: 15, guest: null });
-    guests.setEnabled(true, 'test');
+    await guests.setViewing.execute({ actor: 'test', enabled: true });
     expect((await request(app).get('/api/guest/me?k=nope')).body).toMatchObject({ open: true, keyOk: false });
   });
 });
@@ -242,7 +208,7 @@ describe("guests' live updates", () => {
   it('push the cards guests see to their open page as soon as they change', async () => {
     seed();
     const app = makeApp();
-    guests.setEnabled(true, 'test');
+    await guests.setViewing.execute({ actor: 'test', enabled: true });
     const { agent, r } = await guest(app, 'Ash', 'ash@pallet.town');
     const live = await listen(app, r);
     try {
@@ -284,7 +250,7 @@ describe("guests' live updates", () => {
   it("don't count as use, and stop when the visit ends", async () => {
     seed();
     const app = makeApp();
-    guests.setEnabled(true, 'test');
+    await guests.setViewing.execute({ actor: 'test', enabled: true });
     const { agent, r } = await guest(app, 'Misty', 'misty@cerulean.gym');
     clock += 10 * 60_000;
     const live = await listen(app, r);
@@ -303,7 +269,7 @@ describe("guests' live updates", () => {
   it('are for signed-in guests only', async () => {
     seed();
     const app = makeApp();
-    guests.setEnabled(true, 'test');
+    await guests.setViewing.execute({ actor: 'test', enabled: true });
     await request(app).get('/api/guest/events').expect(401);
     const admin = await signInAdmin(app);
     await admin.get('/api/guest/events').expect(401);
@@ -316,7 +282,7 @@ describe('administering guests', () => {
     const app = makeApp();
     const admin = await signInAdmin(app);
     await admin.put('/api/admin/guests').send({ enabled: true }).expect(200);
-    const oldKey = guests.settings.key;
+    const oldKey = (await guests.viewing.execute()).key;
     const misty = await guest(app, 'Misty', 'misty@cerulean.gym');
     const brock = await guest(app, 'Brock', '604 555 0100');
 
@@ -358,7 +324,7 @@ describe('administering guests', () => {
     await editor.get('/api/admin/guests').expect(403);
     await editor.put('/api/admin/guests').send({ enabled: true }).expect(403);
 
-    guests.setEnabled(true, 'test');
+    await guests.setViewing.execute({ actor: 'test', enabled: true });
     await guest(app, 'Misty', 'misty@cerulean.gym');
     const backup = JSON.stringify((await admin.get('/api/backup').expect(200)).body);
     expect(backup).not.toContain('cerulean');
@@ -367,12 +333,12 @@ describe('administering guests', () => {
 
   it('keeps the log and settings across restarts, closing visits that were open', async () => {
     const app = makeApp();
-    guests.setEnabled(true, 'test');
+    await guests.setViewing.execute({ actor: 'test', enabled: true });
     await guest(app, 'Misty', 'misty@cerulean.gym');
-    const again = new Guests(dir, log, () => clock);
-    expect(again.settings.enabled).toBe(true);
-    expect(again.visits()[0]).toMatchObject({ name: 'Misty', ended: 'restart' });
-    expect(again.active()).toEqual([]);
+    const again = createGuests({ store, assets, log, now: () => new Date(clock) });
+    expect((await again.viewing.execute()).enabled).toBe(true);
+    expect((await overview(again)).log[0]).toMatchObject({ name: 'Misty', ended: 'restart' });
+    expect((await overview(again)).active).toEqual([]);
   });
 });
 
@@ -381,7 +347,7 @@ describe('guests behind one address', () => {
     seed();
     const security = new Security({ ip: { burst: 20, perMinute: 1 } }, log, () => clock);
     const app = makeApp({ security });
-    guests.setEnabled(true, 'test');
+    await guests.setViewing.execute({ actor: 'test', enabled: true });
     const people = [];
     for (let i = 0; i < 8; i++) {
       const { agent, r } = await guest(app, `Trainer ${i}`, `trainer${i}@league.org`);
@@ -397,7 +363,7 @@ describe('guests behind one address', () => {
     seed();
     const security = new Security({ streamsPerIp: 2 }, log, () => clock);
     const app = makeApp({ security });
-    guests.setEnabled(true, 'test');
+    await guests.setViewing.execute({ actor: 'test', enabled: true });
     const open = [];
     try {
       for (let i = 0; i < 4; i++) {

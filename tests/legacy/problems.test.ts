@@ -4,8 +4,7 @@ import path from 'node:path';
 import vm from 'node:vm';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { Accounts } from '../../server/accounts.ts';
-import { createApp } from '../../src/compose.ts';
+import { type Accounts, createAccounts, createApp } from '../../src/compose.ts';
 import { PhotoFiles as Assets } from '../../src/infrastructure/photos/photo-files.ts';
 import { Config } from '../../server/config.ts';
 import { Logger } from '../../server/log.ts';
@@ -64,8 +63,8 @@ describe('the problems API', () => {
   let app: ReturnType<typeof createApp>;
   beforeEach(async () => {
     store = new Store(dir);
-    accounts = new Accounts(dir, log, () => clock);
-    await accounts.bootstrap('start password 1');
+    accounts = createAccounts({ dataDir: dir, log, now: () => new Date(clock) });
+    await accounts.bootstrap.execute({ envPassword: 'start password 1' });
     app = createApp({ store, assets: new Assets(dir), accounts, log, config: new Config(dir), publicDir: path.join(__dirname, '../../public'), envPassword: 'start password 1', now: () => new Date(clock) });
   });
   const signIn = async (username: string, password: string) => {

@@ -49,7 +49,9 @@ confirmed on the live binder.
     thrown. Time and ids are passed in.
   - `application/`: one use case class per file with an `execute` method; ports for anything
     external. Use cases orchestrate; rules belong in the domain. Who may do what is decided here
-    (`access.ts`); routes check it before reading the request.
+    (`access.ts`); routes check it before reading the request. Who is calling comes from
+    `IdentifyCaller` (session cookie or API token) and `IdentifyGuest` (the guest cookie), which the
+    request pipeline asks.
   - `infrastructure/`: adapters that implement the ports, and in-memory ones for tests.
     `presentation/`: `node:http` routes with hand-written parsers, and an exhaustive switch (ending
     in `assertNever`) from error codes to HTTP statuses.
@@ -60,10 +62,15 @@ confirmed on the live binder.
   open pages, or not applied at all. Replacing the whole ledger (a restore) runs only through the
   `WholeLedger` port, after a before-restore copy. The Express code still writes to the store
   directly until its slices move.
+- Secrets (password hashes, session and API token hashes, the guest key and the guest log) live in
+  their own files in the data directory (`auth.json`, `sessions.json`, `guests.json`, written 0600),
+  never in `db.json`, its copies, full backups or API responses other than Administration.
+  Wrong-password counts, the first-run setup code and signed-in guests stay in memory.
 - Use `.ts` extensions in imports and only erasable syntax (no `enum`, `namespace` or constructor
   parameter properties): Node runs the TypeScript directly.
 - In `src/`: no non-null assertions (`!`), `any`, or casts except branding ids at trust
   boundaries and typing raw JSON in infrastructure. No new runtime dependencies there: Node's
-  built-in modules only.
+  built-in modules only (the `qrcode` package stays in infrastructure until the request pipeline
+  moves).
 - Tests for `src/` are `node:test` tests in `tests/<layer>/`; the vitest suites in
   `tests/legacy/` drive the whole app over HTTP and must keep passing.

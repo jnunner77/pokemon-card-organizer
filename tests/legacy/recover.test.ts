@@ -3,11 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { Accounts } from '../../server/accounts.ts';
-import { createApp } from '../../src/compose.ts';
+import { createAccounts, createApp, createGuests } from '../../src/compose.ts';
 import { PhotoFiles as Assets } from '../../src/infrastructure/photos/photo-files.ts';
 import { Config } from '../../server/config.ts';
-import { Guests } from '../../server/guests.ts';
 import { Logger } from '../../server/log.ts';
 import { readJson, safely } from '../../server/recover.ts';
 import { SaveFailed, Store } from '../../src/infrastructure/json-store/store.ts';
@@ -106,23 +104,23 @@ describe('other damaged files', () => {
     expect(damaged('admin.json')).toHaveLength(1);
   });
 
-  it('guests.json: set aside, guest viewing closed, logged', () => {
+  it('guests.json: set aside, guest viewing closed, logged', async () => {
     fs.writeFileSync(path.join(dir, 'guests.json'), '[1,2');
-    const g = new Guests(dir, log);
-    expect(g.settings.enabled).toBe(false);
+    const g = createGuests({ store: new Store(dir), assets: new Assets(dir), log });
+    expect((await g.viewing.execute()).enabled).toBe(false);
     expect(log.query({ level: 'error' })[0].msg).toMatch(/^guests\.json was damaged .*Guest viewing starts closed/);
     expect(damaged('guests.json')).toHaveLength(1);
   });
 
   it('sessions.json: set aside, everyone signs in again; auth.json: the server stops, keeping the file', async () => {
-    const a = new Accounts(dir, log);
-    await a.bootstrap('start password 1');
+    const a = createAccounts({ dataDir: dir, log });
+    await a.bootstrap.execute({ envPassword: 'start password 1' });
     fs.writeFileSync(path.join(dir, 'sessions.json'), '{"sessions": [');
-    expect(() => new Accounts(dir, log)).not.toThrow();
+    expect(() => createAccounts({ dataDir: dir, log })).not.toThrow();
     expect(log.query({ level: 'error', cat: 'auth' })[0].msg).toMatch(/^sessions\.json was damaged .*Everyone needs to sign in again\.$/);
     const before = fs.readFileSync(path.join(dir, 'auth.json'), 'utf8');
     fs.writeFileSync(path.join(dir, 'auth.json'), before.slice(0, 40));
-    expect(() => new Accounts(dir, log)).toThrow(/auth\.json was damaged .*won't start without its accounts/);
+    expect(() => createAccounts({ dataDir: dir, log })).toThrow(/auth\.json was damaged .*won't start without its accounts/);
     expect(fs.existsSync(path.join(dir, 'auth.json'))).toBe(true);
     expect(damaged('auth.json')).toHaveLength(0);
   });

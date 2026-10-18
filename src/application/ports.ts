@@ -32,3 +32,21 @@ export interface ActivityLog {
   info(message: string, details?: Readonly<Record<string, unknown>>): void;
   warn(message: string, details?: Readonly<Record<string, unknown>>): void;
 }
+
+/** Random secrets and ids, and comparing secrets without giving away how much of one was right. */
+export interface Secrets {
+  /** A short random id (16 hex characters) for a person, session, token or visit. */
+  id(): string;
+  /** The secret in a session cookie. */
+  sessionToken(): string;
+  /** An API token's secret, starting with its prefix. */
+  apiToken(prefix: string): string;
+  /** The one-time code for creating the first administrator. */
+  setupCode(): string;
+  /** The key in the guest QR code's link. */
+  guestKey(): string;
+  /** A one-way hash of a secret, which is what gets kept. */
+  digest(secret: string): string;
+  /** Whether a secret someone sent is the expected one, in constant time. */
+  same(given: string, expected: string): boolean;
+}
