@@ -42,6 +42,18 @@ describe('restoring a kept copy', () => {
     assert.deepEqual(logged, ['warn: admin restored the ledger from db-2025-01-31.json']);
   });
 
+  it('refuses a damaged copy, leaving the ledger as it is', async () => {
+    const { deps, ledger, copies } = setUp();
+    ledger.data = { binders: {}, cards: { now: { name: 'Lapras' } }, settings: {} };
+    copies.files.set('db-2026-10-01.json', { text: 'null', at: new Date(0) });
+    copies.files.set('db-2026-10-02.json', { text: '{"cards":"damaged"}', at: new Date(0) });
+    const restore = new RestoreCopy(deps);
+    assert.equal((await restore.execute({ actor: 'admin', name: 'db-2026-10-01.json' })).ok, false);
+    assert.deepEqual(await restore.execute({ actor: 'admin', name: 'db-2026-10-02.json' }), { ok: false, error: { code: 'INVALID_DOCUMENT', message: 'cards: Expected an object' } });
+    assert.deepEqual(Object.keys(ledger.data.cards), ['now']);
+    assert.equal(ledger.resets, 0);
+  });
+
   it('refuses a copy that is not there, or a name that is not a copy, changing nothing', async () => {
     const { deps, ledger } = setUp();
     const restore = new RestoreCopy(deps);

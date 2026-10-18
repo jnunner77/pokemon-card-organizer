@@ -100,13 +100,18 @@ export function checkBackupPhoto(id: string, bytes: Uint8Array): Result<PhotoTyp
   return invalid(r.error.code === 'PHOTO_EMPTY' ? `assets.${id}: the photo is empty` : `assets.${id}: that isn't a JPG, PNG, WebP or GIF picture`);
 }
 
-/** The documents of a kept copy of the ledger (written by this server), each checked by the ledger's rules. */
+/**
+ * The documents of a kept copy of the ledger (written by this server), each checked by the ledger's
+ * rules. A collection the copy leaves out is empty; a damaged copy (not an object, or a collection
+ * that isn't one) is refused, so it never replaces the ledger.
+ */
 export function readLedgerCopy(input: unknown): Result<LedgerData, { readonly code: 'INVALID_DOCUMENT'; readonly message: string }> {
   const ledger: Record<Collection, Record<string, Fields>> = { binders: {}, cards: {}, settings: {} };
-  const copy = isRecord(input) ? input : {};
+  if (!isRecord(input)) return err({ code: 'INVALID_DOCUMENT', message: "That copy of the ledger isn't a JSON object" });
   for (const c of COLLECTIONS) {
-    const docs = copy[c];
-    if (!isRecord(docs)) continue;
+    const docs = input[c];
+    if (docs === undefined) continue;
+    if (!isRecord(docs)) return err({ code: 'INVALID_DOCUMENT', message: `${c}: Expected an object` });
     for (const [id, doc] of Object.entries(docs)) {
       const checked = checkDocument(c, doc);
       if (!checked.ok) return checked;

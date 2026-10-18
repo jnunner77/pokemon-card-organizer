@@ -70,6 +70,10 @@ describe('photo routes', () => {
     assert.deepEqual(Buffer.from(await r.arrayBuffer()), JPEG);
     const etag = r.headers.get('etag') ?? '';
     assert.equal((await fetch(`${base}/blob/${id}`, as('viewer', { headers: { 'If-None-Match': etag } }))).status, 304);
+    assert.match(etag, /^W\//);
+    assert.equal((await fetch(`${base}/blob/${id}`, as('viewer', { headers: { 'If-None-Match': etag.slice(2) } }))).status, 304, 'the strong form of a weak tag matches too');
+    assert.equal((await fetch(`${base}/blob/${id}`, as('viewer', { headers: { 'If-None-Match': '"other", ' + etag } }))).status, 304);
+    assert.equal((await fetch(`${base}/blob/${id}`, as('viewer', { headers: { 'If-None-Match': '"other"' } }))).status, 200);
     assert.equal((await fetch(`${base}/blob/${id}`, as('viewer', { headers: { 'If-Modified-Since': modifiedAt.toUTCString() } }))).status, 304);
     const head = await fetch(`${base}/blob/${id}`, as('viewer', { method: 'HEAD' }));
     assert.deepEqual([head.status, head.headers.get('content-length')], [200, String(JPEG.length)]);

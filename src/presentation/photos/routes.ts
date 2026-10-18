@@ -68,7 +68,9 @@ async function sendPhoto(req: IncomingMessage, res: ServerResponse, photo: Photo
   res.setHeader('Last-Modified', lastModified);
   const noneMatch = req.headers['if-none-match'];
   const modifiedSince = Date.parse(req.headers['if-modified-since'] ?? '');
-  const fresh = noneMatch !== undefined ? noneMatch.split(',').some((t) => t.trim() === etag || t.trim() === '*') : !Number.isNaN(modifiedSince) && Math.floor(photo.modifiedAt.getTime() / 1000) * 1000 <= modifiedSince;
+  // If-None-Match compares weakly: W/"x" and "x" are the same version.
+  const weak = (tag: string) => tag.trim().replace(/^W\//, '');
+  const fresh = noneMatch !== undefined ? noneMatch.split(',').some((t) => t.trim() === '*' || weak(t) === weak(etag)) : !Number.isNaN(modifiedSince) && Math.floor(photo.modifiedAt.getTime() / 1000) * 1000 <= modifiedSince;
   if (fresh) {
     if (photo.content instanceof Readable) photo.content.destroy();
     return sendEmpty(res, 304);
