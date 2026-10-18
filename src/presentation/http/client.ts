@@ -8,6 +8,3 @@ export interface ClientInfo {
 }
 
 export type ClientResolver = (req: IncomingMessage) => ClientInfo;
-
-/** The connection itself, for when nothing in front of the routes says otherwise. */
-export const directClient: ClientResolver = (req) => ({ ip: req.socket.remoteAddress ?? '', secure: 'encrypted' in req.socket && req.socket.encrypted === true });

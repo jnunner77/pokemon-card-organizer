@@ -26,7 +26,7 @@ let clock: number;
 let store: Store;
 let assets: Assets;
 let log: Logger;
-let accounts: Accounts;
+let accounts: Accounts & { createUser: (input: Omit<Parameters<Accounts['createPerson']['execute']>[0], 'actor'>, by: string) => Promise<unknown>; login: (username: string, password: string, ip: string) => Promise<unknown> };
 let config: Config;
 
 beforeEach(async () => {
@@ -35,7 +35,16 @@ beforeEach(async () => {
   store = new Store(dir);
   assets = new Assets(dir);
   log = new Logger({ dir: path.join(dir, 'logs'), stdout: false, now: () => new Date(clock) });
-  accounts = createAccounts({ dataDir: dir, log, now: () => new Date(clock) });
+  const people = createAccounts({ dataDir: dir, log, now: () => new Date(clock) });
+  // The use cases under the names the tests below use.
+  accounts = Object.assign(people, {
+    createUser: (input: Omit<Parameters<Accounts['createPerson']['execute']>[0], 'actor'>, by: string) => people.createPerson.execute({ ...input, actor: by }),
+    login: async (username: string, password: string, ip: string) => {
+      const r = await people.signIn.execute({ username, password, ip, agent: '' });
+      if (!r.ok) throw new Error(r.error.code);
+      return r.value;
+    },
+  });
   config = new Config(dir);
   await accounts.bootstrap.execute({ envPassword: 'start password 1' });
 });
@@ -132,11 +141,11 @@ describe('people and sign-in', () => {
   });
 
   it('checks one password per sign-in attempt, so a real username takes no longer than a made-up one', async () => {
-    await accounts.createPerson.execute({ actor: 'admin', username: 'ash', name: 'Ash', role: 'viewer', password: 'a good password', mustChange: false });
+    await accounts.createUser({ username: 'ash', name: 'Ash', role: 'viewer', password: 'a good password', mustChange: false }, 'admin');
     const tries = async (username: string, password: string) => {
       const spy = vi.spyOn(crypto, 'scrypt');
       try {
-        await accounts.signIn.execute({ username, password, ip: '1.2.3.4', agent: '' });
+        await accounts.login(username, password, '1.2.3.4').catch(() => null);
         return spy.mock.calls.length;
       } finally {
         spy.mockRestore();

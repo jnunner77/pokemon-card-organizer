@@ -4,7 +4,6 @@ import { err, ok, type Result } from '#shared/result.ts';
 // Who is calling and what they may do. IdentifyCaller (accounts/identify-caller.ts) works out who
 // is calling; routes check what they may do here before reading the request.
 
-export { ROLES } from '#domain/accounts/role.ts';
 export type { Role } from '#domain/accounts/role.ts';
 
 export interface Caller {
