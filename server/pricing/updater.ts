@@ -1,5 +1,5 @@
-import type { Assets } from '../assets.ts';
-import { MAX_IMAGE_BYTES } from '../assets.ts';
+import type { PhotoFiles } from '#infrastructure/photos/photo-files.ts';
+import { MAX_PHOTO_BYTES } from '#domain/photos/photo.ts';
 import type { Config } from '../config.ts';
 import { type CardDetails, type DetailsStatus, checkIdentity } from '../details.ts';
 import { type Logger, quietLogger } from '../log.ts';
@@ -57,7 +57,7 @@ export function thinAutoPrices<P extends { auto?: boolean | null; date?: string 
 
 export interface UpdaterOptions {
   store: Store;
-  assets: Assets;
+  assets: PhotoFiles;
   fetcher?: Fetcher | undefined;
   now?: (() => Date) | undefined;
   /** Calendar used for "today" and for the daily run time. */
@@ -302,7 +302,7 @@ const blank = (v: unknown) => v == null || String(v).trim() === '';
 
 export class PriceUpdater {
   private readonly store: Store;
-  private readonly assets: Assets;
+  private readonly assets: PhotoFiles;
   private readonly fetcher: Fetcher;
   private readonly now: () => Date;
   readonly timeZone: string;
@@ -1273,7 +1273,7 @@ export class PriceUpdater {
       try {
         const res = await get(this.fetcher, url);
         const buf = Buffer.from(await res.arrayBuffer());
-        if (buf.length > MAX_IMAGE_BYTES) throw new SourceError('image too large');
+        if (buf.length > MAX_PHOTO_BYTES) throw new SourceError('image too large');
         const saved = this.assets.put(buf);
         if (!saved) throw new SourceError("the image isn't a JPG, PNG, WebP or GIF");
         if (errors.length) this.log.info('pricing', `${label(card)}: picture from ${new URL(url).host} (${errors.join('; ')})`);

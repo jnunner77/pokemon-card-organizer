@@ -1,27 +1,18 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { beforeRestoreName, dailyCopyName } from '#domain/backups/copies.ts';
 import { checkDocument } from '#domain/ledger/check-document.ts';
 import { COLLECTIONS, type Collection, isRecord, singular } from '#domain/ledger/document.ts';
+import { photosReferencedBy } from '#domain/photos/references.ts';
 import { type Damaged, damagedMessage, readJson, setAside } from './damaged.ts';
 
 // The ledger is small (a collector's cards, not a warehouse), so it lives in one JSON file
 // that is rewritten atomically on every change. Photos are stored as separate files by
-// the Assets class. Each change is pushed to connected browsers so every open tab stays
+// infrastructure/photos. Each change is pushed to connected browsers so every open tab stays
 // in step, the same way the original artifact's shared database behaved.
 
 export type Doc = Record<string, unknown>;
 export type Data = Record<Collection, Record<string, Doc>>;
-
-/** The photos a ledger (this one, or a copy of it) refers to. */
-export function imagesIn(data: Partial<Data> | null | undefined, ids = new Set<string>()): Set<string> {
-  for (const c of Object.values(data?.cards ?? {})) {
-    const imageId = c?.['imageId'];
-    const officialImageId = c?.['officialImageId'];
-    if (typeof imageId === 'string' && !imageId.startsWith('data:')) ids.add(imageId);
-    if (typeof officialImageId === 'string') ids.add(officialImageId);
-  }
-  return ids;
-}
 
 export interface Change {
   collection: Collection;
@@ -180,7 +171,7 @@ export class Store {
   replaceAll(data: Data): void {
     const next = emptyData();
     for (const c of COLLECTIONS) for (const [id, doc] of Object.entries(data[c] ?? {})) next[c][id] = validateDoc(c, doc);
-    this.keepCopy('before-restore');
+    this.keepCopy(beforeRestoreName(new Date()));
     const before = this.data;
     this.data = next;
     try {
@@ -200,7 +191,7 @@ export class Store {
 
   /** Every image id the ledger points at: people's photos (not inline data: URLs) and official images. */
   referencedImages(): Set<string> {
-    return imagesIn(this.data);
+    return photosReferencedBy(this.data);
   }
 
   /** Make changes; if they can't be saved, they're undone (memory never differs from the file) and SaveFailed thrown. */
@@ -259,17 +250,16 @@ export class Store {
   /** First change of each day: keep the ledger as it was, so a bad edit can be undone. */
   private dailyCopy() {
     if (!fs.existsSync(this.file)) return;
-    const name = `db-${new Date().toISOString().slice(0, 10)}.json`;
+    const name = dailyCopyName(new Date().toISOString().slice(0, 10));
     if (fs.existsSync(path.join(this.backupDir, name))) return;
-    this.keepCopy(name.slice(3, -5));
+    this.keepCopy(name);
     this.onDailyCopy?.();
   }
 
-  private keepCopy(label: string) {
+  private keepCopy(name: string) {
     if (!fs.existsSync(this.file)) return;
     fs.mkdirSync(this.backupDir, { recursive: true });
-    const stamp = label === 'before-restore' ? `before-restore-${new Date().toISOString().replace(/[:.]/g, '-')}` : label;
-    fs.copyFileSync(this.file, path.join(this.backupDir, `db-${stamp}.json`));
+    fs.copyFileSync(this.file, path.join(this.backupDir, name));
   }
 }
 

@@ -6,12 +6,12 @@
 //   docker compose run --rm binder node scripts/import-backup.ts /data/backup.json
 //   docker compose start binder
 // The current ledger is copied to <data>/backups first. The browser "Restore from backup"
-// button does the same thing on a running app, with no restart.
+// button does the same thing (the same use case) on a running app, with no restart.
 import fs from 'node:fs';
 import path from 'node:path';
-import { Assets } from '../server/assets.ts';
-import { restoreBackup } from '../server/backup.ts';
 import { Store } from '#infrastructure/json-store/store.ts';
+import { PhotoFiles } from '#infrastructure/photos/photo-files.ts';
+import { createBackups } from '../src/compose.ts';
 
 const file = process.argv[2];
 if (!file) {
@@ -19,7 +19,13 @@ if (!file) {
   process.exit(1);
 }
 const dataDir = path.resolve(process.env['DATA_DIR'] ?? 'data');
-const input = JSON.parse(fs.readFileSync(file, 'utf8'));
-const summary = restoreBackup(new Store(dataDir), new Assets(dataDir), input);
+const backup: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
+const store = new Store(dataDir);
+const r = await createBackups({ store, assets: new PhotoFiles(dataDir) }).restoreFullBackup.execute({ actor: 'import-backup', backup });
+if (!r.ok) {
+  console.error(`That backup can't be restored: ${r.error.message}`);
+  process.exit(1);
+}
+const summary = r.value;
 console.log(`Restored ${summary.binders} binders, ${summary.cards} cards and ${summary.photos} photos into ${dataDir}.`);
 if (summary.missingPhotos) console.warn(`${summary.missingPhotos} cards point at photos that weren't in the backup.`);

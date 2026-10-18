@@ -4,8 +4,8 @@ import path from 'node:path';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/compose.ts';
-import { Assets } from '../../server/assets.ts';
-import { makeBackup } from '../../server/backup.ts';
+import { PhotoFiles as Assets } from '../../src/infrastructure/photos/photo-files.ts';
+import { createBackups } from '../../src/compose.ts';
 import { Config } from '../../server/config.ts';
 import type { CardDetails } from '../../server/details.ts';
 import { Catalog, chooseVariant, printingOf, variantPrices, tcgdexCardmarket, tcgdexTcgplayer, type TcgdexCard } from '../../server/pricing/catalog.ts';
@@ -1209,7 +1209,7 @@ describe('pricing over HTTP', () => {
     expect(JSON.stringify(status.body)).not.toContain(good);
     // The page is told PriceCharting is set up; the token is nowhere in the ledger or its backup.
     expect(store.get('settings', 'pricing')).toMatchObject({ pricecharting: true });
-    expect(JSON.stringify(makeBackup(store, assets))).not.toContain(good);
+    expect(JSON.stringify((await createBackups({ store, assets }).downloadFullBackup.execute({ actor: 'test' })).backup)).not.toContain(good);
     const files = fs.readdirSync(dir, { recursive: true, withFileTypes: true }).filter((f) => f.isFile());
     expect(files.some((f) => fs.readFileSync(path.join(f.parentPath, f.name), 'utf8').includes(good))).toBe(false);
     expect(updater.schedule().pricecharting).toBe(true);

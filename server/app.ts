@@ -5,17 +5,16 @@ import { fileURLToPath } from 'node:url';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import QRCode from 'qrcode';
 import type { Caller as LayeredCaller } from '#application/access.ts';
-import type { ActivityLog } from '#application/ports.ts';
+import type { BackupHealth } from '#application/backups/backup-health.ts';
+import type { TakeSnapshot } from '#application/backups/take-snapshot.ts';
+import type { PhotoFiles } from '#infrastructure/photos/photo-files.ts';
 import type { CallerResolver } from '#presentation/http/caller.ts';
-import type { Router } from '#presentation/http/router.ts';
+import type { Routes } from '#presentation/http/router.ts';
 import { z } from 'zod';
 import { type Accounts, type Caller, type Role, SESSION_COOKIE, atLeast, schemas } from './accounts.ts';
-import { Assets, MAX_IMAGE_BYTES } from './assets.ts';
 import type { Autofill } from './autofill.ts';
-import { RestoreError, makeBackup, restoreBackup } from './backup.ts';
-import { Backups } from './backups.ts';
 import { dirBytes, freeBytes, runChecks } from './checks.ts';
-import { Config, priceMethodSchema, pricingConfigSchema, retentionSchema } from './config.ts';
+import { Config, priceMethodSchema, pricingConfigSchema } from './config.ts';
 import type { CardDetails } from './details.ts';
 import { GUEST_COOKIE, GUEST_IDLE_MS, GuestFeed, type Guests, guestSchemas, isListed, shownImage } from './guests.ts';
 import { CATEGORIES, LEVELS, type Logger, quietLogger } from './log.ts';
@@ -34,14 +33,24 @@ import { NotFound, SaveFailed, type Store } from '#infrastructure/json-store/sto
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-/** Routes served by the layered code (src/), relative to /api. */
-export type LayeredRoutes = Pick<Router, 'handle' | 'owns'>;
+/** Routes served by the layered code (src/): those under /api (relative to it), and the rest (/blob). */
+export interface LayeredRoutes {
+  readonly api: Routes;
+  readonly root: Routes;
+}
+
+/** What the Express code still asks of the backups (the Overview's checks, the daily price rebuild's copy). */
+export interface ExpressBackups {
+  readonly health: Pick<BackupHealth, 'execute'>;
+  readonly takeSnapshot: Pick<TakeSnapshot, 'execute'>;
+}
 
 export interface AppOptions {
   store: Store;
-  /** Builds the layered routes, given how to tell who is calling and where activity is logged. */
-  layeredRoutes: (context: { identify: CallerResolver; activity: ActivityLog }) => LayeredRoutes;
-  assets: Assets;
+  /** Builds the layered routes, given how to tell who is calling. */
+  layeredRoutes: (context: { identify: CallerResolver }) => LayeredRoutes;
+  /** Card photos (the daily update and the guest page still use them directly). */
+  assets: PhotoFiles;
   /** The pages, styles and scripts. Defaults to ./public. */
   publicDir?: string | undefined;
   trustProxy?: boolean | number | string | undefined;
@@ -53,7 +62,7 @@ export interface AppOptions {
   security?: Security | undefined;
   log?: Logger | undefined;
   config?: Config | undefined;
-  backups?: Backups | undefined;
+  backups: ExpressBackups;
   /** BINDER_PASSWORD, for the check that it no longer opens the admin account. */
   envPassword?: string | undefined;
   /** Card details lookups (TCGdex); the lookup routes answer 503 without them. */
@@ -70,8 +79,6 @@ export interface AppOptions {
   pricecharting?: { token: Secret; api: PriceCharting } | undefined;
 }
 
-/** Largest restore upload. The reverse proxy may cap it lower; `npm run import-backup` has no cap. */
-const RESTORE_LIMIT = '200mb';
 /**
  * Anyone may load these: the sign-in page and what it needs, and the guest page (whose API checks
  * for a signed-in guest itself).
@@ -85,7 +92,7 @@ export function createExpressApp(o: AppOptions) {
   const log = o.log ?? quietLogger();
   const config = o.config ?? new Config(store.dataDir);
   const now = o.now ?? (() => new Date());
-  const backups = o.backups ?? new Backups(store, assets, config, log, now);
+  const { backups } = o;
 
   const app = express();
   app.disable('x-powered-by');
@@ -143,6 +150,27 @@ export function createExpressApp(o: AppOptions) {
     if (!caller) throw new HttpError(401, 'Please sign in', 'signin');
     if (!atLeast(caller.role, role)) throw new HttpError(403, role === 'admin' ? 'Only administrators can do this.' : 'You have view-only access.', 'forbidden');
     next();
+  };
+  // Requests the layered code serves: who is calling comes from Express (res.locals.caller), and the
+  // heavy rate limit applies to the routes that ask for it.
+  const callers = new WeakMap<Request, LayeredCaller | null>();
+  const layered = o.layeredRoutes({ identify: (req) => callers.get(req as Request) ?? null });
+  const bridge = (routes: Routes) => (req: Request, res: Response, next: NextFunction) => {
+    if (!routes.owns(req.method, req.path)) return next();
+    const caller = res.locals.caller as Caller | undefined;
+    callers.set(req, caller ? { name: caller.user.username, role: caller.role } : null);
+    const serve = (err?: unknown) => {
+      if (err) return next(err);
+      routes.handle(req, res).then((handled) => {
+        if (!handled) next();
+      }, next);
+    };
+    if (!security || !routes.isHeavy(req.method, req.path)) return serve();
+    try {
+      security.heavy(req, res, serve);
+    } catch (err) {
+      next(err);
+    }
   };
   const who = (res: Response) => (res.locals.caller as Caller | undefined)?.user.username ?? 'someone';
   const heavy = security ? security.heavy : (_req: Request, _res: Response, next: NextFunction) => next();
@@ -314,19 +342,12 @@ export function createExpressApp(o: AppOptions) {
   api.post('/client-error', need('viewer'), express.json({ limit: '16kb' }), (req, res) => pageError(req, res, { user: who(res) }));
   if (guests) api.post('/guest/client-error', (_req, res, next) => (res.locals.guest ? next() : next(new HttpError(401, 'Please sign in', 'signin'))), express.json({ limit: '16kb' }), (req, res) => pageError(req, res, { guest: true }));
 
-  // ---- binders, cards and settings ----------------------------------------------------
-  // Served by the layered code (src/presentation/ledger): the ledger itself, sorting binders and
-  // moving cards. Express still decides who is calling; the routes check what they may do.
-  const callers = new WeakMap<Request, LayeredCaller | null>();
-  const layered = o.layeredRoutes({ identify: (req) => callers.get(req as Request) ?? null, activity: { info: (message) => log.info('app', message) } });
-  api.use((req, res, next) => {
-    if (!layered.owns(req.method, req.path)) return next();
-    const caller = res.locals.caller as Caller | undefined;
-    callers.set(req, caller ? { name: caller.user.username, role: caller.role } : null);
-    layered.handle(req, res).then((handled) => {
-      if (!handled) next();
-    }, next);
-  });
+  // ---- binders, cards and settings; photos; backups -----------------------------------
+  // Served by the layered code (src/presentation): the ledger itself, sorting binders and moving
+  // cards, photos, full backups and the kept copies. Express still decides who is calling and
+  // applies the rate limits (heavy ones for backups and restores); the routes check what the
+  // caller may do.
+  api.use(bridge(layered.api));
 
   // Live updates: every change is pushed to every open page, until the session ends.
   api.get('/events', need('viewer'), (req, res) => {
@@ -357,20 +378,6 @@ export function createExpressApp(o: AppOptions) {
       unsubscribe();
       release();
     });
-  });
-
-  // ---- photos ---------------------------------------------------------------------------
-  api.post('/assets', need('editor'), express.raw({ type: () => true, limit: MAX_IMAGE_BYTES }), (req, res) => {
-    const buf = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
-    if (!buf.length) throw new HttpError(400, 'No photo was sent');
-    const saved = assets.put(buf);
-    if (!saved) throw new HttpError(415, "That file isn't a JPG, PNG, WebP or GIF picture", 'unsupported_type');
-    res.status(201).json(saved);
-  });
-  api.delete('/assets/:id', need('editor'), (req, res) => {
-    // A photo another card still shows is kept, whatever the page thought.
-    if (!store.referencedImages().has(String(req.params.id))) assets.remove(String(req.params.id));
-    res.status(204).end();
   });
 
   // ---- automatic prices and images ------------------------------------------------------
@@ -582,20 +589,6 @@ export function createExpressApp(o: AppOptions) {
     res.status(201).json({ binderId, cards: cards.length, pages: Math.ceil(cards.length / pockets) });
   });
 
-  // ---- full backups (with photos) -----------------------------------------------------
-  api.get('/backup', need('editor'), heavy, (_req, res) => {
-    const stamp = new Date().toISOString().slice(0, 10);
-    res.setHeader('Content-Disposition', `attachment; filename="binder-ledger-backup-${stamp}.json"`);
-    config.set({ lastFullBackupAt: now().toISOString() });
-    log.info('backup', `${who(res)} downloaded a full backup`);
-    res.json(makeBackup(store, assets));
-  });
-  api.post('/restore', need('admin'), heavy, express.json({ limit: RESTORE_LIMIT }), (req, res) => {
-    const summary = restoreBackup(store, assets, req.body);
-    log.warn('backup', `${who(res)} restored a full backup`, { ...summary });
-    res.json(summary);
-  });
-
   // ---- administration ------------------------------------------------------------------
   const admin = express.Router();
   admin.use(need('admin'));
@@ -619,7 +612,7 @@ export function createExpressApp(o: AppOptions) {
       envPasswordStillWorks: accounts ? await accounts.envPasswordStillWorks(o.envPassword) : false,
       security: { enabled: !!security, bans: sec?.bans.length ?? 0, limited: sec?.stats.limited ?? 0, blocked: sec?.stats.blocked ?? 0, allowlist: sec?.allowlist.length ?? 0 },
       failedSignIns24h: failed,
-      backups: backups.health(),
+      backups: await backups.health.execute(),
       lastFullBackupAt: config.get().lastFullBackupAt,
       offsite: readOffsite(store.dataDir),
       logs: { fileOk: log.fileOk, dir: log.dir, errors24h: counts.error, warnings24h: counts.warn },
@@ -692,34 +685,6 @@ export function createExpressApp(o: AppOptions) {
     res.status(204).end();
   });
 
-  // Backups
-  admin.get('/backups', (_req, res) => {
-    res.json({ backups: backups.list(), retention: config.get().backups, lastFullBackupAt: config.get().lastFullBackupAt, photos: assets.usage() });
-  });
-  admin.put('/backups/retention', json, (req, res) => {
-    const retention = retentionSchema.parse(req.body);
-    config.set({ backups: retention });
-    const removed = backups.prune();
-    log.info('admin', `${who(res)} changed backup retention`, { ...retention, removed });
-    res.json({ retention, removed });
-  });
-  admin.post('/backups/snapshot', heavy, json, (req, res) => {
-    const label = typeof req.body?.label === 'string' ? req.body.label.slice(0, 40) : undefined;
-    res.status(201).json(backups.snapshot(label, who(res)));
-  });
-  admin.get('/backups/:name', heavy, (req, res) => {
-    const file = backups.file(String(req.params.name));
-    res.setHeader('Content-Disposition', `attachment; filename="${path.basename(file)}"`);
-    res.type('application/json').sendFile(file);
-  });
-  admin.post('/backups/:name/restore', heavy, (req, res) => {
-    res.json(backups.restore(String(req.params.name), who(res)));
-  });
-  admin.delete('/backups/:name', (req, res) => {
-    backups.remove(String(req.params.name), who(res));
-    res.status(204).end();
-  });
-
   // Price updates
   admin.get('/pricing', (_req, res) => {
     const st = (store.get('settings', 'pricing') ?? {}) as Record<string, unknown>;
@@ -743,12 +708,14 @@ export function createExpressApp(o: AppOptions) {
     res.json({ schedule: updater?.schedule() ?? null });
   });
   // Past daily prices worked out again with that method: a preview, or (apply) saved after a copy of the ledger.
-  admin.post('/pricing/rebuild', heavy, json, (req, res) => {
+  admin.post('/pricing/rebuild', heavy, json, async (req, res) => {
     if (!updater) throw new HttpError(400, 'Automatic prices are not available on this server.');
     const apply = req.body?.apply === true;
+    // The copy is taken first, unless a price update is running (then the rebuild is refused below).
+    const copy = apply && !updater.running ? (await backups.takeSnapshot.execute({ actor: who(res), label: 'before rebuilding daily prices' })).name : null;
     let summary;
     try {
-      summary = updater.rebuildPrices(apply, () => backups.snapshot('before rebuilding daily prices', who(res)).name);
+      summary = updater.rebuildPrices(apply, () => copy);
     } catch (err) {
       throw new HttpError(409, err instanceof Error ? err.message : String(err), 'busy');
     }
@@ -892,12 +859,8 @@ export function createExpressApp(o: AppOptions) {
   });
   app.use('/api', api);
 
-  app.get('/blob/:id', need('viewer'), (req, res) => {
-    const hit = assets.find(String(req.params.id));
-    if (!hit) return void res.status(404).end();
-    res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
-    res.type(hit.type).sendFile(hit.file);
-  });
+  // Photos (/blob/:id), served by the layered code.
+  app.use(bridge(layered.root));
 
   // Fonts are served from their npm packages so the pages need nothing from other sites.
   const fontOpts = { immutable: true, maxAge: '365d', index: false } as const;
@@ -915,7 +878,7 @@ export function createExpressApp(o: AppOptions) {
       ({ status, code, message } = err);
       if (err.retryAfter) res.setHeader('Retry-After', String(err.retryAfter));
     } else if (err instanceof z.ZodError) [status, message] = [400, err.issues[0]?.message ?? 'Invalid request'];
-    else if (err instanceof InvalidDoc || err instanceof RestoreError) [status, message] = [400, err.message];
+    else if (err instanceof InvalidDoc) [status, message] = [400, err.message];
     else if (err instanceof SourceError) [status, code, message] = [502, 'upstream_error', err.message];
     else if (err instanceof NotFound) [status, code, message] = [404, 'not_found', err.message];
     else if (err instanceof SaveFailed) {

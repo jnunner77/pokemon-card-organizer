@@ -4,7 +4,7 @@ import path from 'node:path';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/compose.ts';
-import { Assets } from '../../server/assets.ts';
+import { PhotoFiles as Assets } from '../../src/infrastructure/photos/photo-files.ts';
 import { CardDetails, DETAILS_VERSION } from '../../server/details.ts';
 import { MasterSets, groupOf, isExtra, placeholderCards, subGroupsOf, tcgVariant, variantText } from '../../server/masterset.ts';
 import { type TcgdexCard, chooseVariant } from '../../server/pricing/catalog.ts';

@@ -844,24 +844,31 @@ in `src/` is its own TypeScript project that may only import the layers inside i
   rules for what a document may hold (`ledger/check-document.ts`, kept loose so fields the rules
   don't know are never dropped), changing a card's price entries one by one against its list as it
   is now (`cards/price-entries.ts`, with `public/priceops.js` working out what the page changed),
-  sorting a binder (`ledger/arrange.ts`) and moving cards (`ledger/place.ts`). No Node APIs; time is
-  passed in.
+  sorting a binder (`ledger/arrange.ts`) and moving cards (`ledger/place.ts`); photos (`photos/`:
+  a picture's type from its bytes, ids, the trash that keeps a deleted photo while any copy of the
+  ledger refers to it) and backups (`backups/`: retention, the copies' names and kinds, the full
+  backup format and what makes one restorable). No Node APIs; time is passed in.
 - `src/application/`: one use case per action (`ledger/`: save, merge or delete a document, change
-  price entries, sort a binder, move cards, read the ledger), ports for the clock, the unit of work,
-  events and the activity log, and who may do what (`access.ts`).
+  price entries, sort a binder, move cards, read the ledger; `photos/`: upload, delete, show;
+  `backups/`: download and restore a full backup, list, snapshot, download, restore and delete kept
+  copies, change retention, the hourly housekeeping), ports for the clock, the unit of work, events,
+  the activity log, the photo store and the kept copies, and who may do what (`access.ts`).
+  Replacing the whole ledger (a restore) goes only through the `WholeLedger` port, which keeps a
+  before-restore copy first.
 - `src/infrastructure/`: `json-store/store.ts` (the ledger file, daily copies and the change feed
   to open pages), a unit of work over it (`unit-of-work.ts`: all or nothing, one at a time, and run
-  again if the store changed meanwhile), its repositories, and in-memory versions for tests
-  (`memory/`).
-- `src/presentation/`: the ledger's routes (`ledger/routes.ts`) on `node:http`, with hand-written
-  checks of each request and an exhaustive switch from error codes to HTTP statuses.
+  again if the store changed meanwhile), its repositories, the photo files (`photos/`), the kept
+  copies (`backups/`), and in-memory versions for tests (`memory/`).
+- `src/presentation/`: the ledger's, photos' and backups' routes (`ledger/`, `photos/`,
+  `backups/`) on `node:http`, with hand-written checks of each request and an exhaustive switch from
+  error codes to HTTP statuses.
 - `src/compose.ts` wires the layers together and `src/main.ts` starts the server, building the
   store and the rest it hands over: within `src/`, they are the only files that know the concrete
-  classes. The Express code in `server/` and `scripts/import-backup.ts` still use the store
-  directly until their slices move.
+  classes. `scripts/import-backup.ts` restores through the same use case as the page. The Express
+  code in `server/` still uses the store and the photo files directly until its slices move.
 
-Everything else still runs on the Express code in `server/`, which hands the ledger's routes to the
-layered code, and moves into the layers one slice at a time:
+Everything else still runs on the Express code in `server/`, which hands the ledger's, photos' and
+backups' routes to the layered code, and moves into the layers one slice at a time:
 
 - `server/pricing/`: `pricecharting.ts` (PriceCharting's API, price guide download and graded prices), `tcgcsv.ts` (TCGplayer's own catalog), `catalog.ts`
   (TCGdex: TCGplayer and Cardmarket prices, pictures), `sources.ts` (requests,
@@ -869,8 +876,7 @@ layered code, and moves into the layers one slice at a time:
   updates and the PriceCharting purge). `server/secrets.ts` keeps PriceCharting's token.
 - `server/details.ts` (card details from TCGdex), `server/autofill.ts` (new cards filling themselves
   in, and Update all cards → Details).
-- `server/`: `assets.ts` (pictures), `backup.ts` (full backups), `backups.ts` (copies and
-  retention), `accounts.ts` (people, sessions, API tokens), `security.ts` (rate limits and blocks),
+- `server/`: `accounts.ts` (people, sessions, API tokens), `security.ts` (rate limits and blocks),
   `log.ts`, `checks.ts` (Overview checks), `config.ts` (administrators' settings), `guests.ts`
   (guest sign-in, sessions, log, and what guests see of a card; tested in
   `tests/legacy/guests.test.ts`), `app.ts` (the rest of the HTTP API).

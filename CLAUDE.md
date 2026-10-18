@@ -57,8 +57,9 @@ confirmed on the live binder.
     places that know the concrete classes.
 - Every change the layered routes make (the ledger's documents, price entries, sorting a binder,
   moving cards) runs as one unit of work (`StoreUnitOfWork`), so it is checked, saved and sent to
-  open pages, or not applied at all. The Express code still writes to the store directly until its
-  slices move.
+  open pages, or not applied at all. Replacing the whole ledger (a restore) runs only through the
+  `WholeLedger` port, after a before-restore copy. The Express code still writes to the store
+  directly until its slices move.
 - Use `.ts` extensions in imports and only erasable syntax (no `enum`, `namespace` or constructor
   parameter properties): Node runs the TypeScript directly.
 - In `src/`: no non-null assertions (`!`), `any`, or casts except branding ids at trust

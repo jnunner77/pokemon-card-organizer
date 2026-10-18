@@ -3,10 +3,9 @@
 import path from 'node:path';
 import { LocalEventBus } from '#infrastructure/local-event-bus.ts';
 import { Store } from '#infrastructure/json-store/store.ts';
+import { PhotoFiles } from '#infrastructure/photos/photo-files.ts';
 import { Accounts } from '../server/accounts.ts';
-import { Assets } from '../server/assets.ts';
 import { Autofill } from '../server/autofill.ts';
-import { Backups } from '../server/backups.ts';
 import { CardDetails } from '../server/details.ts';
 import { Catalog } from '../server/pricing/catalog.ts';
 import { Config } from '../server/config.ts';
@@ -18,7 +17,7 @@ import { Secret } from '../server/secrets.ts';
 import { Security } from '../server/security.ts';
 import { TcgCsv } from '../server/pricing/tcgcsv.ts';
 import { every } from '../server/recover.ts';
-import { createApp } from './compose.ts';
+import { createApp, createBackups } from './compose.ts';
 
 const env = process.env;
 const dataDir = path.resolve(env['DATA_DIR'] ?? 'data');
@@ -40,12 +39,13 @@ const orStop = <T>(what: string, make: () => T): T => {
 const store = orStop('the ledger', () => new Store(dataDir));
 if (store.recovered) log.error('app', store.recovered.message, { from: store.recovered.from, keptAs: store.recovered.damaged.setAside });
 store.onError = (what: string, err: unknown) => log.error('app', `${what} failed: ${err instanceof Error ? (err.stack ?? err.message) : err}`);
-const assets = new Assets(dataDir);
+const assets = new PhotoFiles(dataDir);
 // PRICE_UPDATE_HOUR and PRICE_UPDATES are the starting schedule; administrators can change it.
 const config = new Config(dataDir, { pricing: { enabled: env['PRICE_UPDATES'] !== 'off', hour: Number(env['PRICE_UPDATE_HOUR'] ?? 5) } });
 if (config.recovered) log.error('admin', config.recovered);
-const backups = new Backups(store, assets, config, log);
-store.onDailyCopy = () => backups.prune();
+const backups = createBackups({ store, assets, config, log });
+// The store's own daily copy (before the first change of a day) is followed by retention.
+store.onDailyCopy = () => void backups.pruneCopies.execute().catch((err: unknown) => log.error('backup', `Applying retention failed: ${err instanceof Error ? err.message : String(err)}`));
 
 // AUTH=off is only for running on your own computer: no sign-in at all.
 const accounts = env['AUTH'] === 'off' ? undefined : orStop('the accounts', () => new Accounts(dataDir, log));
@@ -116,15 +116,7 @@ const app = createApp({
 });
 
 // Housekeeping: today's copy of the ledger, and old trashed photos no copy of it refers to.
-const housekeeping = () => {
-  try {
-    backups.ensureDaily();
-    const purged = assets.purgeTrash(Date.now(), () => backups.referencedImages());
-    if (purged) log.info('backup', `Deleted ${purged} trashed photo${purged === 1 ? '' : 's'} that no kept copy of the ledger refers to`);
-  } catch (err) {
-    log.error('backup', `Housekeeping failed: ${err instanceof Error ? err.message : err}`);
-  }
-};
+const housekeeping = () => backups.housekeeping.execute().catch((err: unknown) => log.error('backup', `Housekeeping failed: ${err instanceof Error ? err.message : String(err)}`));
 housekeeping();
 every(log, 'backup', 'Housekeeping', 60 * 60_000, housekeeping);
 // status.txt for the server's nightly job (Boards' deploy/ops), which alerts on it. Every five

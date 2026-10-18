@@ -62,7 +62,7 @@ describe('rebuilding past daily prices', () => {
   const setup = async () => {
     const os = await import('node:os');
     const { Store } = await import('../../src/infrastructure/json-store/store.ts');
-    const { Assets } = await import('../../server/assets.ts');
+    const { PhotoFiles: Assets } = await import('../../src/infrastructure/photos/photo-files.ts');
     const { Config } = await import('../../server/config.ts');
     const { PriceUpdater } = await import('../../server/pricing/updater.ts');
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'binder-rebuild-'));
@@ -118,12 +118,10 @@ describe('rebuilding past daily prices', () => {
   it('is set and run by administrators, with a copy of the ledger first', async () => {
     const request = (await import('supertest')).default;
     const { createApp } = await import('../../src/compose.ts');
-    const { Backups } = await import('../../server/backups.ts');
     const { Logger } = await import('../../server/log.ts');
     const { dir, store, config, u } = await setup();
     const log = new Logger({ stdout: false });
-    const backups = new Backups(store, (u as unknown as { assets: never }).assets, config, log);
-    const app = createApp({ store, assets: (u as unknown as { assets: never }).assets, log, config, updater: u, backups, publicDir: path.join(__dirname, '../../public') });
+    const app = createApp({ store, assets: (u as unknown as { assets: never }).assets, log, config, updater: u, publicDir: path.join(__dirname, '../../public') });
     store.set('cards', 'a', { name: 'Pikachu', status: 'binder', prices: [day('2026-10-09', { pricecharting: 100, tcgplayer: 110 })] });
     await request(app).put('/api/admin/pricing/method').send({ method: 'blend', weights: { pricecharting: 0, tcgplayer: 0, cardmarket: 0 }, tolerance: 25 }).expect(400);
     await request(app).put('/api/admin/pricing/method').send({ method: 'pricecharting', weights: { pricecharting: 40, tcgplayer: 40, cardmarket: 20 }, tolerance: 25 }).expect(200);
