@@ -856,7 +856,9 @@ in `src/` is its own TypeScript project that may only import the layers inside i
 - `src/presentation/`: the ledger's routes (`ledger/routes.ts`) on `node:http`, with hand-written
   checks of each request and an exhaustive switch from error codes to HTTP statuses.
 - `src/compose.ts` wires the layers together and `src/main.ts` starts the server, building the
-  store and the rest it hands over: they are the only files that know the concrete classes.
+  store and the rest it hands over: within `src/`, they are the only files that know the concrete
+  classes. The Express code in `server/` and `scripts/import-backup.ts` still use the store
+  directly until their slices move.
 
 Everything else still runs on the Express code in `server/`, which hands the ledger's routes to the
 layered code, and moves into the layers one slice at a time:
