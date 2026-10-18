@@ -1,5 +1,5 @@
 import type { IncomingMessage } from 'node:http';
-import type { Transform } from 'node:stream';
+import { pipeline, type Transform } from 'node:stream';
 import zlib from 'node:zlib';
 import { err, ok, type Result } from '#shared/result.ts';
 
@@ -57,8 +57,10 @@ export async function readJsonBody(req: IncomingMessage, limit = JSON_LIMIT_BYTE
   }
   const chunks: Buffer[] = [];
   let size = 0;
+  // pipeline, unlike pipe, destroys the decoder when the request fails (an aborted upload), so the loop ends.
+  const source = decoder ? pipeline(req, decoder, () => undefined) : req;
   try {
-    for await (const chunk of decoder ? req.pipe(decoder) : req) {
+    for await (const chunk of source) {
       const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
       size += buffer.length;
       if (size > limit) {
@@ -69,7 +71,7 @@ export async function readJsonBody(req: IncomingMessage, limit = JSON_LIMIT_BYTE
       chunks.push(buffer);
     }
   } catch {
-    // Compressed data that doesn't decompress.
+    // Compressed data that doesn't decompress, or an upload cut off.
     req.resume();
     return err({ code: 'MALFORMED_JSON' });
   }

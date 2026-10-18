@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import net from 'node:net';
 import zlib from 'node:zlib';
 import { describe, it } from 'node:test';
@@ -54,6 +55,17 @@ describe('readJsonBody', async () => {
     assert.deepEqual(await send(zlib.deflateSync(json), 'application/json', 'deflate'), { ok: true, value: { a: 1 } });
     assert.deepEqual(await send(zlib.brotliCompressSync(json), 'application/json', 'br'), { ok: true, value: { a: 1 } });
     assert.deepEqual(await send(zlib.gzipSync(JSON.stringify({ a: 'x'.repeat(1000) })), 'application/json', 'gzip'), { ok: false, error: { code: 'BODY_TOO_LARGE' } });
+  });
+
+  it('settles when a compressed upload is cut off', async () => {
+    const gzipped = zlib.gzipSync(JSON.stringify({ a: 'x'.repeat(40) }));
+    const req = new http.IncomingMessage(new net.Socket());
+    req.headers = { 'content-type': 'application/json', 'content-encoding': 'gzip', 'content-length': String(gzipped.length) };
+    const read = readJsonBody(req);
+    req.push(gzipped.subarray(0, 10));
+    setTimeout(() => req.destroy(new Error('aborted')), 10);
+    const timeout = new Promise((resolve) => setTimeout(() => resolve('still waiting'), 1000).unref());
+    assert.deepEqual(await Promise.race([read, timeout]), { ok: false, error: { code: 'MALFORMED_JSON' } });
   });
 
   it('refuses compressed data that does not decompress, and encodings it cannot read', async () => {
