@@ -115,4 +115,38 @@ describe('photo routes', () => {
     });
     assert.equal(await outcome, 'finished quietly');
   });
+
+  it('still fail when the picture itself can’t be read', async () => {
+    const routes = photoRoutes({
+      identify: () => ({ name: 'justin', role: 'viewer' }),
+      uploadPhoto: { execute: async () => assert.fail('not expected to run') },
+      deletePhoto: { execute: async () => assert.fail('not expected to run') },
+      openPhoto: {
+        execute: async (): Promise<PhotoFile> => ({
+          type: 'image/jpeg',
+          bytes: 1000,
+          modifiedAt,
+          content: (async function* () {
+            yield Buffer.alloc(10);
+            throw new Error('disk read failed');
+          })(),
+        }),
+      },
+    });
+    const outcome = new Promise<string>((resolve) => {
+      const server = http.createServer((req, res) => {
+        routes.root.handle(req, res).then(
+          () => resolve('finished quietly'),
+          (error: unknown) => resolve(`failed: ${error instanceof Error ? error.message : String(error)}`),
+        );
+      });
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address();
+        assert.ok(address && typeof address === 'object');
+        http.get(`http://127.0.0.1:${address.port}/blob/${id}`, (res) => res.resume()).on('error', () => undefined);
+      });
+      setTimeout(() => server.close(), 3000).unref();
+    });
+    assert.equal(await outcome, 'failed: disk read failed');
+  });
 });

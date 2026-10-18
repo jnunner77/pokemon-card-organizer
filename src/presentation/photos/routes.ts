@@ -85,7 +85,10 @@ async function sendPhoto(req: IncomingMessage, res: ServerResponse, photo: Photo
     await pipeline(Readable.from(photo.content), res);
   } catch (error) {
     // The browser went away mid-picture (a phone cancelling an image load): nothing went wrong here.
-    if (res.destroyed && !res.writableFinished) return;
+    // A picture that can't be read is still an error.
+    if (isPrematureClose(error)) return;
     throw error;
   }
 }
+
+const isPrematureClose = (error: unknown): boolean => typeof error === 'object' && error !== null && 'code' in error && error.code === 'ERR_STREAM_PREMATURE_CLOSE';
