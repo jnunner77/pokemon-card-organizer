@@ -1,6 +1,7 @@
 // Guest page: people who scan the QR code sign in with their name and a phone number or email,
 // then look through the cards listed for sale: search, sort, and flip through them full screen.
-// The server decides what guests see (server/guests.ts); this page only shows it.
+// The server decides what guests see (src/domain/guests/guest-card.ts, through
+// src/application/guests/list-guest-cards.ts); this page only shows it.
 (() => {
   "use strict";
   const $ = id => document.getElementById(id);

@@ -3,20 +3,29 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express, { type NextFunction, type Request, type Response } from 'express';
-import QRCode from 'qrcode';
-import { type Caller as LayeredCaller, requireRole } from '#application/access.ts';
+import { requireRole } from '#application/access.ts';
+import type { AccountsHealth } from '#application/accounts/accounts-health.ts';
+import type { EnvPasswordWorks } from '#application/accounts/env-password-works.ts';
+import type { IdentifyCaller } from '#application/accounts/identify-caller.ts';
+import type { Identity } from '#application/accounts/identity.ts';
+import type { IdentifyGuest } from '#application/guests/identify-guest.ts';
+import type { SignedInGuest } from '#application/guests/state.ts';
+import { atLeast, type Role } from '#domain/accounts/role.ts';
 import type { BackupHealth } from '#application/backups/backup-health.ts';
 import type { TakeSnapshot } from '#application/backups/take-snapshot.ts';
 import type { PhotoFiles } from '#infrastructure/photos/photo-files.ts';
-import type { CallerResolver } from '#presentation/http/caller.ts';
+import { SESSION_COOKIE } from '#presentation/accounts/routes.ts';
+import { GUEST_COOKIE, type GuestResolver } from '#presentation/guests/routes.ts';
+import type { CallerResolver, IdentityResolver } from '#presentation/http/caller.ts';
+import type { ClientInfo, ClientResolver } from '#presentation/http/client.ts';
+import { readCookie } from '#presentation/http/cookies.ts';
 import type { Routes } from '#presentation/http/router.ts';
+import type { StreamGate } from '#presentation/http/streams.ts';
 import { z } from 'zod';
-import { type Accounts, type Caller, type Role, SESSION_COOKIE, atLeast, schemas } from './accounts.ts';
 import type { Autofill } from './autofill.ts';
 import { dirBytes, freeBytes, runChecks } from './checks.ts';
 import { Config, priceMethodSchema, pricingConfigSchema } from './config.ts';
 import type { CardDetails } from './details.ts';
-import { GUEST_COOKIE, GUEST_IDLE_MS, GuestFeed, type Guests, guestSchemas, isListed, shownImage } from './guests.ts';
 import { CATEGORIES, LEVELS, type Logger, quietLogger } from './log.ts';
 import { CardLookup } from './lookup.ts';
 import { MasterSets, placeholderCards } from './masterset.ts';
@@ -45,10 +54,30 @@ export interface ExpressBackups {
   readonly takeSnapshot: Pick<TakeSnapshot, 'execute'>;
 }
 
+/** What the layered routes learn from Express about a request: who is calling, which guest, where from, and its live-update limit. */
+export interface LayeredContext {
+  readonly identify: CallerResolver;
+  readonly identity: IdentityResolver;
+  readonly guest: GuestResolver;
+  readonly client: ClientResolver;
+  readonly streams: StreamGate;
+}
+
+/** Who is calling, worked out by the layered code (src/application/accounts and guests). */
+export interface ExpressPeople {
+  readonly identifyCaller: Pick<IdentifyCaller, 'execute'>;
+  /** Null when this server has no guest viewing. */
+  readonly identifyGuest: Pick<IdentifyGuest, 'execute'> | null;
+  /** Null with sign-in turned off (AUTH=off). */
+  readonly health: Pick<AccountsHealth, 'execute'> | null;
+  readonly envPasswordWorks: Pick<EnvPasswordWorks, 'execute'> | null;
+}
+
 export interface AppOptions {
   store: Store;
-  /** Builds the layered routes, given how to tell who is calling. */
-  layeredRoutes: (context: { identify: CallerResolver }) => LayeredRoutes;
+  /** Builds the layered routes, given what Express knows about each request. */
+  layeredRoutes: (context: LayeredContext) => LayeredRoutes;
+  people: ExpressPeople;
   /** Card photos (the daily update and the guest page still use them directly). */
   assets: PhotoFiles;
   /** The pages, styles and scripts. Defaults to ./public. */
@@ -56,8 +85,6 @@ export interface AppOptions {
   trustProxy?: boolean | number | string | undefined;
   /** Daily price and image updates; the pricing routes answer 503 without one. */
   updater?: PriceUpdater | undefined;
-  /** People and sign-in. Without it everything is open (only for running on your own computer). */
-  accounts?: Accounts | undefined;
   /** Rate limits and blocks; off when not given. */
   security?: Security | undefined;
   log?: Logger | undefined;
@@ -73,8 +100,6 @@ export interface AppOptions {
   now?: (() => Date) | undefined;
   /** New cards filling themselves in, and Fill in missing details. */
   autofill?: Autofill | undefined;
-  /** Guests looking through the cards listed for sale; the guest routes answer 404 without it. */
-  guests?: Guests | undefined;
   /** PriceCharting's API token (its own secret file, outside the data that's backed up) and its client. */
   pricecharting?: { token: Secret; api: PriceCharting } | undefined;
 }
@@ -88,7 +113,7 @@ const PAGES = new Set(['/', '/index.html', '/admin.html']);
 const LOCAL = /^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/;
 
 export function createExpressApp(o: AppOptions) {
-  const { store, assets, publicDir = path.join(root, 'public'), trustProxy, updater, accounts, security, guests } = o;
+  const { store, assets, publicDir = path.join(root, 'public'), trustProxy, updater, security, people } = o;
   const log = o.log ?? quietLogger();
   const config = o.config ?? new Config(store.dataDir);
   const now = o.now ?? (() => new Date());
@@ -104,34 +129,32 @@ export function createExpressApp(o: AppOptions) {
   // A guest from the QR code, if any, before the firewall so they get a guest's limits. Their page's
   // twice-a-minute check (GET /api/guest/me) and live updates (GET /api/guest/events) don't count as
   // using it, so idle guests still time out.
-  if (guests) {
+  const identifyGuest = people.identifyGuest;
+  if (identifyGuest) {
     const quiet = new Set(['/api/guest/me', '/api/guest/events']);
-    app.use((req, res, next) => {
+    app.use(async (req, res, next) => {
       const token = readCookie(req, GUEST_COOKIE);
-      if (token) res.locals.guest = guests.identify(token, !(req.method === 'GET' && quiet.has(req.path))) ?? undefined;
+      if (token) res.locals.guest = (await identifyGuest.execute({ token, touch: !(req.method === 'GET' && quiet.has(req.path)) })) ?? undefined;
       next();
     });
   }
   if (security) app.use(security.firewall);
 
   // Who is calling: a session cookie, an API token, or (without accounts) the local owner.
-  app.use((req, res, next) => {
-    if (!accounts) {
-      res.locals.caller = { user: { id: 'local', username: 'local', name: 'Local', role: 'admin' }, role: 'admin', via: 'session' } as unknown as Caller;
-    } else {
-      const bearer = /^Bearer\s+(\S+)$/i.exec(req.get('authorization') ?? '')?.[1];
-      const caller = accounts.identify(readCookie(req, SESSION_COOKIE), bearer);
-      if (bearer && !caller) return void res.status(401).json({ error: 'Invalid or expired API token', code: 'token' });
-      res.locals.caller = caller ?? undefined;
-    }
-    res.locals.user = (res.locals.caller as Caller | undefined)?.user;
+  const credentials = (req: Request) => ({ sessionToken: readCookie(req, SESSION_COOKIE), bearer: /^Bearer\s+(\S+)$/i.exec(req.get('authorization') ?? '')?.[1] });
+  app.use(async (req, res, next) => {
+    const { identity, badToken } = await people.identifyCaller.execute(credentials(req));
+    if (badToken) return void res.status(401).json({ error: 'Invalid or expired API token', code: 'token' });
+    res.locals.caller = identity ?? undefined;
+    // The rate limits count by the person's id.
+    res.locals.user = identity ?? undefined;
     next();
   });
 
   // Signed-out visitors get the sign-in page; everything with data needs a session or token. Routes
   // match whatever the address's case ("/BLOB/…" is "/blob/…"), so the checks do too.
   app.use((req, res, next) => {
-    const caller = res.locals.caller as Caller | undefined;
+    const caller = res.locals.caller as Identity | undefined;
     const at = req.path.toLowerCase();
     if (PUBLIC.some((p) => p.test(at))) return next();
     if (PAGES.has(at) && req.method === 'GET') {
@@ -146,19 +169,42 @@ export function createExpressApp(o: AppOptions) {
   });
 
   const need = (role: Role) => (_req: Request, res: Response, next: NextFunction) => {
-    const caller = res.locals.caller as Caller | undefined;
+    const caller = res.locals.caller as Identity | undefined;
     if (!caller) throw new HttpError(401, 'Please sign in', 'signin');
     if (!atLeast(caller.role, role)) throw new HttpError(403, role === 'admin' ? 'Only administrators can do this.' : 'You have view-only access.', 'forbidden');
     next();
   };
-  // Requests the layered code serves: who is calling comes from Express (res.locals.caller), and the
-  // heavy rate limit applies to the routes that ask for it.
-  const callers = new WeakMap<Request, LayeredCaller | null>();
-  const layered = o.layeredRoutes({ identify: (req) => callers.get(req as Request) ?? null });
+  // Requests the layered code serves: who is calling and which guest come from Express
+  // (res.locals), as do the client's address and HTTPS (behind a trusted proxy), the live-update
+  // connection limit, and the heavy rate limit for the routes that ask for it.
+  interface Seen {
+    readonly req: Request;
+    readonly res: Response;
+    readonly identity: Identity | null;
+    readonly guest: SignedInGuest | null;
+    readonly client: ClientInfo;
+  }
+  const seen = new WeakMap<object, Seen>();
+  const layered = o.layeredRoutes({
+    identify: (req) => seen.get(req)?.identity ?? null,
+    identity: (req) => seen.get(req)?.identity ?? null,
+    guest: (req) => seen.get(req)?.guest ?? null,
+    client: (req) => seen.get(req)?.client ?? { ip: req.socket.remoteAddress ?? '', secure: false },
+    streams: (req, _res, key) => {
+      const s = seen.get(req);
+      if (!security || !s) return { release: () => {} };
+      try {
+        return { release: security.openStream(s.req, s.res, key) };
+      } catch (err) {
+        if (err instanceof HttpError) return { refused: { status: err.status, code: err.code, message: err.message, ...(err.retryAfter ? { retryAfter: err.retryAfter } : {}) } };
+        throw err;
+      }
+    },
+  });
   const bridge = (routes: Routes) => (req: Request, res: Response, next: NextFunction) => {
     if (!routes.owns(req.method, req.path)) return next();
-    const caller = res.locals.caller as Caller | undefined;
-    callers.set(req, caller ? { name: caller.user.username, role: caller.role } : null);
+    const caller = res.locals.caller as Identity | undefined;
+    seen.set(req, { req, res, identity: caller ?? null, guest: (res.locals.guest as SignedInGuest | undefined) ?? null, client: { ip: req.ip ?? '', secure: req.secure } });
     const serve = (err?: unknown) => {
       if (err) return next(err);
       routes.handle(req, res).then((handled) => {
@@ -167,7 +213,7 @@ export function createExpressApp(o: AppOptions) {
     };
     // The heavy limit counts only callers the route will serve: anyone else is refused (401/403) first.
     const heavy = routes.heavyLimit(req.method, req.path);
-    const served = heavy !== null && requireRole(caller ? { name: caller.user.username, role: caller.role } : null, heavy.role).ok;
+    const served = heavy !== null && requireRole(caller ?? null, heavy.role).ok;
     if (!security || !served) return serve();
     try {
       security.heavy(req, res, serve);
@@ -175,7 +221,7 @@ export function createExpressApp(o: AppOptions) {
       next(err);
     }
   };
-  const who = (res: Response) => (res.locals.caller as Caller | undefined)?.user.username ?? 'someone';
+  const who = (res: Response) => (res.locals.caller as Identity | undefined)?.name ?? 'someone';
   const heavy = security ? security.heavy : (_req: Request, _res: Response, next: NextFunction) => next();
   const json = express.json({ limit: '1mb' });
 
@@ -191,130 +237,6 @@ export function createExpressApp(o: AppOptions) {
   if (security) {
     api.use(security.apiLimits);
     api.use(['/auth/login', '/auth/password', '/auth/setup'], security.signIn);
-  }
-
-  // ---- signing in ---------------------------------------------------------------------
-  const startSession = (req: Request, res: Response, user: Parameters<Accounts['startSession']>[0]) => {
-    const token = accounts!.startSession(user, req.ip ?? '', req.get('user-agent') ?? '');
-    res.cookie(SESSION_COOKIE, token, { httpOnly: true, sameSite: 'lax', secure: req.secure, maxAge: accounts!.settings.sessionMaxDays * 86_400_000, path: '/' });
-  };
-  api.get('/auth/me', (_req, res) => {
-    const c = res.locals.caller as Caller | undefined;
-    res.json({
-      authEnabled: !!accounts,
-      setupRequired: !!accounts?.setupCode,
-      user: c ? { username: c.user.username, name: c.user.name, role: c.role, via: c.via } : null,
-    });
-  });
-  if (accounts) {
-    api.post('/auth/login', json, async (req, res) => {
-      const input = schemas.login.parse(req.body);
-      const r = await accounts.login(input.username, input.password, req.ip ?? '');
-      if (r.status === 'ok') startSession(req, res, r.user);
-      res.json({ status: r.status });
-    });
-    api.post('/auth/password', json, async (req, res) => {
-      const input = schemas.change.parse(req.body);
-      const user = await accounts.changePassword(input.username, input.currentPassword, input.newPassword, req.ip ?? '');
-      startSession(req, res, user);
-      res.json({ status: 'ok' });
-    });
-    api.post('/auth/setup', json, async (req, res) => {
-      const user = await accounts.setup(schemas.setup.parse(req.body), req.ip ?? '');
-      startSession(req, res, user);
-      res.json({ status: 'ok' });
-    });
-    api.post('/auth/logout', (req, res) => {
-      const token = readCookie(req, SESSION_COOKIE);
-      if (token) accounts.endSession(token);
-      res.clearCookie(SESSION_COOKIE, { path: '/' });
-      res.status(204).end();
-    });
-  }
-
-  // ---- guests ---------------------------------------------------------------------------
-  // The guest page (guest.html, from the QR code): sign in with a name and a phone number or
-  // email, then only the cards listed for sale, their details, value and picture.
-  if (guests) {
-    type SignedInGuest = NonNullable<ReturnType<Guests['identify']>>;
-    const guestOf = (res: Response) => res.locals.guest as SignedInGuest | undefined;
-    const needGuest = (_req: Request, res: Response, next: NextFunction) => {
-      if (!guestOf(res)) throw new HttpError(401, 'Your guest visit ended. Sign in again to keep looking.', 'guest_signin');
-      next();
-    };
-    const usdToCad = () => Number(store.get('settings', 'main')?.usdToCad) || 1;
-    const feed = new GuestFeed(store, usdToCad);
-    api.get('/guest/me', (req, res) => {
-      const g = guestOf(res);
-      const k = typeof req.query.k === 'string' ? req.query.k.slice(0, 100) : '';
-      res.json({
-        open: guests.settings.enabled,
-        keyOk: k ? guests.keyMatches(k) : null,
-        idleMinutes: GUEST_IDLE_MS / 60_000,
-        guest: g ? { name: g.name, contact: g.contact, expiresAt: g.expiresAt } : null,
-      });
-    });
-    api.post('/guest/login', json, (req, res) => {
-      const { token, guest } = guests.login(guestSchemas.login.parse(req.body), req.ip ?? '', req.get('user-agent') ?? '');
-      res.cookie(GUEST_COOKIE, token, { httpOnly: true, sameSite: 'lax', secure: req.secure, path: '/' });
-      res.json({ guest: { name: guest.name, contact: guest.contact } });
-    });
-    api.post('/guest/logout', (req, res) => {
-      const token = readCookie(req, GUEST_COOKIE);
-      if (token) guests.logout(token);
-      res.clearCookie(GUEST_COOKIE, { path: '/' });
-      res.status(204).end();
-    });
-    // The page's "still here": the guest used the page since the last check.
-    api.post('/guest/ping', needGuest, (_req, res) => {
-      res.json({ expiresAt: guestOf(res)!.expiresAt });
-    });
-    api.get('/guest/cards', needGuest, (_req, res) => {
-      res.json({ cards: feed.cards() });
-    });
-    // Live updates: the cards guests see, once on connecting and again whenever that changes (a card
-    // listed, delisted, sold or repriced), until the visit ends.
-    api.get('/guest/events', needGuest, (req, res) => {
-      const release = security ? security.openStream(req, res, guestOf(res)!.id) : () => {};
-      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
-      const token = readCookie(req, GUEST_COOKIE);
-      const stillIn = () => !!guests.identify(token, false);
-      const send = (json: string) => (stillIn() ? res.write(`event: cards\ndata: ${json}\n\n`) : stop());
-      let open = true;
-      const stop = () => {
-        if (!open) return;
-        open = false;
-        clearInterval(heartbeat);
-        unsubscribe();
-        release();
-        res.end();
-      };
-      const unsubscribe = feed.subscribe(send);
-      // A connection that broke is closed (the page reconnects), never left to throw.
-      const heartbeat = setInterval(() => {
-        try {
-          if (stillIn()) res.write(': ping\n\n');
-          else stop();
-        } catch {
-          stop();
-        }
-      }, 25_000);
-      send(feed.current());
-      req.on('close', stop);
-    });
-    api.get('/guest/cards/:id/image', needGuest, (req, res) => {
-      const id = idSchema.safeParse(req.params.id);
-      const card = id.success ? store.get('cards', id.data) : undefined;
-      const img = card && isListed(card) ? shownImage(card) : null;
-      if (!img) throw new HttpError(404, 'No such picture', 'not_found');
-      res.setHeader('Cache-Control', 'private, max-age=3600');
-      // Photos saved before uploads were available are small data: URLs in the card itself.
-      const inline = /^data:(image\/(?:jpeg|png|webp|gif));base64,(.+)$/s.exec(img);
-      if (inline) return void res.type(inline[1]).send(Buffer.from(inline[2], 'base64'));
-      const hit = assets.find(img);
-      if (!hit) throw new HttpError(404, 'No such picture', 'not_found');
-      res.type(hit.type).sendFile(hit.file);
-    });
   }
 
   // ---- errors in the pages themselves --------------------------------------------------
@@ -343,13 +265,14 @@ export function createExpressApp(o: AppOptions) {
     res.status(204).end();
   };
   api.post('/client-error', need('viewer'), express.json({ limit: '16kb' }), (req, res) => pageError(req, res, { user: who(res) }));
-  if (guests) api.post('/guest/client-error', (_req, res, next) => (res.locals.guest ? next() : next(new HttpError(401, 'Please sign in', 'signin'))), express.json({ limit: '16kb' }), (req, res) => pageError(req, res, { guest: true }));
+  if (identifyGuest) api.post('/guest/client-error', (_req, res, next) => (res.locals.guest ? next() : next(new HttpError(401, 'Please sign in', 'signin'))), express.json({ limit: '16kb' }), (req, res) => pageError(req, res, { guest: true }));
 
-  // ---- binders, cards and settings; photos; backups -----------------------------------
-  // Served by the layered code (src/presentation): the ledger itself, sorting binders and moving
-  // cards, photos, full backups and the kept copies. Express still decides who is calling and
-  // applies the rate limits (heavy ones for backups and restores); the routes check what the
-  // caller may do.
+  // ---- signing in, guests, binders, cards and settings, photos, backups ------------------
+  // Served by the layered code (src/presentation): signing in and out, the guest page, people,
+  // sessions, API tokens and guests under Administration, the ledger itself, sorting binders and
+  // moving cards, photos, full backups and the kept copies. Express still runs the request
+  // pipeline (it asks the layered code who is calling, and applies the rate limits, heavy ones for
+  // backups and restores); the routes check what the caller may do.
   api.use(bridge(layered.api));
 
   // Live updates: every change is pushed to every open page, until the session ends.
@@ -357,25 +280,28 @@ export function createExpressApp(o: AppOptions) {
     const release = security ? security.openStream(req, res) : () => {};
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
     res.write('event: hello\ndata: {}\n\n');
-    const token = readCookie(req, SESSION_COOKIE);
-    const bearer = /^Bearer\s+(\S+)$/i.exec(req.get('authorization') ?? '')?.[1];
-    const stillAllowed = () => !accounts || !!accounts.identify(token, bearer);
+    const sent = credentials(req);
+    // Writes go out one at a time and in order, each after checking the session or token still works.
+    let queue = Promise.resolve();
+    const whileAllowed = (write: () => void) => {
+      queue = queue.then(async () => {
+        try {
+          if ((await people.identifyCaller.execute(sent)).identity) write();
+          else stop();
+        } catch {
+          stop();
+        }
+      });
+    };
     const stop = () => {
       clearInterval(heartbeat);
       unsubscribe();
       release();
       res.end();
     };
-    const unsubscribe = store.subscribe((e) => (stillAllowed() ? res.write(`data: ${JSON.stringify(e)}\n\n`) : stop()));
+    const unsubscribe = store.subscribe((e) => whileAllowed(() => res.write(`data: ${JSON.stringify(e)}\n\n`)));
     // A connection that broke is closed (the page reconnects), never left to throw.
-    const heartbeat = setInterval(() => {
-      try {
-        if (stillAllowed()) res.write(': ping\n\n');
-        else stop();
-      } catch {
-        stop();
-      }
-    }, 25_000);
+    const heartbeat = setInterval(() => whileAllowed(() => res.write(': ping\n\n')), 25_000);
     req.on('close', () => {
       clearInterval(heartbeat);
       unsubscribe();
@@ -595,10 +521,6 @@ export function createExpressApp(o: AppOptions) {
   // ---- administration ------------------------------------------------------------------
   const admin = express.Router();
   admin.use(need('admin'));
-  const needAccounts = () => {
-    if (!accounts) throw new HttpError(400, 'Sign-in is turned off on this server (AUTH=off).');
-    return accounts;
-  };
 
   /** The Overview's checks. Without a request (the status file) HTTPS and proxy checks are left out by statusText. */
   const overviewChecks = async (request: { secure: boolean; untrustedProxy: boolean; localRequest: boolean }) => {
@@ -610,9 +532,9 @@ export function createExpressApp(o: AppOptions) {
     return runChecks({
       now: now(),
       ...request,
-      authEnabled: !!accounts,
-      accounts: accounts ? accounts.health() : null,
-      envPasswordStillWorks: accounts ? await accounts.envPasswordStillWorks(o.envPassword) : false,
+      authEnabled: people.health !== null,
+      accounts: people.health ? await people.health.execute() : null,
+      envPasswordStillWorks: people.envPasswordWorks ? await people.envPasswordWorks.execute({ envPassword: o.envPassword }) : false,
       security: { enabled: !!security, bans: sec?.bans.length ?? 0, limited: sec?.stats.limited ?? 0, blocked: sec?.stats.blocked ?? 0, allowlist: sec?.allowlist.length ?? 0 },
       failedSignIns24h: failed,
       backups: await backups.health.execute(),
@@ -630,62 +552,15 @@ export function createExpressApp(o: AppOptions) {
   };
 
   admin.get('/overview', async (req, res) => {
-    const caller = res.locals.caller as Caller;
+    const caller = res.locals.caller as Identity;
     const checks = await overviewChecks({ secure: req.secure, untrustedProxy: !!req.get('x-forwarded-for') && !app.get('trust proxy'), localRequest: LOCAL.test(req.ip ?? '') });
     const all = store.all();
     res.json({
       checks,
-      you: { username: caller.user.username, name: caller.user.name },
+      you: { username: caller.name, name: caller.displayName },
       ledger: { binders: all.binders.length, cards: all.cards.length, ...assets.usage() },
       server: { node: process.version, uptimeHours: Math.round(process.uptime() / 360) / 10, startedAt: new Date(Date.now() - process.uptime() * 1000).toISOString() },
     });
-  });
-
-  // People
-  admin.get('/users', (_req, res) => {
-    res.json({ users: needAccounts().users(), settings: needAccounts().settings });
-  });
-  admin.post('/users', json, async (req, res) => {
-    res.status(201).json(await needAccounts().createUser(schemas.createUser.parse(req.body), who(res)));
-  });
-  admin.patch('/users/:id', json, (req, res) => {
-    res.json(needAccounts().updateUser(String(req.params.id), schemas.updateUser.parse(req.body), who(res)));
-  });
-  admin.post('/users/:id/password', json, async (req, res) => {
-    const input = schemas.setPassword.parse(req.body);
-    res.json(await needAccounts().setPassword(String(req.params.id), input.password, input.mustChange, who(res)));
-  });
-  admin.post('/users/:id/signout', (req, res) => {
-    const n = needAccounts().revokeSessions(String(req.params.id));
-    log.info('admin', `${who(res)} signed a person out of ${n} session${n === 1 ? '' : 's'}`);
-    res.json({ signedOut: n });
-  });
-  admin.delete('/users/:id', (req, res) => {
-    needAccounts().deleteUser(String(req.params.id), who(res));
-    res.status(204).end();
-  });
-  admin.put('/settings', json, (req, res) => {
-    res.json(needAccounts().updateSettings(schemas.settings.parse(req.body), who(res)));
-  });
-
-  // Sessions and API tokens
-  admin.get('/sessions', (_req, res) => {
-    res.json({ sessions: needAccounts().listSessions() });
-  });
-  admin.delete('/sessions/:id', (req, res) => {
-    needAccounts().revokeSession(String(req.params.id));
-    log.info('admin', `${who(res)} ended a session`);
-    res.status(204).end();
-  });
-  admin.get('/tokens', (_req, res) => {
-    res.json({ tokens: needAccounts().tokens() });
-  });
-  admin.post('/tokens', json, (req, res) => {
-    res.status(201).json(needAccounts().createToken(schemas.createToken.parse(req.body), who(res)));
-  });
-  admin.delete('/tokens/:id', (req, res) => {
-    needAccounts().revokeToken(String(req.params.id), who(res));
-    res.status(204).end();
   });
 
   // Price updates
@@ -783,56 +658,6 @@ export function createExpressApp(o: AppOptions) {
     res.json({ unblocked: ok });
   });
 
-  // Guests
-  const needGuests = () => {
-    if (!guests) throw new HttpError(400, 'Guest viewing is not available on this server.');
-    return guests;
-  };
-  /** The QR code's link: next to the Administration page the person has open (base), or this host. */
-  const guestLink = (req: Request, key: string) => {
-    let base = `${req.protocol}://${req.get('host')}/`;
-    const asked = typeof req.query.base === 'string' ? req.query.base : '';
-    try {
-      const u = new URL(asked);
-      if (/^https?:$/.test(u.protocol) && u.host === req.get('host')) base = u.href;
-    } catch {
-      // No base, or not a link: this host.
-    }
-    const u = new URL('guest.html', base);
-    u.searchParams.set('k', key);
-    return u.href;
-  };
-  admin.get('/guests', async (req, res) => {
-    const g = needGuests();
-    const st = g.settings;
-    const url = guestLink(req, st.key);
-    res.json({
-      enabled: st.enabled,
-      keyCreatedAt: st.keyCreatedAt,
-      idleMinutes: GUEST_IDLE_MS / 60_000,
-      url,
-      qr: await QRCode.toString(url, { type: 'svg', errorCorrectionLevel: 'M', margin: 2 }),
-      listed: store.all().cards.filter(isListed).length,
-      active: g.active(),
-      log: g.visits(),
-    });
-  });
-  admin.put('/guests', json, (req, res) => {
-    const { enabled } = guestSchemas.settings.parse(req.body);
-    res.json({ enabled: needGuests().setEnabled(enabled, who(res)).enabled });
-  });
-  admin.post('/guests/key', (_req, res) => {
-    needGuests().newKey(who(res));
-    res.status(204).end();
-  });
-  admin.delete('/guests/sessions/:id', (req, res) => {
-    needGuests().endSession(String(req.params.id), who(res));
-    res.status(204).end();
-  });
-  admin.delete('/guests/log', (_req, res) => {
-    res.json({ removed: needGuests().clearLog(who(res)) });
-  });
-
   // Problems: every warning and error since an administrator last marked them as seen, grouped.
   admin.get('/problems', (req, res) => {
     res.json(problemFeed(log, config.get().problemsSeenAt ?? null, { all: req.query.all === '1' }));
@@ -912,7 +737,7 @@ function requestLog(log: Logger) {
       const isApi = req.path.startsWith('/api/') && req.path !== '/api/health' && req.path !== '/api/events';
       if (!isApi && res.statusCode < 400 && ms < 3000) return;
       const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 && res.statusCode !== 401 && res.statusCode !== 404 ? 'warn' : 'info';
-      const user = (res.locals.caller as Caller | undefined)?.user.username;
+      const user = (res.locals.caller as Identity | undefined)?.name;
       log.log(level, 'http', `${req.method} ${req.path} ${res.statusCode} ${Math.round(ms)} ms`, { id, ip: req.ip, ...(user ? { user } : {}) });
     });
     next();
@@ -963,18 +788,4 @@ function securityHeaders(req: Request, res: Response, next: NextFunction) {
   // The camera is allowed: "Take photo" opens it.
   res.setHeader('Permissions-Policy', 'microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()');
   next();
-}
-
-function readCookie(req: Request, name: string): string | undefined {
-  for (const part of (req.headers.cookie ?? '').split(';')) {
-    const i = part.indexOf('=');
-    if (i > 0 && part.slice(0, i).trim() === name) {
-      try {
-        return decodeURIComponent(part.slice(i + 1).trim());
-      } catch {
-        return undefined;
-      }
-    }
-  }
-  return undefined;
 }

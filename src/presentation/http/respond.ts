@@ -13,9 +13,12 @@ export interface Failure {
   readonly status: number;
   readonly code: string;
   readonly message: string;
+  /** Seconds before trying again is worth it (a lock or a rate limit), sent as Retry-After. */
+  readonly retryAfter?: number;
 }
 
 export function sendFailure(res: ServerResponse, f: Failure): void {
+  if (f.retryAfter) res.setHeader('Retry-After', String(f.retryAfter));
   sendJson(res, f.status, { error: f.message, code: f.code });
 }
 
