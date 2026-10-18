@@ -111,7 +111,7 @@ export function readLedgerCopy(input: unknown): Result<LedgerData, { readonly co
   for (const c of COLLECTIONS) {
     const docs = input[c];
     if (docs === undefined) continue;
-    if (!isRecord(docs)) return err({ code: 'INVALID_DOCUMENT', message: `${c}: Expected an object` });
+    if (!isRecord(docs)) return err({ code: 'INVALID_DOCUMENT', message: 'A document must be a JSON object' });
     for (const [id, doc] of Object.entries(docs)) {
       const checked = checkDocument(c, doc);
       if (!checked.ok) return checked;

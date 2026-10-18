@@ -53,6 +53,6 @@ describe('kept copies of the ledger', () => {
   it('refuse a damaged copy instead of reading it as an empty ledger', () => {
     assert.deepEqual(readLedgerCopy(null), { ok: false, error: { code: 'INVALID_DOCUMENT', message: "That copy of the ledger isn't a JSON object" } });
     assert.deepEqual(readLedgerCopy([]), { ok: false, error: { code: 'INVALID_DOCUMENT', message: "That copy of the ledger isn't a JSON object" } });
-    assert.deepEqual(readLedgerCopy({ cards: 'damaged' }), { ok: false, error: { code: 'INVALID_DOCUMENT', message: 'cards: Expected an object' } });
+    assert.deepEqual(readLedgerCopy({ cards: 'damaged' }), { ok: false, error: { code: 'INVALID_DOCUMENT', message: 'A document must be a JSON object' } });
   });
 });

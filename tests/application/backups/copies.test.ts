@@ -49,7 +49,7 @@ describe('restoring a kept copy', () => {
     copies.files.set('db-2026-10-02.json', { text: '{"cards":"damaged"}', at: new Date(0) });
     const restore = new RestoreCopy(deps);
     assert.equal((await restore.execute({ actor: 'admin', name: 'db-2026-10-01.json' })).ok, false);
-    assert.deepEqual(await restore.execute({ actor: 'admin', name: 'db-2026-10-02.json' }), { ok: false, error: { code: 'INVALID_DOCUMENT', message: 'cards: Expected an object' } });
+    assert.deepEqual(await restore.execute({ actor: 'admin', name: 'db-2026-10-02.json' }), { ok: false, error: { code: 'INVALID_DOCUMENT', message: 'A document must be a JSON object' } });
     assert.deepEqual(Object.keys(ledger.data.cards), ['now']);
     assert.equal(ledger.resets, 0);
   });
