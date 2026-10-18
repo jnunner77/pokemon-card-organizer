@@ -16,7 +16,7 @@ export class UploadPhoto {
     if (!type.ok) return type;
     // The id generator's random ids are photo ids (trust boundary).
     const id = this.#deps.ids.next() as PhotoId;
-    await this.#deps.photos.save(id, type.value, input.bytes);
+    await this.#deps.photos.save(id, input.bytes);
     return ok({ id, type: type.value });
   }
 }

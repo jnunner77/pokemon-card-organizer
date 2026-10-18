@@ -11,7 +11,7 @@ describe('full backups', () => {
   it('download everything with every photo, note when, and restore on another server', async () => {
     const a = setUp();
     const id = photoId(1) as PhotoId;
-    await a.photos.save(id, 'image/jpeg', JPEG);
+    await a.photos.save(id, JPEG);
     a.ledger.data = { binders: { b1: { name: 'IR' } }, cards: { c1: { name: 'Mew', imageId: id } }, settings: { main: { usdToCad: 1.4 } } };
     const { filename, backup } = await new DownloadFullBackup(a.deps).execute({ actor: 'justin' });
     assert.equal(filename, 'binder-ledger-backup-2026-10-18.json');

@@ -81,5 +81,11 @@ async function sendPhoto(req: IncomingMessage, res: ServerResponse, photo: Photo
     res.end();
     return;
   }
-  await pipeline(Readable.from(photo.content), res);
+  try {
+    await pipeline(Readable.from(photo.content), res);
+  } catch (error) {
+    // The browser went away mid-picture (a phone cancelling an image load): nothing went wrong here.
+    if (res.destroyed && !res.writableFinished) return;
+    throw error;
+  }
 }

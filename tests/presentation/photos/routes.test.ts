@@ -5,6 +5,7 @@ import type { PhotoFile } from '#application/photos/ports.ts';
 import { err, ok } from '#shared/result.ts';
 import { photoRoutes, type PhotoRouteDeps } from '#presentation/photos/routes.ts';
 import { combine } from '#presentation/http/router.ts';
+import http from 'node:http';
 import { serve } from '../fixtures.ts';
 
 const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('fake jpeg body')]);
@@ -74,5 +75,44 @@ describe('photo routes', () => {
     assert.deepEqual([head.status, head.headers.get('content-length')], [200, String(JPEG.length)]);
     const missing = await fetch(`${base}/blob/${'d'.repeat(32)}`, as('viewer'));
     assert.deepEqual([missing.status, await missing.text()], [404, '']);
+  });
+
+  it('treat a browser that goes away mid-picture as done, not as an error', async () => {
+    const chunk = Buffer.alloc(64 * 1024, 1);
+    const big = (): PhotoFile => ({
+      type: 'image/jpeg',
+      bytes: chunk.length * 1000,
+      modifiedAt,
+      content: (async function* () {
+        for (let i = 0; i < 1000; i++) {
+          yield chunk;
+          await new Promise((resolve) => setTimeout(resolve, 2));
+        }
+      })(),
+    });
+    const routes = photoRoutes({
+      identify: () => ({ name: 'justin', role: 'viewer' }),
+      uploadPhoto: { execute: async () => assert.fail('not expected to run') },
+      deletePhoto: { execute: async () => assert.fail('not expected to run') },
+      openPhoto: { execute: async () => big() },
+    });
+    const outcome = new Promise<string>((resolve) => {
+      const server = http.createServer((req, res) => {
+        routes.root.handle(req, res).then(
+          () => resolve('finished quietly'),
+          (error: unknown) => resolve(`failed: ${String(error)}`),
+        );
+      });
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address();
+        assert.ok(address && typeof address === 'object');
+        const req = http.get(`http://127.0.0.1:${address.port}/blob/${id}`, (res) => {
+          res.once('data', () => req.destroy());
+        });
+        req.on('error', () => undefined);
+      });
+      setTimeout(() => server.close(), 3000).unref();
+    });
+    assert.equal(await outcome, 'finished quietly');
   });
 });

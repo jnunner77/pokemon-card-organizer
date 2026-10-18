@@ -12,7 +12,7 @@ export class FilePhotoStore implements PhotoStore {
     this.#files = files;
   }
 
-  async save(id: PhotoId, _type: PhotoType, bytes: Uint8Array): Promise<void> {
+  async save(id: PhotoId, bytes: Uint8Array): Promise<void> {
     if (!this.#files.put(bytes, id)) throw new Error(`The photo ${id} couldn't be stored`);
   }
 

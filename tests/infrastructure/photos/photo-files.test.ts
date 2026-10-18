@@ -60,7 +60,7 @@ describe('FilePhotoStore', () => {
     const files = tempFiles();
     const store = new FilePhotoStore(files);
     const id = 'b'.repeat(32) as PhotoId;
-    await store.save(id, 'image/jpeg', JPEG);
+    await store.save(id, JPEG);
     assert.equal(await store.has(id), true);
     assert.deepEqual(await store.list(), [id]);
     assert.deepEqual((await store.read(id))?.bytes, JPEG);

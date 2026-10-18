@@ -29,7 +29,7 @@ describe('restoring a kept copy', () => {
   it('puts it back as the ledger, keeps the current one first, and brings back the photos it needs', async () => {
     const { deps, photos, ledger, copies, logged } = setUp();
     const kept = photoId(1) as PhotoId;
-    await photos.save(kept, 'image/jpeg', JPEG);
+    await photos.save(kept, JPEG);
     await photos.trash(kept);
     copies.files.set('db-2025-01-31.json', { text: JSON.stringify({ cards: { c1: { name: 'Mew', imageId: kept } } }), at: new Date(0) });
     ledger.data = { binders: {}, cards: { now: { name: 'Lapras' } }, settings: {} };

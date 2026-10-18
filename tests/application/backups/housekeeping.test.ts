@@ -33,8 +33,8 @@ describe('Housekeeping', () => {
   it('keeps a trashed photo while the ledger or any kept copy refers to it, however old', async () => {
     const { deps, photos, copies, ledger, prune, logged, setNow } = setUp();
     const [kept, loose] = [photoId(1) as PhotoId, photoId(2) as PhotoId];
-    await photos.save(kept, 'image/jpeg', JPEG);
-    await photos.save(loose, 'image/jpeg', JPEG);
+    await photos.save(kept, JPEG);
+    await photos.save(loose, JPEG);
     // An old monthly copy has a card with the first photo; nothing refers to the second.
     copies.files.set('db-2025-01-31.json', { text: JSON.stringify({ cards: { c1: { imageId: kept } } }), at: new Date(0) });
     await photos.trash(kept);
@@ -61,7 +61,7 @@ describe('Housekeeping', () => {
 
   it('deletes nothing younger than the trash keeps', async () => {
     const { deps, photos, prune } = setUp();
-    await photos.save(photoId(3) as PhotoId, 'image/jpeg', JPEG);
+    await photos.save(photoId(3) as PhotoId, JPEG);
     await photos.trash(photoId(3) as PhotoId);
     assert.equal((await new Housekeeping({ ...deps, prune }).execute()).photosPurged, 0);
   });

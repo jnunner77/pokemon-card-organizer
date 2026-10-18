@@ -17,8 +17,8 @@ export interface PhotoUsage {
 
 /** Where photos are kept, with a trash for deleted ones. */
 export interface PhotoStore {
-  /** Store a photo under its id (one already there goes to the trash first). */
-  save(id: PhotoId, type: PhotoType, bytes: Uint8Array): Promise<void>;
+  /** Store a picture (checked already) under its id; one already there goes to the trash first. */
+  save(id: PhotoId, bytes: Uint8Array): Promise<void>;
   has(id: PhotoId): Promise<boolean>;
   open(id: PhotoId): Promise<PhotoFile | null>;
   read(id: PhotoId): Promise<{ readonly type: PhotoType; readonly bytes: Uint8Array } | null>;

@@ -31,8 +31,8 @@ describe('DeletePhoto', () => {
     const photos = new MemoryPhotoStore();
     const ledgerPhotos = new MemoryLedgerPhotos();
     const [loose, shown] = [photoId(1) as PhotoId, photoId(2) as PhotoId];
-    await photos.save(loose, 'image/jpeg', JPEG);
-    await photos.save(shown, 'image/jpeg', JPEG);
+    await photos.save(loose, JPEG);
+    await photos.save(shown, JPEG);
     ledgerPhotos.ids.add(shown);
     const del = new DeletePhoto({ photos, ledgerPhotos });
     await del.execute({ id: loose });
@@ -46,7 +46,7 @@ describe('DeletePhoto', () => {
 describe('OpenPhoto', () => {
   it('opens a stored photo, and nothing for an unknown or malformed id', async () => {
     const photos = new MemoryPhotoStore();
-    await photos.save(photoId(1) as PhotoId, 'image/jpeg', JPEG);
+    await photos.save(photoId(1) as PhotoId, JPEG);
     const open = new OpenPhoto({ photos });
     const file = await open.execute({ id: photoId(1) });
     assert.equal(file?.type, 'image/jpeg');

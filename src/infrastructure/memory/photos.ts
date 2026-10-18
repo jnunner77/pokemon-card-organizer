@@ -1,5 +1,5 @@
 import type { LedgerPhotos, PhotoFile, PhotoStore, PhotoUsage } from '#application/photos/ports.ts';
-import type { PhotoId, PhotoType } from '#domain/photos/photo.ts';
+import { type PhotoId, type PhotoType, photoType } from '#domain/photos/photo.ts';
 import type { TrashedPhoto } from '#domain/photos/trash.ts';
 
 interface Kept {
@@ -14,7 +14,9 @@ export class MemoryPhotoStore implements PhotoStore {
   readonly trashBin = new Map<string, Kept>();
   now: () => Date = () => new Date(0);
 
-  async save(id: PhotoId, type: PhotoType, bytes: Uint8Array): Promise<void> {
+  async save(id: PhotoId, bytes: Uint8Array): Promise<void> {
+    const type = photoType(bytes);
+    if (!type) throw new Error(`The photo ${id} isn't a picture`);
     await this.#toTrash(id);
     this.stored.set(id, { type, bytes: new Uint8Array(bytes), at: this.now() });
   }

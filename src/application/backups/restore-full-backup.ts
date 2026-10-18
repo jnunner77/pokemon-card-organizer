@@ -1,5 +1,5 @@
 import { checkBackupPhoto, type InvalidBackup, readFullBackup } from '#domain/backups/full-backup.ts';
-import { isPhotoId, type PhotoId, type PhotoType } from '#domain/photos/photo.ts';
+import { isPhotoId, type PhotoId } from '#domain/photos/photo.ts';
 import { err, ok, type Result } from '#shared/result.ts';
 import type { BackupDeps } from './deps.ts';
 
@@ -34,14 +34,14 @@ export class RestoreFullBackup {
       const refused = checkBackupPhoto(p.id, p.bytes);
       if (!refused.ok) return refused;
     }
-    const ready: { id: PhotoId; type: PhotoType; bytes: Uint8Array }[] = [];
+    const ready: { id: PhotoId; bytes: Uint8Array }[] = [];
     for (const p of decoded) {
       const type = checkBackupPhoto(p.id, p.bytes);
       if (!type.ok) return type;
       if (!isPhotoId(p.id)) return err({ code: 'INVALID_BACKUP', message: `assets.${p.id}: Photo ids are 32 hex characters` });
-      ready.push({ id: p.id, type: type.value, bytes: p.bytes });
+      ready.push({ id: p.id, bytes: p.bytes });
     }
-    for (const p of ready) await photos.save(p.id, p.type, p.bytes);
+    for (const p of ready) await photos.save(p.id, p.bytes);
     await ledger.replace(read.value.ledger);
     let missing = 0;
     for (const card of Object.values(read.value.ledger.cards)) {
