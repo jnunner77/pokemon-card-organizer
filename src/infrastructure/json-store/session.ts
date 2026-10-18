@@ -2,8 +2,9 @@ import type { Collection, Fields } from '#domain/ledger/document.ts';
 import type { Change, Doc, Store } from './store.ts';
 
 /**
- * One unit of work's view of the ledger: the store as it was when the work started, with the work's
- * own changes on top. Nothing reaches the store until the session is committed.
+ * One unit of work's view of the ledger: the store as it is while the work runs, with the work's
+ * own changes on top. Nothing reaches the store until the session is committed, and if the store
+ * changed after the work started (see `startedAt`), the unit of work runs the work again instead.
  */
 export class Session {
   readonly #store: Store;

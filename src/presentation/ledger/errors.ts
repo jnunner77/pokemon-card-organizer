@@ -54,6 +54,8 @@ export function arrangeFailure(e: ArrangeBinderError): Failure {
   switch (e.code) {
     case 'BINDER_NOT_FOUND':
       return notFound('That binder no longer exists.');
+    case 'ARRANGEMENT_UNREADABLE':
+      return badRequest('Send each card with its page and pocket.');
     case 'BINDER_IS_CASE':
       return badRequest('A display case has no pages or pockets to arrange.');
     case 'BINDER_CHANGED':

@@ -101,9 +101,7 @@ export function ledgerRoutes(deps: LedgerRouteDeps): Router {
         if (!raw) return;
         const binderId = p['id'] ?? '';
         if (!isDocumentId(binderId)) return sendFailure(res, arrangeFailure({ code: 'BINDER_NOT_FOUND' }));
-        const sort = arrangement(raw.value);
-        if (!sort) return sendFailure(res, badRequest('Send each card with its page and pocket.'));
-        const r = await deps.arrangeBinder.execute({ actor: caller.name, binderId, ...sort });
+        const r = await deps.arrangeBinder.execute({ actor: caller.name, binderId, arrangement: arrangement(raw.value) });
         if (!r.ok) return sendFailure(res, arrangeFailure(r.error));
         const { moved, cards, layoutSaved } = r.value;
         sendJson(res, 200, { moved, cards, ...(layoutSaved !== null ? { layoutSaved } : {}) });

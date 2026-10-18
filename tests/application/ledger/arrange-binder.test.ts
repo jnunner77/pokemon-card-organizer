@@ -15,7 +15,7 @@ const seeded = () => {
 describe('ArrangeBinder', () => {
   it('moves the cards, saves the layout, and logs who sorted it', async () => {
     const { ledger, deps, published, logged } = seeded();
-    const r = await new ArrangeBinder(deps).execute({ actor: 'justin', binderId: 'b1', moves: [{ cardId: 'y', page: 1, slot: 1 }, { cardId: 'x', page: 1, slot: 2 }], saveLayout: true });
+    const r = await new ArrangeBinder(deps).execute({ actor: 'justin', binderId: 'b1', arrangement: { moves: [{ cardId: 'y', page: 1, slot: 1 }, { cardId: 'x', page: 1, slot: 2 }], saveLayout: true } });
     assert.deepEqual(r, { ok: true, value: { moved: 2, cards: 2, layoutSaved: 2 } });
     assert.deepEqual([ledger.tables.cards.get('y')?.['slot'], ledger.tables.cards.get('x')?.['slot']], [1, 2]);
     assert.equal(ledger.tables.cards.get('x')?.['updatedAt'], NOW.toISOString());
@@ -26,7 +26,7 @@ describe('ArrangeBinder', () => {
 
   it('does not touch the binder without saveLayout', async () => {
     const { ledger, deps, logged } = seeded();
-    await new ArrangeBinder(deps).execute({ actor: 'justin', binderId: 'b1', moves: [{ cardId: 'x', page: 1, slot: 1 }, { cardId: 'y', page: 1, slot: 2 }], saveLayout: false });
+    await new ArrangeBinder(deps).execute({ actor: 'justin', binderId: 'b1', arrangement: { moves: [{ cardId: 'x', page: 1, slot: 1 }, { cardId: 'y', page: 1, slot: 2 }], saveLayout: false } });
     assert.equal(ledger.tables.binders.get('b1')?.['layout'], undefined);
     assert.deepEqual(logged, ['justin sorted Trainers: 1 of 2 cards moved']);
   });
@@ -34,9 +34,12 @@ describe('ArrangeBinder', () => {
   it('refuses a binder that is gone or changed, saving and logging nothing', async () => {
     const { ledger, deps, published, logged } = seeded();
     const arrange = new ArrangeBinder(deps);
-    assert.deepEqual(await arrange.execute({ actor: 'j', binderId: 'gone', moves: [], saveLayout: false }), { ok: false, error: { code: 'BINDER_NOT_FOUND' } });
-    assert.deepEqual(await arrange.execute({ actor: 'j', binderId: 'bad id', moves: [], saveLayout: false }), { ok: false, error: { code: 'BINDER_NOT_FOUND' } });
-    assert.deepEqual(await arrange.execute({ actor: 'j', binderId: 'b1', moves: [{ cardId: 'x', page: 2, slot: 1 }], saveLayout: true }), { ok: false, error: { code: 'BINDER_CHANGED' } });
+    assert.deepEqual(await arrange.execute({ actor: 'j', binderId: 'gone', arrangement: { moves: [], saveLayout: false } }), { ok: false, error: { code: 'BINDER_NOT_FOUND' } });
+    assert.deepEqual(await arrange.execute({ actor: 'j', binderId: 'bad id', arrangement: { moves: [], saveLayout: false } }), { ok: false, error: { code: 'BINDER_NOT_FOUND' } });
+    assert.deepEqual(await arrange.execute({ actor: 'j', binderId: 'b1', arrangement: { moves: [{ cardId: 'x', page: 2, slot: 1 }], saveLayout: true } }), { ok: false, error: { code: 'BINDER_CHANGED' } });
+    // A binder that's gone is the first thing to report, before an unreadable arrangement.
+    assert.deepEqual(await arrange.execute({ actor: 'j', binderId: 'gone', arrangement: null }), { ok: false, error: { code: 'BINDER_NOT_FOUND' } });
+    assert.deepEqual(await arrange.execute({ actor: 'j', binderId: 'b1', arrangement: null }), { ok: false, error: { code: 'ARRANGEMENT_UNREADABLE' } });
     assert.equal(ledger.tables.cards.get('x')?.['page'], 1);
     assert.equal(ledger.tables.binders.get('b1')?.['layout'], undefined);
     assert.deepEqual([published, logged], [[], []]);
