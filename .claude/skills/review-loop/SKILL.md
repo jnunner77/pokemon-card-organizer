@@ -1,6 +1,6 @@
 ---
 name: review-loop
-description: Get every pushed change reviewed by the code-reviewer agent (Haiku) against its Boards ticket, fix the feedback and re-review until it passes, and only then open the pull request. Use after every push to a wi/ branch, before opening a pull request, and again after any later push to a branch with an open pull request.
+description: Get every pushed change reviewed by the code-reviewer agent (Haiku) against its Boards ticket, fix the feedback and re-review until it passes, and only then open the pull request and ask GitHub Copilot to review it. Use after every push to a wi/ branch, before opening a pull request, and again after any later push to a branch with an open pull request.
 ---
 
 # Review loop
@@ -10,8 +10,11 @@ Nothing goes up as a pull request until a separate reviewer has passed it. The r
 (Haiku), reads the code against the ticket, and answers `VERDICT: PASS` or
 `VERDICT: CHANGES REQUESTED`.
 
+Once it passes, and only then, GitHub Copilot is asked to review the pull request as a second
+reviewer.
+
 ```
-push ─▶ review ─▶ PASS ─────────────▶ open the pull request
+push ─▶ review ─▶ PASS ─────────────▶ open the pull request ─▶ request Copilot review
           ▲   └─▶ CHANGES REQUESTED ─▶ fix, check, push ─┐
           └──────────────────────────────────────────────┘
 ```
@@ -93,9 +96,29 @@ the description: how many rounds it took and the last verdict, e.g.
 `Reviewed by the code-reviewer agent: PASS on round 2 (round 1: 2 findings, both fixed in abc1234).`
 Then link the pull request on the ticket and comment, as `boards-tickets` step 3 says.
 
+## 5. Ask Copilot to review
+
+Only after a `VERDICT: PASS` with no findings, never while a round has findings open. Once the pull
+request exists, request a review from GitHub Copilot with the GitHub MCP tool
+`mcp__github__request_copilot_review` (load it with ToolSearch if it's deferred), passing
+`owner: "jnunner77"`, `repo: "pokemon-card-organizer"` and the pull request number. Note it in the
+**Code review** section, e.g. `Copilot review requested after the round 2 pass.`
+
+If the request fails (the tool isn't in the session, or Copilot code review isn't enabled on the
+repository), don't hold the pull request back: tell the user what failed and carry on.
+
+Copilot's review arrives as review comments on the pull request. Treat them like the reviewer's
+findings in step 3: check each against the code; fix the real ones, then put the fix through
+steps 2–3 (it's a later push, below); answer the wrong ones on their thread with the reason; give
+out-of-scope ones their own Boards ticket, mention it to the user and name the AB# on the thread.
+
+Step 3's stop rules cover Copilot too: stop and ask the user if it repeats a finding you answered
+with evidence, or after five Copilot reviews on the same pull request.
+
 ## Later pushes
 
 Every later push to the branch (review comments, CI fixes, a merge of `main`) goes through steps 2–3
 again: review it before or right after pushing, and fix and re-review until it passes before you
-report the pull request ready or ask for its review. Note the new round in the pull request's
-**Code review** section.
+report the pull request ready or ask for its review. Once that round passes, request Copilot's
+review again (step 5), so it reads the branch as it is now; never request it for a push whose round
+hasn't passed. Note the new round in the pull request's **Code review** section.
