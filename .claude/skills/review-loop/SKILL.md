@@ -107,9 +107,13 @@ request exists, request a review from GitHub Copilot with the GitHub MCP tool
 If the request fails (the tool isn't in the session, or Copilot code review isn't enabled on the
 repository), don't hold the pull request back: tell the user what failed and carry on.
 
-Copilot's review arrives as review comments on the pull request. Treat them like any other review
-bot's findings: check each against the code; fix the real ones, then put the fix through steps 2–3
-(it's a later push, below); answer the wrong or out-of-scope ones on their thread with the reason.
+Copilot's review arrives as review comments on the pull request. Treat them like the reviewer's
+findings in step 3: check each against the code; fix the real ones, then put the fix through
+steps 2–3 (it's a later push, below); answer the wrong ones on their thread with the reason; give
+out-of-scope ones their own Boards ticket, mention it to the user and name the AB# on the thread.
+
+Step 3's stop rules cover Copilot too: stop and ask the user if it repeats a finding you answered
+with evidence, or after five Copilot reviews on the same pull request.
 
 ## Later pushes
 
