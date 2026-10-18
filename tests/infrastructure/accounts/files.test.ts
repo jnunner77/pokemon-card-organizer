@@ -102,3 +102,32 @@ describe('NodeSecrets', () => {
     assert.equal(s.same('ABC', 'ABCD'), false);
   });
 });
+
+describe('FileSessionStore when sessions.json cannot be written', () => {
+  const session = { id: 's1', hash: 'h1', userId: 'u1', createdAt: 1, lastSeen: 1, ip: '', agent: '' };
+  const blockWrites = (dir: string) => fs.mkdirSync(path.join(dir, `sessions.json.${process.pid}.tmp`));
+  const allowWrites = (dir: string) => fs.rmdirSync(path.join(dir, `sessions.json.${process.pid}.tmp`));
+
+  it('keeps a signed-out session out after a retry and a restart', async () => {
+    const dir = tempDir();
+    const sessions = new FileSessionStore(dir, () => {});
+    await sessions.add(session);
+    blockWrites(dir);
+    await assert.rejects(sessions.remove((s) => s.userId === 'u1'));
+    assert.equal((await sessions.list()).length, 1);
+    allowWrites(dir);
+    assert.equal(await sessions.remove((s) => s.userId === 'u1'), 1);
+    assert.deepEqual(await new FileSessionStore(dir, () => {}).list(), []);
+  });
+
+  it('never keeps a session whose start could not be saved', async () => {
+    const dir = tempDir();
+    const sessions = new FileSessionStore(dir, () => {});
+    blockWrites(dir);
+    await assert.rejects(sessions.add(session));
+    assert.equal(await sessions.find('h1'), undefined);
+    allowWrites(dir);
+    await sessions.add({ ...session, id: 's2', hash: 'h2' });
+    assert.deepEqual((await new FileSessionStore(dir, () => {}).list()).map((s) => s.id), ['s2']);
+  });
+});

@@ -8,9 +8,12 @@ import { writePrivate } from '../private-file.ts';
 // Sessions in <data>/sessions.json (readable only by the server), so signing in survives
 // restarts. Like auth.json, it never reaches the ledger's copies or full backup downloads.
 
+// Sessions are saved before a change is kept in memory: a write that fails changes nothing, so
+// trying again saves it (a signed-out session never comes back after a restart).
+
 export class FileSessionStore implements SessionStore {
   readonly #file: string;
-  readonly #sessions = new Map<string, Session>();
+  #sessions = new Map<string, Session>();
   #dirty = false;
 
   /** A damaged sessions.json is set aside and reported: everyone signs in again. */
@@ -21,8 +24,10 @@ export class FileSessionStore implements SessionStore {
     for (const s of saved?.sessions ?? []) this.#sessions.set(s.hash, s);
   }
 
-  #save(): void {
-    writePrivate(this.#file, JSON.stringify({ sessions: [...this.#sessions.values()] }));
+  /** Write these sessions, then keep them. */
+  #save(sessions: Map<string, Session>): void {
+    writePrivate(this.#file, JSON.stringify({ sessions: [...sessions.values()] }));
+    this.#sessions = sessions;
     this.#dirty = false;
   }
 
@@ -35,8 +40,9 @@ export class FileSessionStore implements SessionStore {
   }
 
   async add(session: Session): Promise<void> {
-    this.#sessions.set(session.hash, session);
-    this.#save();
+    const next = new Map(this.#sessions);
+    next.set(session.hash, session);
+    this.#save(next);
   }
 
   async touch(hash: string, lastSeen: number): Promise<void> {
@@ -47,13 +53,14 @@ export class FileSessionStore implements SessionStore {
   }
 
   async remove(which: (session: Session) => boolean): Promise<number> {
+    const next = new Map(this.#sessions);
     let n = 0;
-    for (const [hash, s] of this.#sessions) if (which(s) && this.#sessions.delete(hash)) n++;
-    if (n) this.#save();
+    for (const [hash, s] of next) if (which(s) && next.delete(hash)) n++;
+    if (n) this.#save(next);
     return n;
   }
 
   async flush(): Promise<void> {
-    if (this.#dirty) this.#save();
+    if (this.#dirty) this.#save(this.#sessions);
   }
 }
