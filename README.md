@@ -823,6 +823,8 @@ To restore without a browser, stop the app and run `npm run import-backup -- bac
 npm run dev          # restarts on changes
 npm run typecheck    # tsc -b: also refuses an import that breaks the layers (below)
 npm test             # node:test suites for each layer, then the older vitest suites
+npm run test:unit    # only the node:test suites (fast)
+npm run check        # typecheck and test together
 DATA_DIR=$(mktemp -d) AUTH=off PRICE_UPDATES=off npm start &
 BASE_URL=http://localhost:4100/ npm run test:e2e    # browser smoke test
 ```
@@ -853,8 +855,8 @@ in `src/` is its own TypeScript project that may only import the layers inside i
   (`memory/`).
 - `src/presentation/`: the ledger's routes (`ledger/routes.ts`) on `node:http`, with hand-written
   checks of each request and an exhaustive switch from error codes to HTTP statuses.
-- `src/compose.ts` wires it together (the only file that knows the concrete classes);
-  `src/main.ts` starts the server.
+- `src/compose.ts` wires the layers together and `src/main.ts` starts the server, building the
+  store and the rest it hands over: they are the only files that know the concrete classes.
 
 Everything else still runs on the Express code in `server/`, which hands the ledger's routes to the
 layered code, and moves into the layers one slice at a time:

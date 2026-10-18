@@ -53,7 +53,8 @@ confirmed on the live binder.
   - `infrastructure/`: adapters that implement the ports, and in-memory ones for tests.
     `presentation/`: `node:http` routes with hand-written parsers, and an exhaustive switch (ending
     in `assertNever`) from error codes to HTTP statuses.
-  - `src/compose.ts` is the only place that knows the concrete classes.
+  - `src/compose.ts` (wiring the layers) and `src/main.ts` (starting the server) are the only
+    places that know the concrete classes.
 - Every change the layered routes make (the ledger's documents, price entries, sorting a binder,
   moving cards) runs as one unit of work (`StoreUnitOfWork`), so it is checked, saved and sent to
   open pages, or not applied at all. The Express code still writes to the store directly until its
