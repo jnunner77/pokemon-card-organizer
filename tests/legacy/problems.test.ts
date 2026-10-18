@@ -5,12 +5,12 @@ import vm from 'node:vm';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Accounts } from '../../server/accounts.ts';
-import { createApp } from '../../server/app.ts';
+import { createApp } from '../../src/compose.ts';
 import { Assets } from '../../server/assets.ts';
 import { Config } from '../../server/config.ts';
 import { Logger } from '../../server/log.ts';
 import { groupProblems, problemFeed, problemKey } from '../../server/problems.ts';
-import { Store } from '../../server/store.ts';
+import { Store } from '../../src/infrastructure/json-store/store.ts';
 
 // Every warning and error in the app, for the problems banner: grouped, since they were last
 // marked as seen, kept across a restart; and errors in the pages reported to the server.

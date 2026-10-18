@@ -5,7 +5,7 @@ import path from 'node:path';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Accounts } from '../../server/accounts.ts';
-import { createApp } from '../../server/app.ts';
+import { createApp } from '../../src/compose.ts';
 import { Assets } from '../../server/assets.ts';
 import { Backups, isoWeek, retain } from '../../server/backups.ts';
 import { Config } from '../../server/config.ts';
@@ -16,7 +16,7 @@ import { PriceUpdater } from '../../server/pricing/updater.ts';
 import { Security } from '../../server/security.ts';
 import { DETAILS_VERSION } from '../../server/details.ts';
 import { cardsNeedingAttention } from '../../server/status.ts';
-import { Store } from '../../server/store.ts';
+import { Store } from '../../src/infrastructure/json-store/store.ts';
 
 retryPolicy.baseMs = 1;
 const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('a photo')]);

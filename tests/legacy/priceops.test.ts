@@ -4,10 +4,9 @@ import path from 'node:path';
 import vm from 'node:vm';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createApp } from '../../server/app.ts';
+import { createApp } from '../../src/compose.ts';
 import { Assets } from '../../server/assets.ts';
-import { applyPriceOps } from '../../server/priceops.ts';
-import { Store } from '../../server/store.ts';
+import { Store } from '../../src/infrastructure/json-store/store.ts';
 
 // public/priceops.js is a plain browser script; load it the way the page does.
 type Entry = Record<string, unknown> & { id: string };
@@ -28,19 +27,7 @@ describe('price entries changed by id', () => {
     expect(plain(diff([a, b], [b]))).toEqual({ add: [], update: [], remove: ['a'] });
     expect(plain(diff([], []))).toEqual({ add: [], update: [], remove: [] });
   });
-
-  it('applies them to the list the server has now, keeping what was added meanwhile', () => {
-    const a = entry('a'), b = entry('b');
-    // The page read [a, b]; the daily update has added its entry since.
-    const now = [a, b, daily];
-    expect(applyPriceOps(now, { add: [entry('c')] })).toEqual([a, b, daily, entry('c')]);
-    expect(applyPriceOps(now, { remove: ['a'] })).toEqual([b, daily]);
-    expect(applyPriceOps(now, { update: [{ ...b, amount: 30 }] })).toEqual([a, { ...b, amount: 30 }, daily]);
-    // An entry already there isn't added twice; one already gone is fine to remove.
-    expect(applyPriceOps(now, { add: [a], remove: ['gone'] })).toEqual(now);
-    // Changing an entry removed meanwhile would bring it back: refused.
-    expect(() => applyPriceOps(now, { update: [entry('gone')] })).toThrow(/changed or removed meanwhile/);
-  });
+  // Applying them to the card's list is a domain rule now: tests/domain/cards/price-entries.test.ts.
 });
 
 describe('POST /api/cards/:id/prices', () => {

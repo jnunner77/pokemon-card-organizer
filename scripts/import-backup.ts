@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Assets } from '../server/assets.ts';
 import { restoreBackup } from '../server/backup.ts';
-import { Store } from '../server/store.ts';
+import { Store } from '#infrastructure/json-store/store.ts';
 
 const file = process.argv[2];
 if (!file) {

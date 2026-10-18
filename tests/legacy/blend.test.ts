@@ -61,7 +61,7 @@ describe('rebuilding past daily prices', () => {
   // Loaded here so the vm-loaded blend above stays independent of the server modules.
   const setup = async () => {
     const os = await import('node:os');
-    const { Store } = await import('../../server/store.ts');
+    const { Store } = await import('../../src/infrastructure/json-store/store.ts');
     const { Assets } = await import('../../server/assets.ts');
     const { Config } = await import('../../server/config.ts');
     const { PriceUpdater } = await import('../../server/pricing/updater.ts');
@@ -117,7 +117,7 @@ describe('rebuilding past daily prices', () => {
 
   it('is set and run by administrators, with a copy of the ledger first', async () => {
     const request = (await import('supertest')).default;
-    const { createApp } = await import('../../server/app.ts');
+    const { createApp } = await import('../../src/compose.ts');
     const { Backups } = await import('../../server/backups.ts');
     const { Logger } = await import('../../server/log.ts');
     const { dir, store, config, u } = await setup();

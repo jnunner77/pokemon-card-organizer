@@ -3,13 +3,13 @@ import os from 'node:os';
 import path from 'node:path';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createApp } from '../../server/app.ts';
+import { createApp } from '../../src/compose.ts';
 import { Assets } from '../../server/assets.ts';
 import { Autofill } from '../../server/autofill.ts';
 import { CardDetails, DETAILS_VERSION, mapRarity, similarity } from '../../server/details.ts';
 import type { PriceUpdater } from '../../server/pricing/updater.ts';
 import { type Fetcher, retryPolicy } from '../../server/pricing/sources.ts';
-import { Store } from '../../server/store.ts';
+import { Store } from '../../src/infrastructure/json-store/store.ts';
 
 retryPolicy.baseMs = 1;
 

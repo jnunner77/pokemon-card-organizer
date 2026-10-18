@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createApp } from '../../server/app.ts';
+import { createApp } from '../../src/compose.ts';
 import { Assets } from '../../server/assets.ts';
 import { CardDetails } from '../../server/details.ts';
 import { CardLookup, variantText } from '../../server/lookup.ts';
@@ -12,7 +12,7 @@ import { parseProduct } from '../../server/pricing/pricecharting.ts';
 import { type Fetcher, retryPolicy } from '../../server/pricing/sources.ts';
 import type { TcgCsvCard } from '../../server/pricing/tcgcsv.ts';
 import type { PriceUpdater } from '../../server/pricing/updater.ts';
-import { Store } from '../../server/store.ts';
+import { Store } from '../../src/infrastructure/json-store/store.ts';
 
 retryPolicy.baseMs = 1;
 

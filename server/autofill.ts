@@ -13,7 +13,7 @@ import { type Logger, quietLogger } from './log.ts';
 import { safely } from './recover.ts';
 import type { PriceUpdater } from './pricing/updater.ts';
 import type { Doc } from './schema.ts';
-import type { Store } from './store.ts';
+import type { Store } from '#infrastructure/json-store/store.ts';
 
 export interface AutofillOptions {
   store: Store;

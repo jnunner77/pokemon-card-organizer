@@ -6,7 +6,7 @@
 
 import { type Fetcher, SourceError, get } from './pricing/sources.ts';
 import type { Doc } from './schema.ts';
-import type { Store } from './store.ts';
+import type { Store } from '#infrastructure/json-store/store.ts';
 
 const API = 'https://api.tcgdex.net/v2/en';
 

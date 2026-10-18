@@ -3,14 +3,14 @@ import os from 'node:os';
 import path from 'node:path';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createApp } from '../../server/app.ts';
+import { createApp } from '../../src/compose.ts';
 import { Assets } from '../../server/assets.ts';
 import { CardDetails, DETAILS_VERSION } from '../../server/details.ts';
 import { MasterSets, groupOf, isExtra, placeholderCards, subGroupsOf, tcgVariant, variantText } from '../../server/masterset.ts';
 import { type TcgdexCard, chooseVariant } from '../../server/pricing/catalog.ts';
 import { type Fetcher, retryPolicy } from '../../server/pricing/sources.ts';
 import { TcgCsv, type TcgGroup } from '../../server/pricing/tcgcsv.ts';
-import { Store } from '../../server/store.ts';
+import { Store } from '../../src/infrastructure/json-store/store.ts';
 
 retryPolicy.baseMs = 1;
 

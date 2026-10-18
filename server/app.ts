@@ -4,6 +4,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import QRCode from 'qrcode';
+import type { Caller as LayeredCaller } from '#application/access.ts';
+import type { ActivityLog } from '#application/ports.ts';
+import type { CallerResolver } from '#presentation/http/caller.ts';
+import type { Router } from '#presentation/http/router.ts';
 import { z } from 'zod';
 import { type Accounts, type Caller, type Role, SESSION_COOKIE, atLeast, schemas } from './accounts.ts';
 import { Assets, MAX_IMAGE_BYTES } from './assets.ts';
@@ -17,22 +21,26 @@ import { GUEST_COOKIE, GUEST_IDLE_MS, GuestFeed, type Guests, guestSchemas, isLi
 import { CATEGORIES, LEVELS, type Logger, quietLogger } from './log.ts';
 import { CardLookup } from './lookup.ts';
 import { MasterSets, placeholderCards } from './masterset.ts';
-import { applyPriceOps } from './priceops.ts';
 import type { TcgCsv } from './pricing/tcgcsv.ts';
 import { NoToken, type PriceCharting } from './pricing/pricecharting.ts';
 import { Refused, SourceError } from './pricing/sources.ts';
 import type { PriceUpdater, RunProblem, RunSummary } from './pricing/updater.ts';
 import { problemFeed } from './problems.ts';
-import { InvalidDoc, collectionSchema, idSchema, validateDoc } from './schema.ts';
+import { InvalidDoc, idSchema, validateDoc } from './schema.ts';
 import { HttpError, MUTATING, type Security } from './security.ts';
 import type { Secret } from './secrets.ts';
 import { cardsNeedingAttention, readOffsite, statusText, writeStatus } from './status.ts';
-import { NotFound, SaveFailed, type Store } from './store.ts';
+import { NotFound, SaveFailed, type Store } from '#infrastructure/json-store/store.ts';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+/** Routes served by the layered code (src/), relative to /api. */
+export type LayeredRoutes = Pick<Router, 'handle' | 'owns'>;
+
 export interface AppOptions {
   store: Store;
+  /** Builds the layered routes, given how to tell who is calling and where activity is logged. */
+  layeredRoutes: (context: { identify: CallerResolver; activity: ActivityLog }) => LayeredRoutes;
   assets: Assets;
   /** The pages, styles and scripts. Defaults to ./public. */
   publicDir?: string | undefined;
@@ -64,8 +72,6 @@ export interface AppOptions {
 
 /** Largest restore upload. The reverse proxy may cap it lower; `npm run import-backup` has no cap. */
 const RESTORE_LIMIT = '200mb';
-/** Settings documents the page may write; the rest are the server's own. */
-const WRITABLE_SETTINGS = new Set(['main']);
 /**
  * Anyone may load these: the sign-in page and what it needs, and the guest page (whose API checks
  * for a signed-in guest itself).
@@ -74,7 +80,7 @@ const PUBLIC = [/^\/login\.(html|js)$/, /^\/styles\.css$/, /^\/icon\.svg$/, /^\/
 const PAGES = new Set(['/', '/index.html', '/admin.html']);
 const LOCAL = /^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/;
 
-export function createApp(o: AppOptions) {
+export function createExpressApp(o: AppOptions) {
   const { store, assets, publicDir = path.join(root, 'public'), trustProxy, updater, accounts, security, guests } = o;
   const log = o.log ?? quietLogger();
   const config = o.config ?? new Config(store.dataDir);
@@ -309,153 +315,17 @@ export function createApp(o: AppOptions) {
   if (guests) api.post('/guest/client-error', (_req, res, next) => (res.locals.guest ? next() : next(new HttpError(401, 'Please sign in', 'signin'))), express.json({ limit: '16kb' }), (req, res) => pageError(req, res, { guest: true }));
 
   // ---- binders, cards and settings ----------------------------------------------------
-  api.get('/data', need('viewer'), (_req, res) => {
-    res.json(store.all());
-  });
-
-  const docParams = (req: Request) => {
-    const c = collectionSchema.safeParse(req.params.collection);
-    const id = idSchema.safeParse(req.params.id);
-    if (!c.success) throw new HttpError(404, 'No such collection', 'not_found');
-    if (!id.success) throw new HttpError(400, id.error.issues[0].message);
-    if (c.data === 'settings' && !WRITABLE_SETTINGS.has(id.data)) throw new HttpError(403, 'That setting belongs to the server.', 'forbidden');
-    return { collection: c.data, id: id.data };
-  };
-  api.put('/docs/:collection/:id', need('editor'), json, (req, res) => {
-    const { collection, id } = docParams(req);
-    res.json({ id, ...store.set(collection, id, req.body) });
-  });
-  api.patch('/docs/:collection/:id', need('editor'), json, (req, res) => {
-    const { collection, id } = docParams(req);
-    res.json({ id, ...store.update(collection, id, req.body) });
-  });
-  api.delete('/docs/:collection/:id', need('editor'), (req, res) => {
-    const { collection, id } = docParams(req);
-    store.delete(collection, id);
-    res.status(204).end();
-  });
-
-  // A card's price entries added, changed or removed by id (priceops.ts), with other fields that
-  // change with them (a sale's status and location). Applied to the server's list as it is now,
-  // so an entry the daily update or someone else added meanwhile is kept.
-  const priceEntry = z.looseObject({ id: z.string().min(1).max(64) });
-  const priceOpsBody = z
-    .object({
-      add: z.array(priceEntry).max(2000).optional(),
-      update: z.array(priceEntry).max(2000).optional(),
-      remove: z.array(z.string().min(1).max(64)).max(2000).optional(),
-      fields: z.record(z.string(), z.unknown()).optional(),
-    })
-    .strict();
-  api.post('/cards/:id/prices', need('editor'), json, (req, res) => {
-    const id = idSchema.safeParse(req.params.id);
-    if (!id.success) throw new HttpError(400, id.error.issues[0].message);
-    const body = priceOpsBody.safeParse(req.body);
-    if (!body.success) throw new HttpError(400, 'Send the price entries to add, change or remove.');
-    const { fields = {}, ...ops } = body.data;
-    if ('prices' in fields || 'id' in fields) throw new HttpError(400, 'Price entries are sent as add, update and remove.');
-    const card = store.get('cards', id.data);
-    if (!card) throw new HttpError(404, 'That card no longer exists.', 'not_found');
-    res.json({ id: id.data, ...store.update('cards', id.data, { ...fields, prices: applyPriceOps(card.prices, ops) }) });
-  });
-
-  // Sort a binder: the page puts its cards in an order (release date, price) and sends where each
-  // one goes. Saved all together, and only if it still covers every card in the binder exactly
-  // once, so nothing ends up doubled in a pocket or left behind. Undo sends the old places back.
-  // With saveLayout, where the cards are now is kept on the binder too (its own layout), so the
-  // page can put them back after sorting by release date or price.
-  const arrangeBody = z.object({
-    moves: z.array(z.object({ id: idSchema, page: z.number().int().min(1).max(100_000), slot: z.number().int().min(1).max(64) })).max(5000),
-    saveLayout: z.boolean().optional(),
-  });
-  api.post('/binders/:id/arrange', need('editor'), json, (req, res) => {
-    const id = idSchema.safeParse(req.params.id);
-    const binder = id.success ? store.get('binders', id.data) : undefined;
-    if (!id.success || !binder) throw new HttpError(404, 'That binder no longer exists.', 'not_found');
-    const body = arrangeBody.safeParse(req.body);
-    if (!body.success) throw new HttpError(400, 'Send each card with its page and pocket.');
-    if (binder.kind === 'case') throw new HttpError(400, 'A display case has no pages or pockets to arrange.');
-    const pockets = [4, 9, 12, 16].includes(binder.pockets as number) ? (binder.pockets as number) : 9;
-    const inBinder = store.all().cards.filter((c) => (c as { binderId?: unknown }).binderId === id.data);
-    const ids = new Set(body.data.moves.map((m) => m.id));
-    const places = new Set(body.data.moves.map((m) => `${m.page}/${m.slot}`));
-    if (ids.size !== body.data.moves.length || ids.size !== inBinder.length || inBinder.some((c) => !ids.has(c.id))) {
-      throw new HttpError(409, 'The binder changed meanwhile (a card was added, moved or removed), so nothing moved. Try again.', 'conflict');
-    }
-    if (places.size !== ids.size) throw new HttpError(400, 'Two cards were given the same pocket.');
-    if (body.data.moves.some((m) => m.slot > pockets)) throw new HttpError(400, `This binder's pages have ${pockets} pockets.`);
-    const now = new Date().toISOString();
-    const patches = body.data.moves
-      .filter((m) => { const c = store.get('cards', m.id)!; return c.page !== m.page || c.slot !== m.slot; })
-      .map((m) => ({ id: m.id, patch: { page: m.page, slot: m.slot, updatedAt: now } }));
-    let layout: { savedAt: string; places: { id: string; page: number; slot: number }[] } | undefined;
-    if (body.data.saveLayout) {
-      const fits = (v: unknown, max: number): v is number => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= max;
-      const kept = inBinder
-        .map((c) => ({ id: c.id, page: (c as { page?: unknown }).page, slot: (c as { slot?: unknown }).slot }))
-        .filter((c): c is { id: string; page: number; slot: number } => fits(c.page, 100_000) && fits(c.slot, pockets));
-      layout = { savedAt: now, places: kept };
-    }
-    const moved = store.updateMany('cards', patches);
-    if (layout) store.update('binders', id.data, { layout });
-    log.info('app', `${who(res)} sorted ${String(binder.name ?? 'a binder')}: ${moved} of ${ids.size} cards moved${layout ? ', layout saved' : ''}`);
-    res.json({ moved, cards: ids.size, ...(layout ? { layoutSaved: layout.places.length } : {}) });
-  });
-
-  // Move cards to another binder (or anywhere): each card goes to the binder, page and pocket
-  // given, all together. The pockets they leave stay empty. Refused if a card would land in a
-  // pocket another card is in afterwards (one added or moved meanwhile). Undo sends the old places.
-  // A display case has no pockets: cards go in it with a blank page and pocket.
-  const placeBody = z.object({
-    moves: z
-      .array(
-        z.union([
-          z.object({ id: idSchema, binderId: idSchema, page: z.number().int().min(1).max(100_000), slot: z.number().int().min(1).max(64) }),
-          z.object({ id: idSchema, binderId: idSchema.nullable(), page: z.null(), slot: z.null() }),
-        ]),
-      )
-      .min(1)
-      .max(5000),
-  });
-  api.post('/cards/place', need('editor'), json, (req, res) => {
-    const body = placeBody.safeParse(req.body);
-    if (!body.success) throw new HttpError(400, 'Send each card with its binder, page and pocket.');
-    const moves = body.data.moves;
-    if (new Set(moves.map((m) => m.id)).size !== moves.length) throw new HttpError(400, 'A card was given twice.');
-    const missing = moves.find((m) => !store.get('cards', m.id));
-    if (missing) throw new HttpError(409, 'A card was deleted meanwhile, so nothing moved. Try again.', 'conflict');
-    const binderOf = (bid: string) => {
-      const b = store.get('binders', bid);
-      if (!b) throw new HttpError(409, 'That binder no longer exists, so nothing moved.', 'conflict');
-      return b;
-    };
-    for (const m of moves) {
-      if (!m.binderId) continue;
-      const b = binderOf(m.binderId);
-      if (b.kind === 'case') {
-        if (m.page !== null) throw new HttpError(400, `${String(b.name ?? 'That display case')} is a display case: it has no pages or pockets.`);
-        continue;
-      }
-      if (m.page === null) throw new HttpError(400, 'Choose a page and pocket in that binder.');
-      const pockets = [4, 9, 12, 16].includes(b.pockets as number) ? (b.pockets as number) : 9;
-      if (m.slot! > pockets) throw new HttpError(400, 'That pocket is past the end of the page.');
-    }
-    // Each card lands in a pocket no other card is in once this is done (the ones moving away free theirs).
-    const ids = new Set(moves.map((m) => m.id));
-    const key = (at: Record<string, unknown>) => `${String(at.binderId)}/${String(at.page)}/${String(at.slot)}`;
-    const taken = new Set(store.all().cards.filter((c) => !ids.has(c.id)).map(key));
-    for (const m of moves) {
-      if (!m.binderId || m.page === null) continue;
-      if (taken.has(key(m))) throw new HttpError(409, 'A pocket was filled meanwhile, so nothing moved. Try again.', 'conflict');
-      taken.add(key(m));
-    }
-    const now = new Date().toISOString();
-    const patches = moves
-      .filter((m) => { const c = store.get('cards', m.id)!; return (c.binderId ?? null) !== m.binderId || (c.page ?? null) !== m.page || (c.slot ?? null) !== m.slot; })
-      .map(({ id, ...at }) => ({ id, patch: { ...at, updatedAt: now } }));
-    const moved = store.updateMany('cards', patches);
-    log.info('app', `${who(res)} moved ${moved} card${moved === 1 ? '' : 's'}`);
-    res.json({ moved });
+  // Served by the layered code (src/presentation/ledger): the ledger itself, sorting binders and
+  // moving cards. Express still decides who is calling; the routes check what they may do.
+  const callers = new WeakMap<Request, LayeredCaller | null>();
+  const layered = o.layeredRoutes({ identify: (req) => callers.get(req as Request) ?? null, activity: { info: (message) => log.info('app', message) } });
+  api.use((req, res, next) => {
+    if (!layered.owns(req.method, req.path)) return next();
+    const caller = res.locals.caller as Caller | undefined;
+    callers.set(req, caller ? { name: caller.user.username, role: caller.role } : null);
+    layered.handle(req, res).then((handled) => {
+      if (!handled) next();
+    }, next);
   });
 
   // Live updates: every change is pushed to every open page, until the session ends.

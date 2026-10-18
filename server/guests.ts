@@ -8,7 +8,7 @@ import type { Logger } from './log.ts';
 import { damagedMessage, every, readJson } from './recover.ts';
 import type { Doc } from './schema.ts';
 import { HttpError } from './security.ts';
-import type { Event, Store } from './store.ts';
+import type { Event, Store } from '#infrastructure/json-store/store.ts';
 
 // Guests: people who scan the QR code at the table and look through the cards listed for sale,
 // without an account.

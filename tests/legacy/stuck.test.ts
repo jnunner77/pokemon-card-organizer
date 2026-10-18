@@ -3,14 +3,14 @@ import os from 'node:os';
 import path from 'node:path';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createApp } from '../../server/app.ts';
+import { createApp } from '../../src/compose.ts';
 import { Assets } from '../../server/assets.ts';
 import { Config } from '../../server/config.ts';
 import { Logger } from '../../server/log.ts';
 import { PriceCharting } from '../../server/pricing/pricecharting.ts';
 import { type Fetcher, retryPolicy } from '../../server/pricing/sources.ts';
 import { PriceUpdater, type RunProblem, type RunSummary } from '../../server/pricing/updater.ts';
-import { Store } from '../../server/store.ts';
+import { Store } from '../../src/infrastructure/json-store/store.ts';
 
 // A price update that the server's restart cut short, that crashed it, or that stopped making
 // progress: it's written down (a red banner, with the run's log) and can start again.

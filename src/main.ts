@@ -1,23 +1,24 @@
 // Starts the binder server. Configuration comes from the environment (see deploy/README.md).
 
 import path from 'node:path';
+import { LocalEventBus } from '#infrastructure/local-event-bus.ts';
+import { Store } from '#infrastructure/json-store/store.ts';
 import { Accounts } from '../server/accounts.ts';
-import { createApp } from './compose.ts';
 import { Assets } from '../server/assets.ts';
 import { Autofill } from '../server/autofill.ts';
 import { Backups } from '../server/backups.ts';
-import { Config } from '../server/config.ts';
 import { CardDetails } from '../server/details.ts';
+import { Catalog } from '../server/pricing/catalog.ts';
+import { Config } from '../server/config.ts';
 import { Guests } from '../server/guests.ts';
 import { Logger } from '../server/log.ts';
-import { every } from '../server/recover.ts';
-import { Catalog } from '../server/pricing/catalog.ts';
-import { TcgCsv } from '../server/pricing/tcgcsv.ts';
 import { PriceCharting } from '../server/pricing/pricecharting.ts';
 import { PriceUpdater } from '../server/pricing/updater.ts';
 import { Secret } from '../server/secrets.ts';
 import { Security } from '../server/security.ts';
-import { Store } from '../server/store.ts';
+import { TcgCsv } from '../server/pricing/tcgcsv.ts';
+import { every } from '../server/recover.ts';
+import { createApp } from './compose.ts';
 
 const env = process.env;
 const dataDir = path.resolve(env['DATA_DIR'] ?? 'data');
@@ -91,7 +92,12 @@ process.on('unhandledRejection', crash('unhandled promise rejection'));
 const autofill = details ? new Autofill({ store, details, updater, log }) : undefined;
 autofill?.start();
 
+// EVENT_LOG=1 writes every domain event (a binder, card or setting saved or deleted) to the log.
+const events = new LocalEventBus();
+if (/^(1|true|yes)$/i.test(env['EVENT_LOG'] ?? '')) events.subscribe((e) => log.info('app', `${e.type} ${e.collection}/${e.id}`));
+
 const app = createApp({
+  events,
   store,
   assets,
   accounts,

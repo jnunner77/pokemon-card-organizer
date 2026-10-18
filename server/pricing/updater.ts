@@ -6,7 +6,7 @@ import { type Logger, quietLogger } from '../log.ts';
 import { type BlendSettings, blend } from '../blend.ts';
 import { safely } from '../recover.ts';
 import type { Doc } from '../schema.ts';
-import type { Store } from '../store.ts';
+import type { Store } from '#infrastructure/json-store/store.ts';
 import { Catalog, type CatalogQuote } from './catalog.ts';
 import { catalogMismatch, chooseMatch, detailsFromProduct, norm, otherBall, otherPrinting, searchQuery, variantFromProduct, type CardForMatch, type MatchResult } from './match.ts';
 import { type PcProduct, type PriceCharting, type PriceGuide, gradedPrice, oldAddress, quoteOf } from './pricecharting.ts';

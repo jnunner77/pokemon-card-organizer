@@ -4,7 +4,7 @@ import type { Assets } from './assets.ts';
 import type { Config, Retention } from './config.ts';
 import type { Logger } from './log.ts';
 import { HttpError } from './security.ts';
-import { type Data, type Store, imagesIn } from './store.ts';
+import { type Data, type Store, imagesIn } from '#infrastructure/json-store/store.ts';
 
 // Copies of the ledger (db.json) kept on the server, in <data>/backups:
 //

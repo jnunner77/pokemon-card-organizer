@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createApp } from '../../server/app.ts';
+import { createApp } from '../../src/compose.ts';
 import { Assets } from '../../server/assets.ts';
 import { makeBackup } from '../../server/backup.ts';
 import { Config } from '../../server/config.ts';
@@ -16,7 +16,7 @@ import { PriceUpdater, pricesDisagree, thinAutoPrices } from '../../server/prici
 import { TcgCsv } from '../../server/pricing/tcgcsv.ts';
 import { Secret } from '../../server/secrets.ts';
 import { Logger } from '../../server/log.ts';
-import { Store } from '../../server/store.ts';
+import { Store } from '../../src/infrastructure/json-store/store.ts';
 
 retryPolicy.baseMs = 1; // retries happen at once in tests
 

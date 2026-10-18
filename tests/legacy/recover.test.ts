@@ -4,13 +4,13 @@ import path from 'node:path';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Accounts } from '../../server/accounts.ts';
-import { createApp } from '../../server/app.ts';
+import { createApp } from '../../src/compose.ts';
 import { Assets } from '../../server/assets.ts';
 import { Config } from '../../server/config.ts';
 import { Guests } from '../../server/guests.ts';
 import { Logger } from '../../server/log.ts';
 import { readJson, safely } from '../../server/recover.ts';
-import { SaveFailed, Store } from '../../server/store.ts';
+import { SaveFailed, Store } from '../../src/infrastructure/json-store/store.ts';
 
 // Recovering instead of stopping: damaged files set aside (the ledger loaded from its newest good
 // copy), a save that fails leaves nothing half-changed, and jobs that fail are logged and go on.

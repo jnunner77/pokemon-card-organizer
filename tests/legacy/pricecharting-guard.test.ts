@@ -185,7 +185,7 @@ describe('retrying the other sites', () => {
 describe('the price update and a paused PriceCharting', () => {
   it('doesn’t ask PriceCharting while it’s paused, and says why', async () => {
     const { PriceUpdater } = await import('../../server/pricing/updater.ts');
-    const { Store } = await import('../../server/store.ts');
+    const { Store } = await import('../../src/infrastructure/json-store/store.ts');
     const { Assets } = await import('../../server/assets.ts');
     const n = net(() => 429);
     const api = pc(n);

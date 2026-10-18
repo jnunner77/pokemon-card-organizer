@@ -6,13 +6,13 @@ import path from 'node:path';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Accounts } from '../../server/accounts.ts';
-import { createApp } from '../../server/app.ts';
+import { createApp } from '../../src/compose.ts';
 import { Assets } from '../../server/assets.ts';
 import { Config } from '../../server/config.ts';
 import { Guests, guestCard, guestValue, nameKey, parseContact } from '../../server/guests.ts';
 import { Logger } from '../../server/log.ts';
 import { Security } from '../../server/security.ts';
-import { Store } from '../../server/store.ts';
+import { Store } from '../../src/infrastructure/json-store/store.ts';
 
 const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('a photo')]);
 
