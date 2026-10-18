@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import { z } from 'zod';
-import { Assets, assetIdSchema } from './assets';
-import { COLLECTIONS, type Doc, idSchema, validateDoc } from './schema';
-import type { Data, Store } from './store';
+import { Assets, assetIdSchema } from './assets.ts';
+import { COLLECTIONS, type Doc, idSchema, validateDoc } from './schema.ts';
+import type { Data, Store } from '#infrastructure/json-store/store.ts';
 
 // A full backup is one JSON file: every binder, card and setting, plus every stored photo
 // as base64. It is what "Download full backup" saves and what "Restore from backup" and

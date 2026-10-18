@@ -2,13 +2,13 @@
 // by name, set and number, then see one card's picture and today's prices, worked out the way the
 // daily update would price it (updater.ts). Nothing is saved: the ledger isn't touched.
 
-import { blend } from './blend';
-import { type CardDetails, asPrinted, isSubSet, isoDate, mapRarity } from './details';
-import { type TcgdexCard, type TcgdexVariant, featuresOf, tcgdexCardmarket, tcgdexTcgplayer, variantLabel, variantPrices } from './pricing/catalog';
-import { cardNumber, catalogMismatch, chooseMatch, norm, searchQuery } from './pricing/match';
-import type { PcProduct } from './pricing/pricecharting';
-import { tcgImage } from './pricing/sources';
-import type { PriceUpdater } from './pricing/updater';
+import { blend } from './blend.ts';
+import { type CardDetails, asPrinted, isSubSet, isoDate, mapRarity } from './details.ts';
+import { type TcgdexCard, type TcgdexVariant, featuresOf, tcgdexCardmarket, tcgdexTcgplayer, variantLabel, variantPrices } from './pricing/catalog.ts';
+import { cardNumber, catalogMismatch, chooseMatch, norm, searchQuery } from './pricing/match.ts';
+import type { PcProduct } from './pricing/pricecharting.ts';
+import { tcgImage } from './pricing/sources.ts';
+import type { PriceUpdater } from './pricing/updater.ts';
 
 /** One card found by a search. */
 export interface LookupHit {

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { damagedMessage, readJson } from './recover';
+import { damagedMessage, readJson } from './recover.ts';
 
 // Settings only administrators change, kept in <data>/admin.json. They live outside db.json
 // so restoring a backup of the ledger never changes how the server itself is run.
@@ -56,7 +56,7 @@ export interface AdminConfig {
 export class Config {
   private readonly file: string;
   private data: AdminConfig;
-  /** admin.json was damaged at start and the defaults were used (index.ts logs it). */
+  /** admin.json was damaged at start and the defaults were used (src/main.ts logs it). */
   readonly recovered: string | null = null;
 
   constructor(dataDir: string, defaults: Partial<AdminConfig> = {}) {

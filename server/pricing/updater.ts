@@ -1,17 +1,17 @@
-import type { Assets } from '../assets';
-import { MAX_IMAGE_BYTES } from '../assets';
-import type { Config } from '../config';
-import { type CardDetails, type DetailsStatus, checkIdentity } from '../details';
-import { type Logger, quietLogger } from '../log';
-import { type BlendSettings, blend } from '../blend';
-import { safely } from '../recover';
-import type { Doc } from '../schema';
-import type { Store } from '../store';
-import { Catalog, type CatalogQuote } from './catalog';
-import { catalogMismatch, chooseMatch, detailsFromProduct, norm, otherBall, otherPrinting, searchQuery, variantFromProduct, type CardForMatch, type MatchResult } from './match';
-import { type PcProduct, type PriceCharting, type PriceGuide, gradedPrice, oldAddress, quoteOf } from './pricecharting';
-import { type TcgCsv, type TcgCsvCard, type TcgCsvQuote } from './tcgcsv';
-import { type Candidate, type Fetcher, ProductGone, type Quote, Refused, type Source, SourceError, get, exchangeRates, tcgImage } from './sources';
+import type { Assets } from '../assets.ts';
+import { MAX_IMAGE_BYTES } from '../assets.ts';
+import type { Config } from '../config.ts';
+import { type CardDetails, type DetailsStatus, checkIdentity } from '../details.ts';
+import { type Logger, quietLogger } from '../log.ts';
+import { type BlendSettings, blend } from '../blend.ts';
+import { safely } from '../recover.ts';
+import type { Doc } from '../schema.ts';
+import type { Store } from '#infrastructure/json-store/store.ts';
+import { Catalog, type CatalogQuote } from './catalog.ts';
+import { catalogMismatch, chooseMatch, detailsFromProduct, norm, otherBall, otherPrinting, searchQuery, variantFromProduct, type CardForMatch, type MatchResult } from './match.ts';
+import { type PcProduct, type PriceCharting, type PriceGuide, gradedPrice, oldAddress, quoteOf } from './pricecharting.ts';
+import { type TcgCsv, type TcgCsvCard, type TcgCsvQuote } from './tcgcsv.ts';
+import { type Candidate, type Fetcher, ProductGone, type Quote, Refused, type Source, SourceError, get, exchangeRates, tcgImage } from './sources.ts';
 
 // The daily price and image update. For every card still in the collection it finds the card's
 // product on PriceCharting (through its API, pricecharting.ts) and the TCGplayer product the card
@@ -58,31 +58,31 @@ export function thinAutoPrices<P extends { auto?: boolean | null; date?: string 
 export interface UpdaterOptions {
   store: Store;
   assets: Assets;
-  fetcher?: Fetcher;
-  now?: () => Date;
+  fetcher?: Fetcher | undefined;
+  now?: (() => Date) | undefined;
   /** Calendar used for "today" and for the daily run time. */
-  timeZone?: string;
+  timeZone?: string | undefined;
   /** Hour of the day (0-23, in timeZone) after which the daily run starts. */
-  hour?: number;
+  hour?: number | undefined;
   /** Days of daily automatic price entries to keep; older ones are thinned to one a week. */
-  keepDays?: number;
+  keepDays?: number | undefined;
   /** Pause between cards (each source also keeps its own pace). */
-  delayMs?: number;
-  log?: Logger;
+  delayMs?: number | undefined;
+  log?: Logger | undefined;
   /** Administrators' schedule (on/off and hour); overrides `hour` when given. */
-  config?: Config;
+  config?: Config | undefined;
   /** Consecutive failures from one site before the rest of the run stops asking it. */
-  breakerAfter?: number;
+  breakerAfter?: number | undefined;
   /** Fills cards' empty set, set code, rarity, illustrator and release date before pricing them (details.ts). */
-  details?: CardDetails;
+  details?: CardDetails | undefined;
   /** TCGplayer and Cardmarket prices and pictures from TCGdex (catalog.ts). */
-  catalog?: Catalog;
+  catalog?: Catalog | undefined;
   /** TCGplayer's own catalog (tcgcsv.ts), for what TCGdex doesn't have. */
-  tcgcsv?: TcgCsv;
+  tcgcsv?: TcgCsv | undefined;
   /** PriceCharting's API (pricecharting.ts); without it, or without its token, PriceCharting isn't asked. */
-  pricecharting?: PriceCharting;
+  pricecharting?: PriceCharting | undefined;
   /** How long a run may go without finishing a card before it's flagged as stalled. */
-  stallMs?: number;
+  stallMs?: number | undefined;
 }
 
 /** What rebuilding the past daily prices changes (or changed). */

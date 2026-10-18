@@ -1,6 +1,6 @@
-import { mapRarity } from '../details';
-import { printingOf } from './catalog';
-import type { Candidate, ProductInfo } from './sources';
+import { mapRarity } from '../details.ts';
+import { printingOf } from './catalog.ts';
+import type { Candidate, ProductInfo } from './sources.ts';
 
 // Deciding which product on a price site is the card in the binder. A card is linked
 // automatically only when exactly one English product has the same number, the same name

@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { Assets } from './assets';
-import type { Config, Retention } from './config';
-import type { Logger } from './log';
-import { HttpError } from './security';
-import { type Data, type Store, imagesIn } from './store';
+import type { Assets } from './assets.ts';
+import type { Config, Retention } from './config.ts';
+import type { Logger } from './log.ts';
+import { HttpError } from './security.ts';
+import { type Data, type Store, imagesIn } from '#infrastructure/json-store/store.ts';
 
 // Copies of the ledger (db.json) kept on the server, in <data>/backups:
 //
@@ -65,13 +65,18 @@ export function retain(days: string[], r: Retention): Set<string> {
 export class Backups {
   readonly dir: string;
 
-  constructor(
-    private readonly store: Store,
-    private readonly assets: Assets,
-    private readonly config: Config,
-    private readonly log: Logger,
-    private readonly now: () => Date = () => new Date(),
-  ) {
+  private readonly store: Store;
+  private readonly assets: Assets;
+  private readonly config: Config;
+  private readonly log: Logger;
+  private readonly now: () => Date;
+
+  constructor(store: Store, assets: Assets, config: Config, log: Logger, now: () => Date = () => new Date()) {
+    this.store = store;
+    this.assets = assets;
+    this.config = config;
+    this.log = log;
+    this.now = now;
     this.dir = store.backupDir;
     fs.mkdirSync(this.dir, { recursive: true });
   }

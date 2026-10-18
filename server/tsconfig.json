@@ -1,0 +1,25 @@
+{
+  // The Express server for the slices not yet moved into the layers (photos and backups, accounts
+  // and guests, Administration, card details, prices). It sits outside the onion and may use every
+  // layer. Its code predates the stricter checks below, so they are relaxed for it.
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "../.tsbuild/server",
+    "types": ["node"],
+    "exactOptionalPropertyTypes": false,
+    "noUncheckedIndexedAccess": false,
+    "noPropertyAccessFromIndexSignature": false,
+    "noImplicitReturns": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": ["**/*.ts"],
+  "references": [
+    { "path": "../src/shared" },
+    { "path": "../src/domain" },
+    { "path": "../src/application" },
+    { "path": "../src/infrastructure" },
+    { "path": "../src/presentation" }
+  ]
+}

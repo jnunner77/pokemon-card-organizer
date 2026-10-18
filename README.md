@@ -790,6 +790,7 @@ the existing free Google Cloud VM, at `binder.nunner.duckdns.org`).
 | `PRICE_UPDATES` | `on` | `off` turns automatic prices and pictures off |
 | `CARD_LOOKUPS` | `on` | `off` turns card details lookups (TCGdex) off, and *Find a card*'s Any card |
 | `TRUST_PROXY` | _(unset)_ | Set behind a reverse proxy (`1`) |
+| `EVENT_LOG` | _(unset)_ | `1` writes every binder, card or setting saved or deleted to the log |
 
 ## Data
 
@@ -820,11 +821,47 @@ To restore without a browser, stop the app and run `npm run import-backup -- bac
 
 ```bash
 npm run dev          # restarts on changes
-npm run typecheck
-npm test             # server tests, including the price sources on saved API answers
+npm run typecheck    # tsc -b: also refuses an import that breaks the layers (below)
+npm test             # node:test suites for each layer, then the older vitest suites
+npm run test:unit    # only the node:test suites (fast)
+npm run check        # typecheck and test together
 DATA_DIR=$(mktemp -d) AUTH=off PRICE_UPDATES=off npm start &
 BASE_URL=http://localhost:4100/ npm run test:e2e    # browser smoke test
 ```
+
+The server runs on plain Node 22.18 or later, which runs the TypeScript directly (no build step,
+no loader).
+
+### Architecture
+
+The server is moving to an onion architecture, like Boards: the collection's rules in the
+centre, everything else (the JSON file, HTTP, the price sites) plugged in from outside. Each layer
+in `src/` is its own TypeScript project that may only import the layers inside it, so
+`npm run typecheck` fails if a layer reaches outward, or if the inner three use Node's APIs.
+
+- `src/shared/`: `Result` (errors as data), branded ids, `assertNever`.
+- `src/domain/`: the binders, cards and settings (`Card`, `Binder` and `Setting` aggregates), the
+  rules for what a document may hold (`ledger/check-document.ts`, kept loose so fields the rules
+  don't know are never dropped), changing a card's price entries one by one against its list as it
+  is now (`cards/price-entries.ts`, with `public/priceops.js` working out what the page changed),
+  sorting a binder (`ledger/arrange.ts`) and moving cards (`ledger/place.ts`). No Node APIs; time is
+  passed in.
+- `src/application/`: one use case per action (`ledger/`: save, merge or delete a document, change
+  price entries, sort a binder, move cards, read the ledger), ports for the clock, the unit of work,
+  events and the activity log, and who may do what (`access.ts`).
+- `src/infrastructure/`: `json-store/store.ts` (the ledger file, daily copies and the change feed
+  to open pages), a unit of work over it (`unit-of-work.ts`: all or nothing, one at a time, and run
+  again if the store changed meanwhile), its repositories, and in-memory versions for tests
+  (`memory/`).
+- `src/presentation/`: the ledger's routes (`ledger/routes.ts`) on `node:http`, with hand-written
+  checks of each request and an exhaustive switch from error codes to HTTP statuses.
+- `src/compose.ts` wires the layers together and `src/main.ts` starts the server, building the
+  store and the rest it hands over: within `src/`, they are the only files that know the concrete
+  classes. The Express code in `server/` and `scripts/import-backup.ts` still use the store
+  directly until their slices move.
+
+Everything else still runs on the Express code in `server/`, which hands the ledger's routes to the
+layered code, and moves into the layers one slice at a time:
 
 - `server/pricing/`: `pricecharting.ts` (PriceCharting's API, price guide download and graded prices), `tcgcsv.ts` (TCGplayer's own catalog), `catalog.ts`
   (TCGdex: TCGplayer and Cardmarket prices, pictures), `sources.ts` (requests,
@@ -832,15 +869,17 @@ BASE_URL=http://localhost:4100/ npm run test:e2e    # browser smoke test
   updates and the PriceCharting purge). `server/secrets.ts` keeps PriceCharting's token.
 - `server/details.ts` (card details from TCGdex), `server/autofill.ts` (new cards filling themselves
   in, and Update all cards → Details).
-- `server/`: `store.ts` (ledger file and change feed), `assets.ts` (pictures), `backup.ts`
-  (full backups), `backups.ts` (copies and retention), `accounts.ts` (people, sessions, API
-  tokens), `security.ts` (rate limits and blocks), `log.ts`, `checks.ts` (Overview checks),
-  `config.ts` (administrators' settings), `guests.ts` (guest sign-in, sessions, log, and what guests
-  see of a card; tested in `tests/guests.test.ts`), `priceops.ts` (a card's price entries added,
-  changed or removed one by one against the server's list, with `public/priceops.js` working out
-  what the page changed; tested in `tests/priceops.test.ts`), `app.ts` (HTTP API).
+- `server/`: `assets.ts` (pictures), `backup.ts` (full backups), `backups.ts` (copies and
+  retention), `accounts.ts` (people, sessions, API tokens), `security.ts` (rate limits and blocks),
+  `log.ts`, `checks.ts` (Overview checks), `config.ts` (administrators' settings), `guests.ts`
+  (guest sign-in, sessions, log, and what guests see of a card; tested in
+  `tests/legacy/guests.test.ts`), `app.ts` (the rest of the HTTP API).
 - `public/`: `admin.html`/`admin.js` (Administration), `login.html`/`login.js` (sign-in),
   `guest.html`/`guest.js` (the guest page).
 - `public/`: the page. `app.js` is the ledger UI; `search.js` matches cards for Find (tested in
-  `tests/search.test.ts`); `portfolio.js` and `selling.js` work out the Pricing and Selling views'
-  numbers; `back.js` makes Back close a card's details and the Pricing and Selling views (tested in `tests/back.test.ts`); `runtime.js` connects it to the server.
+  `tests/legacy/search.test.ts`); `portfolio.js` and `selling.js` work out the Pricing and Selling views'
+  numbers; `back.js` makes Back close a card's details and the Pricing and Selling views (tested in `tests/legacy/back.test.ts`); `runtime.js` connects it to the server.
+
+Tests: `tests/<layer>/` holds the node:test tests for `src/` (the domain without fakes, use cases
+with the in-memory adapters); `tests/legacy/` holds the vitest suites from before the layers,
+which drive the whole app over HTTP and move to node:test as their slices do.

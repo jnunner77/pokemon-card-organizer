@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
-import type { Logger } from './log';
+import type { Logger } from './log.ts';
 
 // Protection for running on the open internet (adapted from Boards): rate limits per client
 // address and per signed-in person, temporary blocks for abusive clients that grow
@@ -7,13 +7,15 @@ import type { Logger } from './log';
 // trusted addresses that are never limited. Everything is in memory and resets on restart.
 
 export class HttpError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-    readonly code = 'invalid_argument',
-    readonly retryAfter?: number,
-  ) {
+  readonly status: number;
+  readonly code: string;
+  readonly retryAfter?: number;
+
+  constructor(status: number, message: string, code = 'invalid_argument', retryAfter?: number) {
     super(message);
+    this.status = status;
+    this.code = code;
+    this.retryAfter = retryAfter;
   }
 }
 
@@ -105,11 +107,15 @@ export function ipMatcher(entries: string[]): (ip: string) => boolean {
 export class TokenBucket {
   private readonly buckets = new Map<string, { tokens: number; at: number }>();
 
-  constructor(
-    private readonly limit: Limit,
-    private readonly maxKeys: number,
-    private readonly now: () => number,
-  ) {}
+  private readonly limit: Limit;
+  private readonly maxKeys: number;
+  private readonly now: () => number;
+
+  constructor(limit: Limit, maxKeys: number, now: () => number) {
+    this.limit = limit;
+    this.maxKeys = maxKeys;
+    this.now = now;
+  }
 
   /** Spend one token; when empty, how long until one is back. */
   take(key: string): { ok: true } | { ok: false; retryAfterMs: number } {
@@ -150,11 +156,14 @@ export class TokenBucket {
 
 class EventCounter {
   private readonly events = new Map<string, number[]>();
-  constructor(
-    private readonly windowMs: number,
-    private readonly maxKeys: number,
-    private readonly now: () => number,
-  ) {}
+  private readonly windowMs: number;
+  private readonly maxKeys: number;
+  private readonly now: () => number;
+  constructor(windowMs: number, maxKeys: number, now: () => number) {
+    this.windowMs = windowMs;
+    this.maxKeys = maxKeys;
+    this.now = now;
+  }
   add(key: string): number {
     const now = this.now();
     const list = (this.events.get(key) ?? []).filter((t) => now - t < this.windowMs);
@@ -202,11 +211,12 @@ export class Security {
   /** Totals since the server started, for the Security page. */
   readonly stats = { limited: 0, blocked: 0, refused: 0 };
 
-  constructor(
-    options: Partial<SecurityOptions> = {},
-    private readonly log?: Logger,
-    private readonly now: () => number = Date.now,
-  ) {
+  private readonly log?: Logger;
+  private readonly now: () => number;
+
+  constructor(options: Partial<SecurityOptions> = {}, log?: Logger, now: () => number = Date.now) {
+    this.log = log;
+    this.now = now;
     this.options = { ...DEFAULT_SECURITY, ...options, ban: { ...DEFAULT_SECURITY.ban, ...options.ban } };
     const o = this.options;
     const b = (l: Limit) => new TokenBucket(l, o.maxTrackedKeys, now);

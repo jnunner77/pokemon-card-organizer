@@ -8,12 +8,12 @@
 // settings/details. It runs by itself shortly after the server starts when cards were looked up
 // before the current checks (a one-off backfill after an update that adds some).
 
-import { CardDetails, type DetailsStatus } from './details';
-import { type Logger, quietLogger } from './log';
-import { safely } from './recover';
-import type { PriceUpdater } from './pricing/updater';
-import type { Doc } from './schema';
-import type { Store } from './store';
+import { CardDetails, type DetailsStatus } from './details.ts';
+import { type Logger, quietLogger } from './log.ts';
+import { safely } from './recover.ts';
+import type { PriceUpdater } from './pricing/updater.ts';
+import type { Doc } from './schema.ts';
+import type { Store } from '#infrastructure/json-store/store.ts';
 
 export interface AutofillOptions {
   store: Store;

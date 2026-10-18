@@ -1,15 +1,17 @@
 {
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "noEmit": true,
-    "types": ["node"],
-    "allowImportingTsExtensions": false,
-    "isolatedModules": true
-  },
-  "include": ["server", "scripts", "tests"]
+  // Builds and checks everything with `tsc -b`. Each layer in src/ is its own project and can
+  // only import the layers it lists in "references", so an import that points outward
+  // (domain -> infrastructure, say) fails the build. See CLAUDE.md.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": { "rootDir": ".", "outDir": ".tsbuild/root", "types": ["node"] },
+  "files": ["src/main.ts", "src/compose.ts", "scripts/import-backup.ts"],
+  "references": [
+    { "path": "src/shared" },
+    { "path": "src/domain" },
+    { "path": "src/application" },
+    { "path": "src/infrastructure" },
+    { "path": "src/presentation" },
+    { "path": "server" },
+    { "path": "tests" }
+  ]
 }

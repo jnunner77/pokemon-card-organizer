@@ -8,9 +8,9 @@
 // most once a day, a quarter second apart, and stops asking for the rest of an update after
 // failing three times in a row.
 
-import { chooseVariant, pickPrinting, printingOf, type Printing, type TcgdexCard } from './catalog';
-import { mapRarity, similarity } from '../details';
-import { type Fetcher, SourceError, get, releaseDate } from './sources';
+import { chooseVariant, pickPrinting, printingOf, type Printing, type TcgdexCard } from './catalog.ts';
+import { mapRarity, similarity } from '../details.ts';
+import { type Fetcher, SourceError, get, releaseDate } from './sources.ts';
 
 const TCGCSV = 'https://tcgcsv.com/tcgplayer/3';
 

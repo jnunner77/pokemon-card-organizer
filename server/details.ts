@@ -4,9 +4,9 @@
 // what a person didn't type when adding a card, and the blanks on cards already in the ledger.
 // Only empty fields are ever filled: what the person typed always wins.
 
-import { type Fetcher, SourceError, get } from './pricing/sources';
-import type { Doc } from './schema';
-import type { Store } from './store';
+import { type Fetcher, SourceError, get } from './pricing/sources.ts';
+import type { Doc } from './schema.ts';
+import type { Store } from '#infrastructure/json-store/store.ts';
 
 const API = 'https://api.tcgdex.net/v2/en';
 
