@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { LOCAL_OWNER } from '#application/accounts/identity.ts';
-import { IdentifyLocalOwner } from '#application/accounts/identify-caller.ts';
+import { IdentifyLocalOwner } from '#application/accounts/identify-local-owner.ts';
 import { setUpAccounts } from './fixtures.ts';
 
 describe('the first administrator', () => {

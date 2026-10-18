@@ -2,7 +2,7 @@ import { isExpired, shouldNoteUse, tokenRole } from '#domain/accounts/api-token.
 import { isSessionLive } from '#domain/accounts/session.ts';
 import { ok } from '#shared/result.ts';
 import type { AccountDeps } from './deps.ts';
-import { type Identity, LOCAL_OWNER } from './identity.ts';
+import type { Identity } from './identity.ts';
 
 export interface Credentials {
   /** The session cookie's token, if any. */
@@ -57,12 +57,5 @@ export class IdentifyCaller {
     if (!person) return { identity: null, badToken: false };
     await d.sessions.touch(hash, now.getTime());
     return { identity: { id: person.id, name: person.username, displayName: person.name, role: person.role, via: 'session' }, badToken: false };
-  }
-}
-
-/** With sign-in turned off (AUTH=off): every request is the local owner. */
-export class IdentifyLocalOwner {
-  async execute(_input: Credentials): Promise<Identified> {
-    return { identity: LOCAL_OWNER, badToken: false };
   }
 }
