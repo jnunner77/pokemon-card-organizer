@@ -22,6 +22,8 @@ export function bodyFailure(e: BodyError): Failure {
       return { status: 413, code: 'too_large', message: 'That upload is too large' };
     case 'MALFORMED_JSON':
       return badRequest("The request body isn't valid JSON");
+    case 'UNSUPPORTED_ENCODING':
+      return { status: 415, code: 'unsupported_type', message: `Unsupported content encoding "${e.encoding}"` };
     default:
       return assertNever(e);
   }

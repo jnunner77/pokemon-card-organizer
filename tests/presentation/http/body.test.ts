@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import net from 'node:net';
+import zlib from 'node:zlib';
 import { describe, it } from 'node:test';
 import { readJsonBody } from '#presentation/http/body.ts';
 import { sendJson } from '#presentation/http/respond.ts';
@@ -10,7 +11,8 @@ describe('readJsonBody', async () => {
     sendJson(res, 200, await readJsonBody(req, 64));
     return true;
   });
-  const send = async (body: string, type = 'application/json') => (await fetch(base, { method: 'POST', headers: { 'Content-Type': type }, body })).json();
+  const send = async (body: string | Buffer, type = 'application/json', encoding?: string) =>
+    (await fetch(base, { method: 'POST', headers: { 'Content-Type': type, ...(encoding ? { 'Content-Encoding': encoding } : {}) }, body })).json();
 
   it('reads objects and lists; an empty body is {}', async () => {
     assert.deepEqual(await send('{"a":1}'), { ok: true, value: { a: 1 } });
@@ -40,5 +42,22 @@ describe('readJsonBody', async () => {
     assert.deepEqual(await send('"text"'), { ok: false, error: { code: 'MALFORMED_JSON' } });
     assert.deepEqual(await send('{"a":'), { ok: false, error: { code: 'MALFORMED_JSON' } });
     assert.deepEqual(await send(JSON.stringify({ a: 'x'.repeat(100) })), { ok: false, error: { code: 'BODY_TOO_LARGE' } });
+  });
+
+  it('refuses a body of whitespace alone: only a body of no bytes is {}', async () => {
+    assert.deepEqual(await send('   \n'), { ok: false, error: { code: 'MALFORMED_JSON' } });
+  });
+
+  it('decompresses gzip, deflate and Brotli bodies, with the limit on what they decompress to', async () => {
+    const json = Buffer.from('{"a":1}');
+    assert.deepEqual(await send(zlib.gzipSync(json), 'application/json', 'gzip'), { ok: true, value: { a: 1 } });
+    assert.deepEqual(await send(zlib.deflateSync(json), 'application/json', 'deflate'), { ok: true, value: { a: 1 } });
+    assert.deepEqual(await send(zlib.brotliCompressSync(json), 'application/json', 'br'), { ok: true, value: { a: 1 } });
+    assert.deepEqual(await send(zlib.gzipSync(JSON.stringify({ a: 'x'.repeat(1000) })), 'application/json', 'gzip'), { ok: false, error: { code: 'BODY_TOO_LARGE' } });
+  });
+
+  it('refuses compressed data that does not decompress, and encodings it cannot read', async () => {
+    assert.deepEqual(await send('not gzip', 'application/json', 'gzip'), { ok: false, error: { code: 'MALFORMED_JSON' } });
+    assert.deepEqual(await send('{"a":1}', 'application/json', 'compress'), { ok: false, error: { code: 'UNSUPPORTED_ENCODING', encoding: 'compress' } });
   });
 });
