@@ -1,0 +1,12 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": { "rootDir": ".", "outDir": "../.tsbuild/tests", "types": ["node"] },
+  "include": ["shared/**/*.ts", "domain/**/*.ts", "application/**/*.ts", "infrastructure/**/*.ts", "presentation/**/*.ts"],
+  "references": [
+    { "path": "../src/shared" },
+    { "path": "../src/domain" },
+    { "path": "../src/application" },
+    { "path": "../src/infrastructure" },
+    { "path": "../src/presentation" }
+  ]
+}

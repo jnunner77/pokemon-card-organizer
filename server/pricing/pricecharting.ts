@@ -1,6 +1,6 @@
 import fs from 'node:fs';
-import { type Logger, quietLogger } from '../log';
-import { type Candidate, type Fetcher, ProductGone, type Quote, Refused, SourceError, get, releaseDate, retryAfterMs, retryWait } from './sources';
+import { type Logger, quietLogger } from '../log.ts';
+import { type Candidate, type Fetcher, ProductGone, type Quote, Refused, SourceError, get, releaseDate, retryAfterMs, retryWait } from './sources.ts';
 
 // PriceCharting's official Prices API (https://www.pricecharting.com/api-documentation), with the
 // owner's subscription token (kept in its own secret file, secrets.ts). Each product has an
@@ -251,19 +251,19 @@ export const PC_RULES = {
 export interface PriceChartingOptions {
   /** The saved token, or null (read on every call, so a new one is used at once). */
   token: () => string | null;
-  fetcher?: Fetcher;
+  fetcher?: Fetcher | undefined;
   /** Least time between two calls, retries included (PriceCharting allows one a second). */
-  gapMs?: number;
+  gapMs?: number | undefined;
   /** Calls allowed a day (PRICECHARTING_DAILY_LIMIT). */
-  dailyLimit?: number;
+  dailyLimit?: number | undefined;
   /** Where the day's call count is kept, so a restart doesn't reset it. */
-  usageFile?: string;
-  log?: Logger;
-  now?: () => number;
+  usageFile?: string | undefined;
+  log?: Logger | undefined;
+  now?: (() => number) | undefined;
   /** Cool-down after a 429, breaker and cache times (the tests shorten them). */
-  coolDownMs?: number;
-  breakerMs?: number;
-  cacheMs?: number;
+  coolDownMs?: number | undefined;
+  breakerMs?: number | undefined;
+  cacheMs?: number | undefined;
 }
 
 /** How PriceCharting is being used: shown under Administration → Prices. */
@@ -303,7 +303,10 @@ export class PriceCharting {
   /** Calls made, for the tests and the logs. */
   calls = 0;
 
-  constructor(private readonly o: PriceChartingOptions) {
+  private readonly o: PriceChartingOptions;
+
+  constructor(o: PriceChartingOptions) {
+    this.o = o;
     this.fetcher = o.fetcher ?? fetch;
     // Never closer together than PriceCharting allows, whatever is asked.
     this.gapMs = Math.max(o.gapMs ?? PC_RULES.gapMs, o.gapMs === 0 ? 0 : PC_RULES.minGapMs);

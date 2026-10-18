@@ -10,7 +10,7 @@
 // TCGplayer's own catalog (tcgcsv.ts) fills what TCGdex lacks. The updater (updater.ts) blends
 // these with PriceCharting's price.
 
-import { type Fetcher, SourceError, get } from './sources';
+import { type Fetcher, SourceError, get } from './sources.ts';
 
 const TCGDEX = 'https://api.tcgdex.net/v2/en';
 

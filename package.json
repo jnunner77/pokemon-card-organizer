@@ -2,25 +2,33 @@
   "name": "pokemon-card-organizer",
   "version": "1.0.0",
   "private": true,
-  "description": "Pokémon Binder Ledger: every pocket, what's in it, and what it's worth.",
+  "description": "Pok\u00e9mon Binder Ledger: every pocket, what's in it, and what it's worth.",
   "type": "module",
+  "imports": {
+    "#shared/*": "./src/shared/*",
+    "#domain/*": "./src/domain/*",
+    "#application/*": "./src/application/*",
+    "#infrastructure/*": "./src/infrastructure/*",
+    "#presentation/*": "./src/presentation/*"
+  },
   "scripts": {
-    "dev": "tsx watch server/index.ts",
-    "start": "tsx server/index.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run",
-    "import-backup": "tsx scripts/import-backup.ts",
+    "dev": "node --watch src/main.ts",
+    "start": "node src/main.ts",
+    "typecheck": "tsc -b && tsc -p tests/legacy",
+    "test": "node --test \"tests/{shared,domain,application,infrastructure,presentation}/**/*.test.ts\" && vitest run",
+    "test:unit": "node --test \"tests/{shared,domain,application,infrastructure,presentation}/**/*.test.ts\"",
+    "check": "npm run typecheck && npm test",
+    "import-backup": "node scripts/import-backup.ts",
     "test:e2e": "node e2e/smoke.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.18"
   },
   "dependencies": {
     "@fontsource-variable/archivo": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",
     "express": "^5.2.1",
     "qrcode": "^1.5.4",
-    "tsx": "^4.23.15",
     "zod": "^4.6.5"
   },
   "devDependencies": {

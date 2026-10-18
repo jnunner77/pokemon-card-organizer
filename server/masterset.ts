@@ -9,11 +9,11 @@
 // Only whole sets: a Pokémon's cards across every set were tried and dropped, as TCGdex misses too
 // many of a Pokémon's promo and special printings.
 
-import { type CardDetails, DETAILS_VERSION, type DetailsStatus, isSubSet, isoDate, mapRarity, similarity } from './details';
-import { type TcgdexCard, type TcgdexVariant, chooseVariant, featuresOf } from './pricing/catalog';
-import { SourceError, tcgImage } from './pricing/sources';
-import { type TcgCsv, type TcgGroup, type TcgPrice, type TcgProduct, ownNumber, productName, setName } from './pricing/tcgcsv';
-import type { Doc } from './schema';
+import { type CardDetails, DETAILS_VERSION, type DetailsStatus, isSubSet, isoDate, mapRarity, similarity } from './details.ts';
+import { type TcgdexCard, type TcgdexVariant, chooseVariant, featuresOf } from './pricing/catalog.ts';
+import { SourceError, tcgImage } from './pricing/sources.ts';
+import { type TcgCsv, type TcgGroup, type TcgPrice, type TcgProduct, ownNumber, productName, setName } from './pricing/tcgcsv.ts';
+import type { Doc } from './schema.ts';
 
 /** One placeholder of a master set: a card in one of its variants. */
 export interface MasterSetCard {
@@ -189,10 +189,16 @@ async function pool<T, R>(items: T[], limit: number, fn: (t: T) => Promise<R>): 
 }
 
 export class MasterSets {
+  private readonly details: CardDetails;
+  private readonly tcgcsv?: TcgCsv;
+
   constructor(
-    private readonly details: CardDetails,
-    private readonly tcgcsv?: TcgCsv,
-  ) {}
+    details: CardDetails,
+    tcgcsv?: TcgCsv,
+  ) {
+    this.details = details;
+    this.tcgcsv = tcgcsv;
+  }
 
   /** TCGdex's English sets, newest last, without TCG Pocket's or its jumbo cards (oversized promos, not a set). */
   async sets(): Promise<SetChoice[]> {

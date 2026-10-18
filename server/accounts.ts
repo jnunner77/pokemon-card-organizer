@@ -2,9 +2,9 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import type { Logger } from './log';
-import { damagedMessage, readJson } from './recover';
-import { HttpError } from './security';
+import type { Logger } from './log.ts';
+import { damagedMessage, readJson } from './recover.ts';
+import { HttpError } from './security.ts';
 
 // People who can use the ledger, their sign-in sessions and API tokens (modelled on Boards).
 //
@@ -163,11 +163,12 @@ export class Accounts {
   /** Made at start, so even the first sign-in attempt for a missing username does one check only. */
   private readonly dummyHash = hashPassword(crypto.randomBytes(12).toString('hex'));
 
-  constructor(
-    dataDir: string,
-    private readonly log: Logger,
-    private readonly now: () => number = Date.now,
-  ) {
+  private readonly log: Logger;
+  private readonly now: () => number;
+
+  constructor(dataDir: string, log: Logger, now: () => number = Date.now) {
+    this.log = log;
+    this.now = now;
     fs.mkdirSync(dataDir, { recursive: true });
     this.file = path.join(dataDir, 'auth.json');
     this.sessionFile = path.join(dataDir, 'sessions.json');

@@ -1,4 +1,4 @@
-import type { Category, Level, LogEntry, Logger } from './log';
+import type { Category, Level, LogEntry, Logger } from './log.ts';
 
 // Every warning and error the server logs, for the problems banner administrators see on the
 // binder and in Administration: the ones since they last marked them as seen, with repeats

@@ -1,9 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import type { Check } from './checks';
-import { DETAILS_VERSION, type DetailsStatus, checkIdentity } from './details';
-import { NO_PRICE } from './pricing/updater';
+import type { Check } from './checks.ts';
+import { DETAILS_VERSION, type DetailsStatus, checkIdentity } from './details.ts';
+import { NO_PRICE } from './pricing/updater.ts';
 
 // A plain-text status file for the server's nightly job (Boards' deploy/ops/nightly.sh), which
 // reads it with `docker compose exec binder cat /data/status.txt` and alerts on it. One line each:

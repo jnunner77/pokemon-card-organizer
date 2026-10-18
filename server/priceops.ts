@@ -1,5 +1,5 @@
-import type { Doc } from './schema';
-import { HttpError } from './security';
+import type { Doc } from './schema.ts';
+import { HttpError } from './security.ts';
 
 // A card's price entries changed one by one, against the list the server has now, instead of the
 // page sending the whole list from its own copy. So an entry the daily update (or another person)

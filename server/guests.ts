@@ -4,11 +4,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import { z } from 'zod';
-import type { Logger } from './log';
-import { damagedMessage, every, readJson } from './recover';
-import type { Doc } from './schema';
-import { HttpError } from './security';
-import type { Event, Store } from './store';
+import type { Logger } from './log.ts';
+import { damagedMessage, every, readJson } from './recover.ts';
+import type { Doc } from './schema.ts';
+import { HttpError } from './security.ts';
+import type { Event, Store } from './store.ts';
 
 // Guests: people who scan the QR code at the table and look through the cards listed for sale,
 // without an account.
@@ -191,11 +191,15 @@ export class GuestFeed {
   private timer: NodeJS.Timeout | undefined;
   private unsubscribe: (() => void) | null = null;
 
-  constructor(
-    private readonly store: Pick<Store, 'all' | 'subscribe'>,
-    private readonly usdToCad: () => number,
-    private readonly delayMs = 250,
-  ) {}
+  private readonly store: Pick<Store, 'all' | 'subscribe'>;
+  private readonly usdToCad: () => number;
+  private readonly delayMs: number;
+
+  constructor(store: Pick<Store, 'all' | 'subscribe'>, usdToCad: () => number, delayMs = 250) {
+    this.store = store;
+    this.usdToCad = usdToCad;
+    this.delayMs = delayMs;
+  }
 
   cards(): GuestCard[] {
     const rate = this.usdToCad();
@@ -254,11 +258,12 @@ export class Guests {
   private readonly sessions = new Map<string, GuestSession>();
   private timer: NodeJS.Timeout | undefined;
 
-  constructor(
-    dataDir: string,
-    private readonly log: Logger,
-    private readonly now: () => number = Date.now,
-  ) {
+  private readonly log: Logger;
+  private readonly now: () => number;
+
+  constructor(dataDir: string, log: Logger, now: () => number = Date.now) {
+    this.log = log;
+    this.now = now;
     fs.mkdirSync(dataDir, { recursive: true });
     this.file = path.join(dataDir, 'guests.json');
     const at = new Date(this.now()).toISOString();

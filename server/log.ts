@@ -54,7 +54,10 @@ export class Logger {
   private readonly problemList: LogEntry[] = [];
   private static readonly PROBLEMS_KEPT = 3000;
 
-  constructor(readonly opts: LoggerOptions = {}) {
+  readonly opts: LoggerOptions;
+
+  constructor(opts: LoggerOptions = {}) {
+    this.opts = opts;
     this.keepDays = opts.keepDays ?? 14;
     this.max = opts.recent ?? 5000;
     this.stdout = opts.stdout ?? true;

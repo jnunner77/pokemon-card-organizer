@@ -5,29 +5,29 @@ import { fileURLToPath } from 'node:url';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import QRCode from 'qrcode';
 import { z } from 'zod';
-import { type Accounts, type Caller, type Role, SESSION_COOKIE, atLeast, schemas } from './accounts';
-import { Assets, MAX_IMAGE_BYTES } from './assets';
-import type { Autofill } from './autofill';
-import { RestoreError, makeBackup, restoreBackup } from './backup';
-import { Backups } from './backups';
-import { dirBytes, freeBytes, runChecks } from './checks';
-import { Config, priceMethodSchema, pricingConfigSchema, retentionSchema } from './config';
-import type { CardDetails } from './details';
-import { GUEST_COOKIE, GUEST_IDLE_MS, GuestFeed, type Guests, guestSchemas, isListed, shownImage } from './guests';
-import { CATEGORIES, LEVELS, type Logger, quietLogger } from './log';
-import { CardLookup } from './lookup';
-import { MasterSets, placeholderCards } from './masterset';
-import { applyPriceOps } from './priceops';
-import type { TcgCsv } from './pricing/tcgcsv';
-import { NoToken, type PriceCharting } from './pricing/pricecharting';
-import { Refused, SourceError } from './pricing/sources';
-import type { PriceUpdater, RunProblem, RunSummary } from './pricing/updater';
-import { problemFeed } from './problems';
-import { InvalidDoc, collectionSchema, idSchema, validateDoc } from './schema';
-import { HttpError, MUTATING, type Security } from './security';
-import type { Secret } from './secrets';
-import { cardsNeedingAttention, readOffsite, statusText, writeStatus } from './status';
-import { NotFound, SaveFailed, type Store } from './store';
+import { type Accounts, type Caller, type Role, SESSION_COOKIE, atLeast, schemas } from './accounts.ts';
+import { Assets, MAX_IMAGE_BYTES } from './assets.ts';
+import type { Autofill } from './autofill.ts';
+import { RestoreError, makeBackup, restoreBackup } from './backup.ts';
+import { Backups } from './backups.ts';
+import { dirBytes, freeBytes, runChecks } from './checks.ts';
+import { Config, priceMethodSchema, pricingConfigSchema, retentionSchema } from './config.ts';
+import type { CardDetails } from './details.ts';
+import { GUEST_COOKIE, GUEST_IDLE_MS, GuestFeed, type Guests, guestSchemas, isListed, shownImage } from './guests.ts';
+import { CATEGORIES, LEVELS, type Logger, quietLogger } from './log.ts';
+import { CardLookup } from './lookup.ts';
+import { MasterSets, placeholderCards } from './masterset.ts';
+import { applyPriceOps } from './priceops.ts';
+import type { TcgCsv } from './pricing/tcgcsv.ts';
+import { NoToken, type PriceCharting } from './pricing/pricecharting.ts';
+import { Refused, SourceError } from './pricing/sources.ts';
+import type { PriceUpdater, RunProblem, RunSummary } from './pricing/updater.ts';
+import { problemFeed } from './problems.ts';
+import { InvalidDoc, collectionSchema, idSchema, validateDoc } from './schema.ts';
+import { HttpError, MUTATING, type Security } from './security.ts';
+import type { Secret } from './secrets.ts';
+import { cardsNeedingAttention, readOffsite, statusText, writeStatus } from './status.ts';
+import { NotFound, SaveFailed, type Store } from './store.ts';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -35,31 +35,31 @@ export interface AppOptions {
   store: Store;
   assets: Assets;
   /** The pages, styles and scripts. Defaults to ./public. */
-  publicDir?: string;
-  trustProxy?: boolean | number | string;
+  publicDir?: string | undefined;
+  trustProxy?: boolean | number | string | undefined;
   /** Daily price and image updates; the pricing routes answer 503 without one. */
-  updater?: PriceUpdater;
+  updater?: PriceUpdater | undefined;
   /** People and sign-in. Without it everything is open (only for running on your own computer). */
-  accounts?: Accounts;
+  accounts?: Accounts | undefined;
   /** Rate limits and blocks; off when not given. */
-  security?: Security;
-  log?: Logger;
-  config?: Config;
-  backups?: Backups;
+  security?: Security | undefined;
+  log?: Logger | undefined;
+  config?: Config | undefined;
+  backups?: Backups | undefined;
   /** BINDER_PASSWORD, for the check that it no longer opens the admin account. */
-  envPassword?: string;
+  envPassword?: string | undefined;
   /** Card details lookups (TCGdex); the lookup routes answer 503 without them. */
-  details?: CardDetails;
+  details?: CardDetails | undefined;
   /** TCGplayer's own catalog (tcgcsv.com), which master sets are checked against. */
-  tcgcsv?: TcgCsv;
+  tcgcsv?: TcgCsv | undefined;
   /** The clock for the Administration checks and backups (tests set it; defaults to the real time). */
-  now?: () => Date;
+  now?: (() => Date) | undefined;
   /** New cards filling themselves in, and Fill in missing details. */
-  autofill?: Autofill;
+  autofill?: Autofill | undefined;
   /** Guests looking through the cards listed for sale; the guest routes answer 404 without it. */
-  guests?: Guests;
+  guests?: Guests | undefined;
   /** PriceCharting's API token (its own secret file, outside the data that's backed up) and its client. */
-  pricecharting?: { token: Secret; api: PriceCharting };
+  pricecharting?: { token: Secret; api: PriceCharting } | undefined;
 }
 
 /** Largest restore upload. The reverse proxy may cap it lower; `npm run import-backup` has no cap. */

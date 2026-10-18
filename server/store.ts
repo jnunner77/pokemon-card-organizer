@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { type Damaged, damagedMessage, readJson, setAside } from './recover';
-import { COLLECTIONS, type Collection, type Doc, validateDoc } from './schema';
+import { type Damaged, damagedMessage, readJson, setAside } from './recover.ts';
+import { COLLECTIONS, type Collection, type Doc, validateDoc } from './schema.ts';
 
 // The ledger is small (a collector's cards, not a warehouse), so it lives in one JSON file
 // that is rewritten atomically on every change. Photos are stored as separate files by
@@ -47,7 +47,10 @@ export class Store {
   /** The ledger file was damaged at start and this copy was loaded instead (index.ts logs it). */
   readonly recovered: { damaged: Damaged; from: string; message: string } | null = null;
 
-  constructor(readonly dataDir: string) {
+  readonly dataDir: string;
+
+  constructor(dataDir: string) {
+    this.dataDir = dataDir;
     fs.mkdirSync(dataDir, { recursive: true });
     this.file = path.join(dataDir, 'db.json');
     this.backupDir = path.join(dataDir, 'backups');

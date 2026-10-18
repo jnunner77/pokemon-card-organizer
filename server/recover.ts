@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import type { Category, Logger } from './log';
+import type { Category, Logger } from './log.ts';
 
 // Recovering from failures instead of stopping: background jobs that catch and log their own
 // errors and keep running, and saved files that are damaged (cut short by a full disk or a
