@@ -18,9 +18,9 @@ export interface Person {
 }
 
 /** 2–32 letters, digits, dots, dashes or underscores, compared in lower case. */
-export const USERNAME = /^[a-z0-9._-]{2,32}$/;
+const USERNAME = /^[a-z0-9._-]{2,32}$/;
 export const MAX_NAME = 80;
-export const MAX_PASSWORD = 200;
+const MAX_PASSWORD = 200;
 
 export type PersonError =
   | { readonly code: 'INVALID_USERNAME' }

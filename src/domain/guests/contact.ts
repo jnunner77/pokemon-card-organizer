@@ -2,8 +2,8 @@ import { err, ok, type Result } from '#shared/result.ts';
 
 // Who a guest is: the name and the phone number or email they give at the table.
 
-export const MAX_GUEST_NAME = 80;
-export const MAX_GUEST_CONTACT = 120;
+const MAX_GUEST_NAME = 80;
+const MAX_GUEST_CONTACT = 120;
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 

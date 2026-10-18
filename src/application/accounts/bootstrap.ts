@@ -3,7 +3,7 @@ import { err, ok, type Result } from '#shared/result.ts';
 import type { AccountDeps } from './deps.ts';
 
 /** BINDER_PASSWORD's shortest length. */
-export const MIN_ENV_PASSWORD = 8;
+const MIN_ENV_PASSWORD = 8;
 
 export type BootstrapError = { readonly code: 'ENV_PASSWORD_TOO_SHORT'; readonly min: number };
 

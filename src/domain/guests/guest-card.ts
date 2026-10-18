@@ -9,7 +9,7 @@ type PriceRecord = Readonly<Record<string, unknown>>;
 export type ConditionAdjust = (card: CardRecord, price: PriceRecord) => number | null;
 
 /** The card details guests see, as stored. */
-export const GUEST_DETAILS = ['name', 'set', 'setCode', 'number', 'rarity', 'variant', 'language', 'condition', 'grader', 'grade', 'artist', 'released'] as const;
+const GUEST_DETAILS = ['name', 'set', 'setCode', 'number', 'rarity', 'variant', 'language', 'condition', 'grader', 'grade', 'artist', 'released'] as const;
 type Detail = (typeof GUEST_DETAILS)[number];
 
 export type GuestCard = { readonly id: string } & { readonly [K in Detail]: string | null } & {

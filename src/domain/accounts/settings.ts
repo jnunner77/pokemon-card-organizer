@@ -16,7 +16,7 @@ export interface SignInSettings {
 
 export const DEFAULT_SIGN_IN_SETTINGS: SignInSettings = { sessionIdleHours: 24 * 14, sessionMaxDays: 30, passwordMinLength: 10, lockoutAfter: 5, lockoutMinutes: 1 };
 
-export const SETTING_LIMITS: Readonly<Record<keyof SignInSettings, { readonly min: number; readonly max: number }>> = {
+const SETTING_LIMITS: Readonly<Record<keyof SignInSettings, { readonly min: number; readonly max: number }>> = {
   sessionIdleHours: { min: 1, max: 24 * 90 },
   sessionMaxDays: { min: 1, max: 365 },
   passwordMinLength: { min: 8, max: 64 },
