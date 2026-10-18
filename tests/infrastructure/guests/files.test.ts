@@ -99,3 +99,24 @@ describe('StoreCardLookup', () => {
     assert.equal(await cards.card('nope'), undefined);
   });
 });
+
+describe('FileGuestDesk when guests.json cannot be written', () => {
+  it('changes nothing, so trying again saves it', async () => {
+    const dir = tempDir();
+    const desk = new FileGuestDesk({ dataDir: dir, now: () => NOW, newKey: () => 'k', onDamaged: () => {} });
+    const turnOn = () =>
+      desk.change((s) => {
+        if (s.book.settings.enabled) return ok(false);
+        s.book = { ...s.book, settings: { ...s.book.settings, enabled: true } };
+        s.bookChanged = true;
+        return ok(true);
+      });
+    // A directory where the file's temporary copy goes makes the write fail.
+    fs.mkdirSync(path.join(dir, `guests.json.${process.pid}.tmp`));
+    await assert.rejects(turnOn());
+    assert.equal((await desk.read()).book.settings.enabled, false);
+    fs.rmdirSync(path.join(dir, `guests.json.${process.pid}.tmp`));
+    assert.deepEqual(await turnOn(), ok(true));
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'guests.json'), 'utf8')).settings.enabled, true);
+  });
+});

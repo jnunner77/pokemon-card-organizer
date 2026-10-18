@@ -37,11 +37,11 @@ export class FileGuestDesk implements GuestDesk {
     const raw = readJson<GuestFile>(this.#file, (d) => o.onDamaged(damagedMessage(d, 'Guest viewing starts closed, with a new QR code, and the guest log starts empty.')));
     this.#book = { settings: { ...fresh, ...raw?.settings }, log: raw?.log ?? [] };
     // Sessions don't survive a restart; close the visits that were open.
-    if (!raw || closeOpenVisits(this.#book, at)) this.#save();
+    if (!raw || closeOpenVisits(this.#book, at)) this.#save(this.#book);
   }
 
-  #save(): void {
-    writePrivate(this.#file, JSON.stringify(this.#book, null, 2));
+  #save(book: GuestBook): void {
+    writePrivate(this.#file, JSON.stringify(book, null, 2));
   }
 
   async read(): Promise<{ readonly book: GuestBook; readonly sessions: readonly GuestSession[] }> {
@@ -52,11 +52,12 @@ export class FileGuestDesk implements GuestDesk {
     const state: GuestState = { book: { ...this.#book }, sessions: this.#sessions, bookChanged: false };
     const result = work(state);
     if (!result.ok) return result;
-    this.#sessions = state.sessions;
+    // Saved first: a book that couldn't be written changes nothing, so trying again does it again.
     if (state.bookChanged) {
+      this.#save(state.book);
       this.#book = state.book;
-      this.#save();
     }
+    this.#sessions = state.sessions;
     return result;
   }
 }

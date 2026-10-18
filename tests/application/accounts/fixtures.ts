@@ -31,10 +31,14 @@ export function setUpAccounts() {
   const log = (into: string[]) => ({ info: (m: string) => void into.push(m), warn: (m: string) => void into.push(m) });
   const sessions = new MemorySessionStore();
   const hasher = new PlainHasher();
-  /** While set, password checks wait for it: what happens meanwhile happens mid-check. */
-  const hold: { until: Promise<void> | null } = { until: null };
+  /** While set, password checks (until) or hashing (hashing) wait for it: what happens meanwhile happens mid-way. */
+  const hold: { until: Promise<void> | null; hashing: Promise<void> | null } = { until: null, hashing: null };
   const slowHasher = {
-    hash: (password: string) => hasher.hash(password),
+    hash: async (password: string) => {
+      const hash = await hasher.hash(password);
+      if (hold.hashing) await hold.hashing;
+      return hash;
+    },
     verify: async (password: string, stored: string | null) => {
       const right = await hasher.verify(password, stored);
       if (hold.until) await hold.until;

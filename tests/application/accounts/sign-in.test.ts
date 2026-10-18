@@ -109,6 +109,25 @@ describe('signing in', () => {
     assert.deepEqual(await t.use.signIn.execute({ username: 'ash', password: 'reset by admin 4', ...t.where }), { ok: true, value: { status: 'change' } });
   });
 
+  it('keeps an administrator\'s reset made while a new password of your own was being hashed', async () => {
+    const t = setUpAccounts();
+    await t.withAdmin();
+    const ash = await t.add('ash', 'editor');
+    let release = () => {};
+    t.hold.hashing = new Promise((r) => (release = r));
+    const changing = t.use.changeOwnPassword.execute({ username: 'ash', currentPassword: 'a good password', newPassword: 'my own password 3', ...t.where });
+    await new Promise((r) => setTimeout(r, 0));
+    t.hold.hashing = null;
+    assert.equal((await t.use.setPersonPassword.execute({ actor: 'admin', id: ash.id, password: 'reset by admin 4', mustChange: true })).ok, true);
+    release();
+    assert.deepEqual(await changing, { ok: false, error: { code: 'WRONG_PASSWORD' } });
+    assert.equal((await t.sessions.list()).length, 0);
+    const after = (await t.use.listPeople.execute()).users.find((u) => u.username === 'ash');
+    assert.equal(after?.mustChange, true);
+    assert.deepEqual(await t.use.signIn.execute({ username: 'ash', password: 'reset by admin 4', ...t.where }), { ok: true, value: { status: 'change' } });
+    assert.deepEqual(await t.use.signIn.execute({ username: 'ash', password: 'my own password 3', ...t.where }), { ok: false, error: { code: 'WRONG_PASSWORD' } });
+  });
+
   it('refuses passwords over 200 characters before checking them', async () => {
     const t = setUpAccounts();
     await t.withAdmin();
