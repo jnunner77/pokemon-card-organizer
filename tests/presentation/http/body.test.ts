@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import net from 'node:net';
 import { describe, it } from 'node:test';
 import { readJsonBody } from '#presentation/http/body.ts';
 import { sendJson } from '#presentation/http/respond.ts';
@@ -20,6 +21,19 @@ describe('readJsonBody', async () => {
 
   it('has no body unless it is JSON', async () => {
     assert.deepEqual(await send('{"a":1}', 'text/plain'), { ok: true });
+  });
+
+  it('has no body when the request announces none, even typed as JSON', async () => {
+    const { hostname, port } = new URL(base);
+    const answer = await new Promise<string>((resolve, reject) => {
+      // No Content-Length and no Transfer-Encoding: a request with no body at all.
+      const socket = net.connect(Number(port), hostname, () => socket.end(`PUT / HTTP/1.1\r\nHost: ${hostname}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n`));
+      let text = '';
+      socket.on('data', (chunk) => (text += String(chunk)));
+      socket.on('end', () => resolve(text.slice(text.indexOf('\r\n\r\n') + 4)));
+      socket.on('error', reject);
+    });
+    assert.deepEqual(JSON.parse(answer), { ok: true });
   });
 
   it('refuses what is not a JSON object or list, and bodies over the limit', async () => {

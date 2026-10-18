@@ -11,7 +11,8 @@ export function replacedFields(collection: Collection, doc: unknown): Result<Fie
 }
 
 export function mergedFields(collection: Collection, current: Fields, patch: unknown): Result<Fields, InvalidDocument> {
-  // Like an object spread: anything that isn't an object (or list) adds nothing.
+  // Like an object spread, as before: a list adds its items as fields "0", "1", …, and anything
+  // that isn't an object or list adds nothing.
   const extra = typeof patch === 'object' && patch !== null ? patch : {};
   return checkDocument(collection, { ...current, ...extra });
 }

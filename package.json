@@ -2,7 +2,7 @@
   "name": "pokemon-card-organizer",
   "version": "1.0.0",
   "private": true,
-  "description": "Pok\u00e9mon Binder Ledger: every pocket, what's in it, and what it's worth.",
+  "description": "Pokémon Binder Ledger: every pocket, what's in it, and what it's worth.",
   "type": "module",
   "imports": {
     "#shared/*": "./src/shared/*",

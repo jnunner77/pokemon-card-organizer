@@ -7,12 +7,14 @@ export type BodyError = { readonly code: 'MALFORMED_JSON' } | { readonly code: '
 export const JSON_LIMIT_BYTES = 1024 * 1024;
 
 /**
- * Read a JSON request body. Requests that aren't `application/json` have no body (`undefined`);
- * an empty JSON body is `{}`. Only objects and lists are accepted at the top level.
+ * Read a JSON request body. Requests that aren't `application/json`, or that announce no body at
+ * all (neither Content-Length nor Transfer-Encoding), have no body (`undefined`); an announced but
+ * empty JSON body is `{}`. Only objects and lists are accepted at the top level.
  */
 export async function readJsonBody(req: IncomingMessage, limit = JSON_LIMIT_BYTES): Promise<Result<unknown, BodyError>> {
   const type = (req.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase();
-  if (type !== 'application/json') {
+  const announced = req.headers['content-length'] !== undefined || req.headers['transfer-encoding'] !== undefined;
+  if (type !== 'application/json' || !announced) {
     req.resume(); // drain whatever was sent so the connection can be reused
     return ok(undefined);
   }

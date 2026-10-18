@@ -870,13 +870,12 @@ layered code, and moves into the layers one slice at a time:
   `log.ts`, `checks.ts` (Overview checks), `config.ts` (administrators' settings), `guests.ts`
   (guest sign-in, sessions, log, and what guests see of a card; tested in
   `tests/legacy/guests.test.ts`), `app.ts` (the rest of the HTTP API).
-
-Tests: `tests/<layer>/` holds the node:test tests for `src/` (the domain without fakes, use cases
-with the in-memory adapters); `tests/legacy/` holds the vitest suites from before the layers,
-which drive the whole app over HTTP and move to node:test as their slices do.
-
 - `public/`: `admin.html`/`admin.js` (Administration), `login.html`/`login.js` (sign-in),
   `guest.html`/`guest.js` (the guest page).
 - `public/`: the page. `app.js` is the ledger UI; `search.js` matches cards for Find (tested in
   `tests/legacy/search.test.ts`); `portfolio.js` and `selling.js` work out the Pricing and Selling views'
   numbers; `back.js` makes Back close a card's details and the Pricing and Selling views (tested in `tests/legacy/back.test.ts`); `runtime.js` connects it to the server.
+
+Tests: `tests/<layer>/` holds the node:test tests for `src/` (the domain without fakes, use cases
+with the in-memory adapters); `tests/legacy/` holds the vitest suites from before the layers,
+which drive the whole app over HTTP and move to node:test as their slices do.
