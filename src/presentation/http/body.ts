@@ -18,7 +18,6 @@ function decoderFor(encoding: string): Transform | undefined | null {
     case 'identity':
       return undefined;
     case 'gzip':
-    case 'x-gzip':
       return zlib.createGunzip();
     case 'deflate':
       return zlib.createInflate();

@@ -71,5 +71,7 @@ describe('readJsonBody', async () => {
   it('refuses compressed data that does not decompress, and encodings it cannot read', async () => {
     assert.deepEqual(await send('not gzip', 'application/json', 'gzip'), { ok: false, error: { code: 'MALFORMED_JSON' } });
     assert.deepEqual(await send('{"a":1}', 'application/json', 'compress'), { ok: false, error: { code: 'UNSUPPORTED_ENCODING', encoding: 'compress' } });
+    // Express never read x-gzip either: only gzip, deflate and br.
+    assert.deepEqual(await send(zlib.gzipSync('{"a":1}'), 'application/json', 'x-gzip'), { ok: false, error: { code: 'UNSUPPORTED_ENCODING', encoding: 'x-gzip' } });
   });
 });
