@@ -6,8 +6,8 @@ import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Accounts } from '../../server/accounts.ts';
 import { createApp } from '../../src/compose.ts';
-import { Assets } from '../../server/assets.ts';
-import { Backups, isoWeek, retain } from '../../server/backups.ts';
+import { PhotoFiles as Assets } from '../../src/infrastructure/photos/photo-files.ts';
+import { createBackups } from '../../src/compose.ts';
 import { Config } from '../../server/config.ts';
 import { Logger, redact } from '../../server/log.ts';
 import { PriceCharting } from '../../server/pricing/pricecharting.ts';
@@ -102,6 +102,18 @@ describe('people and sign-in', () => {
     await editor.put('/api/docs/settings/pricing').send({ running: false }).expect(403);
     await editor.put('/api/docs/settings/main').send({ usdToCad: 1.4 }).expect(200);
     await viewer.post('/api/restore').send({}).expect(403);
+  });
+
+  it('counts only the callers a backup route serves against the heavy limit', async () => {
+    const app = makeApp({ security: new Security({ heavy: { burst: 2, perMinute: 1 } }, log, () => clock) });
+    const admin = await signIn(app, 'admin', 'start password 1');
+    await addUser(admin, 'brock', 'editor');
+    const editor = await signIn(app, 'brock', 'a good password');
+    // Refused before anything is done, so these don't use up the limit.
+    for (let i = 0; i < 5; i++) await editor.post('/api/restore').send({}).expect(403);
+    await editor.get('/api/backup').expect(200);
+    await editor.get('/api/backup').expect(200);
+    await editor.get('/api/backup').expect(429);
   });
 
   it('shows photos only to people signed in, whatever the address’s case', async () => {
@@ -244,19 +256,7 @@ describe('rate limits and blocks', () => {
 });
 
 describe('backups', () => {
-  it('keeps days, then weeks, then months', () => {
-    const days: string[] = [];
-    for (let t = Date.parse('2025-01-01'); t <= Date.parse('2026-10-03'); t += 86_400_000) days.push(new Date(t).toISOString().slice(0, 10));
-    const keep = [...retain(days, { daily: 14, weekly: 8, monthly: 12 })].sort();
-    expect(keep).toContain('2026-10-03');
-    expect(keep).toContain('2026-09-20'); // within 14 days
-    expect(keep.filter((d) => d < '2026-09-20').length).toBeGreaterThan(5); // weekly and monthly copies
-    expect(keep).not.toContain('2025-06-15');
-    expect(keep.length).toBeLessThanOrEqual(14 + 8 + 12);
-    expect(isoWeek('2026-01-01')).toBe('2026-W01');
-    expect(isoWeek('2026-10-03')).toBe('2026-W40');
-  });
-
+  // Retention, the photo trash and the daily copy are tested in tests/domain/backups and tests/application/backups.
   it('snapshots, restores and brings deleted photos back', async () => {
     const app = makeApp();
     const admin = await signIn(app, 'admin', 'start password 1');
@@ -274,42 +274,6 @@ describe('backups', () => {
     expect(list.map((b: { kind: string }) => b.kind)).toContain('before-restore');
     await admin.get(`/api/admin/backups/${snap.name}`).expect(200);
     await admin.get('/api/admin/backups/..%2Fauth.json').expect(404);
-  });
-
-  it('keeps a trashed photo while any kept copy refers to it, however old', () => {
-    const backups = new Backups(store, assets, config, log);
-    const kept = assets.put(JPEG)!.id;
-    const loose = assets.put(JPEG)!.id;
-    // An old monthly copy has a card with the first photo; nothing refers to the second.
-    fs.writeFileSync(path.join(store.backupDir, 'db-2025-01-31.json'), JSON.stringify({ cards: { c1: { ...card, imageId: kept } } }));
-    assets.remove(kept);
-    assets.remove(loose);
-    const later = Date.now() + 500 * 86_400_000;
-    expect(assets.purgeTrash(later, () => backups.referencedImages())).toBe(1);
-    expect(assets.untrash(loose)).toBe(false);
-    // Restoring that copy brings its photo back.
-    expect(backups.restore('db-2025-01-31.json', 'admin')).toMatchObject({ photosRecovered: 1 });
-    expect(assets.find(kept)).not.toBeNull();
-    // With no copies left, the ledger's own card still keeps it; a copy that can't be read keeps
-    // them all; once nothing refers to it, an old trashed photo goes.
-    assets.remove(kept);
-    for (const b of backups.list()) fs.rmSync(path.join(store.backupDir, b.name));
-    expect(assets.purgeTrash(later, () => backups.referencedImages())).toBe(0);
-    store.delete('cards', 'c1');
-    for (const b of backups.list()) fs.rmSync(path.join(store.backupDir, b.name)); // incl. the day's copy the delete took
-    fs.writeFileSync(path.join(store.backupDir, 'db-2025-01-31.json'), '{not json');
-    expect(assets.purgeTrash(later, () => backups.referencedImages())).toBe(0);
-    fs.rmSync(path.join(store.backupDir, 'db-2025-01-31.json'));
-    expect(assets.purgeTrash(later, () => backups.referencedImages())).toBe(1);
-  });
-
-  it('takes the daily copy and applies retention', () => {
-    const backups = new Backups(store, assets, config, log);
-    store.set('cards', 'c1', card);
-    for (const d of ['2026-01-05', '2026-01-06', '2026-02-10', '2026-09-30']) fs.writeFileSync(path.join(store.backupDir, `db-${d}.json`), '{}');
-    config.set({ backups: { daily: 2, weekly: 0, monthly: 0 } });
-    backups.ensureDaily('2026-10-03');
-    expect(backups.list().filter((b) => b.kind === 'daily').map((b) => b.name)).toEqual(['db-2026-10-03.json', 'db-2026-09-30.json']);
   });
 });
 
@@ -335,9 +299,9 @@ describe('logs and checks', () => {
     const status = Object.fromEntries(checks.map((c) => [c.id, c.status]));
     expect(status).toMatchObject({ auth: 'pass', https: 'fail', 'env-password': 'warn', offsite: 'warn', 'rate-limits': 'pass', 'daily-copy': 'fail' });
     // A secure request through the proxy, a fresh copy and a downloaded backup.
-    new Backups(store, assets, config, log).ensureDaily(new Date(clock).toISOString().slice(0, 10));
+    await createBackups({ store, assets, config, log, now: () => new Date(clock) }).housekeeping.execute();
     store.set('cards', 'c1', card);
-    new Backups(store, assets, config, log, () => new Date(clock)).ensureDaily();
+    await createBackups({ store, assets, config, log, now: () => new Date(clock) }).housekeeping.execute();
     await admin.get('/api/backup').expect(200);
     const again = (await admin.get('/api/admin/overview').set('X-Forwarded-Proto', 'https').set('X-Forwarded-For', '203.0.113.9').expect(200)).body.checks as { id: string; status: string }[];
     const s2 = Object.fromEntries(again.map((c) => [c.id, c.status]));

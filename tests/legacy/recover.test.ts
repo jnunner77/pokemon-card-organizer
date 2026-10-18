@@ -5,7 +5,7 @@ import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { Accounts } from '../../server/accounts.ts';
 import { createApp } from '../../src/compose.ts';
-import { Assets } from '../../server/assets.ts';
+import { PhotoFiles as Assets } from '../../src/infrastructure/photos/photo-files.ts';
 import { Config } from '../../server/config.ts';
 import { Guests } from '../../server/guests.ts';
 import { Logger } from '../../server/log.ts';

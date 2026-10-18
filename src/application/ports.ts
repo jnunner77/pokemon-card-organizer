@@ -17,7 +17,18 @@ export interface UnitOfWork {
   run<T, E>(work: () => Promise<Result<T, E>>): Promise<Result<T, E>>;
 }
 
+export interface IdGenerator {
+  next(): string;
+}
+
+/** Bytes as base64 text and back (Node's own, fast for a backup's many photos). */
+export interface Base64 {
+  encode(bytes: Uint8Array): string;
+  decode(text: string): Uint8Array;
+}
+
 /** The server's activity log: who did what ("Justin sorted Trainers: 3 of 9 cards moved"). */
 export interface ActivityLog {
-  info(message: string): void;
+  info(message: string, details?: Readonly<Record<string, unknown>>): void;
+  warn(message: string, details?: Readonly<Record<string, unknown>>): void;
 }

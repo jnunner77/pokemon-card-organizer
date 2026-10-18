@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/compose.ts';
-import { Assets } from '../../server/assets.ts';
+import { PhotoFiles as Assets } from '../../src/infrastructure/photos/photo-files.ts';
 import { Store } from '../../src/infrastructure/json-store/store.ts';
 
 // public/priceops.js is a plain browser script; load it the way the page does.

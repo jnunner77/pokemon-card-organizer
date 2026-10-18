@@ -17,7 +17,7 @@ export function setUp() {
     unitOfWork: ledger.unitOfWork,
     clock: { now: () => NOW },
     events: { publish: async (events) => void published.push(...events) },
-    activity: { info: (message) => void logged.push(message) },
+    activity: { info: (message) => void logged.push(message), warn: (message) => void logged.push(message) },
   };
   return { ledger, deps, published, logged };
 }

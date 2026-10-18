@@ -4,8 +4,8 @@ import path from 'node:path';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/compose.ts';
-import { Assets } from '../../server/assets.ts';
-import { BACKUP_FORMAT } from '../../server/backup.ts';
+import { PhotoFiles as Assets } from '../../src/infrastructure/photos/photo-files.ts';
+import { BACKUP_FORMAT } from '../../src/domain/backups/full-backup.ts';
 import { Store } from '../../src/infrastructure/json-store/store.ts';
 
 // Smallest valid JPEG header bytes are enough: photos are recognised by their first bytes.

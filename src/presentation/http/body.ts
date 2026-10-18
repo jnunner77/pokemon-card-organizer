@@ -3,7 +3,11 @@ import { pipeline, type Transform } from 'node:stream';
 import zlib from 'node:zlib';
 import { err, ok, type Result } from '#shared/result.ts';
 
-export type BodyError = { readonly code: 'MALFORMED_JSON' } | { readonly code: 'BODY_TOO_LARGE' } | { readonly code: 'UNSUPPORTED_ENCODING'; readonly encoding: string };
+export type BodyError =
+  | { readonly code: 'MALFORMED_JSON' }
+  | { readonly code: 'UNREADABLE_BODY' }
+  | { readonly code: 'BODY_TOO_LARGE' }
+  | { readonly code: 'UNSUPPORTED_ENCODING'; readonly encoding: string };
 
 /** Largest JSON body the ledger's routes accept (after decompressing it). */
 export const JSON_LIMIT_BYTES = 1024 * 1024;
@@ -29,17 +33,14 @@ function decoderFor(encoding: string): Transform | undefined | null {
 }
 
 /**
- * Read a JSON request body. Requests that aren't `application/json`, or that announce no body at
- * all (neither Content-Length nor Transfer-Encoding), have no body (`undefined`); an announced but
- * empty JSON body is `{}`. Bodies compressed with gzip, deflate or Brotli are decompressed first,
- * and the limit applies to what they decompress to. Only objects and lists are accepted at the top
- * level; anything else, whitespace alone included, is malformed.
+ * Read a request body's bytes, whatever its type. A request that announces no body at all (neither
+ * Content-Length nor Transfer-Encoding) has none (`undefined`). Bodies compressed with gzip,
+ * deflate or Brotli are decompressed first, and the limit applies to what they decompress to.
  */
-export async function readJsonBody(req: IncomingMessage, limit = JSON_LIMIT_BYTES): Promise<Result<unknown, BodyError>> {
-  const type = (req.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase();
+export async function readBody(req: IncomingMessage, limit: number): Promise<Result<Uint8Array | undefined, BodyError>> {
   const announced = req.headers['content-length'] !== undefined || req.headers['transfer-encoding'] !== undefined;
-  if (type !== 'application/json' || !announced) {
-    req.resume(); // drain whatever was sent so the connection can be reused
+  if (!announced) {
+    req.resume();
     return ok(undefined);
   }
   const encoding = (req.headers['content-encoding'] ?? '').trim().toLowerCase();
@@ -72,10 +73,27 @@ export async function readJsonBody(req: IncomingMessage, limit = JSON_LIMIT_BYTE
   } catch {
     // Compressed data that doesn't decompress, or an upload cut off.
     req.resume();
-    return err({ code: 'MALFORMED_JSON' });
+    return err({ code: 'UNREADABLE_BODY' });
   }
-  if (size === 0) return ok({});
-  const text = Buffer.concat(chunks).toString('utf8');
+  return ok(Buffer.concat(chunks));
+}
+
+/**
+ * Read a JSON request body. Requests that aren't `application/json`, or that announce no body at
+ * all, have no body (`undefined`); an announced but empty JSON body is `{}`. Only objects and lists
+ * are accepted at the top level; anything else, whitespace alone included, is malformed.
+ */
+export async function readJsonBody(req: IncomingMessage, limit = JSON_LIMIT_BYTES): Promise<Result<unknown, BodyError>> {
+  const type = (req.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase();
+  if (type !== 'application/json') {
+    req.resume(); // drain whatever was sent so the connection can be reused
+    return ok(undefined);
+  }
+  const body = await readBody(req, limit);
+  if (!body.ok) return body.error.code === 'UNREADABLE_BODY' ? err({ code: 'MALFORMED_JSON' }) : body;
+  if (body.value === undefined) return ok(undefined);
+  if (body.value.length === 0) return ok({});
+  const text = Buffer.from(body.value.buffer, body.value.byteOffset, body.value.byteLength).toString('utf8');
   if (!OBJECT_OR_LIST.test(text)) return err({ code: 'MALFORMED_JSON' });
   try {
     return ok(JSON.parse(text));

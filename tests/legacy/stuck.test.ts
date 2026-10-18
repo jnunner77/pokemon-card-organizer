@@ -4,7 +4,7 @@ import path from 'node:path';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/compose.ts';
-import { Assets } from '../../server/assets.ts';
+import { PhotoFiles as Assets } from '../../src/infrastructure/photos/photo-files.ts';
 import { Config } from '../../server/config.ts';
 import { Logger } from '../../server/log.ts';
 import { PriceCharting } from '../../server/pricing/pricecharting.ts';

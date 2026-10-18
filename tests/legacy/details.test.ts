@@ -4,7 +4,7 @@ import path from 'node:path';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/compose.ts';
-import { Assets } from '../../server/assets.ts';
+import { PhotoFiles as Assets } from '../../src/infrastructure/photos/photo-files.ts';
 import { Autofill } from '../../server/autofill.ts';
 import { CardDetails, DETAILS_VERSION, mapRarity, similarity } from '../../server/details.ts';
 import type { PriceUpdater } from '../../server/pricing/updater.ts';

@@ -1,21 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
+import type { Retention } from '#domain/backups/retention.ts';
 import { damagedMessage, readJson } from './recover.ts';
 
 // Settings only administrators change, kept in <data>/admin.json. They live outside db.json
 // so restoring a backup of the ledger never changes how the server itself is run.
-
-export const retentionSchema = z
-  .object({
-    /** Newest daily copies kept. */
-    daily: z.number().int().min(1).max(60),
-    /** Plus the newest copy from each of this many recent weeks. */
-    weekly: z.number().int().min(0).max(52),
-    /** Plus the newest copy from each of this many recent months. */
-    monthly: z.number().int().min(0).max(60),
-  })
-  .strict();
 
 export const pricingConfigSchema = z
   .object({
@@ -39,7 +29,7 @@ export const priceMethodSchema = z
   .refine((m) => m.weights.pricecharting + m.weights.tcgplayer + m.weights.cardmarket > 0, 'Give at least one source a weight.');
 export type PriceMethodConfig = z.infer<typeof priceMethodSchema>;
 
-export type Retention = z.infer<typeof retentionSchema>;
+export type { Retention } from '#domain/backups/retention.ts';
 export type PricingConfig = z.infer<typeof pricingConfigSchema>;
 
 export interface AdminConfig {

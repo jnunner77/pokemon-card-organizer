@@ -186,7 +186,7 @@ describe('the price update and a paused PriceCharting', () => {
   it('doesn’t ask PriceCharting while it’s paused, and says why', async () => {
     const { PriceUpdater } = await import('../../server/pricing/updater.ts');
     const { Store } = await import('../../src/infrastructure/json-store/store.ts');
-    const { Assets } = await import('../../server/assets.ts');
+    const { PhotoFiles: Assets } = await import('../../src/infrastructure/photos/photo-files.ts');
     const n = net(() => 429);
     const api = pc(n);
     await expect(api.product('100')).rejects.toBeInstanceOf(Paused);

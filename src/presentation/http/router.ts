@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { Role } from '#application/access.ts';
 
 /** Handles a request it recognises and returns true, or returns false to let the next handler try. */
 export type RouteHandler = (req: IncomingMessage, res: ServerResponse) => Promise<boolean>;
@@ -11,7 +12,23 @@ interface Route {
   readonly pattern: RegExp;
   readonly names: readonly string[];
   readonly handler: Handler;
+  readonly heavy: HeavyLimit | null;
 }
+
+/**
+ * Costly to serve (a backup, a restore): the request pipeline applies its stricter rate limit, but
+ * only to callers with this role, as the route refuses everyone else before doing anything.
+ */
+export interface HeavyLimit {
+  readonly role: Role;
+}
+
+export interface RouteOptions {
+  readonly heavy?: HeavyLimit;
+}
+
+/** What the request pipeline needs of a set of routes. */
+export type Routes = Pick<Router, 'owns' | 'heavyLimit' | 'handle'>;
 
 const matches = (route: Route, method: string | undefined) => route.method === method || (route.method === 'GET' && method === 'HEAD');
 
@@ -22,7 +39,7 @@ const matches = (route: Route, method: string | undefined) => route.method === m
 export class Router {
   readonly #routes: Route[] = [];
 
-  add(method: string, path: string, handler: Handler): this {
+  add(method: string, path: string, handler: Handler, options: RouteOptions = {}): this {
     const names: string[] = [];
     const source = path
       .split('/')
@@ -32,13 +49,18 @@ export class Router {
         return '([^/]+)';
       })
       .join('/');
-    this.#routes.push({ method, pattern: new RegExp(`^${source}/?$`, 'i'), names, handler });
+    this.#routes.push({ method, pattern: new RegExp(`^${source}/?$`, 'i'), names, handler, heavy: options.heavy ?? null });
     return this;
   }
 
   /** Whether a request for this method and path (without a query string) would be handled here. */
   owns(method: string, path: string): boolean {
     return this.#routes.some((r) => matches(r, method) && r.pattern.test(path));
+  }
+
+  /** The heavy rate limit of the route for this method and path, or null when it has none. */
+  heavyLimit(method: string, path: string): HeavyLimit | null {
+    return this.#routes.find((r) => matches(r, method) && r.pattern.test(path))?.heavy ?? null;
   }
 
   readonly handle: RouteHandler = async (req, res) => {
@@ -60,5 +82,17 @@ export class Router {
       return true;
     }
     return false;
+  };
+}
+
+/** Several sets of routes as one, tried in order. */
+export function combine(...routes: readonly Routes[]): Routes {
+  return {
+    owns: (method, path) => routes.some((r) => r.owns(method, path)),
+    heavyLimit: (method, path) => routes.find((r) => r.owns(method, path))?.heavyLimit(method, path) ?? null,
+    handle: async (req, res) => {
+      for (const r of routes) if (await r.handle(req, res)) return true;
+      return false;
+    },
   };
 }
