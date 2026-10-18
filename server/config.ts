@@ -56,7 +56,7 @@ export interface AdminConfig {
 export class Config {
   private readonly file: string;
   private data: AdminConfig;
-  /** admin.json was damaged at start and the defaults were used (index.ts logs it). */
+  /** admin.json was damaged at start and the defaults were used (src/main.ts logs it). */
   readonly recovered: string | null = null;
 
   constructor(dataDir: string, defaults: Partial<AdminConfig> = {}) {

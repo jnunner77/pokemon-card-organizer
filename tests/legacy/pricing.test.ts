@@ -1160,7 +1160,7 @@ describe('pricing over HTTP', () => {
     fs.rmSync(dir, { recursive: true, force: true });
     fs.rmSync(secrets, { recursive: true, force: true });
   });
-  /** The app as index.ts puts it together: PriceCharting's token in its own secret file. */
+  /** The app as src/main.ts and src/compose.ts put it together: PriceCharting's token in its own secret file. */
   const setup = (net: Net, o: { token?: string } = {}) => {
     const token = new Secret(secrets, 'pricecharting-token');
     if (o.token) token.write(o.token);
