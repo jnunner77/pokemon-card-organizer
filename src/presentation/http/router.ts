@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { Role } from '#application/access.ts';
 
 /** Handles a request it recognises and returns true, or returns false to let the next handler try. */
 export type RouteHandler = (req: IncomingMessage, res: ServerResponse) => Promise<boolean>;
@@ -11,16 +12,23 @@ interface Route {
   readonly pattern: RegExp;
   readonly names: readonly string[];
   readonly handler: Handler;
-  /** Costly to serve (a backup, a restore): the request pipeline applies its stricter rate limit. */
-  readonly heavy: boolean;
+  readonly heavy: HeavyLimit | null;
+}
+
+/**
+ * Costly to serve (a backup, a restore): the request pipeline applies its stricter rate limit, but
+ * only to callers with this role, as the route refuses everyone else before doing anything.
+ */
+export interface HeavyLimit {
+  readonly role: Role;
 }
 
 export interface RouteOptions {
-  readonly heavy?: boolean;
+  readonly heavy?: HeavyLimit;
 }
 
 /** What the request pipeline needs of a set of routes. */
-export type Routes = Pick<Router, 'owns' | 'isHeavy' | 'handle'>;
+export type Routes = Pick<Router, 'owns' | 'heavyLimit' | 'handle'>;
 
 const matches = (route: Route, method: string | undefined) => route.method === method || (route.method === 'GET' && method === 'HEAD');
 
@@ -41,7 +49,7 @@ export class Router {
         return '([^/]+)';
       })
       .join('/');
-    this.#routes.push({ method, pattern: new RegExp(`^${source}/?$`, 'i'), names, handler, heavy: options.heavy === true });
+    this.#routes.push({ method, pattern: new RegExp(`^${source}/?$`, 'i'), names, handler, heavy: options.heavy ?? null });
     return this;
   }
 
@@ -50,9 +58,9 @@ export class Router {
     return this.#routes.some((r) => matches(r, method) && r.pattern.test(path));
   }
 
-  /** Whether the route for this method and path is a heavy one. */
-  isHeavy(method: string, path: string): boolean {
-    return this.#routes.some((r) => r.heavy && matches(r, method) && r.pattern.test(path));
+  /** The heavy rate limit of the route for this method and path, or null when it has none. */
+  heavyLimit(method: string, path: string): HeavyLimit | null {
+    return this.#routes.find((r) => matches(r, method) && r.pattern.test(path))?.heavy ?? null;
   }
 
   readonly handle: RouteHandler = async (req, res) => {
@@ -81,7 +89,7 @@ export class Router {
 export function combine(...routes: readonly Routes[]): Routes {
   return {
     owns: (method, path) => routes.some((r) => r.owns(method, path)),
-    isHeavy: (method, path) => routes.some((r) => r.isHeavy(method, path)),
+    heavyLimit: (method, path) => routes.find((r) => r.owns(method, path))?.heavyLimit(method, path) ?? null,
     handle: async (req, res) => {
       for (const r of routes) if (await r.handle(req, res)) return true;
       return false;

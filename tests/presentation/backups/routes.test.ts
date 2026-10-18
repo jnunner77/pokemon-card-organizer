@@ -79,14 +79,14 @@ describe('backup routes', () => {
     assert.deepEqual([bad.status, await bad.json()], [400, { error: 'daily: Too small: at least 1', code: 'invalid_argument' }]);
   });
 
-  it('mark backups, restores and copy downloads as heavy, for the stricter rate limit', async () => {
+  it('mark backups, restores and copy downloads as heavy, for the callers they serve', async () => {
     const { routes } = await setUp({ listCopies: unused });
-    assert.equal(routes.isHeavy('GET', '/backup'), true);
-    assert.equal(routes.isHeavy('POST', '/restore'), true);
-    assert.equal(routes.isHeavy('POST', '/admin/backups/snapshot'), true);
-    assert.equal(routes.isHeavy('GET', '/admin/backups/db-2026-10-18.json'), true);
-    assert.equal(routes.isHeavy('POST', '/admin/backups/db-2026-10-18.json/restore'), true);
-    assert.equal(routes.isHeavy('GET', '/admin/backups'), false);
-    assert.equal(routes.isHeavy('DELETE', '/admin/backups/db-2026-10-18.json'), false);
+    assert.deepEqual(routes.heavyLimit('GET', '/backup'), { role: 'editor' });
+    assert.deepEqual(routes.heavyLimit('POST', '/restore'), { role: 'admin' });
+    assert.deepEqual(routes.heavyLimit('POST', '/admin/backups/snapshot'), { role: 'admin' });
+    assert.deepEqual(routes.heavyLimit('GET', '/admin/backups/db-2026-10-18.json'), { role: 'admin' });
+    assert.deepEqual(routes.heavyLimit('POST', '/admin/backups/db-2026-10-18.json/restore'), { role: 'admin' });
+    assert.equal(routes.heavyLimit('GET', '/admin/backups'), null);
+    assert.equal(routes.heavyLimit('DELETE', '/admin/backups/db-2026-10-18.json'), null);
   });
 });

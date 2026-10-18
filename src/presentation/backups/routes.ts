@@ -46,7 +46,7 @@ export function backupRoutes(deps: BackupRouteDeps): Router {
     sendFailure(res, bodyFailure(r.error));
     return null;
   };
-  const heavy = { heavy: true };
+  const heavyFor = (role: Role) => ({ heavy: { role } });
 
   return (
     new Router()
@@ -61,7 +61,7 @@ export function backupRoutes(deps: BackupRouteDeps): Router {
           res.setHeader('Content-Disposition', attachment(filename));
           sendJson(res, 200, backup);
         },
-        heavy,
+        heavyFor('editor'),
       )
       .add(
         'POST',
@@ -75,7 +75,7 @@ export function backupRoutes(deps: BackupRouteDeps): Router {
           if (r.ok) sendJson(res, 200, r.value);
           else sendFailure(res, backupFailure(r.error));
         },
-        heavy,
+        heavyFor('admin'),
       )
 
       // ---- the ledger's kept copies (Administration → Backups) ----
@@ -103,7 +103,7 @@ export function backupRoutes(deps: BackupRouteDeps): Router {
           const label = isRecord(sent.value) && typeof sent.value['label'] === 'string' ? sent.value['label'].slice(0, MAX_LABEL) : undefined;
           sendJson(res, 201, await deps.takeSnapshot.execute({ actor: caller.name, label }));
         },
-        heavy,
+        heavyFor('admin'),
       )
       .add(
         'GET',
@@ -114,7 +114,7 @@ export function backupRoutes(deps: BackupRouteDeps): Router {
           if (r.ok) sendText(res, 'application/json; charset=utf-8', r.value.text, r.value.name);
           else sendFailure(res, backupFailure(r.error));
         },
-        heavy,
+        heavyFor('admin'),
       )
       .add(
         'POST',
@@ -127,7 +127,7 @@ export function backupRoutes(deps: BackupRouteDeps): Router {
           if (r.ok) sendJson(res, 200, r.value);
           else sendFailure(res, backupFailure(r.error));
         },
-        heavy,
+        heavyFor('admin'),
       )
       .add('DELETE', '/admin/backups/:name', async (req, res, p) => {
         const caller = allowed(req, res, 'admin');

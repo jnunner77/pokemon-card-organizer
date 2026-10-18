@@ -37,4 +37,3 @@ export function checkPhoto(bytes: Uint8Array): Result<PhotoType, PhotoError> {
   const type = photoType(bytes);
   return type ? ok(type) : err({ code: 'NOT_A_PICTURE' });
 }
-

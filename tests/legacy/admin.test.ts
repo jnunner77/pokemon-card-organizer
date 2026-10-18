@@ -104,6 +104,18 @@ describe('people and sign-in', () => {
     await viewer.post('/api/restore').send({}).expect(403);
   });
 
+  it('counts only the callers a backup route serves against the heavy limit', async () => {
+    const app = makeApp({ security: new Security({ heavy: { burst: 2, perMinute: 1 } }, log, () => clock) });
+    const admin = await signIn(app, 'admin', 'start password 1');
+    await addUser(admin, 'brock', 'editor');
+    const editor = await signIn(app, 'brock', 'a good password');
+    // Refused before anything is done, so these don't use up the limit.
+    for (let i = 0; i < 5; i++) await editor.post('/api/restore').send({}).expect(403);
+    await editor.get('/api/backup').expect(200);
+    await editor.get('/api/backup').expect(200);
+    await editor.get('/api/backup').expect(429);
+  });
+
   it('shows photos only to people signed in, whatever the address’s case', async () => {
     const app = makeApp();
     const admin = await signIn(app, 'admin', 'start password 1');

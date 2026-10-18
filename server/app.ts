@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import QRCode from 'qrcode';
-import type { Caller as LayeredCaller } from '#application/access.ts';
+import { type Caller as LayeredCaller, requireRole } from '#application/access.ts';
 import type { BackupHealth } from '#application/backups/backup-health.ts';
 import type { TakeSnapshot } from '#application/backups/take-snapshot.ts';
 import type { PhotoFiles } from '#infrastructure/photos/photo-files.ts';
@@ -165,7 +165,10 @@ export function createExpressApp(o: AppOptions) {
         if (!handled) next();
       }, next);
     };
-    if (!security || !routes.isHeavy(req.method, req.path)) return serve();
+    // The heavy limit counts only callers the route will serve: anyone else is refused (401/403) first.
+    const heavy = routes.heavyLimit(req.method, req.path);
+    const served = heavy !== null && requireRole(caller ? { name: caller.user.username, role: caller.role } : null, heavy.role).ok;
+    if (!security || !served) return serve();
     try {
       security.heavy(req, res, serve);
     } catch (err) {
@@ -711,12 +714,12 @@ export function createExpressApp(o: AppOptions) {
   admin.post('/pricing/rebuild', heavy, json, async (req, res) => {
     if (!updater) throw new HttpError(400, 'Automatic prices are not available on this server.');
     const apply = req.body?.apply === true;
-    // The copy is taken first, and only when the rebuild will save something (the preview says what
-    // would change) and no price update is running (then the rebuild is refused below).
-    const willSave = apply && !updater.running && updater.rebuildPrices(false).cards > 0;
-    const copy = willSave ? (await backups.takeSnapshot.execute({ actor: who(res), label: 'before rebuilding daily prices' })).name : null;
     let summary;
     try {
+      // The copy is taken first, and only when the rebuild will save something (the preview says
+      // what would change) and no price update is running (then the rebuild is refused).
+      const willSave = apply && !updater.running && updater.rebuildPrices(false).cards > 0;
+      const copy = willSave ? (await backups.takeSnapshot.execute({ actor: who(res), label: 'before rebuilding daily prices' })).name : null;
       summary = updater.rebuildPrices(apply, () => copy);
     } catch (err) {
       throw new HttpError(409, err instanceof Error ? err.message : String(err), 'busy');
