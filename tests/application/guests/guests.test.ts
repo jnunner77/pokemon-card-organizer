@@ -115,6 +115,19 @@ describe('administering guests', () => {
     ]);
   });
 
+  it('clears the visits of guests whose time ran out since the last sweep', async () => {
+    const t = setUpGuests();
+    await t.use.setViewing.execute({ actor: 'admin', enabled: true });
+    await t.signedIn('Brock', 'brock@pewter.gym');
+    await t.signedIn('Misty', 'misty@cerulean.gym');
+    t.clock.at += 10 * 60_000;
+    const misty = await t.signedIn('Misty Again', 'misty2@cerulean.gym');
+    t.clock.at += 6 * 60_000; // Brock and Misty's time ran out; no sweep has run since
+    assert.ok(await t.use.identify.execute({ token: misty, touch: false }));
+    assert.deepEqual(await t.use.clearLog.execute({ actor: 'admin' }), { removed: 2 });
+    assert.deepEqual((await t.desk.read()).book.log.map((v) => v.name), ['Misty Again']);
+  });
+
   it("doesn't log turning guest viewing on when it already is", async () => {
     const t = setUpGuests();
     await t.use.setViewing.execute({ actor: 'admin', enabled: false });

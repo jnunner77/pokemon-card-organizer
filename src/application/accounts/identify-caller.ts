@@ -1,5 +1,5 @@
 import { isExpired, shouldNoteUse, tokenRole } from '#domain/accounts/api-token.ts';
-import { isSessionLive } from '#domain/accounts/session.ts';
+import { isSessionLive, predatesPassword } from '#domain/accounts/session.ts';
 import { ok } from '#shared/result.ts';
 import type { AccountDeps } from './deps.ts';
 import type { Identity } from './identity.ts';
@@ -55,6 +55,10 @@ export class IdentifyCaller {
     }
     const person = book.users.find((u) => u.id === session.userId && u.active);
     if (!person) return { identity: null, badToken: false };
+    if (predatesPassword(session, person.passwordSetAt)) {
+      await d.sessions.remove((s) => s.hash === hash);
+      return { identity: null, badToken: false };
+    }
     await d.sessions.touch(hash, now.getTime());
     return { identity: { id: person.id, name: person.username, displayName: person.name, role: person.role, via: 'session' }, badToken: false };
   }

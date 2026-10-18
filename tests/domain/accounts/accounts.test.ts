@@ -6,7 +6,7 @@ import { afterWrongPassword, lockedUntil, MAX_LOCK_MS, minutesLocked } from '#do
 import { checkNewPassword } from '#domain/accounts/password.ts';
 import { readName, readPassword, readUsername, type Person } from '#domain/accounts/person.ts';
 import { atLeast } from '#domain/accounts/role.ts';
-import { isSessionLive } from '#domain/accounts/session.ts';
+import { isSessionLive, predatesPassword } from '#domain/accounts/session.ts';
 import { changeSettings, DEFAULT_SIGN_IN_SETTINGS } from '#domain/accounts/settings.ts';
 
 const NOW = new Date('2026-10-18T12:00:00.000Z');
@@ -117,6 +117,16 @@ describe('sessions', () => {
     assert.equal(isSessionLive(session, DEFAULT_SIGN_IN_SETTINGS, later(14 * 86_400_000)), false);
     const used = { ...session, lastSeen: later(29 * 86_400_000).getTime() };
     assert.equal(isSessionLive(used, DEFAULT_SIGN_IN_SETTINGS, later(30 * 86_400_000)), false);
+  });
+});
+
+describe('a session and the password', () => {
+  it('no longer counts once the password is set again after it started', () => {
+    const session = { id: 's', hash: 'h', userId: 'u1', createdAt: NOW.getTime(), lastSeen: NOW.getTime(), ip: '', agent: '' };
+    assert.equal(predatesPassword(session, '2026-10-18T12:00:00.001Z'), true);
+    assert.equal(predatesPassword(session, NOW.toISOString()), false);
+    assert.equal(predatesPassword(session, '2026-10-18T11:00:00.000Z'), false);
+    assert.equal(predatesPassword(session, null), false);
   });
 });
 

@@ -18,6 +18,12 @@ export interface Session {
   readonly agent: string;
 }
 
+/**
+ * Started before the person's password was last set (by them or an administrator): it no longer
+ * counts, even if ending it when the password changed didn't get saved.
+ */
+export const predatesPassword = (session: Session, passwordSetAt: string | null): boolean => passwordSetAt !== null && session.createdAt < Date.parse(passwordSetAt);
+
 /** Still within the idle time and the maximum age. */
 export function isSessionLive(session: Session, settings: SignInSettings, now: Date): boolean {
   const at = now.getTime();

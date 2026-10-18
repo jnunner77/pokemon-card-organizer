@@ -3,11 +3,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { after, describe, it } from 'node:test';
+import { Bootstrap } from '#application/accounts/bootstrap.ts';
+import { IdentifyCaller } from '#application/accounts/identify-caller.ts';
+import { SetPersonPassword } from '#application/accounts/set-person-password.ts';
+import { SignIn } from '#application/accounts/sign-in.ts';
 import { addPerson } from '#domain/accounts/account-book.ts';
 import { DEFAULT_SIGN_IN_SETTINGS } from '#domain/accounts/settings.ts';
 import { FileAccountStore } from '#infrastructure/accounts/auth-file.ts';
 import { ScryptHasher } from '#infrastructure/accounts/scrypt-hasher.ts';
 import { FileSessionStore } from '#infrastructure/accounts/session-file.ts';
+import { CountingSecrets, MemoryFailedSignIns, MemoryFirstRunSetup, PlainHasher } from '#infrastructure/memory/accounts.ts';
 import { NodeSecrets } from '#infrastructure/node-secrets.ts';
 import { err, ok } from '#shared/result.ts';
 
@@ -129,5 +134,40 @@ describe('FileSessionStore when sessions.json cannot be written', () => {
     allowWrites(dir);
     await sessions.add({ ...session, id: 's2', hash: 'h2' });
     assert.deepEqual((await new FileSessionStore(dir, () => {}).list()).map((s) => s.id), ['s2']);
+  });
+});
+
+describe('a new password when sessions.json cannot be written', () => {
+  it('still ends the sessions started before it, after a restart too', async () => {
+    const dir = tempDir();
+    const clock = { at: Date.parse('2026-10-18T12:00:00.000Z') };
+    const make = () => {
+      const sessions = new FileSessionStore(dir, () => {});
+      const deps = {
+        accounts: new FileAccountStore(dir),
+        sessions,
+        failures: new MemoryFailedSignIns(),
+        setup: new MemoryFirstRunSetup(),
+        hasher: new PlainHasher(),
+        secrets: new CountingSecrets(),
+        clock: { now: () => new Date(clock.at) },
+        authLog: { info: () => {}, warn: () => {} },
+        adminLog: { info: () => {}, warn: () => {} },
+        securityLog: { info: () => {}, warn: () => {} },
+      };
+      return { identify: new IdentifyCaller(deps), signIn: new SignIn(deps), setPassword: new SetPersonPassword(deps), bootstrap: new Bootstrap(deps), accounts: deps.accounts };
+    };
+    const first = make();
+    await first.bootstrap.execute({ envPassword: 'start password 1' });
+    const signedIn = await first.signIn.execute({ username: 'admin', password: 'start password 1', ip: '', agent: '' });
+    assert.ok(signedIn.ok && signedIn.value.status === 'ok');
+    const admin = (await first.accounts.read()).users[0];
+    assert.ok(admin);
+    clock.at += 1000;
+    fs.mkdirSync(path.join(dir, `sessions.json.${process.pid}.tmp`));
+    await assert.rejects(first.setPassword.execute({ actor: 'admin', id: admin.id, password: 'a new password 2', mustChange: false }));
+    fs.rmdirSync(path.join(dir, `sessions.json.${process.pid}.tmp`));
+    assert.equal((await first.identify.execute({ sessionToken: signedIn.value.token })).identity, null);
+    assert.equal((await make().identify.execute({ sessionToken: signedIn.value.token })).identity, null);
   });
 });

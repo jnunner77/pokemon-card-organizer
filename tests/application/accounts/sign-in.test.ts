@@ -154,6 +154,37 @@ describe('who is calling', () => {
     assert.equal((await t.use.identify.execute({ sessionToken: again })).identity, null);
   });
 
+  it('ends sessions started before the password was set again, even when ending them could not be saved', async () => {
+    const t = setUpAccounts();
+    await t.withAdmin();
+    const ash = await t.add('ash', 'editor');
+    const other = await t.signIn('ash', 'a good password');
+    const before = await t.signIn('ash', 'a good password');
+    t.clock.at += 1000;
+    const remove = t.sessions.remove.bind(t.sessions);
+    t.sessions.remove = async () => {
+      throw new Error('disk full');
+    };
+    // An administrator's new password: saved, but the sessions couldn't be ended.
+    await assert.rejects(t.use.setPersonPassword.execute({ actor: 'admin', id: ash.id, password: 'reset by admin 4', mustChange: false }), /disk full/);
+    t.sessions.remove = remove;
+    assert.equal((await t.use.identify.execute({ sessionToken: before })).identity, null);
+    // Their own new password, the same way.
+    t.clock.at += 1000;
+    const mine = await t.signIn('ash', 'reset by admin 4');
+    t.clock.at += 1000;
+    t.sessions.remove = async () => {
+      throw new Error('disk full');
+    };
+    await assert.rejects(t.use.changeOwnPassword.execute({ username: 'ash', currentPassword: 'reset by admin 4', newPassword: 'my own password 3', ...t.where }), /disk full/);
+    t.sessions.remove = remove;
+    assert.equal((await t.use.identify.execute({ sessionToken: mine })).identity, null);
+    assert.equal((await t.use.identify.execute({ sessionToken: other })).identity, null);
+    // Signing in with the new password works, and stays signed in.
+    const fresh = await t.signIn('ash', 'my own password 3');
+    assert.equal((await t.use.identify.execute({ sessionToken: fresh })).identity?.name, 'ash');
+  });
+
   it('saves when a session was last used now and then, not on every request', async () => {
     const t = setUpAccounts();
     await t.withAdmin();
