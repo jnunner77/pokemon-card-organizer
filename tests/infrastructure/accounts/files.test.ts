@@ -167,7 +167,11 @@ describe('a new password when sessions.json cannot be written', () => {
     fs.mkdirSync(path.join(dir, `sessions.json.${process.pid}.tmp`));
     await assert.rejects(first.setPassword.execute({ actor: 'admin', id: admin.id, password: 'a new password 2', mustChange: false }));
     fs.rmdirSync(path.join(dir, `sessions.json.${process.pid}.tmp`));
-    assert.equal((await first.identify.execute({ sessionToken: signedIn.value.token })).identity, null);
+    // The session is still on disk: a restarted server reads it, and ends it itself.
+    assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'sessions.json'), 'utf8')).sessions.length, 1);
     assert.equal((await make().identify.execute({ sessionToken: signedIn.value.token })).identity, null);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'sessions.json'), 'utf8')).sessions, []);
+    // And the server that was running all along.
+    assert.equal((await first.identify.execute({ sessionToken: signedIn.value.token })).identity, null);
   });
 });
