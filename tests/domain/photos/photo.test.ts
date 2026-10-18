@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { checkPhoto, isPhotoId, photoType, typeOfExtension } from '#domain/photos/photo.ts';
+import { checkPhoto, isPhotoId, photoType } from '#domain/photos/photo.ts';
 import { photosReferencedBy } from '#domain/photos/references.ts';
 import { anyOldEnough, purgeable, TRASH_DAYS } from '#domain/photos/trash.ts';
 
@@ -25,12 +25,10 @@ describe('photos', () => {
     assert.deepEqual(checkPhoto(text('hello')), { ok: false, error: { code: 'NOT_A_PICTURE' } });
   });
 
-  it('have 32-hex-character ids, and file extensions for their types', () => {
+  it('have 32-hex-character ids', () => {
     assert.equal(isPhotoId('a'.repeat(32)), true);
     assert.equal(isPhotoId('A'.repeat(32)), false);
     assert.equal(isPhotoId('../db.json'), false);
-    assert.equal(typeOfExtension('webp'), 'image/webp');
-    assert.equal(typeOfExtension('svg'), null);
   });
 
   it('a ledger refers to its cards’ own photos and official pictures, not inline data: URLs', () => {

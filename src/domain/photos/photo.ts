@@ -38,5 +38,3 @@ export function checkPhoto(bytes: Uint8Array): Result<PhotoType, PhotoError> {
   return type ? ok(type) : err({ code: 'NOT_A_PICTURE' });
 }
 
-/** The type a stored photo's file extension stands for. */
-export const typeOfExtension = (ext: string): PhotoType | null => PHOTO_TYPES.find((t) => EXTENSIONS[t] === ext) ?? null;

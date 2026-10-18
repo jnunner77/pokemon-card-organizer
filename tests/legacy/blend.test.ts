@@ -132,4 +132,19 @@ describe('rebuilding past daily prices', () => {
     expect(store.get('cards', 'a')!.prices).toEqual([expect.objectContaining({ usd: 100, amount: 140, where: 'PriceCharting' })]);
     fs.rmSync(dir, { recursive: true, force: true });
   });
+
+  it('takes no copy of the ledger when applying would change nothing', async () => {
+    const request = (await import('supertest')).default;
+    const { createApp } = await import('../../src/compose.ts');
+    const { Logger } = await import('../../server/log.ts');
+    const { dir, store, config, u } = await setup();
+    const app = createApp({ store, assets: (u as unknown as { assets: never }).assets, log: new Logger({ stdout: false }), config, updater: u, publicDir: path.join(__dirname, '../../public') });
+    store.set('cards', 'a', { name: 'Pikachu', status: 'binder', prices: [day('2026-10-09', { pricecharting: 100, tcgplayer: 110 })] });
+    await request(app).put('/api/admin/pricing/method').send({ method: 'pricecharting', weights: { pricecharting: 40, tcgplayer: 40, cardmarket: 20 }, tolerance: 25 }).expect(200);
+    expect((await request(app).post('/api/admin/pricing/rebuild').send({ apply: true }).expect(200)).body.copy).toMatch(/^db-snapshot-/);
+    const again = await request(app).post('/api/admin/pricing/rebuild').send({ apply: true }).expect(200);
+    expect(again.body).toMatchObject({ cards: 0, copy: null });
+    expect(fs.readdirSync(path.join(dir, 'backups')).filter((f) => f.startsWith('db-snapshot-'))).toHaveLength(1);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
 });

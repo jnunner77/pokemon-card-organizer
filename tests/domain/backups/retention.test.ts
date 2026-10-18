@@ -35,6 +35,7 @@ describe('retention', () => {
     assert.equal(refused({ daily: 1, weekly: 0, monthly: 1.5 }), 'monthly: Expected a whole number');
     assert.equal(refused({ daily: 1, weekly: 0 }), 'monthly: Required');
     assert.equal(refused({ daily: 1, weekly: 0, monthly: 0, yearly: 1 }), 'Unrecognized field "yearly"');
+    assert.equal(refused(JSON.parse('{"daily":1,"weekly":0,"monthly":0,"constructor":1}')), 'Unrecognized field "constructor"');
     assert.equal(refused([]), 'Expected an object');
   });
 });

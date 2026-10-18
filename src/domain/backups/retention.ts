@@ -26,7 +26,8 @@ const invalid = (message: string) => err<InvalidRetention>({ code: 'INVALID_RETE
 /** Retention as an administrator sent it: the three counts, whole numbers within their limits, nothing else. */
 export function checkRetention(input: unknown): Result<Retention, InvalidRetention> {
   if (!isRecord(input)) return invalid('Expected an object');
-  const unknown = Object.keys(input).find((k) => !(k in LIMITS));
+  const known = Object.keys(LIMITS);
+  const unknown = Object.keys(input).find((k) => !known.includes(k));
   if (unknown !== undefined) return invalid(`Unrecognized field "${unknown}"`);
   const counts: Record<string, number> = {};
   for (const [key, { min, max }] of Object.entries(LIMITS)) {

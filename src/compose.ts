@@ -24,7 +24,7 @@ import { ReadLedger } from '#application/ledger/read-ledger.ts';
 import { DeletePhoto } from '#application/photos/delete-photo.ts';
 import { OpenPhoto } from '#application/photos/open-photo.ts';
 import { UploadPhoto } from '#application/photos/upload-photo.ts';
-import type { ActivityLog, Clock } from '#application/ports.ts';
+import type { ActivityLog } from '#application/ports.ts';
 import { FileKeptCopies } from '#infrastructure/backups/file-kept-copies.ts';
 import { StoreLedgerReader } from '#infrastructure/json-store/ledger-reader.ts';
 import { JsonBinderRepository, JsonCardRepository, JsonSettingRepository } from '#infrastructure/json-store/repositories.ts';
@@ -36,6 +36,7 @@ import { NodeBase64 } from '#infrastructure/node-base64.ts';
 import { FilePhotoStore } from '#infrastructure/photos/file-photo-store.ts';
 import type { PhotoFiles } from '#infrastructure/photos/photo-files.ts';
 import { RandomHexIds } from '#infrastructure/random-ids.ts';
+import { SystemClock } from '#infrastructure/system-clock.ts';
 import { backupRoutes } from '#presentation/backups/routes.ts';
 import type { CallerResolver } from '#presentation/http/caller.ts';
 import { combine, type Router } from '#presentation/http/router.ts';
@@ -52,14 +53,14 @@ const activityLog = (log: Logger, category: Category): ActivityLog => ({
 });
 
 /** The ledger slice over the JSON store, as HTTP routes relative to /api. */
-export function composeLedgerRoutes(store: Store, identify: CallerResolver, activity: ActivityLog, events: LocalEventBus, clock: Clock): Router {
+export function composeLedgerRoutes(store: Store, identify: CallerResolver, activity: ActivityLog, events: LocalEventBus): Router {
   const unitOfWork = new StoreUnitOfWork(store);
   const deps: LedgerDeps = {
     cards: new JsonCardRepository(unitOfWork),
     binders: new JsonBinderRepository(unitOfWork),
     settings: new JsonSettingRepository(unitOfWork),
     reader: new StoreLedgerReader(store),
-    clock,
+    clock: new SystemClock(),
     events,
     unitOfWork,
     activity,
@@ -144,7 +145,7 @@ export function createApp(options: CreateAppOptions) {
   const layeredRoutes = ({ identify }: { identify: CallerResolver }): LayeredRoutes => {
     const photos = photoRoutes({ identify, ...backups });
     return {
-      api: combine(composeLedgerRoutes(options.store, identify, activityLog(log, 'app'), events, { now: () => new Date() }), photos.api, backupRoutes({ identify, ...backups })),
+      api: combine(composeLedgerRoutes(options.store, identify, activityLog(log, 'app'), events), photos.api, backupRoutes({ identify, ...backups })),
       root: photos.root,
     };
   };

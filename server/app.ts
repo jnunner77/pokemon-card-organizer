@@ -711,8 +711,10 @@ export function createExpressApp(o: AppOptions) {
   admin.post('/pricing/rebuild', heavy, json, async (req, res) => {
     if (!updater) throw new HttpError(400, 'Automatic prices are not available on this server.');
     const apply = req.body?.apply === true;
-    // The copy is taken first, unless a price update is running (then the rebuild is refused below).
-    const copy = apply && !updater.running ? (await backups.takeSnapshot.execute({ actor: who(res), label: 'before rebuilding daily prices' })).name : null;
+    // The copy is taken first, and only when the rebuild will save something (the preview says what
+    // would change) and no price update is running (then the rebuild is refused below).
+    const willSave = apply && !updater.running && updater.rebuildPrices(false).cards > 0;
+    const copy = willSave ? (await backups.takeSnapshot.execute({ actor: who(res), label: 'before rebuilding daily prices' })).name : null;
     let summary;
     try {
       summary = updater.rebuildPrices(apply, () => copy);
