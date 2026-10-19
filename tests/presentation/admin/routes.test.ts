@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import http from 'node:http';
+import { Readable } from 'node:stream';
+import { after, describe, it } from 'node:test';
 import type { Caller } from '#application/access.ts';
 import type { Identity } from '#application/accounts/identity.ts';
 import { err, ok } from '#shared/result.ts';
@@ -114,6 +116,31 @@ describe('admin routes', () => {
     assert.deepEqual([file.status, file.headers.get('content-type'), file.headers.get('content-disposition'), await file.text()], [200, 'text/plain; charset=utf-8', 'attachment; filename="binder-log-2026-10-03.jsonl"', 'line\n\n']);
     assert.deepEqual(await answer(await fetch(`${base}/admin/logs/files/..%2Fauth.json`, as('admin'))), [404, { error: 'No such log file', code: 'not_found' }]);
     assert.deepEqual(asked.at(-1), { name: '../auth.json' });
+  });
+
+  it('close the log file on a HEAD request, and take a cancelled download as no error', async () => {
+    const files: Readable[] = [];
+    const open = { execute: async () => { const r = new Readable({ read() {} }); r.push('first line\n'); files.push(r); return { bytes: 1_000_000, content: r }; } };
+    const head = await setUp({ openLogFile: open });
+    const r = await fetch(`${head.base}/admin/logs/files/2026-10-03.jsonl`, as('admin', { method: 'HEAD' }));
+    assert.deepEqual([r.status, r.headers.get('content-length')], [200, '1000000']);
+    assert.equal(files[0]?.destroyed, true);
+
+    const { routes } = await setUp({ openLogFile: open });
+    const failures: unknown[] = [];
+    const served = new Promise<void>((resolve) => {
+      const server = http.createServer((req, res) => void routes.handle(req, res).then(() => resolve(), (error: unknown) => (failures.push(error), resolve())));
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address();
+        assert.ok(address && typeof address === 'object');
+        const req = http.get({ port: address.port, host: '127.0.0.1', path: '/admin/logs/files/2026-10-03.jsonl', headers: { 'X-Role': 'admin' } }, (res) => res.once('data', () => req.destroy()));
+        req.on('error', () => {});
+      });
+      after(() => new Promise<void>((done) => server.close(() => done())));
+    });
+    await served;
+    assert.deepEqual(failures, []);
+    assert.equal(files[1]?.destroyed, true);
   });
 
   it('take page errors from anyone signed in, and from signed-in guests', async () => {

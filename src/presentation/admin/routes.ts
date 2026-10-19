@@ -54,6 +54,7 @@ const queryOf = (req: IncomingMessage): URLSearchParams => {
   const at = url.indexOf('?');
   return new URLSearchParams(at < 0 ? '' : url.slice(at + 1));
 };
+const isPrematureClose = (error: unknown): boolean => typeof error === 'object' && error !== null && 'code' in error && error.code === 'ERR_STREAM_PREMATURE_CLOSE';
 const NO_SUCH_LOG: Failure = { status: 404, code: 'not_found', message: 'No such log file' };
 
 /**
@@ -177,13 +178,19 @@ export function adminRoutes(deps: AdminRouteDeps): Router {
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
       res.setHeader('Content-Length', file.bytes);
       res.setHeader('Content-Disposition', attachment(`binder-log-${name}`));
-      const content = Readable.from(file.content);
+      // The file's own stream when it is one, so a HEAD request closes the file it opened.
+      const content = file.content instanceof Readable ? file.content : Readable.from(file.content);
       if (req.method === 'HEAD') {
         content.destroy();
         res.end();
         return;
       }
-      await pipeline(content, res);
+      try {
+        await pipeline(content, res);
+      } catch (error) {
+        // The browser cancelled the download: nothing went wrong here. A file that can't be read is still an error.
+        if (!isPrematureClose(error)) throw error;
+      }
     });
 
   // The guest page's errors, from a signed-in guest.
