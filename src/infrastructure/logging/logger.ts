@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { Readable } from 'node:stream';
 import type { LogFileContent, LogFileInfo, LogQuery, ServerLog } from '#application/logging.ts';
 import { type Category, isLogFileName, type Level, LEVELS, type LogEntry, redact } from '#domain/admin/log.ts';
 
@@ -33,6 +32,15 @@ function* entriesIn(text: string, keep: (line: string) => boolean = () => true):
       // a line cut short when the server stopped
     }
   }
+}
+
+/**
+ * The first `size` bytes of a file (today's file keeps growing; the length sent says `size`),
+ * opened only once something reads them: a HEAD request, which reads nothing, opens nothing, and
+ * a file gone meanwhile fails the reading, never as a stray error event.
+ */
+async function* fileBytes(file: string, size: number): AsyncGenerator<Uint8Array> {
+  if (size > 0) yield* fs.createReadStream(file, { end: size - 1 });
 }
 
 export class Logger implements ServerLog {
@@ -150,8 +158,7 @@ export class Logger implements ServerLog {
     const file = path.join(this.#dir, name);
     try {
       const { size } = await fs.promises.stat(file);
-      // Today's file keeps growing: send only the bytes counted, as the length says.
-      return { bytes: size, content: size > 0 ? fs.createReadStream(file, { end: size - 1 }) : Readable.from([]) };
+      return { bytes: size, content: fileBytes(file, size) };
     } catch {
       return null;
     }

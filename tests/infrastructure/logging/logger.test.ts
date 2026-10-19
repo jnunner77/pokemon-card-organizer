@@ -40,6 +40,14 @@ describe('Logger', () => {
     fs.writeFileSync(path.join(dir, '2026-09-30.jsonl'), '');
     const empty = await log.openFile('2026-09-30.jsonl');
     assert.deepEqual([empty?.bytes, empty ? await text(Readable.from(empty.content)) : null], [0, '']);
+    // The file opens only when read: one removed meanwhile fails the reading, and unread it's never opened.
+    const removed = await log.openFile('2026-10-01.jsonl');
+    const unread = await log.openFile('2026-10-01.jsonl');
+    assert.ok(removed && unread);
+    fs.rmSync(file);
+    await assert.rejects(text(Readable.from(removed.content)), { code: 'ENOENT' });
+    Readable.from(unread.content).destroy();
+    await new Promise((resolve) => setTimeout(resolve, 50)); // a stray error event would fail the test run here
     assert.equal(await log.openFile('../2026-10-01.jsonl'), null);
     assert.equal(await log.openFile('2026-01-01.jsonl'), null);
   });

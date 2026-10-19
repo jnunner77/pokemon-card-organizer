@@ -178,7 +178,7 @@ export function adminRoutes(deps: AdminRouteDeps): Router {
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
       res.setHeader('Content-Length', file.bytes);
       res.setHeader('Content-Disposition', attachment(`binder-log-${name}`));
-      // The file's own stream when it is one, so a HEAD request closes the file it opened.
+      // Its own stream when it is one, so a HEAD request closes it; the log's file content opens only when read.
       const content = file.content instanceof Readable ? file.content : Readable.from(file.content);
       if (req.method === 'HEAD') {
         content.destroy();

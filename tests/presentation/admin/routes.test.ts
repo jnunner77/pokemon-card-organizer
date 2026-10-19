@@ -143,6 +143,26 @@ describe('admin routes', () => {
     assert.equal(files[1]?.destroyed, true);
   });
 
+  it('read nothing of the log file for a HEAD request, and pass a file that fails to open to the error handler', async () => {
+    let reads = 0;
+    const failing = { execute: async () => ({ bytes: 10, content: (async function* () { reads++; yield* []; throw Object.assign(new Error('ENOENT: gone'), { code: 'ENOENT' }); })() }) };
+    const head = await setUp({ openLogFile: failing });
+    const r = await fetch(`${head.base}/admin/logs/files/2026-10-03.jsonl`, as('admin', { method: 'HEAD' }));
+    assert.deepEqual([r.status, reads], [200, 0]);
+    const { routes } = await setUp({ openLogFile: failing });
+    const failures: unknown[] = [];
+    await new Promise<void>((resolve) => {
+      const server = http.createServer((req, res) => void routes.handle(req, res).then(() => resolve(), (error: unknown) => (failures.push(error), res.destroy(), resolve())));
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address();
+        assert.ok(address && typeof address === 'object');
+        http.get({ port: address.port, host: '127.0.0.1', path: '/admin/logs/files/2026-10-03.jsonl', headers: { 'X-Role': 'admin' } }, (res) => res.resume()).on('error', () => {});
+      });
+      after(() => new Promise<void>((done) => server.close(() => done())));
+    });
+    assert.deepEqual([reads, failures.map((e) => (e as { code?: string }).code)], [1, ['ENOENT']]);
+  });
+
   it('take page errors from anyone signed in, and from signed-in guests', async () => {
     const { base, asked } = await setUp();
     assert.equal((await fetch(`${base}/client-error`, json({ message: 'x' }))).status, 401);
