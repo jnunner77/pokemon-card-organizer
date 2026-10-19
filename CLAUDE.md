@@ -68,7 +68,9 @@ confirmed on the live binder.
 - Secrets (password hashes, session and API token hashes, the guest key and the guest log) live in
   their own files in the data directory (`auth.json`, `sessions.json`, `guests.json`, written 0600),
   never in `db.json`, its copies, full backups or API responses other than Administration.
-  Wrong-password counts, the first-run setup code and signed-in guests stay in memory.
+  PriceCharting's API token is a file of its own in `SECRETS_DIR` (`FileSecret`, written 0600),
+  outside the data that's backed up: it is never shown, logged or returned, only whether one is
+  saved and when. Wrong-password counts, the first-run setup code and signed-in guests stay in memory.
 - Use `.ts` extensions in imports and only erasable syntax (no `enum`, `namespace` or constructor
   parameter properties): Node runs the TypeScript directly.
 - In `src/`: no non-null assertions (`!`), `any`, or casts except branding ids at trust
