@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
-import type { Logger } from './log.ts';
+import type { ServerLog as Logger } from '#application/logging.ts';
 
 // Protection for running on the open internet (adapted from Boards): rate limits per client
 // address and per signed-in person, temporary blocks for abusive clients that grow

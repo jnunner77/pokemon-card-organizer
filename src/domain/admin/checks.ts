@@ -1,5 +1,3 @@
-import fs from 'node:fs';
-
 // The Administration overview: is this server ready for the public internet, and is it
 // healthy? Each check says what it found and, when it isn't passing, what to do about it.
 
@@ -10,33 +8,78 @@ export interface Check {
   title: string;
   status: CheckStatus;
   detail: string;
-  fix?: string;
+  fix?: string | undefined;
+}
+
+export interface AccountsSummary {
+  readonly users: number;
+  readonly admins: number;
+  readonly adminsMustChange: number;
+  readonly settings: { readonly passwordMinLength: number; readonly lockoutAfter: number };
+  readonly tokensExpired: number;
+  readonly tokensStale: number;
+  readonly setupPending: boolean;
+}
+
+export interface SecuritySummary {
+  readonly enabled: boolean;
+  readonly bans: number;
+  readonly limited: number;
+  readonly blocked: number;
+  readonly allowlist: number;
+}
+
+/** The last price update that finished. */
+export interface LastPriceRun {
+  readonly date: string;
+  readonly finishedAt: string;
+  readonly counts: Readonly<Record<string, number>>;
+}
+
+/** A price update that was interrupted, stalled or failed (its banner not dismissed yet). */
+export interface PriceRunProblem {
+  readonly title: string;
+  readonly message: string;
+  readonly recoveredAt?: string | null | undefined;
+}
+
+export interface PricingSummary {
+  readonly enabled: boolean;
+  readonly hour: number;
+  readonly timeZone: string;
+  readonly lastRun: LastPriceRun | null;
+  readonly running: boolean;
+  /** The date of the Bank of Canada exchange rate in use. */
+  readonly rateDate: string | null;
+  readonly problem: PriceRunProblem | null;
 }
 
 export interface CheckInputs {
-  now: Date;
+  readonly now: Date;
   /** Whether this request reached the app over HTTPS (as reported by a trusted proxy). */
-  secure: boolean;
+  readonly secure: boolean;
   /** A proxy sent X-Forwarded-For but the app isn't told to trust it. */
-  untrustedProxy: boolean;
-  localRequest: boolean;
-  authEnabled: boolean;
-  accounts: { users: number; admins: number; adminsMustChange: number; settings: { passwordMinLength: number; lockoutAfter: number; sessionMaxDays: number }; sessions: number; tokens: number; tokensExpired: number; tokensStale: number; setupPending: boolean } | null;
-  envPasswordStillWorks: boolean;
-  security: { enabled: boolean; bans: number; limited: number; blocked: number; allowlist: number } ;
-  failedSignIns24h: number;
-  backups: { newestDaily: string | null; dailyCopies: number; snapshots: number; retention: { daily: number; weekly: number; monthly: number } };
-  lastFullBackupAt: string | null;
+  readonly untrustedProxy: boolean;
+  readonly localRequest: boolean;
+  readonly authEnabled: boolean;
+  /** Null with sign-in turned off. */
+  readonly accounts: AccountsSummary | null;
+  readonly envPasswordStillWorks: boolean;
+  readonly security: SecuritySummary;
+  readonly failedSignIns24h: number;
+  readonly backups: { readonly newestDaily: string | null; readonly dailyCopies: number; readonly snapshots: number; readonly retention: { readonly daily: number; readonly weekly: number; readonly monthly: number } };
+  readonly lastFullBackupAt: string | null;
   /** The server's nightly job copied a backup off the server (offsite.json in the data directory). */
-  offsite: { at: string; where: string } | null;
-  logs: { fileOk: boolean | null; dir: string | undefined; errors24h: number; warnings24h: number };
-  pricing: { enabled: boolean; hour: number; timeZone: string; lastRun: { date: string; finishedAt: string; counts: Record<string, number> } | null; running: boolean; rateDate: string | null; problem?: { title: string; message: string; recoveredAt?: string | null } | null };
-  disk: { freeBytes: number | null; dataBytes: number };
+  readonly offsite: { readonly at: string; readonly where: string } | null;
+  readonly logs: { readonly fileOk: boolean | null; readonly dir: string | undefined; readonly errors24h: number; readonly warnings24h: number };
+  readonly pricing: PricingSummary;
+  readonly disk: { readonly freeBytes: number | null; readonly dataBytes: number };
 }
 
 const hoursSince = (iso: string | null, now: Date) => (iso ? (now.getTime() - Date.parse(iso)) / 3_600_000 : Infinity);
 const mb = (b: number) => `${(b / 1048576).toFixed(b < 10 * 1048576 ? 1 : 0)} MB`;
 
+/** Every check, in the order the overview shows them. */
 export function runChecks(i: CheckInputs): Check[] {
   const c: Check[] = [];
   const add = (x: Check) => c.push(x);
@@ -87,16 +130,16 @@ export function runChecks(i: CheckInputs): Check[] {
   if (i.security.allowlist) add({ id: 'allowlist', group: 'Rate limiting', title: 'Trusted addresses', status: 'info', detail: `${i.security.allowlist} address${i.security.allowlist === 1 ? '' : 'es'} in SECURITY_ALLOWLIST are never limited or blocked.` });
 
   // ---- Backups
-  const age = hoursSince(i.backups.newestDaily, i.now);
+  const newest = i.backups.newestDaily;
   add(
-    age < 48
-      ? { id: 'daily-copy', group: 'Backups', title: 'Daily copies on the server', status: 'pass', detail: `Newest copy ${i.backups.newestDaily!.slice(0, 10)}; ${i.backups.dailyCopies} kept (newest ${i.backups.retention.daily} days, ${i.backups.retention.weekly} weeks, ${i.backups.retention.monthly} months), ${i.backups.snapshots} snapshot${i.backups.snapshots === 1 ? '' : 's'}.` }
+    newest !== null && hoursSince(newest, i.now) < 48
+      ? { id: 'daily-copy', group: 'Backups', title: 'Daily copies on the server', status: 'pass', detail: `Newest copy ${newest.slice(0, 10)}; ${i.backups.dailyCopies} kept (newest ${i.backups.retention.daily} days, ${i.backups.retention.weekly} weeks, ${i.backups.retention.monthly} months), ${i.backups.snapshots} snapshot${i.backups.snapshots === 1 ? '' : 's'}.` }
       : { id: 'daily-copy', group: 'Backups', title: 'Daily copies on the server', status: 'fail', detail: i.backups.newestDaily ? `The newest daily copy is from ${i.backups.newestDaily.slice(0, 10)}.` : 'No daily copy yet.', fix: 'Take a snapshot under Backups now; check the Logs page (category backup) for errors.' },
   );
   const offAge = hoursSince(i.lastFullBackupAt, i.now) / 24;
   const autoAge = hoursSince(i.offsite?.at ?? null, i.now) / 24;
   const days = (d: number) => (d < 1 ? 'today' : `${Math.floor(d)} day${Math.floor(d) === 1 ? '' : 's'} ago`);
-  if (autoAge <= 2) add({ id: 'offsite', group: 'Backups', title: 'Copy off the server', status: 'pass', detail: `The nightly job copied a backup to ${i.offsite!.where} ${days(autoAge)}.` });
+  if (i.offsite && autoAge <= 2) add({ id: 'offsite', group: 'Backups', title: 'Copy off the server', status: 'pass', detail: `The nightly job copied a backup to ${i.offsite.where} ${days(autoAge)}.` });
   else if (i.offsite) add({ id: 'offsite', group: 'Backups', title: 'Copy off the server', status: 'warn', detail: `The nightly job last copied a backup off the server ${days(autoAge)}.${offAge <= 30 ? ` A full backup was downloaded ${days(offAge)}.` : ''}`, fix: 'Check the nightly job on the server: journalctl -u nunner-ops (Boards deploy/README.md, "Automatic operations").' });
   else
     add(
@@ -123,13 +166,13 @@ export function runChecks(i: CheckInputs): Check[] {
   else if (!p.lastRun) add({ id: 'pricing', group: 'Prices', title: 'Daily price update', status: p.running ? 'info' : 'warn', detail: p.running ? 'The first update is running.' : `Not run yet; it starts after ${p.hour}:00 (${p.timeZone}).`, fix: p.running ? undefined : 'Run it now under Prices.' });
   else {
     const ran = hoursSince(p.lastRun.finishedAt, i.now);
-    const failed = p.lastRun.counts.failed ?? 0;
+    const failed = p.lastRun.counts['failed'] ?? 0;
     add({
       id: 'pricing',
       group: 'Prices',
       title: 'Daily price update',
       status: ran > 30 ? 'fail' : failed ? 'warn' : 'pass',
-      detail: `Last run ${p.lastRun.date}: ${p.lastRun.counts.updated ?? 0} updated, ${p.lastRun.counts.needsMatch ?? 0} need a match, ${failed} failed.`,
+      detail: `Last run ${p.lastRun.date}: ${p.lastRun.counts['updated'] ?? 0} updated, ${p.lastRun.counts['needsMatch'] ?? 0} need a match, ${failed} failed.`,
       fix: ran > 30 ? 'It should run every day. Check the Logs page (category pricing).' : failed ? 'See the problems under Prices; the sites may have changed or blocked the server.' : undefined,
     });
   }
@@ -148,30 +191,4 @@ export function runChecks(i: CheckInputs): Check[] {
       : { id: 'disk', group: 'Server', title: 'Disk space', status: free < 200 * 1048576 ? 'fail' : free < 1024 * 1048576 ? 'warn' : 'pass', detail: `${mb(free)} free; the ledger uses ${mb(i.disk.dataBytes)}.`, fix: free < 1024 * 1048576 ? 'Free some space on the server (old Docker images: docker image prune).' : undefined },
   );
   return c;
-}
-
-export function freeBytes(dir: string): number | null {
-  try {
-    const s = fs.statfsSync(dir);
-    return s.bavail * s.bsize;
-  } catch {
-    return null;
-  }
-}
-
-export function dirBytes(dir: string): number {
-  let total = 0;
-  const walk = (d: string) => {
-    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
-      const p = `${d}/${e.name}`;
-      if (e.isDirectory()) walk(p);
-      else if (e.isFile()) total += fs.statSync(p).size;
-    }
-  };
-  try {
-    walk(dir);
-  } catch {
-    // Unreadable parts are left out.
-  }
-  return total;
 }

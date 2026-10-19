@@ -7,6 +7,7 @@
 import { type Fetcher, SourceError, get } from './pricing/sources.ts';
 import type { Doc } from './schema.ts';
 import type { Store } from '#infrastructure/json-store/store.ts';
+import { DETAILS_VERSION, checkIdentity } from '#domain/cards/attention.ts';
 
 const API = 'https://api.tcgdex.net/v2/en';
 
@@ -76,15 +77,8 @@ export interface DetailsStatus {
   checkedAt: string;
 }
 
-/**
- * Bumped when lookups record something new, so cards looked up before are looked up again once.
- * 3: reprint sub-sets and the card's own set preferred, TCG Pocket left out (an automatic match
- * from before is looked up again; one the person chose stays).
- */
-export const DETAILS_VERSION = 3;
-
-/** The card as named and numbered; Ignore in Cards to check holds until either changes. */
-export const checkIdentity = (c: { name?: unknown; number?: unknown }) => `${String(c.name ?? '').trim().toLowerCase()}|${String(c.number ?? '').replace(/\s+/g, '').toLowerCase()}`;
+// Which checks a lookup made (DETAILS_VERSION) and the card's identity for Ignore live in the domain.
+export { DETAILS_VERSION, checkIdentity };
 
 /**
  * A TCGdex reprint sub-set of a set: its id plus a short suffix ("30th-c" 30th Classic Collection,

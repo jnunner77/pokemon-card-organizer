@@ -1772,7 +1772,7 @@ function masterSetModal(color){
 }
 /* ---------- cards to check ----------
    What the nightly check against TCGdex (server/details.ts) found wrong with a card, plus cards
-   without a certain price match. The same rules as status.txt (server/status.ts, detailsProblem). */
+   without a certain price match. The same rules as status.txt (src/domain/cards/attention.ts, detailsProblem). */
 const checkIdentity = c => `${String(c.name??"").trim().toLowerCase()}|${String(c.number??"").replace(/\s+/g,"").toLowerCase()}`;
 const normLabel = s => String(s??"").toLowerCase().replace(/[^a-z0-9]/g,"");
 const CHECK_KINDS = [

@@ -6,9 +6,9 @@ import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type Accounts, createAccounts, createApp } from '../../src/compose.ts';
 import { PhotoFiles as Assets } from '../../src/infrastructure/photos/photo-files.ts';
-import { Config } from '../../server/config.ts';
-import { Logger } from '../../server/log.ts';
-import { groupProblems, problemFeed, problemKey } from '../../server/problems.ts';
+import { AdminFile as Config } from '../../src/infrastructure/admin/admin-file.ts';
+import { Logger } from '../../src/infrastructure/logging/logger.ts';
+import { groupProblems, problemFeed, problemKey } from '../../src/domain/admin/problems.ts';
 import { Store } from '../../src/infrastructure/json-store/store.ts';
 
 // Every warning and error in the app, for the problems banner: grouped, since they were last

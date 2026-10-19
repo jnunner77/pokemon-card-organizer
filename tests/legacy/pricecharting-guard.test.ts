@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { Logger } from '../../server/log.ts';
+import { Logger } from '../../src/infrastructure/logging/logger.ts';
 import { Paused, PC_RULES, PriceCharting } from '../../server/pricing/pricecharting.ts';
 import { type Fetcher, ProductGone, Refused, get, retryAfterMs, retryPolicy } from '../../server/pricing/sources.ts';
 

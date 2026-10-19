@@ -57,6 +57,9 @@ confirmed on the live binder.
     in `assertNever`) from error codes to HTTP statuses.
   - `src/compose.ts` (wiring the layers) and `src/main.ts` (starting the server) are the only
     places that know the concrete classes.
+- Logging goes through the `ServerLog` port (`src/application/logging.ts`); the logger itself is
+  `src/infrastructure/logging/logger.ts`, and administrators' settings are the `AdminSettingsStore`
+  port (admin.json). The Express code uses the same port and adapters.
 - Every change the layered routes make (the ledger's documents, price entries, sorting a binder,
   moving cards) runs as one unit of work (`StoreUnitOfWork`), so it is checked, saved and sent to
   open pages, or not applied at all. Replacing the whole ledger (a restore) runs only through the
@@ -65,7 +68,9 @@ confirmed on the live binder.
 - Secrets (password hashes, session and API token hashes, the guest key and the guest log) live in
   their own files in the data directory (`auth.json`, `sessions.json`, `guests.json`, written 0600),
   never in `db.json`, its copies, full backups or API responses other than Administration.
-  Wrong-password counts, the first-run setup code and signed-in guests stay in memory.
+  PriceCharting's API token is a file of its own in `SECRETS_DIR` (`FileSecret`, written 0600),
+  outside the data that's backed up: it is never shown, logged or returned, only whether one is
+  saved and when. Wrong-password counts, the first-run setup code and signed-in guests stay in memory.
 - Use `.ts` extensions in imports and only erasable syntax (no `enum`, `namespace` or constructor
   parameter properties): Node runs the TypeScript directly.
 - In `src/`: no non-null assertions (`!`), `any`, or casts except branding ids at trust

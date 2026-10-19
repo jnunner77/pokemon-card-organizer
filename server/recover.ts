@@ -1,4 +1,5 @@
-import type { Category, Logger } from './log.ts';
+import type { ServerLog as Logger } from '#application/logging.ts';
+import type { Category } from '#domain/admin/log.ts';
 
 // Recovering from failures instead of stopping: background jobs that catch and log their own
 // errors and keep running, and saved files that are damaged (cut short by a full disk or a
