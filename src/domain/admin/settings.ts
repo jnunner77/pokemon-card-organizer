@@ -89,6 +89,27 @@ export function checkPriceMethod(input: unknown): Result<PriceMethod, InvalidSet
   return ok({ method: name, weights: { pricecharting: w.pricecharting, tcgplayer: w.tcgplayer, cardmarket: w.cardmarket }, tolerance });
 }
 
+export const DEFAULT_PRICE_METHOD: PriceMethod = { method: 'blend', weights: { pricecharting: 40, tcgplayer: 40, cardmarket: 20 }, tolerance: 25 };
+
+/**
+ * A saved price method with the default in place of each field that's missing or wrong (the same
+ * rules as public/blend.js settings()), so a hand-edited admin.json keeps what it got right.
+ */
+export function priceMethodFrom(saved: unknown): PriceMethod {
+  const o = isRecord(saved) ? saved : {};
+  const w = isRecord(o['weights']) ? o['weights'] : {};
+  const weight = (source: (typeof SOURCES)[number]): number => {
+    const n = Number(Object.hasOwn(w, source) ? w[source] : DEFAULT_PRICE_METHOD.weights[source]);
+    return n >= 0 ? n : DEFAULT_PRICE_METHOD.weights[source];
+  };
+  const t = Number(o['tolerance']);
+  return {
+    method: PRICE_METHODS.find((m) => m === o['method']) ?? DEFAULT_PRICE_METHOD.method,
+    weights: { pricecharting: weight('pricecharting'), tcgplayer: weight('tcgplayer'), cardmarket: weight('cardmarket') },
+    tolerance: t > 0 && t <= 1000 ? t : DEFAULT_PRICE_METHOD.tolerance,
+  };
+}
+
 const numberOr = (value: unknown, fallback: number): number => (typeof value === 'number' && Number.isFinite(value) ? value : fallback);
 const timeOr = <T extends string | null | undefined>(value: unknown, fallback: T): string | null | T => (typeof value === 'string' || value === null ? value : fallback);
 
@@ -102,8 +123,7 @@ export function adminSettingsFrom(saved: Readonly<Record<string, unknown>> | nul
   const pricing = isRecord(saved?.['pricing']) ? saved['pricing'] : {};
   const cardmarket = typeof pricing['cardmarket'] === 'boolean' ? pricing['cardmarket'] : base.pricing.cardmarket;
   const method = saved?.['priceMethod'];
-  const checked = method === undefined || method === null ? null : checkPriceMethod(method);
-  const priceMethod = checked ? (checked.ok ? checked.value : null) : method === null ? null : base.priceMethod;
+  const priceMethod = method === undefined ? base.priceMethod : method === null ? null : priceMethodFrom(method);
   const seen = timeOr(saved?.['problemsSeenAt'], base.problemsSeenAt);
   return {
     backups: { daily: numberOr(backups['daily'], base.backups.daily), weekly: numberOr(backups['weekly'], base.backups.weekly), monthly: numberOr(backups['monthly'], base.backups.monthly) },

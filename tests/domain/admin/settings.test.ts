@@ -45,6 +45,9 @@ describe('admin settings', () => {
     });
     const saved = adminSettingsFrom({ priceMethod: { method: 'highest', weights, tolerance: 25 }, lastFullBackupAt: '2026-10-01T00:00:00.000Z', problemsSeenAt: null, pricing: { hour: 'seven' } }, DEFAULT_ADMIN_SETTINGS);
     assert.deepEqual(saved, { ...DEFAULT_ADMIN_SETTINGS, priceMethod: { method: 'highest', weights, tolerance: 25 }, lastFullBackupAt: '2026-10-01T00:00:00.000Z', problemsSeenAt: null });
-    assert.equal(adminSettingsFrom({ priceMethod: { method: 'nope' } }, DEFAULT_ADMIN_SETTINGS).priceMethod, null);
+    // A hand-edited price method keeps what it got right; each wrong field takes its default (as public/blend.js does).
+    assert.deepEqual(adminSettingsFrom({ priceMethod: { method: 'highest', weights: { pricecharting: 60, tcgplayer: -1 }, tolerance: 0 } }, DEFAULT_ADMIN_SETTINGS).priceMethod, { method: 'highest', weights: { pricecharting: 60, tcgplayer: 40, cardmarket: 20 }, tolerance: 25 });
+    assert.deepEqual(adminSettingsFrom({ priceMethod: { method: 'nope', weights, tolerance: 1000 } }, DEFAULT_ADMIN_SETTINGS).priceMethod, { method: 'blend', weights, tolerance: 1000 });
+    assert.equal(adminSettingsFrom({ priceMethod: null }, DEFAULT_ADMIN_SETTINGS).priceMethod, null);
   });
 });
