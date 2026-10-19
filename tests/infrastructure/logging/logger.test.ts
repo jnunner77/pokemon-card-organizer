@@ -32,6 +32,14 @@ describe('Logger', () => {
     assert.ok(opened);
     assert.equal((await text(Readable.from(opened.content))).trim(), fs.readFileSync(file, 'utf8').trim());
     assert.equal(opened.bytes, fs.statSync(file).size);
+    // Lines written while it downloads aren't sent: the length stays true.
+    const growing = await log.openFile('2026-10-02.jsonl');
+    assert.ok(growing);
+    log.warn('pricing', 'written during the download');
+    assert.equal(Buffer.byteLength(await text(Readable.from(growing.content))), growing.bytes);
+    fs.writeFileSync(path.join(dir, '2026-09-30.jsonl'), '');
+    const empty = await log.openFile('2026-09-30.jsonl');
+    assert.deepEqual([empty?.bytes, empty ? await text(Readable.from(empty.content)) : null], [0, '']);
     assert.equal(await log.openFile('../2026-10-01.jsonl'), null);
     assert.equal(await log.openFile('2026-01-01.jsonl'), null);
   });

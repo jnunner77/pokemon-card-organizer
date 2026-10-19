@@ -106,6 +106,8 @@ describe('admin routes', () => {
     const { base, asked } = await setUp();
     assert.deepEqual(await answer(await fetch(`${base}/admin/logs?cat=auth&q=sign&limit=5&level=warn&before=9`, as('admin'))), [200, { entries: [], files: [] }]);
     assert.deepEqual(asked, [{ cat: 'auth', text: 'sign', limit: 5, level: 'warn', before: 9 }]);
+    await fetch(`${base}/admin/logs?q=a?b`, as('admin'));
+    assert.deepEqual(asked.at(-1), { text: 'a?b' });
     assert.deepEqual(await answer(await fetch(`${base}/admin/logs?level=nonsense`, as('admin'))), [400, { error: 'Invalid option: expected one of "info"|"warn"|"error"', code: 'invalid_argument' }]);
     assert.deepEqual(await answer(await fetch(`${base}/admin/logs?limit=1001`, as('admin'))), [400, { error: 'Too big: expected number to be <=1000', code: 'invalid_argument' }]);
     const file = await fetch(`${base}/admin/logs/files/2026-10-03.jsonl`, as('admin'));

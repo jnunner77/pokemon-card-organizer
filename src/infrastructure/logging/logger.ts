@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 import type { LogFileContent, LogFileInfo, LogQuery, ServerLog } from '#application/logging.ts';
 import { type Category, isLogFileName, type Level, LEVELS, type LogEntry, redact } from '#domain/admin/log.ts';
 
@@ -149,7 +150,8 @@ export class Logger implements ServerLog {
     const file = path.join(this.#dir, name);
     try {
       const { size } = await fs.promises.stat(file);
-      return { bytes: size, content: fs.createReadStream(file) };
+      // Today's file keeps growing: send only the bytes counted, as the length says.
+      return { bytes: size, content: size > 0 ? fs.createReadStream(file, { end: size - 1 }) : Readable.from([]) };
     } catch {
       return null;
     }

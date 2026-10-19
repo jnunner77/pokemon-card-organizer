@@ -48,7 +48,12 @@ export interface AdminRouteDeps {
   readonly reportPageError: Pick<ReportPageError, 'execute'>;
 }
 
-const queryOf = (req: IncomingMessage): URLSearchParams => new URLSearchParams((req.url ?? '').split('?')[1] ?? '');
+/** The query string: everything after the first "?". */
+const queryOf = (req: IncomingMessage): URLSearchParams => {
+  const url = req.url ?? '';
+  const at = url.indexOf('?');
+  return new URLSearchParams(at < 0 ? '' : url.slice(at + 1));
+};
 const NO_SUCH_LOG: Failure = { status: 404, code: 'not_found', message: 'No such log file' };
 
 /**
