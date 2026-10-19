@@ -7,8 +7,8 @@ import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type Accounts, createAccounts, createApp, createGuests, type Guests } from '../../src/compose.ts';
 import { PhotoFiles as Assets } from '../../src/infrastructure/photos/photo-files.ts';
-import { Config } from '../../server/config.ts';
-import { Logger } from '../../server/log.ts';
+import { AdminFile as Config } from '../../src/infrastructure/admin/admin-file.ts';
+import { Logger } from '../../src/infrastructure/logging/logger.ts';
 import { Security } from '../../server/security.ts';
 import { Store } from '../../src/infrastructure/json-store/store.ts';
 

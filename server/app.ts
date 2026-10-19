@@ -1,17 +1,15 @@
 import crypto from 'node:crypto';
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { requireRole } from '#application/access.ts';
-import type { AccountsHealth } from '#application/accounts/accounts-health.ts';
-import type { EnvPasswordWorks } from '#application/accounts/env-password-works.ts';
+import type { TokenVault } from '#application/admin/ports.ts';
 import type { IdentifyCaller } from '#application/accounts/identify-caller.ts';
 import type { Identity } from '#application/accounts/identity.ts';
 import type { IdentifyGuest } from '#application/guests/identify-guest.ts';
 import type { SignedInGuest } from '#application/guests/state.ts';
 import { atLeast, type Role } from '#domain/accounts/role.ts';
-import type { BackupHealth } from '#application/backups/backup-health.ts';
+import type { ServerLog } from '#application/logging.ts';
 import type { TakeSnapshot } from '#application/backups/take-snapshot.ts';
 import type { PhotoFiles } from '#infrastructure/photos/photo-files.ts';
 import { SESSION_COOKIE } from '#presentation/accounts/routes.ts';
@@ -23,21 +21,16 @@ import type { Routes } from '#presentation/http/router.ts';
 import type { StreamGate } from '#presentation/http/streams.ts';
 import { z } from 'zod';
 import type { Autofill } from './autofill.ts';
-import { dirBytes, freeBytes, runChecks } from './checks.ts';
-import { Config, priceMethodSchema, pricingConfigSchema } from './config.ts';
 import type { CardDetails } from './details.ts';
-import { CATEGORIES, LEVELS, type Logger, quietLogger } from './log.ts';
+import { quietLogger } from '#infrastructure/logging/logger.ts';
 import { CardLookup } from './lookup.ts';
 import { MasterSets, placeholderCards } from './masterset.ts';
 import type { TcgCsv } from './pricing/tcgcsv.ts';
-import { NoToken, type PriceCharting } from './pricing/pricecharting.ts';
-import { Refused, SourceError } from './pricing/sources.ts';
+import type { PriceCharting } from './pricing/pricecharting.ts';
+import { SourceError } from './pricing/sources.ts';
 import type { PriceUpdater, RunProblem, RunSummary } from './pricing/updater.ts';
-import { problemFeed } from './problems.ts';
 import { InvalidDoc, idSchema, validateDoc } from './schema.ts';
 import { HttpError, MUTATING, type Security } from './security.ts';
-import type { Secret } from './secrets.ts';
-import { cardsNeedingAttention, readOffsite, statusText, writeStatus } from './status.ts';
 import { NotFound, SaveFailed, type Store } from '#infrastructure/json-store/store.ts';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -48,9 +41,8 @@ export interface LayeredRoutes {
   readonly root: Routes;
 }
 
-/** What the Express code still asks of the backups (the Overview's checks, the daily price rebuild's copy). */
+/** What the Express code still asks of the backups (the daily price rebuild's copy). */
 export interface ExpressBackups {
-  readonly health: Pick<BackupHealth, 'execute'>;
   readonly takeSnapshot: Pick<TakeSnapshot, 'execute'>;
 }
 
@@ -68,9 +60,6 @@ export interface ExpressPeople {
   readonly identifyCaller: Pick<IdentifyCaller, 'execute'>;
   /** Null when this server has no guest viewing. */
   readonly identifyGuest: Pick<IdentifyGuest, 'execute'> | null;
-  /** Null with sign-in turned off (AUTH=off). */
-  readonly health: Pick<AccountsHealth, 'execute'> | null;
-  readonly envPasswordWorks: Pick<EnvPasswordWorks, 'execute'> | null;
 }
 
 export interface AppOptions {
@@ -87,21 +76,18 @@ export interface AppOptions {
   updater?: PriceUpdater | undefined;
   /** Rate limits and blocks; off when not given. */
   security?: Security | undefined;
-  log?: Logger | undefined;
-  config?: Config | undefined;
+  log?: ServerLog | undefined;
   backups: ExpressBackups;
-  /** BINDER_PASSWORD, for the check that it no longer opens the admin account. */
-  envPassword?: string | undefined;
   /** Card details lookups (TCGdex); the lookup routes answer 503 without them. */
   details?: CardDetails | undefined;
   /** TCGplayer's own catalog (tcgcsv.com), which master sets are checked against. */
   tcgcsv?: TcgCsv | undefined;
-  /** The clock for the Administration checks and backups (tests set it; defaults to the real time). */
+  /** The clock for the price update's log and master sets (tests set it; defaults to the real time). */
   now?: (() => Date) | undefined;
   /** New cards filling themselves in, and Fill in missing details. */
   autofill?: Autofill | undefined;
   /** PriceCharting's API token (its own secret file, outside the data that's backed up) and its client. */
-  pricecharting?: { token: Secret; api: PriceCharting } | undefined;
+  pricecharting?: { token: TokenVault; api: PriceCharting } | undefined;
 }
 
 /**
@@ -110,12 +96,10 @@ export interface AppOptions {
  */
 const PUBLIC = [/^\/login\.(html|js)$/, /^\/styles\.css$/, /^\/icon\.svg$/, /^\/fonts\//, /^\/api\/(health|auth\/(me|login|logout|password|setup))$/, /^\/guest\.(html|js)$/, /^\/(search|back)\.js$/, /^\/api\/guest\//];
 const PAGES = new Set(['/', '/index.html', '/admin.html']);
-const LOCAL = /^(127\.0\.0\.1|::1|::ffff:127\.0\.0\.1)$/;
 
 export function createExpressApp(o: AppOptions) {
   const { store, assets, publicDir = path.join(root, 'public'), trustProxy, updater, security, people } = o;
   const log = o.log ?? quietLogger();
-  const config = o.config ?? new Config(store.dataDir);
   const now = o.now ?? (() => new Date());
   const { backups } = o;
 
@@ -239,38 +223,11 @@ export function createExpressApp(o: AppOptions) {
     api.use(['/auth/login', '/auth/password', '/auth/setup'], security.signIn);
   }
 
-  // ---- errors in the pages themselves --------------------------------------------------
-  // A script error or failed promise in a page is reported here and logged, so it shows in the
-  // problems banner like any other. At most 30 a minute, so a page stuck in a loop can't flood the log.
-  const pageErrorSchema = z.object({
-    kind: z.enum(['error', 'rejection']).catch('error'),
-    message: z.string().max(500),
-    page: z.string().max(200).optional(),
-    source: z.string().max(300).optional(),
-    line: z.number().int().min(0).max(1e7).optional(),
-    col: z.number().int().min(0).max(1e7).optional(),
-    stack: z.string().max(2000).optional(),
-  });
-  const pageErrors = { windowStart: 0, count: 0, warned: false };
-  const pageError = (req: Request, res: Response, by: Record<string, unknown>) => {
-    const t = now().getTime();
-    if (t - pageErrors.windowStart > 60_000) Object.assign(pageErrors, { windowStart: t, count: 0, warned: false });
-    if (++pageErrors.count > 30) {
-      if (!pageErrors.warned) log.warn('app', 'More than 30 page errors in a minute; not logging more until the minute is up');
-      pageErrors.warned = true;
-      return void res.status(204).end();
-    }
-    const e = pageErrorSchema.parse(req.body);
-    log.error('app', `Page error${e.page ? ` on ${e.page}` : ''}: ${e.message}`, { kind: e.kind, ...(e.source ? { at: `${e.source}:${e.line ?? '?'}:${e.col ?? '?'}` } : {}), ...(e.stack ? { stack: e.stack } : {}), ...by });
-    res.status(204).end();
-  };
-  api.post('/client-error', need('viewer'), express.json({ limit: '16kb' }), (req, res) => pageError(req, res, { user: who(res) }));
-  if (identifyGuest) api.post('/guest/client-error', (_req, res, next) => (res.locals.guest ? next() : next(new HttpError(401, 'Please sign in', 'signin'))), express.json({ limit: '16kb' }), (req, res) => pageError(req, res, { guest: true }));
-
-  // ---- signing in, guests, binders, cards and settings, photos, backups ------------------
+  // ---- signing in, guests, binders, cards and settings, photos, backups, administration --
   // Served by the layered code (src/presentation): signing in and out, the guest page, people,
   // sessions, API tokens and guests under Administration, the ledger itself, sorting binders and
-  // moving cards, photos, full backups and the kept copies. Express still runs the request
+  // moving cards, photos, full backups and the kept copies, Administration's overview, price
+  // settings, PriceCharting token, problems and logs, and the pages' error reports. Express still runs the request
   // pipeline (it asks the layered code who is calling, and applies the rate limits, heavy ones for
   // backups and restores); the routes check what the caller may do.
   api.use(bridge(layered.api));
@@ -522,69 +479,6 @@ export function createExpressApp(o: AppOptions) {
   const admin = express.Router();
   admin.use(need('admin'));
 
-  /** The Overview's checks. Without a request (the status file) HTTPS and proxy checks are left out by statusText. */
-  const overviewChecks = async (request: { secure: boolean; untrustedProxy: boolean; localRequest: boolean }) => {
-    const pricingStatus = (store.get('settings', 'pricing') ?? {}) as { running?: boolean; lastRun?: { date: string; finishedAt: string; counts: Record<string, number> }; problem?: RunProblem | null };
-    const sch = updater?.schedule();
-    const counts = log.counts(86_400_000);
-    const failed = log.query({ cat: 'auth', text: 'failed sign-in', limit: 5000 }).filter((e) => now().getTime() - Date.parse(e.at) < 86_400_000).length;
-    const sec = security?.summary();
-    return runChecks({
-      now: now(),
-      ...request,
-      authEnabled: people.health !== null,
-      accounts: people.health ? await people.health.execute() : null,
-      envPasswordStillWorks: people.envPasswordWorks ? await people.envPasswordWorks.execute({ envPassword: o.envPassword }) : false,
-      security: { enabled: !!security, bans: sec?.bans.length ?? 0, limited: sec?.stats.limited ?? 0, blocked: sec?.stats.blocked ?? 0, allowlist: sec?.allowlist.length ?? 0 },
-      failedSignIns24h: failed,
-      backups: await backups.health.execute(),
-      lastFullBackupAt: config.get().lastFullBackupAt,
-      offsite: readOffsite(store.dataDir),
-      logs: { fileOk: log.fileOk, dir: log.dir, errors24h: counts.error, warnings24h: counts.warn },
-      pricing: { enabled: !!updater && (sch?.enabled ?? false), hour: sch?.hour ?? 5, timeZone: sch?.timeZone ?? '', lastRun: pricingStatus.lastRun ?? null, running: !!pricingStatus.running, problem: pricingStatus.problem ?? null, rateDate: (store.get('settings', 'main')?.usdToCadDate as string) ?? null },
-      disk: { freeBytes: freeBytes(store.dataDir), dataBytes: dirBytes(store.dataDir) },
-    });
-  };
-  /** Write status.txt for the server's nightly job (see status.ts). */
-  const writeStatusFile = async () => {
-    const checks = await overviewChecks({ secure: true, untrustedProxy: false, localRequest: false });
-    writeStatus(store.dataDir, statusText(now(), checks, cardsNeedingAttention(store.all().cards as Parameters<typeof cardsNeedingAttention>[0])));
-  };
-
-  admin.get('/overview', async (req, res) => {
-    const caller = res.locals.caller as Identity;
-    const checks = await overviewChecks({ secure: req.secure, untrustedProxy: !!req.get('x-forwarded-for') && !app.get('trust proxy'), localRequest: LOCAL.test(req.ip ?? '') });
-    const all = store.all();
-    res.json({
-      checks,
-      you: { username: caller.name, name: caller.displayName },
-      ledger: { binders: all.binders.length, cards: all.cards.length, ...assets.usage() },
-      server: { node: process.version, uptimeHours: Math.round(process.uptime() / 360) / 10, startedAt: new Date(Date.now() - process.uptime() * 1000).toISOString() },
-    });
-  });
-
-  // Price updates
-  admin.get('/pricing', (_req, res) => {
-    const st = (store.get('settings', 'pricing') ?? {}) as Record<string, unknown>;
-    // Whether PriceCharting's token is saved, and when: never the token itself.
-    // The token's state (never the token), and how PriceCharting is being used today.
-    const pricecharting = o.pricecharting ? { ...o.pricecharting.token.info(), usage: o.pricecharting.api.usageNow() } : null;
-    res.json({ available: !!updater, schedule: updater?.schedule() ?? null, pricecharting, running: !!st.running, done: st.done ?? 0, total: st.total ?? 0, current: st.current ?? null, problem: st.problem ?? null, history: st.history ?? (st.lastRun ? [st.lastRun] : []) });
-  });
-  admin.put('/pricing', json, (req, res) => {
-    const pricing = { ...config.get().pricing, ...pricingConfigSchema.parse(req.body) };
-    config.set({ pricing });
-    log.info('admin', `${who(res)} changed the price update schedule`, { ...pricing });
-    res.json({ schedule: updater?.schedule() ?? { ...pricing } });
-  });
-  // How a card's daily price is worked out (blend.ts): blended, highest, or PriceCharting first.
-  admin.put('/pricing/method', json, (req, res) => {
-    const priceMethod = priceMethodSchema.parse(req.body);
-    config.set({ priceMethod });
-    updater?.noteToken();
-    log.info('admin', `${who(res)} changed how daily prices are worked out`, { ...priceMethod });
-    res.json({ schedule: updater?.schedule() ?? null });
-  });
   // Past daily prices worked out again with that method: a preview, or (apply) saved after a copy of the ledger.
   admin.post('/pricing/rebuild', heavy, json, async (req, res) => {
     if (!updater) throw new HttpError(400, 'Automatic prices are not available on this server.');
@@ -606,32 +500,6 @@ export function createExpressApp(o: AppOptions) {
     if (!o.pricecharting || !updater) throw new HttpError(400, 'PriceCharting prices are not available on this server.');
     return o.pricecharting;
   };
-  // PriceCharting's API token: 40 letters and digits, from PriceCharting's Subscription page → API/Download.
-  const tokenBody = z.object({ token: z.string().trim().regex(/^[A-Za-z0-9]{20,100}$/, "That isn't a PriceCharting API token: copy the 40-character token from PriceCharting's Subscription page (API/Download).") });
-  admin.put('/pricing/pricecharting-token', heavy, json, async (req, res) => {
-    const pc = needPc();
-    const body = tokenBody.safeParse(req.body);
-    if (!body.success) throw new HttpError(400, body.error.issues[0].message);
-    // One call to PriceCharting with it first: a token it doesn't know isn't saved.
-    try {
-      await pc.api.check(body.data.token);
-    } catch (err) {
-      if (err instanceof Refused || err instanceof NoToken) throw new HttpError(400, "PriceCharting didn't accept that token. Check you copied all of it from its Subscription page (API/Download).");
-      throw new HttpError(502, `Couldn't check the token with PriceCharting: ${err instanceof Error ? err.message : err}. Try again.`, 'upstream_error');
-    }
-    pc.token.write(body.data.token);
-    updater!.noteToken();
-    log.info('admin', `${who(res)} saved the PriceCharting API token`);
-    res.json({ pricecharting: pc.token.info() });
-  });
-  admin.delete('/pricing/pricecharting-token', (_req, res) => {
-    const pc = needPc();
-    pc.token.clear();
-    pc.api.forget();
-    updater!.noteToken();
-    log.info('admin', `${who(res)} removed the PriceCharting API token`);
-    res.json({ pricecharting: pc.token.info() });
-  });
   // The subscription ended: the token and everything from PriceCharting go, as its terms ask.
   admin.post('/pricing/purge-pricecharting', heavy, (_req, res) => {
     const pc = needPc();
@@ -658,30 +526,6 @@ export function createExpressApp(o: AppOptions) {
     res.json({ unblocked: ok });
   });
 
-  // Problems: every warning and error since an administrator last marked them as seen, grouped.
-  admin.get('/problems', (req, res) => {
-    res.json(problemFeed(log, config.get().problemsSeenAt ?? null, { all: req.query.all === '1' }));
-  });
-  admin.post('/problems/seen', json, (req, res) => {
-    const { upTo } = z.object({ upTo: z.iso.datetime().optional() }).parse(req.body ?? {});
-    // Up to the newest one the page showed, so one logged meanwhile still counts as new.
-    const at = upTo && upTo < now().toISOString() ? upTo : now().toISOString();
-    config.set({ problemsSeenAt: at });
-    res.json(problemFeed(log, at));
-  });
-
-  // Logs
-  const logQuery = z.object({ level: z.enum(LEVELS as [string, ...string[]]).optional(), cat: z.enum(CATEGORIES as [string, ...string[]]).optional(), q: z.string().max(200).optional(), before: z.coerce.number().int().optional(), limit: z.coerce.number().int().min(1).max(1000).optional() });
-  admin.get('/logs', (req, res) => {
-    const q = logQuery.parse(req.query);
-    res.json({ entries: log.query({ level: q.level as never, cat: q.cat as never, text: q.q, before: q.before, limit: q.limit ?? 200 }), files: log.files() });
-  });
-  admin.get('/logs/files/:name', (req, res) => {
-    const name = String(req.params.name);
-    if (!log.dir || !/^\d{4}-\d{2}-\d{2}\.jsonl$/.test(name) || !fs.existsSync(path.join(log.dir, name))) throw new HttpError(404, 'No such log file', 'not_found');
-    res.setHeader('Content-Disposition', `attachment; filename="binder-log-${name}"`);
-    res.type('text/plain').sendFile(path.join(log.dir, name));
-  });
   api.use('/admin', admin);
 
   api.use((_req, _res) => {
@@ -723,11 +567,11 @@ export function createExpressApp(o: AppOptions) {
     if (res.headersSent) return void res.end();
     res.status(status).json({ error: message, code });
   });
-  return Object.assign(app, { writeStatusFile });
+  return app;
 }
 
 /** Log API requests, failures and slow requests (pictures and page files only when they fail). */
-function requestLog(log: Logger) {
+function requestLog(log: ServerLog) {
   return (req: Request, res: Response, next: NextFunction) => {
     const start = process.hrtime.bigint();
     const id = crypto.randomBytes(6).toString('hex');

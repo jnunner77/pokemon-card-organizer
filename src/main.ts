@@ -1,17 +1,17 @@
 // Starts the binder server. Configuration comes from the environment (see deploy/README.md).
 
 import path from 'node:path';
+import { AdminFile } from '#infrastructure/admin/admin-file.ts';
+import { FileSecret } from '#infrastructure/admin/file-secret.ts';
 import { LocalEventBus } from '#infrastructure/local-event-bus.ts';
+import { Logger } from '#infrastructure/logging/logger.ts';
 import { Store } from '#infrastructure/json-store/store.ts';
 import { PhotoFiles } from '#infrastructure/photos/photo-files.ts';
 import { Autofill } from '../server/autofill.ts';
 import { CardDetails } from '../server/details.ts';
 import { Catalog } from '../server/pricing/catalog.ts';
-import { Config } from '../server/config.ts';
-import { Logger } from '../server/log.ts';
 import { PriceCharting } from '../server/pricing/pricecharting.ts';
 import { PriceUpdater } from '../server/pricing/updater.ts';
-import { Secret } from '../server/secrets.ts';
 import { Security } from '../server/security.ts';
 import { TcgCsv } from '../server/pricing/tcgcsv.ts';
 import { every } from '../server/recover.ts';
@@ -39,7 +39,7 @@ if (store.recovered) log.error('app', store.recovered.message, { from: store.rec
 store.onError = (what: string, err: unknown) => log.error('app', `${what} failed: ${err instanceof Error ? (err.stack ?? err.message) : err}`);
 const assets = new PhotoFiles(dataDir);
 // PRICE_UPDATE_HOUR and PRICE_UPDATES are the starting schedule; administrators can change it.
-const config = new Config(dataDir, { pricing: { enabled: env['PRICE_UPDATES'] !== 'off', hour: Number(env['PRICE_UPDATE_HOUR'] ?? 5) } });
+const config = new AdminFile(dataDir, { pricing: { enabled: env['PRICE_UPDATES'] !== 'off', hour: Number(env['PRICE_UPDATE_HOUR'] ?? 5) } });
 if (config.recovered) log.error('admin', config.recovered);
 const backups = createBackups({ store, assets, config, log });
 // The store's own daily copy (before the first change of a day) is followed by retention.
@@ -68,7 +68,7 @@ const details = env['CARD_LOOKUPS'] === 'off' ? undefined : new CardDetails();
 // TCGplayer and Cardmarket prices and pictures from TCGdex.
 const catalog = details ? new Catalog() : undefined;
 // PriceCharting's API, with the token administrators enter under Administration → Prices.
-const pcToken = new Secret(secretsDir, 'pricecharting-token');
+const pcToken = new FileSecret(secretsDir, 'pricecharting-token');
 // PRICECHARTING_DAILY_LIMIT: most PriceCharting calls a day (2000 by default); the count is kept across restarts.
 const pricecharting = new PriceCharting({ token: () => pcToken.read(), log, dailyLimit: Number(env['PRICECHARTING_DAILY_LIMIT']) || undefined, usageFile: path.join(dataDir, 'pricecharting-usage.json') });
 // TCGplayer's own catalog from tcgcsv.com (free, no key), for what TCGdex lacks.

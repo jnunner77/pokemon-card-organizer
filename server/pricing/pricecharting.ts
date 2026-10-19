@@ -1,9 +1,10 @@
 import fs from 'node:fs';
-import { type Logger, quietLogger } from '../log.ts';
+import type { ServerLog as Logger } from '#application/logging.ts';
+import { quietLogger } from '#infrastructure/logging/logger.ts';
 import { type Candidate, type Fetcher, ProductGone, type Quote, Refused, SourceError, get, releaseDate, retryAfterMs, retryWait } from './sources.ts';
 
 // PriceCharting's official Prices API (https://www.pricecharting.com/api-documentation), with the
-// owner's subscription token (kept in its own secret file, secrets.ts). Each product has an
+// owner's subscription token (kept in its own secret file, src/infrastructure/admin/file-secret.ts). Each product has an
 // ungraded price (recent eBay sales) and, when the subscription includes them, graded prices.
 // PriceCharting allows one call a second and blocks (then revokes) an account that makes more, so
 // every call and every retry, from the daily update or a person's search, waits its turn behind

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/compose.ts';
 import { PhotoFiles as Assets } from '../../src/infrastructure/photos/photo-files.ts';
 import { createBackups } from '../../src/compose.ts';
-import { Config } from '../../server/config.ts';
+import { AdminFile as Config } from '../../src/infrastructure/admin/admin-file.ts';
 import type { CardDetails } from '../../server/details.ts';
 import { Catalog, chooseVariant, printingOf, variantPrices, tcgdexCardmarket, tcgdexTcgplayer, type TcgdexCard } from '../../server/pricing/catalog.ts';
 import { catalogMismatch, chooseMatch, detailsFromProduct, otherBall, searchQuery, variantFromProduct } from '../../server/pricing/match.ts';
@@ -14,8 +14,8 @@ import { PriceCharting, PriceGuide, gradedPrice, oldAddress, parseCsv, parseProd
 import { type Candidate, type Fetcher, retryPolicy, releaseDate } from '../../server/pricing/sources.ts';
 import { PriceUpdater, pricesDisagree, thinAutoPrices } from '../../server/pricing/updater.ts';
 import { TcgCsv } from '../../server/pricing/tcgcsv.ts';
-import { Secret } from '../../server/secrets.ts';
-import { Logger } from '../../server/log.ts';
+import { FileSecret as Secret } from '../../src/infrastructure/admin/file-secret.ts';
+import { Logger } from '../../src/infrastructure/logging/logger.ts';
 import { Store } from '../../src/infrastructure/json-store/store.ts';
 
 retryPolicy.baseMs = 1; // retries happen at once in tests

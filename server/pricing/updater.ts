@@ -1,8 +1,9 @@
 import type { PhotoFiles } from '#infrastructure/photos/photo-files.ts';
 import { MAX_PHOTO_BYTES } from '#domain/photos/photo.ts';
-import type { Config } from '../config.ts';
+import type { AdminSettingsStore as Config } from '#application/admin/ports.ts';
 import { type CardDetails, type DetailsStatus, checkIdentity } from '../details.ts';
-import { type Logger, quietLogger } from '../log.ts';
+import type { ServerLog as Logger } from '#application/logging.ts';
+import { quietLogger } from '#infrastructure/logging/logger.ts';
 import { type BlendSettings, blend } from '../blend.ts';
 import { safely } from '../recover.ts';
 import type { Doc } from '../schema.ts';
@@ -12,6 +13,7 @@ import { catalogMismatch, chooseMatch, detailsFromProduct, norm, otherBall, othe
 import { type PcProduct, type PriceCharting, type PriceGuide, gradedPrice, oldAddress, quoteOf } from './pricecharting.ts';
 import { type TcgCsv, type TcgCsvCard, type TcgCsvQuote } from './tcgcsv.ts';
 import { type Candidate, type Fetcher, ProductGone, type Quote, Refused, type Source, SourceError, get, exchangeRates, tcgImage } from './sources.ts';
+import { NO_PRICE } from '#domain/cards/attention.ts';
 
 // The daily price and image update. For every card still in the collection it finds the card's
 // product on PriceCharting (through its API, pricecharting.ts) and the TCGplayer product the card
@@ -190,7 +192,7 @@ interface Pair {
 }
 
 /** Part of the error a card keeps while its site has no price for it (a person should pick another product). */
-export const NO_PRICE = 'has no price for this printing';
+export { NO_PRICE };
 /** Why PriceCharting isn't asked on a server without its API token. */
 export const NO_TOKEN = "PriceCharting isn't set up: add its API token under Administration → Prices.";
 /** A TCGplayer product the person chose that the card databases don't price (TCGplayer's own pages aren't read). */

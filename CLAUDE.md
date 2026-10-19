@@ -57,6 +57,9 @@ confirmed on the live binder.
     in `assertNever`) from error codes to HTTP statuses.
   - `src/compose.ts` (wiring the layers) and `src/main.ts` (starting the server) are the only
     places that know the concrete classes.
+- Logging goes through the `ServerLog` port (`src/application/logging.ts`); the logger itself is
+  `src/infrastructure/logging/logger.ts`, and administrators' settings are the `AdminSettingsStore`
+  port (admin.json). The Express code uses the same port and adapters.
 - Every change the layered routes make (the ledger's documents, price entries, sorting a binder,
   moving cards) runs as one unit of work (`StoreUnitOfWork`), so it is checked, saved and sent to
   open pages, or not applied at all. Replacing the whole ledger (a restore) runs only through the

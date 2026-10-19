@@ -849,29 +849,37 @@ in `src/` is its own TypeScript project that may only import the layers inside i
   ledger refers to it) and backups (`backups/`: retention, the copies' names and kinds, the full
   backup format and what makes one restorable); people and sign-in (`accounts/`: roles, usernames,
   what makes a password acceptable, lockouts that double each time, sessions, API tokens, and the
-  account book that always keeps an administrator who can sign in) and guests (`guests/`: names and
-  contacts, visits and the guest log, and what guests see of a card). No Node APIs; time is passed in.
+  account book that always keeps an administrator who can sign in), guests (`guests/`: names and
+  contacts, visits and the guest log, and what guests see of a card) and Administration (`admin/`:
+  the settings' rules and defaults, the overview checks, status.txt's lines, the log's levels,
+  categories and hidden secrets, problems grouped since last seen, PriceCharting's token format and
+  the page errors' 30-a-minute limit); the cards that need a person are `cards/attention.ts`. No
+  Node APIs; time is passed in.
 - `src/application/`: one use case per action (`ledger/`: save, merge or delete a document, change
   price entries, sort a binder, move cards, read the ledger; `photos/`: upload, delete, show;
   `backups/`: download and restore a full backup, list, snapshot, download, restore and delete kept
   copies, change retention, the hourly housekeeping; `accounts/`: sign in, change your password,
   set up the first administrator, sign out, `IdentifyCaller` (who is behind a session cookie or API
   token), and administering people, sign-in settings, sessions and API tokens; `guests/`: a guest
-  signing in and out, who a guest is, the cards and pictures they see, and Administration → Guests),
-  ports for the clock, the unit of work, events, the activity log, the photo store, the kept copies,
-  password hashing, random secrets, the account and guest files and the QR code, and who may do
-  what (`access.ts`).
+  signing in and out, who a guest is, the cards and pictures they see, and Administration → Guests;
+  `admin/`: the overview and status.txt, the price schedule and method, PriceCharting's token,
+  problems, logs and page errors), ports for the clock, the unit of work, events, the server log
+  (`logging.ts`, used by every layer above the domain), the photo store, the kept copies, password
+  hashing, random secrets, the account and guest files, the QR code, admin.json, the token file, the
+  disk and the daily update, and who may do what (`access.ts`).
   Replacing the whole ledger (a restore) goes only through the `WholeLedger` port, which keeps a
   before-restore copy first.
 - `src/infrastructure/`: `json-store/store.ts` (the ledger file, daily copies and the change feed
   to open pages), a unit of work over it (`unit-of-work.ts`: all or nothing, one at a time, and run
   again if the store changed meanwhile), its repositories, the photo files (`photos/`), the kept
   copies (`backups/`), `auth.json` and `sessions.json` with scrypt password hashing (`accounts/`),
-  `guests.json`, the page's condition rules and the QR code (`guests/`), random secrets
-  (`node-secrets.ts`), and in-memory versions for tests (`memory/`; wrong-password counts and the
+  `guests.json`, the page's condition rules and the QR code (`guests/`), `admin.json`, PriceCharting's
+  token file, status.txt, offsite.json and the disk (`admin/`), the server log with its daily files
+  (`logging/logger.ts`), random secrets (`node-secrets.ts`), and in-memory versions for tests (`memory/`; wrong-password counts and the
   setup code are only ever kept in memory).
-- `src/presentation/`: the ledger's, photos', backups', sign-in and people's, and guests' routes
-  (`ledger/`, `photos/`, `backups/`, `accounts/`, `guests/`) on `node:http`, with hand-written checks
+- `src/presentation/`: the ledger's, photos', backups', sign-in and people's, guests' and
+  Administration's routes (`ledger/`, `photos/`, `backups/`, `accounts/`, `guests/`, `admin/`: the
+  overview, prices and PriceCharting token, problems, logs and the pages' error reports) on `node:http`, with hand-written checks
   of each request and an exhaustive switch from error codes to HTTP statuses; the guest page's live
   updates (`guests/feed.ts`).
 - `src/compose.ts` wires the layers together and `src/main.ts` starts the server, building the
@@ -887,12 +895,12 @@ applies the rate limits.
 - `server/pricing/`: `pricecharting.ts` (PriceCharting's API, price guide download and graded prices), `tcgcsv.ts` (TCGplayer's own catalog), `catalog.ts`
   (TCGdex: TCGplayer and Cardmarket prices, pictures), `sources.ts` (requests,
   Bank of Canada), `match.ts` (which product is this card), `updater.ts` (the daily run, per-card
-  updates and the PriceCharting purge). `server/secrets.ts` keeps PriceCharting's token.
+  updates and the PriceCharting purge).
 - `server/details.ts` (card details from TCGdex), `server/autofill.ts` (new cards filling themselves
   in, and Update all cards → Details).
-- `server/`: `security.ts` (rate limits and blocks), `log.ts`, `checks.ts` (Overview checks),
-  `config.ts` (administrators' settings), `app.ts` (the request pipeline and the rest of the HTTP
-  API).
+- `server/`: `security.ts` (rate limits and blocks), `app.ts` (the request pipeline and the rest of
+  the HTTP API: prices, card details, any-card lookup, master sets, rebuilding past prices, the
+  PriceCharting purge and Administration → Security).
 - `public/`: `admin.html`/`admin.js` (Administration), `login.html`/`login.js` (sign-in),
   `guest.html`/`guest.js` (the guest page).
 - `public/`: the page. `app.js` is the ledger UI; `search.js` matches cards for Find (tested in

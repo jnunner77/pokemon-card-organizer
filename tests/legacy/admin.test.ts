@@ -7,14 +7,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Accounts, createAccounts, createApp } from '../../src/compose.ts';
 import { PhotoFiles as Assets } from '../../src/infrastructure/photos/photo-files.ts';
 import { createBackups } from '../../src/compose.ts';
-import { Config } from '../../server/config.ts';
-import { Logger, redact } from '../../server/log.ts';
+import { AdminFile as Config } from '../../src/infrastructure/admin/admin-file.ts';
+import { Logger } from '../../src/infrastructure/logging/logger.ts';
+import { redact } from '../../src/domain/admin/log.ts';
 import { PriceCharting } from '../../server/pricing/pricecharting.ts';
 import { type Fetcher, retryPolicy } from '../../server/pricing/sources.ts';
 import { PriceUpdater } from '../../server/pricing/updater.ts';
 import { Security } from '../../server/security.ts';
 import { DETAILS_VERSION } from '../../server/details.ts';
-import { cardsNeedingAttention } from '../../server/status.ts';
+import { cardsNeedingAttention } from '../../src/domain/cards/attention.ts';
 import { Store } from '../../src/infrastructure/json-store/store.ts';
 
 retryPolicy.baseMs = 1;

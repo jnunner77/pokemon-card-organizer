@@ -9,7 +9,8 @@
 // before the current checks (a one-off backfill after an update that adds some).
 
 import { CardDetails, type DetailsStatus } from './details.ts';
-import { type Logger, quietLogger } from './log.ts';
+import type { ServerLog as Logger } from '#application/logging.ts';
+import { quietLogger } from '#infrastructure/logging/logger.ts';
 import { safely } from './recover.ts';
 import type { PriceUpdater } from './pricing/updater.ts';
 import type { Doc } from './schema.ts';
