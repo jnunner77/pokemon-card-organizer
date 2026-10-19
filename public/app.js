@@ -428,25 +428,27 @@ function renderList(m){
       <div class="seg" role="group" aria-label="Scope"><button type="button" data-scope="binder" aria-pressed="${S.scope!=="all"}">${S.binderId==="__loose"?"Loose":"This binder"}</button><button type="button" data-scope="all" aria-pressed="${S.scope==="all"}">All cards</button></div>
       <button class="btn sm${nf?" primary":""}" type="button" id="btnFilt" aria-expanded="${!!S.filtOpen}" aria-controls="filtPane">Filters${nf?` · ${nf}`:""}</button>
       <span class="hint">${list.length} shown${nf||q?` · ${money(statsFor(list).val)} value`:""}${S.pick||!list.length?"":" · hold a row to quick sell or select"}</span></div>
-    ${S.filtOpen?filterPane(base):""}
+    ${S.filtOpen?filterPane(base, S.filt, "ff", "filtPane", STATUSES, {placeholders:true}):""}
     <div class="tablewrap"><table><thead><tr>${S.pick?"<th></th>":""}<th></th>${th("name","Card")}${th("set","Set · No.")}${th("released","Released")}${th("loc","Location")}${th("status","Status")}${th("value","Value","r")}${th("paid","Paid","r")}</tr></thead>
     <tbody>${rows || `<tr><td colspan="${S.pick?9:8}" class="empty-state">${q||nf?"No cards match. Try fewer filters, or All cards.":"No cards here yet."}</td></tr>`}</tbody></table></div>`;
 }
 
 /* the List view's filters (filter.js); choices come from the cards in scope. The Pricing and Selling
    views have their own copies (F, pre for its field ids, pane for its id, statuses it offers; o:
-   valueLabel, extra fields before Clear, and n, how many filters are set). */
+   valueLabel, extra fields before Clear, n, how many filters are set, and placeholders, to offer the
+   Placeholders filter: only the List view has placeholders and owned cards side by side). */
 function filterPane(list, F=S.filt, pre="ff", pane="filtPane", statuses=STATUSES, o={}){
   const uniq = a => [...new Set(a.filter(Boolean))].sort((x,y)=>x.localeCompare(y));
   const sets = uniq(list.map(window.BinderFilter.setOf)), rars = uniq(list.map(c=>c.rarity));
   const years = uniq(list.map(c=>/^\d{4}/.test(c.released||"") ? c.released.slice(0,4) : ""));
   const sel = (id, v, any, opts) => `<select id="${id}"><option value="">${any}</option>${opts.map(o=>{ const [val,lab]=Array.isArray(o)?o:[o,o]; return `<option value="${esc(val)}" ${String(v)===String(val)?"selected":""}>${esc(lab)}</option>`; }).join("")}</select>`;
-  const nOwner = v => list.filter(c=>(c.owner||"")===v).length;
+  const nOwner = v => list.filter(c=>(c.owner||"")===v).length, nPh = list.filter(window.BinderFilter.isPlaceholder).length;
   return `<div class="filtpane" id="${pane}" role="group" aria-label="Filters">
     <fieldset class="field full"><legend>Owner</legend><div class="filtowners">${OWNERS.map(([v,l])=>`<label><input type="checkbox" data-fowner="${esc(v)}" ${F.owners.includes(v)?"checked":""}> ${esc(l)} <span class="hint">${nOwner(v)}</span></label>`).join("")}</div></fieldset>
     <div class="field"><label for="${pre}_set">Set</label>${sel(pre+"_set", F.set, "Any set", sets)}</div>
     <div class="field"><label for="${pre}_rarity">Rarity</label>${sel(pre+"_rarity", F.rarity, "Any rarity", rars)}</div>
     <div class="field"><label for="${pre}_status">Status</label>${sel(pre+"_status", F.status, "Any status", statuses)}</div>
+    ${o.placeholders ? `<div class="field"><label for="${pre}_ph">Placeholders</label>${sel(pre+"_ph", F.ph, "Any", [["only",`Placeholders only (${nPh})`],["none",`No placeholders (${list.length-nPh})`]])}</div>` : ""}
     <div class="field"><label for="${pre}_yFrom">Released</label><span class="filtrange">${sel(pre+"_yFrom", F.yFrom, "From any", years)}<span>to</span>${sel(pre+"_yTo", F.yTo, "Any", years)}</span></div>
     <div class="field"><label for="${pre}_vMin">${esc(o.valueLabel || "Value (CAD)")}</label><span class="filtrange"><input id="${pre}_vMin" class="mono" type="number" min="0" step="1" inputmode="decimal" placeholder="Min" value="${esc(F.vMin)}"><span>to</span><input id="${pre}_vMax" class="mono" type="number" min="0" step="1" inputmode="decimal" placeholder="Max" value="${esc(F.vMax)}"></span></div>
     ${o.extra || ""}
@@ -455,7 +457,7 @@ function filterPane(list, F=S.filt, pre="ff", pane="filtPane", statuses=STATUSES
 }
 function filtersFrom(pre, pane){
   const v = id => $("#"+pre+"_"+id)?.value ?? "", el = $("#"+pane);
-  return {owners:el ? [...el.querySelectorAll("[data-fowner]:checked")].map(x=>x.dataset.fowner) : [], set:v("set"), rarity:v("rarity"), status:v("status"), yFrom:v("yFrom"), yTo:v("yTo"), vMin:v("vMin"), vMax:v("vMax")};
+  return {owners:el ? [...el.querySelectorAll("[data-fowner]:checked")].map(x=>x.dataset.fowner) : [], set:v("set"), rarity:v("rarity"), status:v("status"), ph:v("ph"), yFrom:v("yFrom"), yTo:v("yTo"), vMin:v("vMin"), vMax:v("vMax")};
 }
 function readFilters(){ S.filt = filtersFrom("ff", "filtPane"); store.set("filt", S.filt); }
 

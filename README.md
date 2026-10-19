@@ -342,9 +342,10 @@ changing it doesn't change the cards already in it. It's saved with *Save change
 ## Filters
 
 *Filters* in the List view narrows the cards shown (in this binder, or *All cards*): by **owner**
-(tick any of Megan, Justin, Maiya, Both, Not set), **set**, **rarity**, **status**, **release year** (from / to)
-and **value** in CAD (min / max). Cards with no release date or value are left out when those filters
-are set. The count and total value of what's shown sit next to the button, and filters are remembered
+(tick any of Megan, Justin, Maiya, Both, Not set), **set**, **rarity**, **status**, **placeholders**
+(*Placeholders only* for the cards you still need, *No placeholders* for the rest), **release year**
+(from / to) and **value** in CAD (min / max). Cards with no release date or value are left out when
+those filters are set. The count and total value of what's shown sit next to the button, and filters are remembered
 on this device until *Clear filters*.
 
 To change many cards at once, filter, press and hold a row, *Select all*, then use the selection's
