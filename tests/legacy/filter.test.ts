@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
 
 // public/filter.js is a plain browser script; load it the way the page does.
-type Filters = Partial<{ owners: string[]; set: string; rarity: string; status: string; yFrom: string; yTo: string; vMin: string; vMax: string }>;
+type Filters = Partial<{ owners: string[]; set: string; rarity: string; status: string; ph: string; yFrom: string; yTo: string; vMin: string; vMax: string }>;
 type Card = Record<string, unknown>;
 const sandbox = { window: {} as { BinderFilter: { count: (f: Filters) => number; match: (c: Card, f: Filters, value: number | null) => boolean } } };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public/filter.js'), 'utf8'), sandbox);
@@ -33,6 +33,21 @@ describe('filtering the list', () => {
     expect(match({ name: 'x' }, { status: 'binder' }, 1)).toBe(true); // blank status is In binder
   });
 
+  it('matches placeholders only, or no placeholders: a sold or traded placeholder is not one', () => {
+    const wanted = { ...lapras, placeholder: true };
+    expect(match(wanted, { ph: 'only' }, 1)).toBe(true);
+    expect(match(wanted, { ph: 'none' }, 1)).toBe(false);
+    expect(match(lapras, { ph: 'only' }, 1)).toBe(false);
+    expect(match(lapras, { ph: 'none' }, 1)).toBe(true);
+    expect(match({ ...wanted, status: 'sold' }, { ph: 'only' }, 1)).toBe(false);
+    expect(match({ ...wanted, status: 'traded' }, { ph: 'none' }, 1)).toBe(true);
+    expect(match({ name: 'x', placeholder: true }, { ph: 'only' }, 1)).toBe(true); // blank status is In binder
+    expect(count({ ph: 'only' })).toBe(1);
+    expect(count({ ph: 'none' })).toBe(1);
+    expect(count({ ph: 'bogus' })).toBe(0);
+    expect(match(lapras, { ph: 'bogus' }, 1)).toBe(true);
+  });
+
   it('matches a release year range, leaving out cards with no date', () => {
     expect(match(lapras, { yFrom: '2026' }, 1)).toBe(true);
     expect(match(lapras, { yFrom: '2020', yTo: '2025' }, 1)).toBe(false);
@@ -47,8 +62,8 @@ describe('filtering the list', () => {
   });
 
   it('needs every filter to match, and counts each one that is set', () => {
-    const f = { owners: ['Megan', 'Justin'], set: '30th Celebration', yFrom: '2026', yTo: '2026', vMin: '5' };
-    expect(count(f)).toBe(4);
+    const f = { owners: ['Megan', 'Justin'], set: '30th Celebration', ph: 'none', yFrom: '2026', yTo: '2026', vMin: '5' };
+    expect(count(f)).toBe(5);
     expect(match(lapras, f, 21.2)).toBe(true);
     expect(match(lapras, { ...f, rarity: 'Promo' }, 21.2)).toBe(false);
   });
