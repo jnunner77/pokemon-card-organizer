@@ -11,7 +11,6 @@ import type { SignedInGuest } from '#application/guests/state.ts';
 import { atLeast, type Role } from '#domain/accounts/role.ts';
 import type { ServerLog } from '#application/logging.ts';
 import type { TakeSnapshot } from '#application/backups/take-snapshot.ts';
-import type { PhotoFiles } from '#infrastructure/photos/photo-files.ts';
 import { SESSION_COOKIE } from '#presentation/accounts/routes.ts';
 import { GUEST_COOKIE, type GuestResolver } from '#presentation/guests/routes.ts';
 import type { CallerResolver, IdentityResolver } from '#presentation/http/caller.ts';
@@ -67,8 +66,6 @@ export interface AppOptions {
   /** Builds the layered routes, given what Express knows about each request. */
   layeredRoutes: (context: LayeredContext) => LayeredRoutes;
   people: ExpressPeople;
-  /** Card photos (the daily update and the guest page still use them directly). */
-  assets: PhotoFiles;
   /** The pages, styles and scripts. Defaults to ./public. */
   publicDir?: string | undefined;
   trustProxy?: boolean | number | string | undefined;
@@ -98,7 +95,7 @@ const PUBLIC = [/^\/login\.(html|js)$/, /^\/styles\.css$/, /^\/icon\.svg$/, /^\/
 const PAGES = new Set(['/', '/index.html', '/admin.html']);
 
 export function createExpressApp(o: AppOptions) {
-  const { store, assets, publicDir = path.join(root, 'public'), trustProxy, updater, security, people } = o;
+  const { store, publicDir = path.join(root, 'public'), trustProxy, updater, security, people } = o;
   const log = o.log ?? quietLogger();
   const now = o.now ?? (() => new Date());
   const { backups } = o;

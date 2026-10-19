@@ -382,6 +382,8 @@ export function createAdmin(o: CreateAdminOptions) {
 export type Admin = ReturnType<typeof createAdmin>;
 
 export interface CreateAppOptions extends Omit<AppOptions, 'layeredRoutes' | 'backups' | 'people'> {
+  /** Card photos (backups, the overview and the guest page use them). */
+  readonly assets: PhotoFiles;
   /** Photos and backups; made from the store, photos and settings if omitted. */
   readonly backups?: Backups | undefined;
   /** People and sign-in. Without them everything is open (only for running on your own computer). */
