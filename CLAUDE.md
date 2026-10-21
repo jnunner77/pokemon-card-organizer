@@ -31,8 +31,8 @@ confirmed on the live binder.
   skill (`.claude/skills/review-loop/`). It spawns the `code-reviewer` agent
   (`.claude/agents/code-reviewer.md`, on the cheapest model, Haiku) with the diff and the ticket's
   description, acceptance criteria and tasks; fix its findings, push and review again until it
-  passes with no findings, and only then open the pull request and ask GitHub Copilot to review it
-  (only after a pass; later pushes re-request it once their round passes).
+  passes with no findings, and only then open the pull request. Don't ask GitHub Copilot to
+  review pull requests: the owner turned that off.
 - Browser-only logic that's worth testing lives in small plain scripts in `public/` (like
   `sales.js`, `move.js`, `filter.js`) loaded before `app.js`, with tests in `tests/legacy/` that load them
   the same way.
