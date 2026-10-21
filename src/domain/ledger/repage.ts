@@ -8,7 +8,8 @@ import type { InvalidDocument } from './check-document.ts';
 // size, so cards 5–9 of page 1 go to page 2 instead of vanishing past the page. Its saved layout
 // moves the same way.
 //
-// A binder whose cards already sit past its page (its size was changed before this rule) is read
+// A binder whose cards already sit past its page (its size was changed before this rule), when it
+// is saved again, is read
 // as pages of the smallest size that holds its widest pocket (a card in pocket 6 means 9-pocket
 // pages). Its old size isn't kept, so this keeps the cards' order but can only guess the empty
 // pockets: right for a 9-pocket binder, but a 12- or 16-pocket one with no card past pocket 9 comes

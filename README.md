@@ -537,7 +537,8 @@ A binder's settings (tap its tab again) choose its **pockets per page**: 4, 9, 1
 keeps every card in the same order, empty pockets included: the pockets are counted from page 1,
 pocket 1 and laid out again on pages of the new size, so going from 9 to 4 puts pockets 5–8 of page 1
 on page 2 and pocket 9 on page 3. *My binder layout* moves the same way. A binder whose cards were
-left in pockets past its page by an older version gets its order back the next time it's saved
+left in pockets past its page by an older version gets its order back the next time its settings are
+saved (or it's sorted, which moves every card anyway)
 (its empty pockets come back as they were for a 9-pocket binder; from 12 or 16 pockets, check the
 gaps afterwards).
 
