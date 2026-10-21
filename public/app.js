@@ -1646,7 +1646,7 @@ function binderModal(id){
       <div class="field"><label for="b_name">Name</label><input id="b_name" value="${esc(b.name)}" maxlength="40" placeholder="e.g. Vintage holos" autocomplete="off"></div>
       <div class="field"><label>Colour</label><div class="swatches" id="b_colors">${BINDER_COLORS.map(c=>`<button type="button" style="--c:${c}" data-color="${c}" aria-pressed="${(b.color||BINDER_COLORS[0])===c}" aria-label="Colour ${c}"></button>`).join("")}</div></div>
       <div class="field"><label for="b_owner">Owner</label><select id="b_owner">${opt(OWNERS, b.owner||"")}</select><span class="hint" id="b_ownerHint"></span></div>
-      <div class="field" id="b_pocketsF"><label for="b_pockets">Pockets per page</label><select id="b_pockets">${[4,9,12,16].map(p=>`<option value="${p}" ${p===n?"selected":""}>${p}-pocket</option>`).join("")}</select><span class="hint">Changing this doesn't move cards. Pockets past the new size stay listed but won't show on the page.</span></div>
+      <div class="field" id="b_pocketsF"><label for="b_pockets">Pockets per page</label><select id="b_pockets">${[4,9,12,16].map(p=>`<option value="${p}" ${p===n?"selected":""}>${p}-pocket</option>`).join("")}</select><span class="hint">Cards keep their order: changing this moves them onto pages of the new size, empty pockets too (9 to 4: pockets 5–9 of page 1 go to pages 2 and 3).</span></div>
     </div>
     <div class="mfoot" style="justify-content:space-between"><span id="bDelZone"></span>
       <span style="display:flex;gap:8px"><button class="btn" type="button" data-mclose>Cancel</button><button class="btn primary" type="button" id="bSave"></button></span></div>

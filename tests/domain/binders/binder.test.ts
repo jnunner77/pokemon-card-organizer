@@ -45,3 +45,20 @@ describe('Binder', () => {
     assert.deepEqual(b.pullEvents().map((e) => e.type), ['DocumentSaved', 'DocumentDeleted']);
   });
 });
+
+describe('a binder’s saved layout', () => {
+  it('reads its places and moves them, keeping when it was saved', () => {
+    const b = binder('b1', { layout: { savedAt: '2026-01-01T00:00:00.000Z', places: [{ id: 'a', page: 1, slot: 2 }] } });
+    assert.deepEqual(b.layoutPlaces, [{ id: 'a', page: 1, slot: 2 }]);
+    value(b.moveLayout([{ id: 'a', page: 3, slot: 1 }], AT));
+    assert.deepEqual(b.fields['layout'], { savedAt: '2026-01-01T00:00:00.000Z', places: [{ id: 'a', page: 3, slot: 1 }] });
+  });
+
+  it('has no places without a layout, and moving them changes nothing', () => {
+    const b = binder('b1');
+    assert.deepEqual(b.layoutPlaces, []);
+    value(b.moveLayout([], AT));
+    assert.equal(b.fields['layout'], undefined);
+    assert.deepEqual(b.pullEvents(), []);
+  });
+});

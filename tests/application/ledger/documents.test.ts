@@ -87,3 +87,47 @@ describe('ReadLedger', () => {
     assert.deepEqual(await new ReadLedger(deps).execute(), { binders: [{ id: 'b1', name: 'IR' }], cards: [{ id: 'c1', ...card() }], settings: [] });
   });
 });
+
+describe('changing a binder’s pockets per page', () => {
+  it('moves its cards in the same unit of work, keeping their order, and sends them to open pages', async () => {
+    const { ledger, deps, published } = setUp();
+    ledger.seed('binders', 'b1', { name: 'Trainers', pockets: 9 });
+    ledger.seed('cards', 'c1', card({ page: 1, slot: 4 }));
+    ledger.seed('cards', 'c2', card({ page: 1, slot: 7 }));
+    ledger.seed('cards', 'c3', card({ binderId: 'b2', page: 1, slot: 7 }));
+    const r = await new MergeDocument(deps).execute({ collection: 'binders', id: 'b1', patch: { pockets: 4 } });
+    assert.equal(r.ok, true);
+    assert.deepEqual(ledger.tables.binders.get('b1'), { name: 'Trainers', pockets: 4 });
+    assert.deepEqual(ledger.tables.cards.get('c1'), card({ page: 1, slot: 4 }));
+    assert.deepEqual(ledger.tables.cards.get('c2'), card({ page: 2, slot: 3, updatedAt: NOW.toISOString() }));
+    assert.deepEqual(ledger.tables.cards.get('c3'), card({ binderId: 'b2', page: 1, slot: 7 }));
+    assert.deepEqual(published.map((e) => `${e.collection}/${e.id}`), ['binders/b1', 'cards/c2']);
+    assert.deepEqual(ledger.runs, [{ committed: true }]);
+  });
+
+  it('sends the binder to open pages once when its saved layout moves too', async () => {
+    const { ledger, deps, published } = setUp();
+    ledger.seed('binders', 'b1', { name: 'Trainers', pockets: 9, layout: { savedAt: '2026-01-01T00:00:00.000Z', places: [{ id: 'c1', page: 1, slot: 6 }] } });
+    ledger.seed('cards', 'c1', card({ page: 1, slot: 6 }));
+    await new MergeDocument(deps).execute({ collection: 'binders', id: 'b1', patch: { pockets: 4 } });
+    assert.deepEqual(ledger.tables.binders.get('b1'), { name: 'Trainers', pockets: 4, layout: { savedAt: '2026-01-01T00:00:00.000Z', places: [{ id: 'c1', page: 2, slot: 2 }] } });
+    assert.deepEqual(published.map((e) => `${e.collection}/${e.id}`), ['binders/b1', 'cards/c1']);
+  });
+
+  it('does the same when the binder is saved whole', async () => {
+    const { ledger, deps } = setUp();
+    ledger.seed('binders', 'b1', { name: 'Trainers', pockets: 4 });
+    ledger.seed('cards', 'c1', card({ page: 2, slot: 1 }));
+    await new PutDocument(deps).execute({ collection: 'binders', id: 'b1', doc: { name: 'Trainers', pockets: 9 } });
+    assert.deepEqual(ledger.tables.cards.get('c1'), card({ page: 1, slot: 5, updatedAt: NOW.toISOString() }));
+  });
+
+  it('leaves the cards alone when only the name changes', async () => {
+    const { ledger, deps, published } = setUp();
+    ledger.seed('binders', 'b1', { name: 'Trainers', pockets: 4 });
+    ledger.seed('cards', 'c1', card({ page: 2, slot: 3 }));
+    await new MergeDocument(deps).execute({ collection: 'binders', id: 'b1', patch: { name: 'Gym' } });
+    assert.deepEqual(ledger.tables.cards.get('c1'), card({ page: 2, slot: 3 }));
+    assert.equal(published.length, 1);
+  });
+});

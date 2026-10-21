@@ -33,8 +33,9 @@ export class MergeDocument {
       if (!found) return err({ code: 'DOCUMENT_NOT_FOUND', collection, id });
       const merged = found.doc.merge(input.patch, now);
       if (!merged.ok) return merged;
-      await found.save();
-      return ok({ value: viewOf(found.doc.id, found.doc.fields), events: found.doc.pullEvents() });
+      const others = await found.save(now);
+      if (!others.ok) return others;
+      return ok({ value: viewOf(found.doc.id, found.doc.fields), events: [...found.doc.pullEvents(), ...others.value] });
     });
   }
 }

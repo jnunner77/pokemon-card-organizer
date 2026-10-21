@@ -531,6 +531,16 @@ record a stack of them with [Bulk buy](#bulk-buy)), and
 change anything that differs (its condition, a grade). Cards you don't collect can be deleted like any
 other card.
 
+## Change a binder's pockets per page
+
+A binder's settings (tap its tab again) choose its **pockets per page**: 4, 9, 12 or 16. Changing it
+keeps every card in the same order, empty pockets included: the pockets are counted from page 1,
+pocket 1 and laid out again on pages of the new size, so going from 9 to 4 puts pockets 5–8 of page 1
+on page 2 and pocket 9 on page 3. *My binder layout* moves the same way. A binder whose cards were
+left in pockets past its page by an older version gets its order back the next time its settings are
+saved (a sort fixes it too, since it moves every card). Its empty pockets come back as they were for
+a 9-pocket binder; one that started at 12 or 16 pockets may need its gaps checked.
+
 ## Arrange a binder by hand
 
 *Arrange* (next to *Pages* and *List*) lists every pocket of the binder in order, page by page,

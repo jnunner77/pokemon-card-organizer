@@ -4,13 +4,15 @@ import type { InvalidDocument } from '#domain/ledger/check-document.ts';
 import { type Collection, type Fields, isCollection } from '#domain/ledger/document.ts';
 import type { LedgerEvent } from '#domain/ledger/events.ts';
 import { documentId, type InvalidId } from '#domain/ledger/ids.ts';
+import { repageBinder } from '#domain/ledger/repage.ts';
 import { Setting, type SettingId } from '#domain/settings/setting.ts';
 import { pageMayWrite } from '#domain/settings/setting-fields.ts';
 import { err, ok, type Result } from '#shared/result.ts';
 import type { LedgerDeps } from './deps.ts';
 
 // What the three document use cases (put, merge, delete) share: finding a binder, card or setting
-// by its collection and id, whichever it is, and saving or deleting it.
+// by its collection and id, whichever it is, and saving or deleting it. Saving a binder whose
+// pockets per page changed moves its cards too, so they keep their order.
 
 export type AddressError = { readonly code: 'NO_SUCH_COLLECTION' } | InvalidId | { readonly code: 'SETTING_BELONGS_TO_SERVER' };
 
@@ -27,9 +29,13 @@ export interface LedgerDocument {
 /** A document found or just made, with how to save or delete it. */
 export interface Held {
   readonly doc: LedgerDocument;
-  save(): Promise<void>;
+  /** Save it, and what changes with it (a binder's cards); the events of those others. */
+  save(at: Date): Promise<Result<readonly LedgerEvent[], InvalidDocument>>;
   delete(): Promise<void>;
 }
+
+/** What else is saved with a document, made when it is found (before it changes). */
+type Alongside<A> = (doc: A) => (at: Date) => Promise<Result<readonly LedgerEvent[], InvalidDocument>>;
 
 export interface DocumentTable {
   find(): Promise<Held | undefined>;
@@ -54,7 +60,7 @@ export function address(deps: LedgerDeps, collection: string, rawId: string): Re
     case 'binders': {
       const id = documentId<BinderId>(rawId);
       if (!id.ok) return id;
-      return ok({ collection, id: id.value, table: table(deps.binders, id.value, (doc, at) => Binder.create(id.value, doc, at)) });
+      return ok({ collection, id: id.value, table: table(deps.binders, id.value, (doc, at) => Binder.create(id.value, doc, at), binderCards(deps)) });
     }
     case 'settings': {
       const id = documentId<SettingId>(rawId);
@@ -71,8 +77,35 @@ interface Repository<A, I> {
   delete(doc: A): Promise<void>;
 }
 
-function table<A extends LedgerDocument, I>(repo: Repository<A, I>, id: I, create: (doc: unknown, at: Date) => Result<A, InvalidDocument>): DocumentTable {
-  const held = (doc: A): Held => ({ doc, save: () => repo.save(doc), delete: () => repo.delete(doc) });
+/** A binder's cards, moved to keep their order when its pockets per page change. */
+const binderCards =
+  (deps: LedgerDeps): Alongside<Binder> =>
+  (binder) => {
+    const fromPockets = binder.pocketsPerPage;
+    return async (at) => {
+      const cards = (await deps.cards.all()).filter((c) => c.place.binderId === binder.id);
+      const moved = repageBinder(binder, cards, fromPockets, at);
+      if (!moved.ok) return moved;
+      for (const card of moved.value) await deps.cards.save(card);
+      return ok(moved.value.flatMap((c) => c.pullEvents()));
+    };
+  };
+
+const nothingElse = () => async () => ok([]);
+
+function table<A extends LedgerDocument, I>(repo: Repository<A, I>, id: I, create: (doc: unknown, at: Date) => Result<A, InvalidDocument>, alongside: Alongside<A> = nothingElse): DocumentTable {
+  const held = (doc: A): Held => {
+    const others = alongside(doc);
+    return {
+      doc,
+      save: async (at) => {
+        const saved = await others(at);
+        if (saved.ok) await repo.save(doc);
+        return saved;
+      },
+      delete: () => repo.delete(doc),
+    };
+  };
   return {
     find: async () => {
       const found = await repo.findById(id);
