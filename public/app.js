@@ -1688,13 +1688,14 @@ function binderModal(id){
       return;
     }
     if(kind!==(isCase(b)?"case":"binder") && cardsIn(id).length) return toast(`Move its cards out to change its type.`);
-    // the page you're on now: the moved cards can arrive (and re-render) before the save answers
-    const was = isCase(b) ? null : pocketsOf(b), resized = kind==="binder" && was !== null && pockets !== was, onPage = S.page;
+    // taken before saving: the moved cards can arrive (and re-render) before the save answers
+    const onPage = S.page, was = isCase(b) ? null : pocketsOf(b), next = kind==="binder" ? pockets : null;
     if(await guard(()=> S.db.doc("binders/"+id).update({name, color, pockets, kind, owner}))){
       closeModal();
       // its cards moved onto pages of the new size: stay on the cards you were looking at
-      if(resized && S.binderId===id){ S.page = window.BinderLayout.pageAfterResize(onPage, was, pockets); persistNav(); render(); }
-      toast(resized ? `${name} now has ${pockets}-pocket pages, cards in the same order` : name!==b.name?`Renamed to ${name}`:`${kind==="case"?"Display case":"Binder"} saved`);
+      const go = window.BinderLayout.pageAfterSave(onPage, was, next);
+      if(go !== null && S.binderId===id){ S.page = go; persistNav(); render(); }
+      toast(go !== null ? `${name} now has ${pockets}-pocket pages, cards in the same order` : name!==b.name?`Renamed to ${name}`:`${kind==="case"?"Display case":"Binder"} saved`);
     }
   };
   sync();

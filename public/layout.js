@@ -46,5 +46,13 @@
     return spot(to, index(from, { page: Math.max(1, page | 0), slot: 1 })).page;
   }
 
-  root.BinderLayout = { restore, current, pageAfterResize };
+  /* What saving the binder's settings does to the page shown. page: the page you were on before
+     saving (the moved cards can arrive, and re-render, before the save answers). from, to: its
+     pockets per page before and after (null for a display case). The page to show, or null to
+     leave the page as it is (the size didn't change). */
+  function pageAfterSave(page, from, to) {
+    return from && to && from !== to ? pageAfterResize(page, from, to) : null;
+  }
+
+  root.BinderLayout = { restore, current, pageAfterResize, pageAfterSave };
 })(typeof window !== "undefined" ? window : globalThis);

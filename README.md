@@ -535,12 +535,13 @@ other card.
 
 A binder's settings (tap its tab again) choose its **pockets per page**: 4, 9, 12 or 16. Changing it
 keeps every card in the same order, empty pockets included: the pockets are counted from page 1,
-pocket 1 and laid out again on pages of the new size, so going from 9 to 4 puts pockets 5–8 of page 1
-on page 2 and pocket 9 on page 3, and 4 back to 9 puts them back. The page you're on follows its
-cards (page 8 of a 4-pocket binder becomes page 4 of 9). *My binder layout* moves the same way. A binder whose cards were
-left in pockets past its page by an older version gets its order back the next time its settings are
-saved (a sort fixes it too, since it moves every card). Its empty pockets come back as they were for
-a 9-pocket binder; one that started at 12 or 16 pockets may need its gaps checked.
+pocket 1 and laid out again on pages of the new size, so going from 9 to 4 puts pockets 5–8 of page
+1 on page 2 and pocket 9 on page 3, and 4 back to 9 puts them back. The page you're on follows its
+cards (page 8 of a 4-pocket binder becomes page 4 of 9). *My binder layout* moves the same way. A
+binder whose cards were left in pockets past its page by an older version gets its order back the
+next time its settings are saved (a sort fixes it too, since it moves every card). Its empty pockets
+come back as they were for a 9-pocket binder; one that started at 12 or 16 pockets may need its gaps
+checked.
 
 ## Arrange a binder by hand
 
