@@ -1696,7 +1696,8 @@ function binderModal(id){
       // its cards moved onto pages of the new size: stay on the cards you were looking at
       const go = window.BinderLayout.pageAfterSave(onPage, was, next);
       if(go !== null && S.binderId===id){ S.page = go; S.pageHeld = {bid:id, page:go, until:Date.now()+10000}; persistNav(); render(); }
-      toast(go !== null ? `${name} now has ${pockets}-pocket pages, cards in the same order` : name!==b.name?`Renamed to ${name}`:`${kind==="case"?"Display case":"Binder"} saved`);
+      const renamed = name!==b.name ? `Renamed to ${name}` : "";
+      toast(go !== null ? `${renamed ? renamed + ". It" : name} now has ${pockets}-pocket pages, cards in the same order` : renamed || `${kind==="case"?"Display case":"Binder"} saved`);
     }
   };
   sync();
