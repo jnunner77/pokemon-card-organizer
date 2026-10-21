@@ -46,13 +46,22 @@
     return spot(to, index(from, { page: Math.max(1, page | 0), slot: 1 })).page;
   }
 
+  /* How wide the binder's pages are read when its size changes, as the server reads them: its
+     pockets per page, or for a binder an older version left with cards past its page, the smallest
+     page size that holds its widest pocket in use (its cards' and saved layout's). */
+  function widthOf(pockets, cards, layout) {
+    const used = [...cards, ...((layout && layout.places) || [])].map((p) => (p && Number.isInteger(p.slot) ? p.slot : 0));
+    const widest = Math.max(pockets, ...used);
+    return [4, 9, 12, 16].find((n) => n >= widest) || widest;
+  }
+
   /* What saving the binder's settings does to the page shown. page: the page you were on before
-     saving (the moved cards can arrive, and re-render, before the save answers). from, to: its
-     pockets per page before and after (null for a display case). The page to show, or null to
+     saving (the moved cards can arrive, and re-render, before the save answers). from: its width
+     before (widthOf), to: its pockets per page after (null for a display case). The page to show, or null to
      leave the page as it is (the size didn't change). */
   function pageAfterSave(page, from, to) {
     return from && to && from !== to ? pageAfterResize(page, from, to) : null;
   }
 
-  root.BinderLayout = { restore, current, pageAfterResize, pageAfterSave };
+  root.BinderLayout = { restore, current, pageAfterResize, pageAfterSave, widthOf };
 })(typeof window !== "undefined" ? window : globalThis);

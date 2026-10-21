@@ -8,9 +8,9 @@ type Spot = { page: number; slot: number };
 type Card = { id: string; page?: number | null; slot?: number | null };
 type Layout = { places: Card[] } | null | undefined;
 type Restore = (pockets: number, cards: Card[], layout: Layout) => { moves: ({ id: string } & Spot)[]; moved: number; added: number };
-const sandbox = { window: {} as { BinderLayout: { restore: Restore; current: (pockets: number, cards: Card[], layout: Layout) => boolean; pageAfterResize: (page: number, from: number, to: number) => number; pageAfterSave: (page: number, from: number | null, to: number | null) => number | null } } };
+const sandbox = { window: {} as { BinderLayout: { restore: Restore; current: (pockets: number, cards: Card[], layout: Layout) => boolean; pageAfterResize: (page: number, from: number, to: number) => number; pageAfterSave: (page: number, from: number | null, to: number | null) => number | null; widthOf: (pockets: number, cards: Card[], layout: Layout) => number } } };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public/layout.js'), 'utf8'), sandbox);
-const { restore, current, pageAfterResize, pageAfterSave } = sandbox.window.BinderLayout;
+const { restore, current, pageAfterResize, pageAfterSave, widthOf } = sandbox.window.BinderLayout;
 const c = (id: string, page: number | null, slot: number | null) => ({ id, page, slot });
 
 describe("putting a binder back in its own layout", () => {
@@ -81,6 +81,19 @@ describe('the page shown after the pockets per page change', () => {
     expect(pageAfterSave(8, 9, 9)).toBe(null); // renamed only
     expect(pageAfterSave(1, null, null)).toBe(null); // a display case
     expect(pageAfterSave(1, null, 9)).toBe(null); // can't happen with cards in it; nothing to follow
+  });
+
+  it('reads a binder left with cards past its page at the width the server reads it', () => {
+    expect(widthOf(9, [c('a', 1, 9), c('b', 2, 1), c('loose', null, null)], null)).toBe(9);
+    // stored as 4 by an older version, with cards still in pockets 5–9: read as 9-pocket pages
+    const scrambled = [c('a', 1, 1), c('b', 1, 6), c('c', 8, 2)];
+    expect(widthOf(4, scrambled, null)).toBe(9);
+    expect(widthOf(4, [c('a', 1, 1)], { places: [c('a', 1, 11)] })).toBe(12);
+    // saving 9 pockets moves nothing on the server, so the page stays where it is
+    expect(pageAfterSave(8, widthOf(4, scrambled, null), 9)).toBe(null);
+    // saving 4 (the size it says it has) puts the cards back in order, and the page follows them
+    expect(pageAfterSave(2, widthOf(4, scrambled, null), 4)).toBe(3);
+    expect(pageAfterSave(8, widthOf(4, scrambled, null), 16)).toBe(4);
   });
 
   it('treats a missing or odd page as page 1', () => {

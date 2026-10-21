@@ -1689,7 +1689,7 @@ function binderModal(id){
     }
     if(kind!==(isCase(b)?"case":"binder") && cardsIn(id).length) return toast(`Move its cards out to change its type.`);
     // taken before saving: the moved cards can arrive (and re-render) before the save answers
-    const onPage = S.page, was = isCase(b) ? null : pocketsOf(b), next = kind==="binder" ? pockets : null;
+    const onPage = S.page, was = isCase(b) ? null : window.BinderLayout.widthOf(pocketsOf(b), cardsIn(id), b.layout), next = kind==="binder" ? pockets : null;
     if(await guard(()=> S.db.doc("binders/"+id).update({name, color, pockets, kind, owner}))){
       closeModal();
       // its cards moved onto pages of the new size: stay on the cards you were looking at
