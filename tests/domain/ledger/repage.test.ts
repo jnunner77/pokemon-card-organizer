@@ -22,6 +22,19 @@ describe('changing a binder’s pockets per page', () => {
     assert.deepEqual(places(cards), [[1, 1], [1, 5], [2, 1], [2, 7]]);
   });
 
+  it('keeps the order between 12- and 16-pocket pages, saved layout included', () => {
+    const b = binder('b1', { pockets: 12, layout: { savedAt: '2026-01-01T00:00:00.000Z', places: [{ id: 'a', page: 2, slot: 16 }] } });
+    const cards = [card('a', at(1, 12)), card('b', at(1, 16)), card('c', at(2, 1))];
+    value(repageBinder(b, cards, 16, AT));
+    assert.deepEqual(places(cards), [[1, 12], [2, 4], [2, 5]]);
+    assert.deepEqual(b.layoutPlaces, [{ id: 'a', page: 3, slot: 8 }]);
+
+    const small = binder('b2', { pockets: 16 });
+    const fromFour = [card('d', at(2, 1)), card('e', at(5, 4))];
+    value(repageBinder(small, fromFour, 4, AT));
+    assert.deepEqual(places(fromFour), [[1, 5], [2, 4]]);
+  });
+
   it('moves the saved layout the same way, keeping when it was saved', () => {
     const b = binder('b1', { pockets: 4, layout: { savedAt: '2026-01-01T00:00:00.000Z', places: [{ id: 'a', page: 1, slot: 6 }, { id: 'b', page: 2, slot: 1 }] } });
     value(repageBinder(b, [], 9, AT));
