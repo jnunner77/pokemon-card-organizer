@@ -39,5 +39,36 @@
     return !!layout && restore(pockets, cards, layout).moved === 0;
   }
 
-  root.BinderLayout = { restore, current };
+  /* The page to show after the binder's pockets per page change from `from` to `to`: the one that
+     now holds the first pocket of the page you were on, so you see the same cards (the server
+     moves them to keep their order, empty pockets too). */
+  function pageAfterResize(page, from, to) {
+    return spot(to, index(from, { page: Math.max(1, page | 0), slot: 1 })).page;
+  }
+
+  /* How wide the binder's pages are read when its size changes, as the server reads them: its
+     pockets per page, or for a binder an older version left with cards past its page, the smallest
+     page size that holds its widest pocket in use (its cards' and saved layout's). */
+  function widthOf(pockets, cards, layout) {
+    const used = [...cards, ...((layout && layout.places) || [])].map((p) => (p && Number.isInteger(p.page) && Number.isInteger(p.slot) ? p.slot : 0));
+    const widest = Math.max(pockets, ...used);
+    return [4, 9, 12, 16].find((n) => n >= widest) || widest;
+  }
+
+  /* What saving the binder's settings does to the page shown. page: the page you were on before
+     saving (the moved cards can arrive, and re-render, before the save answers). from: its width
+     before (widthOf), to: its pockets per page after (null for a display case). The page to show, or null to
+     leave the page as it is (the size didn't change). */
+  function pageAfterSave(page, from, to) {
+    return from && to && from !== to ? pageAfterResize(page, from, to) : null;
+  }
+
+  /* The page to show: page, kept between 1 and the page after the last one with cards. held: a
+     page the view was just sent to after a size change, allowed even past that while the moved
+     cards are still on their way (they can arrive after the save answers). */
+  function pageInView(page, lastPage, held) {
+    return Math.min(Math.max(1, page | 0), Math.max(lastPage + 1, held || 0));
+  }
+
+  root.BinderLayout = { restore, current, pageAfterResize, pageAfterSave, widthOf, pageInView };
 })(typeof window !== "undefined" ? window : globalThis);

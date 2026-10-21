@@ -336,7 +336,8 @@ function renderMainInner(){
   if(S.view==="arrange" && b) return renderArrange(m, b);
   if(!b){ m.innerHTML = `<div class="empty-state"><p>No binders yet.</p><p style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center"><button class="btn primary" type="button" id="btnFirstBinder">Create your first binder</button>${S.cards.length || (S.me?.user && S.me.user.role!=="admin")?"":`<button class="btn" type="button" id="btnFirstRestore">Restore from a backup</button>`}</p></div>`; return; }
   const n = pocketsOf(b), cols = POCKETS[n].cols, mp = maxPage(b.id);
-  S.page = Math.min(Math.max(1, S.page|0), mp+1);
+  const held = S.pageHeld && S.pageHeld.bid===b.id && Date.now() < S.pageHeld.until ? S.pageHeld.page : 0;
+  S.page = window.BinderLayout.pageInView(S.page, mp, held);
   let cells = ""; S.shown = cardsIn(b.id).filter(c=>c.page===S.page).map(c=>c.id);
   for(let s=1;s<=n;s++){
     const c = cardAt(b.id, S.page, s);
@@ -1688,7 +1689,16 @@ function binderModal(id){
       return;
     }
     if(kind!==(isCase(b)?"case":"binder") && cardsIn(id).length) return toast(`Move its cards out to change its type.`);
-    if(await guard(()=> S.db.doc("binders/"+id).update({name, color, pockets, kind, owner}))){ closeModal(); toast(name!==b.name?`Renamed to ${name}`:`${kind==="case"?"Display case":"Binder"} saved`); }
+    // taken before saving: the moved cards can arrive (and re-render) before the save answers
+    const onPage = S.page, was = isCase(b) ? null : window.BinderLayout.widthOf(pocketsOf(b), cardsIn(id), b.layout), next = kind==="binder" ? pockets : null;
+    if(await guard(()=> S.db.doc("binders/"+id).update({name, color, pockets, kind, owner}))){
+      closeModal();
+      // its cards moved onto pages of the new size: stay on the cards you were looking at
+      const go = window.BinderLayout.pageAfterSave(onPage, was, next);
+      if(go !== null && S.binderId===id){ S.page = go; S.pageHeld = {bid:id, page:go, until:Date.now()+10000}; persistNav(); render(); }
+      const renamed = name!==b.name ? `Renamed to ${name}` : "";
+      toast(go !== null ? `${renamed ? renamed + ". It" : name} now has ${pockets}-pocket pages, cards in the same order` : renamed || `${kind==="case"?"Display case":"Binder"} saved`);
+    }
   };
   sync();
 }
