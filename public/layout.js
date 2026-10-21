@@ -39,5 +39,12 @@
     return !!layout && restore(pockets, cards, layout).moved === 0;
   }
 
-  root.BinderLayout = { restore, current };
+  /* The page to show after the binder's pockets per page change from `from` to `to`: the one that
+     now holds the first pocket of the page you were on, so you see the same cards (the server
+     moves them to keep their order, empty pockets too). */
+  function pageAfterResize(page, from, to) {
+    return spot(to, index(from, { page: Math.max(1, page | 0), slot: 1 })).page;
+  }
+
+  root.BinderLayout = { restore, current, pageAfterResize };
 })(typeof window !== "undefined" ? window : globalThis);

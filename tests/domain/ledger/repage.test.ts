@@ -75,3 +75,26 @@ describe('changing a binder’s pockets per page', () => {
     assert.deepEqual(inCase.place, { binderId: 'b1', page: 1, slot: 9 });
   });
 });
+
+describe('every pair of page sizes, both ways', () => {
+  const SIZES = [4, 9, 12, 16];
+  // Cards in every third pocket over five pages, so pages have gaps and pages end part-full.
+  const layoutAt = (n: number) => Array.from({ length: 5 * n }, (_, i) => i).filter((i) => i % 3 !== 1);
+  const spot = (i: number, n: number) => [Math.floor(i / n) + 1, (i % n) + 1];
+
+  for (const from of SIZES) for (const to of SIZES) {
+    if (from === to) continue;
+    it(`${from} → ${to} keeps every card in its pocket counted from the start, and back again`, () => {
+      const positions = layoutAt(from);
+      const cards = positions.map((i, k) => card(`c${k}`, { page: spot(i, from)[0], slot: spot(i, from)[1] }));
+      const b = binder('b1', { pockets: to });
+      value(repageBinder(b, cards, from, AT));
+      assert.deepEqual(places(cards), positions.map((i) => spot(i, to)));
+      assert.ok(cards.every((c) => (c.place.slot ?? 0) <= to));
+
+      const back = binder('b1', { pockets: from });
+      value(repageBinder(back, cards, to, AT));
+      assert.deepEqual(places(cards), positions.map((i) => spot(i, from)));
+    });
+  }
+});

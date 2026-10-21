@@ -8,9 +8,9 @@ type Spot = { page: number; slot: number };
 type Card = { id: string; page?: number | null; slot?: number | null };
 type Layout = { places: Card[] } | null | undefined;
 type Restore = (pockets: number, cards: Card[], layout: Layout) => { moves: ({ id: string } & Spot)[]; moved: number; added: number };
-const sandbox = { window: {} as { BinderLayout: { restore: Restore; current: (pockets: number, cards: Card[], layout: Layout) => boolean } } };
+const sandbox = { window: {} as { BinderLayout: { restore: Restore; current: (pockets: number, cards: Card[], layout: Layout) => boolean; pageAfterResize: (page: number, from: number, to: number) => number } } };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public/layout.js'), 'utf8'), sandbox);
-const { restore, current } = sandbox.window.BinderLayout;
+const { restore, current, pageAfterResize } = sandbox.window.BinderLayout;
 const c = (id: string, page: number | null, slot: number | null) => ({ id, page, slot });
 
 describe("putting a binder back in its own layout", () => {
@@ -42,5 +42,28 @@ describe("putting a binder back in its own layout", () => {
     const r = restore(4, [c('a', 1, 1), c('b', 1, 2)], { places: [c('a', 1, 1), c('b', 1, 1), c('a', 2, 2)] });
     expect(r.moves).toEqual([c('a', 1, 1), c('b', 1, 2)]);
     expect(restore(4, [c('a', 1, 2)], null).moves).toEqual([c('a', 1, 1)]);
+  });
+});
+
+describe('the page shown after the pockets per page change', () => {
+  it('is the page now holding the cards you were looking at', () => {
+    expect(pageAfterResize(8, 4, 9)).toBe(4); // cards 29–32 are on page 4 of 9-pocket pages
+    expect(pageAfterResize(2, 9, 4)).toBe(3); // cards 10–18 start on page 3 of 4-pocket pages
+    expect(pageAfterResize(1, 16, 4)).toBe(1);
+    expect(pageAfterResize(3, 12, 16)).toBe(2);
+  });
+
+  it('holds the first pocket of the old page, for every pair of sizes both ways', () => {
+    const sizes = [4, 9, 12, 16];
+    for (const from of sizes) for (const to of sizes) for (let page = 1; page <= 40; page++) {
+      const first = (page - 1) * from; // the old page's first pocket, counted from 0
+      const shown = pageAfterResize(page, from, to);
+      expect(first >= (shown - 1) * to && first < shown * to, `${from}→${to} page ${page}`).toBe(true);
+    }
+  });
+
+  it('treats a missing or odd page as page 1', () => {
+    expect(pageAfterResize(0, 9, 4)).toBe(1);
+    expect(pageAfterResize(Number.NaN, 9, 4)).toBe(1);
   });
 });
