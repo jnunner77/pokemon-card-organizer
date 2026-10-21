@@ -105,6 +105,15 @@ describe('changing a binder’s pockets per page', () => {
     assert.deepEqual(ledger.runs, [{ committed: true }]);
   });
 
+  it('sends the binder to open pages once when its saved layout moves too', async () => {
+    const { ledger, deps, published } = setUp();
+    ledger.seed('binders', 'b1', { name: 'Trainers', pockets: 9, layout: { savedAt: '2026-01-01T00:00:00.000Z', places: [{ id: 'c1', page: 1, slot: 6 }] } });
+    ledger.seed('cards', 'c1', card({ page: 1, slot: 6 }));
+    await new MergeDocument(deps).execute({ collection: 'binders', id: 'b1', patch: { pockets: 4 } });
+    assert.deepEqual(ledger.tables.binders.get('b1'), { name: 'Trainers', pockets: 4, layout: { savedAt: '2026-01-01T00:00:00.000Z', places: [{ id: 'c1', page: 2, slot: 2 }] } });
+    assert.deepEqual(published.map((e) => `${e.collection}/${e.id}`), ['binders/b1', 'cards/c1']);
+  });
+
   it('does the same when the binder is saved whole', async () => {
     const { ledger, deps } = setUp();
     ledger.seed('binders', 'b1', { name: 'Trainers', pockets: 4 });

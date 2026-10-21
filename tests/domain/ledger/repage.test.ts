@@ -50,6 +50,14 @@ describe('changing a binder’s pockets per page', () => {
     assert.equal(new Set(places(cards).map(String)).size, cards.length);
   });
 
+  it('puts back the empty pockets too when the widest pocket used is below the old size', () => {
+    // 9-pocket pages with pockets 7–9 empty, left at 4 pockets by the bug: read as 9 wide, not 6.
+    const b = binder('b1', { pockets: 4 });
+    const cards = [card('a', at(1, 1)), card('b', at(1, 6)), card('c', at(2, 1))];
+    value(repageBinder(b, cards, 4, AT));
+    assert.deepEqual(places(cards), [[1, 1], [2, 2], [3, 2]]);
+  });
+
   it('changes nothing when the size is the same and every card fits', () => {
     const b = binder('b1', { pockets: 9 });
     const cards = [card('a', at(1, 9)), card('b', at(3, 2))];

@@ -128,6 +128,8 @@ export class Binder {
   }
 
   #saved(at: Date) {
+    // One change sent to open pages per save, however many steps it took (its layout moving too).
+    if (this.#events.some((e) => e.type === 'DocumentSaved')) return;
     this.#events.push({ type: 'DocumentSaved', collection: 'binders', id: this.#id, occurredAt: at });
   }
 }
