@@ -10,9 +10,9 @@ import type { InvalidDocument } from './check-document.ts';
 //
 // When a binder whose cards already sit past its page (its size was changed before this rule) is
 // saved again, it is read as pages of the smallest size that holds its widest pocket (a card in
-// pocket 6 means 9-pocket pages). Its old size isn't kept, so this keeps the cards' order but can only guess the empty
-// pockets: right for a 9-pocket binder, but a 12- or 16-pocket one with no card past pocket 9 comes
-// back laid out as 9-pocket pages.
+// pocket 6 means 9-pocket pages). Its old size isn't kept, so this keeps the cards' order but can
+// only guess the empty pockets: right for a 9-pocket binder, but a 12- or 16-pocket one with no
+// card past pocket 9 comes back laid out as 9-pocket pages.
 
 /** Move the binder's cards (and saved layout) to keep their order on pages of its size now. */
 export function repageBinder(binder: Binder, cardsInBinder: readonly Card[], fromPockets: number, at: Date): Result<readonly Card[], InvalidDocument> {
