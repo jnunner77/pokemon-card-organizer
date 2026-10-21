@@ -39,8 +39,9 @@ export class PutDocument {
         if (!made.ok) return made;
         held = made.value;
       }
-      await held.save();
-      return ok({ value: viewOf(held.doc.id, held.doc.fields), events: held.doc.pullEvents() });
+      const others = await held.save(now);
+      if (!others.ok) return others;
+      return ok({ value: viewOf(held.doc.id, held.doc.fields), events: [...held.doc.pullEvents(), ...others.value] });
     });
   }
 }

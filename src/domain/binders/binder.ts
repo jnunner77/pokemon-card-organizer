@@ -2,7 +2,7 @@ import type { Brand } from '#shared/brand.ts';
 import { err, ok, type Result } from '#shared/result.ts';
 import { MAX_PAGE } from '../cards/card-fields.ts';
 import type { InvalidDocument } from '../ledger/check-document.ts';
-import type { Fields } from '../ledger/document.ts';
+import { type Fields, isRecord } from '../ledger/document.ts';
 import type { LedgerEvent } from '../ledger/events.ts';
 import { mergedFields, replacedFields } from '../ledger/fields-state.ts';
 
@@ -86,6 +86,24 @@ export class Binder {
   /** Keep where its cards are now, so the page can put them back after sorting by release date or price. */
   saveLayout(places: readonly LayoutPlace[], at: Date): Result<void, InvalidDocument> {
     return this.merge({ layout: { savedAt: at.toISOString(), places } }, at);
+  }
+
+  /** The pockets kept in its saved layout (none when it has no layout). */
+  get layoutPlaces(): readonly LayoutPlace[] {
+    const layout = this.#fields['layout'];
+    if (!isRecord(layout) || !Array.isArray(layout['places'])) return [];
+    const places: LayoutPlace[] = [];
+    for (const p of layout['places']) {
+      if (isRecord(p) && typeof p['id'] === 'string' && typeof p['page'] === 'number' && typeof p['slot'] === 'number') places.push({ id: p['id'], page: p['page'], slot: p['slot'] });
+    }
+    return places;
+  }
+
+  /** Move the saved layout's pockets (its page size changed), keeping when it was saved. */
+  moveLayout(places: readonly LayoutPlace[], at: Date): Result<void, InvalidDocument> {
+    const layout = this.#fields['layout'];
+    if (!isRecord(layout)) return ok(undefined);
+    return this.merge({ layout: { ...layout, places } }, at);
   }
 
   delete(at: Date): void {
