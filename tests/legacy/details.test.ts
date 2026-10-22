@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp, createCardLookups } from '../../src/compose.ts';
 import { PhotoFiles as Assets } from '../../src/infrastructure/photos/photo-files.ts';
 import { DETAILS_VERSION } from '../../src/domain/cards/attention.ts';
-import { wantsDetails } from '../../src/domain/catalog/details.ts';
+import { lookedUp, outdated, wantsDetails } from '../../src/domain/catalog/details.ts';
 import { similarity } from '../../src/domain/catalog/names.ts';
 import { mapRarity } from '../../src/domain/catalog/rarity.ts';
 import { LookUpCard } from '../../src/application/catalog/look-up-card.ts';
@@ -35,7 +35,7 @@ const down: Fetcher = async () => {
 /** Card details (src/application/catalog) over TCGdex, as these tests ask for them: a lookup, filling in a stored card, and whether a card wants one. */
 class CardDetails {
   readonly database: TcgdexCardDatabase;
-  private readonly now: () => Date;
+  readonly now: () => Date;
 
   constructor(o: { fetcher: Fetcher; now?: () => Date }) {
     this.now = o.now ?? (() => new Date());
@@ -54,6 +54,56 @@ class CardDetails {
 
   wants(card: Record<string, unknown> | undefined) {
     return wantsDetails(card, this.now());
+  }
+}
+
+/**
+ * New cards filling themselves in, and Fill in missing details (src/application/catalog), over this
+ * store, as these tests ask for them. The work runs through the use cases; the counts the old
+ * class returned straight away come from the same domain rules they apply.
+ */
+class Autofill {
+  private readonly store: Store;
+  private readonly now: () => Date;
+  readonly lookups: ReturnType<typeof createCardLookups>;
+
+  constructor(o: { store: Store; details: CardDetails; updater?: PriceUpdater; delayMs?: number; backfillAfterMs?: number | null }) {
+    this.store = o.store;
+    this.now = o.details.now;
+    this.lookups = createCardLookups({ store: o.store, database: o.details.database, updater: () => o.updater, now: o.details.now, delayMs: o.delayMs, backfillAfterMs: o.backfillAfterMs });
+  }
+
+  start() {
+    this.lookups.watchNewCards.execute();
+  }
+
+  stop() {
+    this.lookups.stop();
+  }
+
+  idle() {
+    return this.lookups.watchNewCards.idle();
+  }
+
+  filled() {
+    return this.lookups.fillEveryCard.finished();
+  }
+
+  missing(force = false) {
+    return this.store.all().cards.filter((c) => wantsDetails(c, this.now(), force)).map((c) => c.id);
+  }
+
+  fillAll(force = false) {
+    const cards = this.missing(force).length;
+    void this.lookups.fillEveryCard.execute({ force });
+    return cards;
+  }
+
+  backfill() {
+    const need = this.store.all().cards.filter((c) => wantsDetails(c, this.now()) && (outdated(c) || !lookedUp(c))).length;
+    if (!need || this.lookups.fillEveryCard.running) return 0;
+    void this.lookups.backfill.execute();
+    return this.missing().length;
   }
 }
 
@@ -335,6 +385,147 @@ describe('filling in a stored card', () => {
   });
 });
 
+describe('new cards fill themselves in', () => {
+  let dir: string;
+  let store: Store;
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'binder-autofill-'));
+    store = new Store(dir);
+  });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const fakeUpdater = (o: { enabled?: boolean; running?: boolean } = {}) => {
+    const updateCard = vi.fn(async (id: string) => {
+      store.update('cards', id, { pricing: { source: 'pricecharting', id: '/game/x/y' } });
+      return 'updated' as const;
+    });
+    return { updater: { schedule: () => ({ enabled: o.enabled ?? true, hour: 5, timeZone: 'UTC' }), running: o.running ?? false, updateCard } as unknown as PriceUpdater, updateCard };
+  };
+
+  it('looks up the details, then the price and picture, of each new card', async () => {
+    store.set('cards', 'old', { name: 'Pikachu', number: '51/162' });
+    const { updater, updateCard } = fakeUpdater();
+    const a = new Autofill({ store, details: new CardDetails({ fetcher: replay() }), updater, delayMs: 1 });
+    a.start();
+    store.set('cards', 'new1', { name: 'Meowth EX', number: '62/88', binderId: 'b', page: 1, slot: 1 });
+    store.set('cards', 'new2', { name: 'Nidorina', number: '101' });
+    store.update('cards', 'old', { notes: 'edited' }); // an existing card being edited isn't new
+    await a.idle();
+    expect(updateCard.mock.calls.map((c) => c[0])).toEqual(['new1', 'new2']);
+    expect(store.get('cards', 'new1')).toMatchObject({ set: 'Perfect Order', setCode: 'POR', rarity: 'Double Rare', artist: '5ban Graphics', pricing: { source: 'pricecharting' } });
+    expect(store.get('cards', 'new2')).toMatchObject({ details: { result: 'notFound' }, pricing: { source: 'pricecharting' } });
+    expect(store.get('cards', 'old')!.details).toBeUndefined();
+    a.stop();
+  });
+
+  it('fills in a card that a CSV row replaced (same id, different name and number)', async () => {
+    // Matched once (to another card, standing in for Bill), with that card's release date.
+    store.set('cards', 'pocket', { name: 'Bill', number: '118/130', set: 'Base Set', setCode: 'PBS', binderId: 'b', page: 1, slot: 1, released: '1999-01-09', details: { source: 'tcgdex', result: 'complete', id: 'base1-87', released: '1999-01-09', checkedAt: new Date().toISOString() } });
+    const { updater, updateCard } = fakeUpdater();
+    const a = new Autofill({ store, details: new CardDetails({ fetcher: replay() }), updater, delayMs: 1 });
+    a.start();
+    // What the CSV import writes: the whole card, under the pocket's card id (here keeping the old
+    // match, as an edit in the drawer would).
+    store.set('cards', 'pocket', { name: 'Charizard V', number: '17/172', binderId: 'b', page: 1, slot: 1, details: { source: 'tcgdex', result: 'complete', id: 'base1-87', released: '1999-01-09', checkedAt: new Date().toISOString() } });
+    await a.idle();
+    expect(updateCard.mock.calls.map((c) => c[0])).toEqual(['pocket']);
+    expect(store.get('cards', 'pocket')).toMatchObject({ set: 'Brilliant Stars', setCode: 'BRS', rarity: 'Ultra Rare', artist: 'N-DESIGN Inc.', released: '2022-02-25', details: { id: 'swsh9-017' } });
+    a.stop();
+  });
+
+  it("redoes an automatic match when a card's name or number is edited, and keeps one the person chose", async () => {
+    const recent = new Date().toISOString();
+    store.set('cards', 'auto', { name: 'Pikachu', number: '51', setCode: 'XYZ', pricing: { source: 'pricecharting', id: '/old', linkedBy: 'auto' }, officialImageId: 'old', details: { source: 'tcgdex', result: 'several', checkedAt: recent } });
+    store.set('cards', 'mine', { name: 'Pikachu', number: '51', pricing: { source: 'tcgplayer', id: '9', linkedBy: 'user' }, officialImageId: 'img' });
+    // The other site's automatic match was for the old card too; one the person chose stays.
+    store.set('cards', 'pairAuto', { name: 'Pikachu', number: '51', pricing: { source: 'pricecharting', id: '/mine', linkedBy: 'user', pair: { source: 'tcgplayer', id: '9', linkedBy: 'auto' } } });
+    store.set('cards', 'pairMine', { name: 'Pikachu', number: '51', pricing: { source: 'pricecharting', id: '/mine', linkedBy: 'user', pair: { source: 'tcgplayer', id: '9', linkedBy: 'user' } } });
+    const { updater, updateCard } = fakeUpdater();
+    const seen: Record<string, unknown> = {};
+    updateCard.mockImplementation(async (id: string) => {
+      seen[id] = store.get('cards', id)!.pricing ?? null;
+      return 'updated' as const;
+    });
+    const a = new Autofill({ store, details: new CardDetails({ fetcher: replay() }), updater, delayMs: 1 });
+    a.start();
+    store.update('cards', 'auto', { number: '51/162' });
+    store.update('cards', 'mine', { number: '51/162' });
+    store.update('cards', 'mine', { notes: 'only the notes changed' });
+    store.update('cards', 'pairAuto', { number: '51/162' });
+    store.update('cards', 'pairMine', { number: '51/162' });
+    await a.idle();
+    expect(seen).toEqual({
+      auto: null,
+      mine: { source: 'tcgplayer', id: '9', linkedBy: 'user' },
+      pairAuto: { source: 'pricecharting', id: '/mine', linkedBy: 'user', pair: null },
+      pairMine: { source: 'pricecharting', id: '/mine', linkedBy: 'user', pair: { source: 'tcgplayer', id: '9', linkedBy: 'user' } },
+    });
+    // Looked up again despite this week's lookup, because it's a different card now.
+    expect(store.get('cards', 'auto')).toMatchObject({ set: 'Temporal Forces', artist: 'kodama', setCode: 'XYZ', officialImageId: null, details: { result: 'filled' } });
+    expect(store.get('cards', 'mine')!.officialImageId).toBe('img');
+    expect(updateCard).toHaveBeenCalledTimes(4);
+    a.stop();
+  });
+
+  it('fills details only when automatic prices are off, and leaves pricing to a daily run in progress', async () => {
+    for (const o of [{ enabled: false }, { running: true }]) {
+      const { updater, updateCard } = fakeUpdater(o);
+      const a = new Autofill({ store, details: new CardDetails({ fetcher: replay() }), updater, delayMs: 1 });
+      a.start();
+      const id = `c${o.enabled === false ? 1 : 2}`;
+      store.set('cards', id, { name: 'Pikachu', number: '51/162' });
+      await a.idle();
+      expect(updateCard).not.toHaveBeenCalled();
+      expect(store.get('cards', id)).toMatchObject({ setCode: 'TEF' });
+      a.stop();
+    }
+  });
+
+  it("doesn't treat a restored ledger as new cards", async () => {
+    const { updater, updateCard } = fakeUpdater();
+    const a = new Autofill({ store, details: new CardDetails({ fetcher: replay() }), updater, delayMs: 1 });
+    a.start();
+    store.replaceAll({ binders: {}, cards: { r1: { name: 'Pikachu', number: '51/162' } }, settings: {} });
+    store.update('cards', 'r1', { notes: 'x' });
+    await a.idle();
+    expect(updateCard).not.toHaveBeenCalled();
+    a.stop();
+  });
+
+  it('backfills release dates by itself after starting, only when cards still need them', async () => {
+    const done = { set: 'Base Set', setCode: 'BS', rarity: 'Uncommon', artist: 'Keiji Kinebuchi' };
+    store.set('cards', 'a', { name: 'Pokedex', number: '87/102', ...done, details: { source: 'tcgdex', result: 'complete', id: 'base1-87', checkedAt: new Date().toISOString() } });
+    // Typed in full before details were filled in, so never looked up.
+    store.set('cards', 'b', { name: 'Charizard V', number: '17/172', set: 'Brilliant Stars', setCode: 'BRS', rarity: 'Ultra Rare', artist: 'N-DESIGN Inc.' });
+    // Looked up this week without a match: left to the weekly retry.
+    store.set('cards', 'c', { name: 'Pikachu', number: '51', details: { source: 'tcgdex', result: 'several', v: DETAILS_VERSION, checkedAt: new Date().toISOString() } });
+    const a = new Autofill({ store, details: new CardDetails({ fetcher: replay() }), delayMs: 1, backfillAfterMs: 1 });
+    a.start();
+    await new Promise((r) => setTimeout(r, 20));
+    await a.filled();
+    expect(store.get('cards', 'a')).toMatchObject({ released: '1999-01-09' });
+    expect(store.get('cards', 'b')).toMatchObject({ released: '2022-02-25' });
+    expect(store.get('settings', 'details')).toMatchObject({ lastRun: { cards: 2, filled: 2 } });
+    expect(a.backfill()).toBe(0);
+    a.stop();
+  });
+
+  it('fills in missing details for the cards already there, with progress in settings/details', async () => {
+    store.set('cards', 'a', { name: 'Pikachu', number: '51/162' });
+    store.set('cards', 'b', { name: 'Pikachu', number: '51' });
+    store.set('cards', 'c', { name: 'Charizard V', number: '17/172', set: 'Brilliant Stars', setCode: 'BRS', rarity: 'Ultra Rare', artist: 'N-DESIGN Inc.' });
+    const a = new Autofill({ store, details: new CardDetails({ fetcher: replay() }), delayMs: 1 });
+    // c has everything but its release date.
+    expect(a.missing().sort()).toEqual(['a', 'b', 'c']);
+    expect(a.fillAll()).toBe(3);
+    await a.filled();
+    expect(store.get('settings', 'details')).toMatchObject({ running: false, done: 3, total: 3, lastRun: { cards: 3, filled: 2, several: 1 } });
+    expect(store.get('cards', 'a')).toMatchObject({ artist: 'kodama', released: '2024-03-22' });
+    expect(store.get('cards', 'c')).toMatchObject({ released: '2022-02-25', details: { filled: ['released'] } });
+    expect(a.missing()).toEqual([]); // b was looked up this week
+    expect(a.missing(true)).toEqual(['b']);
+  });
+});
+
 describe('lookup routes', () => {
   let dir: string;
   let store: Store;
@@ -345,14 +536,15 @@ describe('lookup routes', () => {
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
   it('looks a card up for the Add card form, and starts Fill in missing details', async () => {
-    const cardLookups = createCardLookups({ store, database: new CardDetails({ fetcher: replay() }).database, delayMs: 1 });
-    const app = createApp({ store, assets: new Assets(dir), publicDir: path.join(__dirname, '../../public'), cardLookups });
+    const details = new CardDetails({ fetcher: replay() });
+    const autofill = new Autofill({ store, details, delayMs: 1 });
+    const app = createApp({ store, assets: new Assets(dir), publicDir: path.join(__dirname, '../../public'), cardLookups: autofill.lookups });
     const r = await request(app).get('/api/cards/lookup').query({ name: 'Pikachu', number: '51' }).expect(200);
     expect(r.body.matches.map((m: { setCode: string }) => m.setCode).sort()).toEqual(['30C', 'TEF']);
     await request(app).get('/api/cards/lookup').query({ name: 'Pikachu' }).expect(400);
     store.set('cards', 'a', { name: 'Pikachu', number: '51/162' });
     expect((await request(app).post('/api/cards/fill-details').expect(202)).body).toEqual({ started: true, cards: 1 });
-    await cardLookups.fillEveryCard.finished();
+    await autofill.filled();
     expect(store.get('cards', 'a')).toMatchObject({ setCode: 'TEF' });
   });
 

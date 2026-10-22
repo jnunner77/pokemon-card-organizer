@@ -66,7 +66,10 @@ export class WatchNewCards {
       });
   }
 
-  /** Stop watching (the server is stopping): the card being filled in finishes, the rest aren't started. */
+  /**
+   * Stop watching (the server is stopping): cards waiting aren't started. One being filled in now
+   * isn't waited for; its save is all or nothing, and a card left unfilled is looked up later.
+   */
   stop(): void {
     this.#unsubscribe?.();
     this.#unsubscribe = null;

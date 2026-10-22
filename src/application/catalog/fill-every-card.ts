@@ -65,7 +65,10 @@ export class FillEveryCard {
     return this.#run?.done ?? Promise.resolve();
   }
 
-  /** Stop after the card being looked up now (the server is stopping); the run's progress is saved. */
+  /**
+   * The server is stopping: no further card is started, and the run saves how far it got once the
+   * card being looked up now is done (if the server is still running then).
+   */
   stop(): void {
     if (this.#run) this.#stopping = true;
   }

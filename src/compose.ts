@@ -402,7 +402,7 @@ export function createCardLookups(o: CreateCardLookupsOptions) {
     listMasterSetSets: new ListMasterSetSets(deps),
     previewMasterSet: new PreviewMasterSet(deps),
     createMasterSet: new CreateMasterSet(deps),
-    /** The server is stopping: no new cards are filled in, and Fill in missing details stops after its card. */
+    /** The server is stopping: no further cards are filled in, by the watch or by Fill in missing details. */
     stop: () => {
       watchNewCards.stop();
       fillEveryCard.stop();
