@@ -2,20 +2,19 @@
 
 import path from 'node:path';
 import { AdminFile } from '#infrastructure/admin/admin-file.ts';
+import { TcgdexCardDatabase } from '#infrastructure/catalog/tcgdex.ts';
 import { FileSecret } from '#infrastructure/admin/file-secret.ts';
 import { LocalEventBus } from '#infrastructure/local-event-bus.ts';
 import { Logger } from '#infrastructure/logging/logger.ts';
 import { Store } from '#infrastructure/json-store/store.ts';
 import { PhotoFiles } from '#infrastructure/photos/photo-files.ts';
-import { Autofill } from '../server/autofill.ts';
-import { CardDetails } from '../server/details.ts';
 import { Catalog } from '../server/pricing/catalog.ts';
 import { PriceCharting } from '../server/pricing/pricecharting.ts';
 import { PriceUpdater } from '../server/pricing/updater.ts';
 import { Security } from '../server/security.ts';
 import { TcgCsv } from '../server/pricing/tcgcsv.ts';
 import { every } from '../server/recover.ts';
-import { createAccounts, createApp, createBackups, createGuests } from './compose.ts';
+import { createAccounts, createApp, createBackups, createCardLookups, createGuests } from './compose.ts';
 
 const env = process.env;
 const dataDir = path.resolve(env['DATA_DIR'] ?? 'data');
@@ -63,17 +62,24 @@ security.start();
 const guests = createGuests({ store, assets, log });
 const guestSweep = every(log, 'app', 'Closing idle guest visits', 60_000, () => guests.sweep.execute());
 
-// CARD_LOOKUPS=off: no TCGdex lookups (card details) at all.
-const details = env['CARD_LOOKUPS'] === 'off' ? undefined : new CardDetails();
+// EVENT_LOG=1 writes every domain event (a binder, card or setting saved or deleted) to the log.
+const events = new LocalEventBus();
+if (/^(1|true|yes)$/i.test(env['EVENT_LOG'] ?? '')) events.subscribe((e) => log.info('app', `${e.type} ${e.collection}/${e.id}`));
+
+// CARD_LOOKUPS=off: no TCGdex lookups (card details, Any card, master sets) at all.
+const cardDatabase = env['CARD_LOOKUPS'] === 'off' ? undefined : new TcgdexCardDatabase();
 // TCGplayer and Cardmarket prices and pictures from TCGdex.
-const catalog = details ? new Catalog() : undefined;
+const catalog = cardDatabase ? new Catalog() : undefined;
 // PriceCharting's API, with the token administrators enter under Administration → Prices.
 const pcToken = new FileSecret(secretsDir, 'pricecharting-token');
 // PRICECHARTING_DAILY_LIMIT: most PriceCharting calls a day (2000 by default); the count is kept across restarts.
 const pricecharting = new PriceCharting({ token: () => pcToken.read(), log, dailyLimit: Number(env['PRICECHARTING_DAILY_LIMIT']) || undefined, usageFile: path.join(dataDir, 'pricecharting-usage.json') });
 // TCGplayer's own catalog from tcgcsv.com (free, no key), for what TCGdex lacks.
 const tcgcsv = catalog ? new TcgCsv() : undefined;
-const updater = new PriceUpdater({ store, assets, log, config, details, catalog, tcgcsv, pricecharting, timeZone: env['TZ'] || 'America/Vancouver' });
+// Card details, new cards filling themselves in (details, then price and picture), Any card and
+// master sets. The price update is made next: it fills cards' details with these too.
+const cardLookups = cardDatabase ? createCardLookups({ store, database: cardDatabase, tcgcsv, updater: () => updater, log, events }) : undefined;
+const updater = new PriceUpdater({ store, assets, log, config, details: cardLookups?.fillCard, catalog, tcgcsv, pricecharting, timeZone: env['TZ'] || 'America/Vancouver' });
 updater.noteToken();
 // An update the saved status says is running stopped with the server: say so (a red banner) and let it start again.
 updater.recover();
@@ -92,12 +98,7 @@ const crash = (kind: string) => (err: unknown) => {
 process.on('uncaughtException', crash('uncaught exception'));
 process.on('unhandledRejection', crash('unhandled promise rejection'));
 // New cards: details, then price and picture, straight away.
-const autofill = details ? new Autofill({ store, details, updater, log }) : undefined;
-autofill?.start();
-
-// EVENT_LOG=1 writes every domain event (a binder, card or setting saved or deleted) to the log.
-const events = new LocalEventBus();
-if (/^(1|true|yes)$/i.test(env['EVENT_LOG'] ?? '')) events.subscribe((e) => log.info('app', `${e.type} ${e.collection}/${e.id}`));
+cardLookups?.watchNewCards.execute();
 
 const app = createApp({
   events,
@@ -109,9 +110,7 @@ const app = createApp({
   log,
   config,
   backups,
-  details,
-  tcgcsv,
-  autofill,
+  cardLookups,
   guests,
   pricecharting: { token: pcToken, api: pricecharting },
   envPassword: env['BINDER_PASSWORD'],
@@ -144,7 +143,7 @@ for (const sig of ['SIGINT', 'SIGTERM'] as const) {
   process.on(sig, () => {
     updater.stopScheduler();
     updater.shutdown(`The server was stopped (${sig}: a restart or an update)`);
-    autofill?.stop();
+    cardLookups?.stop();
     security.stop();
     clearInterval(guestSweep);
     void accounts?.flushSessions.execute();

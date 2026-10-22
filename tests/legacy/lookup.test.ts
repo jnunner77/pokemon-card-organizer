@@ -5,8 +5,11 @@ import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../../src/compose.ts';
 import { PhotoFiles as Assets } from '../../src/infrastructure/photos/photo-files.ts';
-import { CardDetails } from '../../server/details.ts';
-import { CardLookup, variantText } from '../../server/lookup.ts';
+import { SearchAnyCard } from '../../src/application/catalog/search-any-card.ts';
+import { ShowAnyCard } from '../../src/application/catalog/show-any-card.ts';
+import { variantText } from '../../src/domain/catalog/any-card.ts';
+import { TcgdexCardDatabase as CardDetails } from '../../src/infrastructure/catalog/tcgdex.ts';
+import { TodaysPrices } from '../../server/pricing/any-card.ts';
 import { type TcgdexCard, chooseVariant } from '../../server/pricing/catalog.ts';
 import { parseProduct } from '../../server/pricing/pricecharting.ts';
 import { type Fetcher, retryPolicy } from '../../server/pricing/sources.ts';
@@ -17,7 +20,7 @@ import { Store } from '../../src/infrastructure/json-store/store.ts';
 retryPolicy.baseMs = 1;
 
 const API = 'https://api.tcgdex.net/v2/en';
-const CHARIZARD = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/tcgdex-charizard.json'), 'utf8')) as TcgdexCard;
+const CHARIZARD = JSON.parse(fs.readFileSync(path.join(__dirname, '../fixtures/tcgdex-charizard.json'), 'utf8')) as TcgdexCard;
 
 // A small TCGdex: three sets (oldest first, as TCGdex lists them), one of them TCG Pocket's.
 const SETS = [
@@ -71,6 +74,29 @@ const PC = [
   { id: '631', 'product-name': 'Charizard [1st Edition] #4', 'console-name': 'Pokemon Base Set', 'loose-price': 900000 },
   { id: '632', 'product-name': 'Charizard #4', 'console-name': 'Pokemon Base Set 2', 'loose-price': 30000 },
 ].map(parseProduct);
+
+/** Find a card → Any card (src/application/catalog) over this card database and price update, as these tests ask it. */
+class CardLookup {
+  private readonly searching: SearchAnyCard;
+  private readonly showing: ShowAnyCard;
+
+  constructor(o: { details: CardDetails; updater?: PriceUpdater }) {
+    this.searching = new SearchAnyCard({ database: o.details });
+    this.showing = new ShowAnyCard({ database: o.details, anyCardPricing: new TodaysPrices(o.updater) });
+  }
+
+  async search(query: string) {
+    const r = await this.searching.execute({ query });
+    if (!r.ok) throw new Error(r.error.message);
+    return r.value;
+  }
+
+  async card(id: string) {
+    const r = await this.showing.execute({ id });
+    if (!r.ok) throw new Error(r.error.code);
+    return r.value;
+  }
+}
 
 function fakeUpdater(o: { products?: () => Promise<unknown>; method?: string; eur?: number | null; cardmarket?: boolean; tcgcsv?: (card: TcgCsvCard, product: string | null) => Promise<unknown> } = {}) {
   const lookupProducts = vi.fn(o.products ?? (async () => PC));
@@ -273,7 +299,7 @@ describe('the lookup API', () => {
     store = new Store(dir);
   });
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
-  const app = (details?: CardDetails, updater?: PriceUpdater) => createApp({ store, assets: new Assets(dir), publicDir: path.join(__dirname, '../../public'), details, updater });
+  const app = (details?: CardDetails, updater?: PriceUpdater) => createApp({ store, assets: new Assets(dir), publicDir: path.join(__dirname, '../../public'), cardDatabase: details, updater });
 
   it('searches and shows a card without changing the ledger', async () => {
     const { updater } = fakeUpdater();

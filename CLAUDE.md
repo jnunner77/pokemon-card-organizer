@@ -55,16 +55,21 @@ confirmed on the live binder.
   - `infrastructure/`: adapters that implement the ports, and in-memory ones for tests.
     `presentation/`: `node:http` routes with hand-written parsers, and an exhaustive switch (ending
     in `assertNever`) from error codes to HTTP statuses.
+  - Outside sources (TCGdex, tcgcsv.com, the daily price update until its slice moves) are ports
+    (`src/application/catalog/ports.ts`); an adapter that gets no answer rejects with
+    `SourceUnavailable`, which the use case turns into a `Result` error. Background work (new cards
+    filling themselves in) waits through the `Scheduler` port and stops on shutdown.
   - `src/compose.ts` (wiring the layers) and `src/main.ts` (starting the server) are the only
     places that know the concrete classes.
 - Logging goes through the `ServerLog` port (`src/application/logging.ts`); the logger itself is
   `src/infrastructure/logging/logger.ts`, and administrators' settings are the `AdminSettingsStore`
   port (admin.json). The Express code uses the same port and adapters.
 - Every change the layered routes make (the ledger's documents, price entries, sorting a binder,
-  moving cards) runs as one unit of work (`StoreUnitOfWork`), so it is checked, saved and sent to
-  open pages, or not applied at all. Replacing the whole ledger (a restore) runs only through the
-  `WholeLedger` port, after a before-restore copy. The Express code still writes to the store
-  directly until its slices move.
+  moving cards, a card's details filled in, a master set's binder and cards) runs as one unit of
+  work (`StoreUnitOfWork`), so it is checked, saved and sent to open pages, or not applied at all.
+  A lookup's requests to TCGdex happen between reading the card and that unit of work, never
+  inside it. Replacing the whole ledger (a restore) runs only through the `WholeLedger` port, after
+  a before-restore copy. The Express code still writes to the store directly until its slices move.
 - Secrets (password hashes, session and API token hashes, the guest key and the guest log) live in
   their own files in the data directory (`auth.json`, `sessions.json`, `guests.json`, written 0600),
   never in `db.json`, its copies, full backups or API responses other than Administration.

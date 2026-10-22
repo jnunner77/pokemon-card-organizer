@@ -19,16 +19,11 @@ import { readCookie } from '#presentation/http/cookies.ts';
 import type { Routes } from '#presentation/http/router.ts';
 import type { StreamGate } from '#presentation/http/streams.ts';
 import { z } from 'zod';
-import type { Autofill } from './autofill.ts';
-import type { CardDetails } from './details.ts';
 import { quietLogger } from '#infrastructure/logging/logger.ts';
-import { CardLookup } from './lookup.ts';
-import { MasterSets, placeholderCards } from './masterset.ts';
-import type { TcgCsv } from './pricing/tcgcsv.ts';
 import type { PriceCharting } from './pricing/pricecharting.ts';
 import { SourceError } from './pricing/sources.ts';
 import type { PriceUpdater, RunProblem, RunSummary } from './pricing/updater.ts';
-import { InvalidDoc, idSchema, validateDoc } from './schema.ts';
+import { InvalidDoc, idSchema } from './schema.ts';
 import { HttpError, MUTATING, type Security } from './security.ts';
 import { NotFound, SaveFailed, type Store } from '#infrastructure/json-store/store.ts';
 
@@ -75,14 +70,8 @@ export interface AppOptions {
   security?: Security | undefined;
   log?: ServerLog | undefined;
   backups: ExpressBackups;
-  /** Card details lookups (TCGdex); the lookup routes answer 503 without them. */
-  details?: CardDetails | undefined;
-  /** TCGplayer's own catalog (tcgcsv.com), which master sets are checked against. */
-  tcgcsv?: TcgCsv | undefined;
-  /** The clock for the price update's log and master sets (tests set it; defaults to the real time). */
+  /** The clock for the price update's log (tests set it; defaults to the real time). */
   now?: (() => Date) | undefined;
-  /** New cards filling themselves in, and Fill in missing details. */
-  autofill?: Autofill | undefined;
   /** PriceCharting's API token (its own secret file, outside the data that's backed up) and its client. */
   pricecharting?: { token: TokenVault; api: PriceCharting } | undefined;
 }
@@ -220,13 +209,16 @@ export function createExpressApp(o: AppOptions) {
     api.use(['/auth/login', '/auth/password', '/auth/setup'], security.signIn);
   }
 
-  // ---- signing in, guests, binders, cards and settings, photos, backups, administration --
+  // ---- signing in, guests, binders, cards and settings, photos, backups, administration, ----
+  // ---- card details, any card and master sets ----
   // Served by the layered code (src/presentation): signing in and out, the guest page, people,
   // sessions, API tokens and guests under Administration, the ledger itself, sorting binders and
   // moving cards, photos, full backups and the kept copies, Administration's overview, price
-  // settings, PriceCharting token, problems and logs, and the pages' error reports. Express still runs the request
+  // settings, PriceCharting token, problems and logs, the pages' error reports, card details from
+  // the card database, Find a card → Any card, and master sets. Express still runs the request
   // pipeline (it asks the layered code who is calling, and applies the rate limits, heavy ones for
-  // backups and restores); the routes check what the caller may do.
+  // backups, restores, Fill in missing details and master sets); the routes check what the caller
+  // may do.
   api.use(bridge(layered.api));
 
   // Live updates: every change is pushed to every open page, until the session ends.
@@ -342,134 +334,6 @@ export function createExpressApp(o: AppOptions) {
     const { id } = cardFor(req.params.id);
     const outcome = await needUpdater().updateCard(id);
     res.json({ outcome, card: { id, ...store.get('cards', id) } });
-  });
-
-  // ---- card details (TCGdex) ---------------------------------------------------------
-  const lookupQuery = z.object({
-    name: z.string().trim().min(1).max(200),
-    number: z.string().trim().min(1).max(40),
-    set: z.string().trim().max(200).optional(),
-    setCode: z.string().trim().max(40).optional(),
-  });
-  api.get('/cards/lookup', need('editor'), async (req, res) => {
-    if (!o.details) throw new HttpError(503, 'Card lookups are turned off on this server.');
-    const q = lookupQuery.safeParse(req.query);
-    if (!q.success) throw new HttpError(400, 'Give the card name and number.');
-    res.json({ matches: await o.details.lookup(q.data.name, q.data.number, q.data) });
-  });
-  // "This is my card": one of several matches, or a name suggested for a card not found.
-  const chooseBody = z.object({ id: z.string().regex(/^[A-Za-z0-9._-]{1,80}$/) });
-  api.post('/cards/:id/details', need('editor'), json, async (req, res) => {
-    if (!o.details) throw new HttpError(503, 'Card lookups are turned off on this server.');
-    const id = idSchema.safeParse(req.params.id);
-    if (!id.success || !store.get('cards', id.data)) throw new HttpError(404, 'That card no longer exists.', 'not_found');
-    const body = chooseBody.safeParse(req.body);
-    if (!body.success) throw new HttpError(400, 'Give the TCGdex card id.');
-    const result = await o.details.fill(store, id.data, true, body.data.id);
-    const card = store.get('cards', id.data);
-    if (result === 'error') throw new HttpError(502, "The card database didn't answer. Try again.", 'upstream_error');
-    // Its set is known now, which helps find its price.
-    if (updater?.schedule().enabled && !updater.running) void updater.updateCard(id.data).catch(() => {});
-    res.json({ result, card });
-  });
-  api.post('/cards/fill-details', need('editor'), heavy, (req, res) => {
-    if (!o.autofill) throw new HttpError(503, 'Card lookups are turned off on this server.');
-    const already = o.autofill.fillingAll;
-    const cards = o.autofill.fillAll(req.query.force === '1');
-    if (!already) log.info('pricing', `${who(res)} started Fill in missing details (${cards} cards)`);
-    res.status(202).json({ started: !already, cards });
-  });
-
-  // ---- any card, in the ledger or not (lookup.ts) --------------------------------------
-  // Find a card → Any card: search the card database, then one card's prices today. Nothing is saved.
-  const cardLookup = o.details ? new CardLookup({ details: o.details, updater }) : null;
-  const needLookup = () => {
-    if (!cardLookup) throw new HttpError(503, 'Card lookups are turned off on this server.', 'unavailable');
-    return cardLookup;
-  };
-  const lookupSearch = z.object({ q: z.string().trim().min(1).max(120) });
-  api.get('/lookup/search', need('viewer'), async (req, res) => {
-    const q = lookupSearch.safeParse(req.query);
-    if (!q.success) throw new HttpError(400, 'Type a card name, set or number.');
-    res.json(await needLookup().search(q.data.q));
-  });
-  api.get('/lookup/cards/:id', need('viewer'), async (req, res) => {
-    const id = z.string().regex(/^[A-Za-z0-9._-]{1,80}$/).safeParse(req.params.id);
-    if (!id.success) throw new HttpError(404, 'No such card in the card database.', 'not_found');
-    const lookup = needLookup();
-    try {
-      res.json(await lookup.card(id.data));
-    } catch (err) {
-      if (err instanceof SourceError && /\b404\b/.test(err.message)) throw new HttpError(404, 'No such card in the card database.', 'not_found');
-      throw err;
-    }
-  });
-
-  // ---- master sets (masterset.ts) ----------------------------------------------------
-  // Every card of a set in every variant, from TCGdex, checked against TCGplayer's catalog:
-  // previewed first, then created as a new binder of placeholders. The preview's answers are
-  // remembered (TCGdex's for an hour, TCGplayer's for the day), so creating it straight after is quick.
-  const masterSets = o.details ? new MasterSets(o.details, o.tcgcsv) : null;
-  const lookups = () => {
-    if (!masterSets) throw new HttpError(503, 'Card lookups are turned off on this server.');
-    return masterSets;
-  };
-  const fromTcgdex = async <T>(fn: () => Promise<T>): Promise<T> => {
-    try {
-      return await fn();
-    } catch (err) {
-      if (err instanceof SourceError) throw new HttpError(502, "The card database (TCGdex) didn't answer. Try again in a minute.", 'upstream_error');
-      throw err;
-    }
-  };
-  const findMasterSet = (query: string) =>
-    fromTcgdex(async () => {
-      const found = await lookups().findSet(query);
-      if (!found) throw new HttpError(404, `No set called “${query}” was found. Pick one from the list.`, 'not_found');
-      if (!found.entries.length) throw new HttpError(404, `The card database has no cards for ${found.title} yet.`, 'not_found');
-      return found;
-    });
-  const setQuery = z.string().trim().min(1).max(80);
-  api.get('/master-sets/sets', need('editor'), async (_req, res) => {
-    const m = lookups();
-    res.json({ sets: await fromTcgdex(() => m.sets()) });
-  });
-  api.get('/master-sets/preview', need('editor'), heavy, async (req, res) => {
-    const q = setQuery.safeParse(req.query.set);
-    if (!q.success) throw new HttpError(400, 'Type the set.');
-    res.json(await findMasterSet(q.data));
-  });
-  const masterSetBody = z.object({
-    set: setQuery,
-    owner: z.string().max(20),
-    name: z.string().trim().min(1).max(40),
-    color: z.string().max(40).optional(),
-    pockets: z.union([z.literal(4), z.literal(9), z.literal(12), z.literal(16)]),
-    /** Promo printings too (stamps, Cosmos holos): left out unless asked for. */
-    extras: z.boolean().optional(),
-  });
-  api.post('/master-sets', need('editor'), heavy, json, async (req, res) => {
-    const body = masterSetBody.safeParse(req.body);
-    if (!body.success) throw new HttpError(400, 'Give the set, its owner, a binder name and the pockets per page.');
-    const { set, owner, name, color, pockets, extras } = body.data;
-    const found = await findMasterSet(set);
-    const entries = found.entries.filter((e) => extras || !e.extra);
-    const at = now().toISOString();
-    const binderId = crypto.randomBytes(8).toString('hex');
-    const order = Math.max(0, ...store.all().binders.map((b) => Number((b as { order?: unknown }).order) || 0)) + 1;
-    const cards = placeholderCards(entries, { binderId, pockets, owner, now: at }).map((doc) => ({ id: crypto.randomBytes(8).toString('hex'), doc }));
-    // Every card is checked before anything is saved (an owner the ledger doesn't know, say).
-    for (const c of cards) validateDoc('cards', c.doc);
-    // The binder keeps its owner, so cards added to it later start as theirs too.
-    store.set('binders', binderId, { name, color: color ?? null, pockets, kind: 'binder', owner, order, createdAt: at });
-    try {
-      store.setMany('cards', cards);
-    } catch (err) {
-      store.delete('binders', binderId);
-      throw err;
-    }
-    log.info('app', `${who(res)} made a ${found.title} master set: ${name}, ${cards.length} placeholders (${found.cards} cards${found.tcgplayer.checked ? `, ${found.tcgplayer.added} printings from TCGplayer` : ''})`);
-    res.status(201).json({ binderId, cards: cards.length, pages: Math.ceil(cards.length / pockets) });
   });
 
   // ---- administration ------------------------------------------------------------------

@@ -1,4 +1,5 @@
-import { mapRarity } from '../details.ts';
+import { cardNumber } from '#domain/catalog/names.ts';
+import { mapRarity } from '#domain/catalog/rarity.ts';
 import { printingOf } from './catalog.ts';
 import type { Candidate, ProductInfo } from './sources.ts';
 
@@ -22,11 +23,8 @@ export const norm = (s: unknown) =>
     .replace(/[̀-ͯ]/g, '')
     .replace(/[^a-z0-9]/g, '');
 
-/** "131/128" -> "131", "024" -> "24", "SWSH298" -> "swsh298". */
-export const cardNumber = (n: unknown) => {
-  const left = String(n ?? '').split('/')[0].trim().toLowerCase();
-  return /^\d+$/.test(left) ? String(Number(left)) : left.replace(/^([a-z]+)0+(?=\d)/, '$1');
-};
+/** "131/128" -> "131", "024" -> "24", "SWSH298" -> "swsh298" (the domain's, src/domain/catalog/names.ts). */
+export { cardNumber };
 
 /**
  * Name as the sites write it: "Hisuian Zoroark V Star" and "Hisuian Zoroark VSTAR" are the

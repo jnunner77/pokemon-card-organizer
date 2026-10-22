@@ -866,8 +866,13 @@ in `src/` is its own TypeScript project that may only import the layers inside i
   contacts, visits and the guest log, and what guests see of a card) and Administration (`admin/`:
   the settings' rules and defaults, the overview checks, status.txt's lines, the log's levels,
   categories and hidden secrets, problems grouped since last seen, PriceCharting's token format and
-  the page errors' 30-a-minute limit); the cards that need a person are `cards/attention.ts`. No
-  Node APIs; time is passed in.
+  the page errors' 30-a-minute limit); the cards that need a person are `cards/attention.ts`; and
+  what the card databases say about cards (`catalog/`: names, numbers and rarities however they're
+  written, a card's printings and their own prices on TCGdex, matching a card to TCGdex by name,
+  number, set size and the set it's filed under (reprint sub-sets, promos, TCG Pocket left out),
+  what a lookup fills and records on the card, which cards want one, searching any card, and master
+  sets: each card's variants, promo printings, the printings only TCGplayer lists and the
+  placeholder cards). No Node APIs; time is passed in.
 - `src/application/`: one use case per action (`ledger/`: save, merge or delete a document, change
   price entries, sort a binder, move cards, read the ledger; `photos/`: upload, delete, show;
   `backups/`: download and restore a full backup, list, snapshot, download, restore and delete kept
@@ -876,10 +881,15 @@ in `src/` is its own TypeScript project that may only import the layers inside i
   token), and administering people, sign-in settings, sessions and API tokens; `guests/`: a guest
   signing in and out, who a guest is, the cards and pictures they see, and Administration → Guests;
   `admin/`: the overview and status.txt, the price schedule and method, PriceCharting's token,
-  problems, logs and page errors), ports for the clock, the unit of work, events, the server log
+  problems, logs and page errors; `catalog/`: look a card up, choose its match, fill one card or
+  every card in (Fill in missing details), a new or changed card filling itself in and the watch
+  that queues them one at a time, the look-up-again after an update, search and show any card, and
+  list, preview and make master sets), ports for the clock, the unit of work, events, the server log
   (`logging.ts`, used by every layer above the domain), the photo store, the kept copies, password
   hashing, random secrets, the account and guest files, the QR code, admin.json, the token file, the
-  disk and the daily update, and who may do what (`access.ts`).
+  disk and the daily update, the card database (TCGdex), TCGplayer's catalog, the cards' changes and
+  a scheduler for work done in the background, and who may do what (`access.ts`). An outside source
+  that doesn't answer rejects with `SourceUnavailable`, which the use cases turn into a `Result` error.
   Replacing the whole ledger (a restore) goes only through the `WholeLedger` port, which keeps a
   before-restore copy first.
 - `src/infrastructure/`: `json-store/store.ts` (the ledger file, daily copies and the change feed
@@ -888,11 +898,16 @@ in `src/` is its own TypeScript project that may only import the layers inside i
   copies (`backups/`), `auth.json` and `sessions.json` with scrypt password hashing (`accounts/`),
   `guests.json`, the page's condition rules and the QR code (`guests/`), `admin.json`, PriceCharting's
   token file, status.txt, offsite.json and the disk (`admin/`), the server log with its daily files
-  (`logging/logger.ts`), random secrets (`node-secrets.ts`), and in-memory versions for tests (`memory/`; wrong-password counts and the
-  setup code are only ever kept in memory).
-- `src/presentation/`: the ledger's, photos', backups', sign-in and people's, guests' and
-  Administration's routes (`ledger/`, `photos/`, `backups/`, `accounts/`, `guests/`, `admin/`: the
-  overview, prices and PriceCharting token, problems, logs and the pages' error reports) on `node:http`, with hand-written checks
+  (`logging/logger.ts`), random secrets (`node-secrets.ts`), TCGdex over its API and tcgcsv.com
+  (`catalog/`, each remembering its answers for a while), requests to other sites with retries
+  (`http/get.ts`, which the price update uses too), the cards' changes from the store
+  (`json-store/card-changes.ts`), Node's timers (`node-scheduler.ts`), and in-memory versions for
+  tests (`memory/`; wrong-password counts and the setup code are only ever kept in memory).
+- `src/presentation/`: the ledger's, photos', backups', sign-in and people's, guests',
+  Administration's and the card lookups' routes (`ledger/`, `photos/`, `backups/`, `accounts/`,
+  `guests/`, `admin/`: the overview, prices and PriceCharting token, problems, logs and the pages'
+  error reports; `catalog/`: card details, Fill in missing details, Any card and master sets, all
+  answering 503 when `CARD_LOOKUPS=off`) on `node:http`, with hand-written checks
   of each request and an exhaustive switch from error codes to HTTP statuses; the guest page's live
   updates (`guests/feed.ts`).
 - `src/compose.ts` wires the layers together and `src/main.ts` starts the server, building the
@@ -905,15 +920,15 @@ code, and moves into the layers one slice at a time. Express still runs the requ
 asks `IdentifyCaller` and `IdentifyGuest` who is calling, decides which pages need signing in, and
 applies the rate limits.
 
-- `server/pricing/`: `pricecharting.ts` (PriceCharting's API, price guide download and graded prices), `tcgcsv.ts` (TCGplayer's own catalog), `catalog.ts`
-  (TCGdex: TCGplayer and Cardmarket prices, pictures), `sources.ts` (requests,
-  Bank of Canada), `match.ts` (which product is this card), `updater.ts` (the daily run, per-card
-  updates and the PriceCharting purge).
-- `server/details.ts` (card details from TCGdex), `server/autofill.ts` (new cards filling themselves
-  in, and Update all cards → Details).
+- `server/pricing/`: `pricecharting.ts` (PriceCharting's API, price guide download and graded prices), `tcgcsv.ts` (finding a card in TCGplayer's own catalog), `catalog.ts`
+  (TCGdex: TCGplayer and Cardmarket prices, pictures), `sources.ts` (the price sites' answers,
+  Bank of Canada), `match.ts` (which product is this card), `any-card.ts` (any card's prices today,
+  for Find a card → Any card), `updater.ts` (the daily run, per-card updates and the PriceCharting
+  purge). They read cards with the domain's rules (`src/domain/catalog/`) and download with the
+  layers' adapters (`src/infrastructure/http/`, `catalog/`).
 - `server/`: `security.ts` (rate limits and blocks), `app.ts` (the request pipeline and the rest of
-  the HTTP API: prices, card details, any-card lookup, master sets, rebuilding past prices, the
-  PriceCharting purge and Administration → Security).
+  the HTTP API: prices, rebuilding past prices, the PriceCharting purge and Administration →
+  Security).
 - `public/`: `admin.html`/`admin.js` (Administration), `login.html`/`login.js` (sign-in),
   `guest.html`/`guest.js` (the guest page).
 - `public/`: the page. `app.js` is the ledger UI; `search.js` matches cards for Find (tested in
@@ -922,4 +937,5 @@ applies the rate limits.
 
 Tests: `tests/<layer>/` holds the node:test tests for `src/` (the domain without fakes, use cases
 with the in-memory adapters); `tests/legacy/` holds the vitest suites from before the layers,
-which drive the whole app over HTTP and move to node:test as their slices do.
+which drive the whole app over HTTP and move to node:test as their slices do. TCGdex's and
+tcgcsv.com's answers recorded in `tests/fixtures/` keep both offline.

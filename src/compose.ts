@@ -41,6 +41,20 @@ import { SignOut } from '#application/accounts/sign-out.ts';
 import { SignPersonOut } from '#application/accounts/sign-person-out.ts';
 import { UpdatePerson } from '#application/accounts/update-person.ts';
 import { ChangeRetention } from '#application/backups/change-retention.ts';
+import { AutofillCard } from '#application/catalog/autofill-card.ts';
+import { BackfillDetails } from '#application/catalog/backfill-details.ts';
+import { ChooseMatch } from '#application/catalog/choose-match.ts';
+import { CreateMasterSet } from '#application/catalog/create-master-set.ts';
+import type { CatalogDeps } from '#application/catalog/deps.ts';
+import { FillCardDetails } from '#application/catalog/fill-card-details.ts';
+import { FillEveryCard } from '#application/catalog/fill-every-card.ts';
+import { ListMasterSetSets } from '#application/catalog/list-master-set-sets.ts';
+import { LookUpCard } from '#application/catalog/look-up-card.ts';
+import type { CardDatabase, CardPricing, JobLog, TcgplayerCatalog } from '#application/catalog/ports.ts';
+import { PreviewMasterSet } from '#application/catalog/preview-master-set.ts';
+import { SearchAnyCard } from '#application/catalog/search-any-card.ts';
+import { ShowAnyCard } from '#application/catalog/show-any-card.ts';
+import { WatchNewCards } from '#application/catalog/watch-new-cards.ts';
 import { BackupHealth } from '#application/backups/backup-health.ts';
 import { DeleteCopy } from '#application/backups/delete-copy.ts';
 import type { BackupDeps } from '#application/backups/deps.ts';
@@ -78,7 +92,7 @@ import { DeletePhoto } from '#application/photos/delete-photo.ts';
 import { OpenPhoto } from '#application/photos/open-photo.ts';
 import { UploadPhoto } from '#application/photos/upload-photo.ts';
 import type { ServerLog } from '#application/logging.ts';
-import type { ActivityLog } from '#application/ports.ts';
+import type { ActivityLog, EventPublisher } from '#application/ports.ts';
 import type { Category } from '#domain/admin/log.ts';
 import { FileAccountStore } from '#infrastructure/accounts/auth-file.ts';
 import { AdminFile } from '#infrastructure/admin/admin-file.ts';
@@ -90,6 +104,7 @@ import { FileKeptCopies } from '#infrastructure/backups/file-kept-copies.ts';
 import { PageConditionRules } from '#infrastructure/guests/condition-rules.ts';
 import { FileGuestDesk } from '#infrastructure/guests/guest-file.ts';
 import { QrSvg } from '#infrastructure/guests/qr-svg.ts';
+import { StoreCardChanges } from '#infrastructure/json-store/card-changes.ts';
 import { StoreCardLookup } from '#infrastructure/json-store/card-lookup.ts';
 import { StoreLedgerChanges } from '#infrastructure/json-store/ledger-changes.ts';
 import { MemoryFailedSignIns, MemoryFirstRunSetup } from '#infrastructure/memory/accounts.ts';
@@ -105,11 +120,13 @@ import { quietLogger } from '#infrastructure/logging/logger.ts';
 import { NodeBase64 } from '#infrastructure/node-base64.ts';
 import { FilePhotoStore } from '#infrastructure/photos/file-photo-store.ts';
 import type { PhotoFiles } from '#infrastructure/photos/photo-files.ts';
-import { RandomHexIds } from '#infrastructure/random-ids.ts';
+import { NodeScheduler } from '#infrastructure/node-scheduler.ts';
+import { RandomHexIds, RandomShortIds } from '#infrastructure/random-ids.ts';
 import { SystemClock } from '#infrastructure/system-clock.ts';
 import { accountRoutes } from '#presentation/accounts/routes.ts';
 import { adminRoutes } from '#presentation/admin/routes.ts';
 import { backupRoutes } from '#presentation/backups/routes.ts';
+import { catalogRoutes } from '#presentation/catalog/routes.ts';
 import { GuestCardFeed } from '#presentation/guests/feed.ts';
 import { guestRoutes } from '#presentation/guests/routes.ts';
 import type { CallerResolver } from '#presentation/http/caller.ts';
@@ -117,6 +134,7 @@ import { combine, type Router } from '#presentation/http/router.ts';
 import { ledgerRoutes } from '#presentation/ledger/routes.ts';
 import { photoRoutes } from '#presentation/photos/routes.ts';
 import { type AppOptions, createExpressApp, type LayeredContext, type LayeredRoutes } from '../server/app.ts';
+import { TodaysPrices } from '../server/pricing/any-card.ts';
 import { NoToken, type PriceCharting } from '../server/pricing/pricecharting.ts';
 import { Refused } from '../server/pricing/sources.ts';
 import type { PriceUpdater } from '../server/pricing/updater.ts';
@@ -126,6 +144,12 @@ import type { Security } from '../server/security.ts';
 const activityLog = (log: ServerLog, category: Category): ActivityLog => ({
   info: (message, details) => log.info(category, message, details ? { ...details } : undefined),
   warn: (message, details) => log.warn(category, message, details ? { ...details } : undefined),
+});
+
+/** One category of the server log, for work done in the background. */
+const jobLog = (log: ServerLog, category: Category): JobLog => ({
+  ...activityLog(log, category),
+  error: (message, details) => log.error(category, message, details ? { ...details } : undefined),
 });
 
 /** The ledger slice over the JSON store, as HTTP routes relative to /api. */
@@ -302,6 +326,92 @@ export function createGuests(o: CreateGuestsOptions) {
 
 export type Guests = ReturnType<typeof createGuests>;
 
+/** The daily price update as new cards and chosen matches use it; read when used, as it may be made after them. */
+const cardPricing = (updater: () => PriceUpdater | undefined): CardPricing => ({
+  canPriceNow: () => {
+    const u = updater();
+    return !!u && u.schedule().enabled && !u.running;
+  },
+  updateCard: async (id) => {
+    const u = updater();
+    return u ? u.updateCard(id) : 'off';
+  },
+});
+
+export interface CreateCardLookupsOptions {
+  readonly store: Store;
+  /** The card database (TCGdex). */
+  readonly database: CardDatabase;
+  /** TCGplayer's own catalog (tcgcsv.com), which master sets are checked against. */
+  readonly tcgcsv?: TcgplayerCatalog | undefined;
+  /**
+   * The daily price update, which prices new cards and any card looked up; read when it's used, as
+   * the update is made after these (it fills cards' details with them).
+   */
+  readonly updater?: (() => PriceUpdater | undefined) | undefined;
+  readonly log?: ServerLog | undefined;
+  readonly events?: EventPublisher | undefined;
+  readonly now?: (() => Date) | undefined;
+  /** Pause between cards filled in one after another. */
+  readonly delayMs?: number | undefined;
+  /** How long after the watch on new cards starts to look up cards checked before an update (null: don't). */
+  readonly backfillAfterMs?: number | null | undefined;
+}
+
+/**
+ * Card details from the card database (looking a card up, choosing a match, filling one card or
+ * every card in), new cards filling themselves in, Find a card → Any card, and master sets.
+ */
+export function createCardLookups(o: CreateCardLookupsOptions) {
+  const log = o.log ?? quietLogger();
+  const updater = o.updater ?? (() => undefined);
+  const unitOfWork = new StoreUnitOfWork(o.store);
+  const deps: CatalogDeps = {
+    database: o.database,
+    tcgplayer: o.tcgcsv ?? null,
+    pricing: cardPricing(updater),
+    anyCardPricing: { price: (card) => new TodaysPrices(updater()).price(card) },
+    cards: new JsonCardRepository(unitOfWork),
+    binders: new JsonBinderRepository(unitOfWork),
+    settings: new JsonSettingRepository(unitOfWork),
+    changes: new StoreCardChanges(o.store),
+    unitOfWork,
+    events: o.events ?? new LocalEventBus(),
+    clock: { now: o.now ?? (() => new Date()) },
+    ids: new RandomShortIds(),
+    scheduler: new NodeScheduler(),
+    log: jobLog(log, 'pricing'),
+    activity: activityLog(log, 'app'),
+    delayMs: o.delayMs ?? 1500,
+  };
+  const fillCard = new FillCardDetails(deps);
+  const fillEveryCard = new FillEveryCard({ ...deps, fillCard });
+  const backfill = new BackfillDetails({ ...deps, fillEvery: fillEveryCard });
+  const autofillCard = new AutofillCard({ ...deps, fillCard });
+  const watchNewCards = new WatchNewCards({ ...deps, autofill: autofillCard, backfill }, { backfillAfterMs: o.backfillAfterMs === undefined ? 60_000 : o.backfillAfterMs });
+  return {
+    lookUpCard: new LookUpCard(deps),
+    fillCard,
+    chooseMatch: new ChooseMatch({ ...deps, fillCard }),
+    fillEveryCard,
+    backfill,
+    autofillCard,
+    watchNewCards,
+    searchAnyCard: new SearchAnyCard(deps),
+    showAnyCard: new ShowAnyCard(deps),
+    listMasterSetSets: new ListMasterSetSets(deps),
+    previewMasterSet: new PreviewMasterSet(deps),
+    createMasterSet: new CreateMasterSet(deps),
+    /** The server is stopping: no new cards are filled in, and Fill in missing details stops after its card. */
+    stop: () => {
+      watchNewCards.stop();
+      fillEveryCard.stop();
+    },
+  };
+}
+
+export type CardLookups = ReturnType<typeof createCardLookups>;
+
 /** The daily price update as Administration's port. */
 const priceUpdates = (updater: PriceUpdater): PriceUpdates => ({ schedule: () => updater.schedule(), noteToken: () => updater.noteToken() });
 
@@ -396,15 +506,22 @@ export interface CreateAppOptions extends Omit<AppOptions, 'layeredRoutes' | 'ba
   readonly config?: AdminSettingsStore | undefined;
   /** BINDER_PASSWORD, for the check that it no longer opens the admin account. */
   readonly envPassword?: string | undefined;
+  /** Card details, Any card and master sets; made from `cardDatabase` if omitted. */
+  readonly cardLookups?: CardLookups | undefined;
+  /** The card database (TCGdex); without it (CARD_LOOKUPS=off) the lookup routes answer 503. */
+  readonly cardDatabase?: CardDatabase | undefined;
+  /** TCGplayer's own catalog (tcgcsv.com), which master sets are checked against. */
+  readonly tcgcsv?: TcgplayerCatalog | undefined;
 }
 
 /** The whole app: the layered slices plugged into the Express server that still hosts the rest. */
 export function createApp(options: CreateAppOptions) {
-  const { events = new LocalEventBus(), accounts, guests, config: given, envPassword, ...rest } = options;
+  const { events = new LocalEventBus(), accounts, guests, config: given, envPassword, cardLookups: givenLookups, cardDatabase, tcgcsv, ...rest } = options;
   const log = options.log ?? quietLogger();
   const config = given ?? new AdminFile(options.store.dataDir);
   const now = options.now ?? (() => new Date());
   const backups = options.backups ?? createBackups({ store: options.store, assets: options.assets, config, log, now });
+  const lookups = givenLookups ?? (cardDatabase ? createCardLookups({ store: options.store, database: cardDatabase, tcgcsv, updater: () => options.updater, log, events, now }) : null);
   const admin = createAdmin({ store: options.store, assets: options.assets, config, log, now, backups, accounts, envPassword, security: options.security, updater: options.updater, pricecharting: options.pricecharting });
   const layeredRoutes = (c: LayeredContext): LayeredRoutes => {
     const photos = photoRoutes({ identify: c.identify, ...backups });
@@ -416,6 +533,7 @@ export function createApp(options: CreateAppOptions) {
         photos.api,
         backupRoutes({ identify: c.identify, ...backups }),
         adminRoutes({ identify: c.identify, identity: c.identity, client: c.client, guest: guests ? c.guest : null, trustsProxy: !!options.trustProxy, ...admin }),
+        catalogRoutes({ identify: c.identify, catalog: lookups }),
       ),
       root: photos.root,
     };
