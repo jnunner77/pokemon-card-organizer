@@ -209,9 +209,8 @@ export function createExpressApp(o: AppOptions) {
     api.use(['/auth/login', '/auth/password', '/auth/setup'], security.signIn);
   }
 
-  // ---- signing in, guests, binders, cards and settings, photos, backups, administration, ----
-  // ---- card details, any card and master sets ----
-  // Served by the layered code (src/presentation): signing in and out, the guest page, people,
+  // ---- served by the layered code ------------------------------------------------------
+  // In src/presentation: signing in and out, the guest page, people,
   // sessions, API tokens and guests under Administration, the ledger itself, sorting binders and
   // moving cards, photos, full backups and the kept copies, Administration's overview, price
   // settings, PriceCharting token, problems and logs, the pages' error reports, card details from
