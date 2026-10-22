@@ -1,4 +1,5 @@
 import { wantsDetails } from '#domain/catalog/details.ts';
+import { documentId } from '#domain/ledger/ids.ts';
 import { Setting, type SettingId } from '#domain/settings/setting.ts';
 import { ok } from '#shared/result.ts';
 import { commit } from '../ledger/commit.ts';
@@ -7,7 +8,7 @@ import type { CatalogDeps } from './deps.ts';
 import type { FillCardDetails, FillResult } from './fill-card-details.ts';
 
 /** Where Fill in missing details keeps its progress, for the page. */
-const PROGRESS = 'details' as SettingId;
+const PROGRESS = documentId<SettingId>('details');
 
 export interface FillEveryCardInput {
   /** Who started it, for the log (none when the server did). */
@@ -94,13 +95,15 @@ export class FillEveryCard {
   async #progress(patch: Readonly<Record<string, unknown>>): Promise<void> {
     const { settings, clock } = this.#deps;
     const now = clock.now();
+    if (!PROGRESS.ok) throw new Error('Fill in missing details has no setting to keep its progress in');
+    const id = PROGRESS.value;
     const saved = await commit(this.#deps, async () => {
-      let setting = await settings.findById(PROGRESS);
+      let setting = await settings.findById(id);
       if (setting) {
         const merged = setting.merge(patch, now);
         if (!merged.ok) return merged;
       } else {
-        const made = Setting.create(PROGRESS, { running: false, done: 0, total: 0, ...patch }, now);
+        const made = Setting.create(id, { running: false, done: 0, total: 0, ...patch }, now);
         if (!made.ok) return made;
         setting = made.value;
       }

@@ -1781,7 +1781,7 @@ function masterSetModal(color){
   setTimeout(()=>q.focus(), 30);
 }
 /* ---------- cards to check ----------
-   What the nightly check against TCGdex (src/domain/catalog/details.ts) found wrong with a card, plus cards
+   What the nightly check against TCGdex (src/application/catalog/fill-card-details.ts) found wrong with a card, plus cards
    without a certain price match. The same rules as status.txt (src/domain/cards/attention.ts, detailsProblem). */
 const checkIdentity = c => `${String(c.name??"").trim().toLowerCase()}|${String(c.number??"").replace(/\s+/g,"").toLowerCase()}`;
 const normLabel = s => String(s??"").toLowerCase().replace(/[^a-z0-9]/g,"");
