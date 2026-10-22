@@ -1,6 +1,6 @@
-/* Find a card → Any card: a card from the card database (server/lookup.ts) as the page shows it and
-   adds it. Its number as printed ("4/102"), which printing to show first, and the new card's fields
-   for Add to a binder.
+/* Find a card → Any card: a card from the card database (src/application/catalog/show-any-card.ts)
+   as the page shows it and adds it. Its number as printed ("4/102"), which printing to show first,
+   and the new card's fields for Add to a binder.
    A plain script: the page uses window.BinderLookup, and the tests load it the same way. */
 (function (root) {
   "use strict";

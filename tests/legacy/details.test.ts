@@ -3,10 +3,14 @@ import os from 'node:os';
 import path from 'node:path';
 import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createApp } from '../../src/compose.ts';
+import { createApp, createCardLookups } from '../../src/compose.ts';
 import { PhotoFiles as Assets } from '../../src/infrastructure/photos/photo-files.ts';
-import { Autofill } from '../../server/autofill.ts';
-import { CardDetails, DETAILS_VERSION, mapRarity, similarity } from '../../server/details.ts';
+import { DETAILS_VERSION } from '../../src/domain/cards/attention.ts';
+import { lookedUp, outdated, wantsDetails } from '../../src/domain/catalog/details.ts';
+import { similarity } from '../../src/domain/catalog/names.ts';
+import { mapRarity } from '../../src/domain/catalog/rarity.ts';
+import { LookUpCard } from '../../src/application/catalog/look-up-card.ts';
+import { TcgdexCardDatabase } from '../../src/infrastructure/catalog/tcgdex.ts';
 import type { PriceUpdater } from '../../server/pricing/updater.ts';
 import { type Fetcher, retryPolicy } from '../../server/pricing/sources.ts';
 import { Store } from '../../src/infrastructure/json-store/store.ts';
@@ -14,7 +18,7 @@ import { Store } from '../../src/infrastructure/json-store/store.ts';
 retryPolicy.baseMs = 1;
 
 // Real TCGdex responses recorded for these cards (tests/fixtures/tcgdex), replayed by URL.
-const FIXTURES = path.join(__dirname, 'fixtures/tcgdex');
+const FIXTURES = path.join(__dirname, '../fixtures/tcgdex');
 const API = 'https://api.tcgdex.net/v2/en';
 function replay(calls: string[] = []): Fetcher {
   return async (url) => {
@@ -27,6 +31,81 @@ function replay(calls: string[] = []): Fetcher {
 const down: Fetcher = async () => {
   throw new Error('getaddrinfo ENOTFOUND api.tcgdex.net');
 };
+
+/** Card details (src/application/catalog) over TCGdex, as these tests ask for them: a lookup, filling in a stored card, and whether a card wants one. */
+class CardDetails {
+  readonly database: TcgdexCardDatabase;
+  readonly now: () => Date;
+
+  constructor(o: { fetcher: Fetcher; now?: () => Date }) {
+    this.now = o.now ?? (() => new Date());
+    this.database = new TcgdexCardDatabase({ fetcher: o.fetcher, clock: { now: this.now } });
+  }
+
+  async lookup(name: string, number: string, hints: { set?: string; setCode?: string } = {}) {
+    const r = await new LookUpCard({ database: this.database }).execute({ name, number, ...hints });
+    if (!r.ok) throw new Error(r.error.message);
+    return r.value.matches;
+  }
+
+  fill(store: Store, id: string, force = false, chosen?: string) {
+    return createCardLookups({ store, database: this.database, now: this.now }).fillCard.execute({ cardId: id, force, chosen });
+  }
+
+  wants(card: Record<string, unknown> | undefined) {
+    return wantsDetails(card, this.now());
+  }
+}
+
+/**
+ * New cards filling themselves in, and Fill in missing details (src/application/catalog), over this
+ * store, as these tests ask for them. The work runs through the use cases; the counts the old
+ * class returned straight away come from the same domain rules they apply.
+ */
+class Autofill {
+  private readonly store: Store;
+  private readonly now: () => Date;
+  readonly lookups: ReturnType<typeof createCardLookups>;
+
+  constructor(o: { store: Store; details: CardDetails; updater?: PriceUpdater; delayMs?: number; backfillAfterMs?: number | null }) {
+    this.store = o.store;
+    this.now = o.details.now;
+    this.lookups = createCardLookups({ store: o.store, database: o.details.database, updater: () => o.updater, now: o.details.now, delayMs: o.delayMs, backfillAfterMs: o.backfillAfterMs });
+  }
+
+  start() {
+    this.lookups.watchNewCards.execute();
+  }
+
+  stop() {
+    this.lookups.stop();
+  }
+
+  idle() {
+    return this.lookups.watchNewCards.idle();
+  }
+
+  filled() {
+    return this.lookups.fillEveryCard.finished();
+  }
+
+  missing(force = false) {
+    return this.store.all().cards.filter((c) => wantsDetails(c, this.now(), force)).map((c) => c.id);
+  }
+
+  fillAll(force = false) {
+    const cards = this.missing(force).length;
+    void this.lookups.fillEveryCard.execute({ force });
+    return cards;
+  }
+
+  backfill() {
+    const need = this.store.all().cards.filter((c) => wantsDetails(c, this.now()) && (outdated(c) || !lookedUp(c))).length;
+    if (!need || this.lookups.fillEveryCard.running) return 0;
+    void this.lookups.backfill.execute();
+    return this.missing().length;
+  }
+}
 
 describe('looking up a card by name and number', () => {
   it('finds the one card with that name, number and set size', async () => {
@@ -459,7 +538,7 @@ describe('lookup routes', () => {
   it('looks a card up for the Add card form, and starts Fill in missing details', async () => {
     const details = new CardDetails({ fetcher: replay() });
     const autofill = new Autofill({ store, details, delayMs: 1 });
-    const app = createApp({ store, assets: new Assets(dir), publicDir: path.join(__dirname, '../../public'), details, autofill });
+    const app = createApp({ store, assets: new Assets(dir), publicDir: path.join(__dirname, '../../public'), cardLookups: autofill.lookups });
     const r = await request(app).get('/api/cards/lookup').query({ name: 'Pikachu', number: '51' }).expect(200);
     expect(r.body.matches.map((m: { setCode: string }) => m.setCode).sort()).toEqual(['30C', 'TEF']);
     await request(app).get('/api/cards/lookup').query({ name: 'Pikachu' }).expect(400);
@@ -473,7 +552,7 @@ describe('lookup routes', () => {
     const details = new CardDetails({ fetcher: replay() });
     const updateCard = vi.fn(async () => 'updated' as const);
     const updater = { schedule: () => ({ enabled: true, hour: 5, timeZone: 'UTC' }), running: false, updateCard } as unknown as PriceUpdater;
-    const app = createApp({ store, assets: new Assets(dir), publicDir: path.join(__dirname, '../../public'), details, updater });
+    const app = createApp({ store, assets: new Assets(dir), publicDir: path.join(__dirname, '../../public'), cardDatabase: details.database, updater });
     store.set('cards', 'a', { name: 'Pikachu', number: '51', details: { source: 'tcgdex', result: 'several', v: DETAILS_VERSION, checkedAt: new Date().toISOString() } });
     const r = await request(app).post('/api/cards/a/details').send({ id: '30th-051' }).expect(200);
     expect(r.body).toMatchObject({ result: 'filled', card: { set: '30th Celebration', setCode: '30C', details: { id: '30th-051' } } });
@@ -487,7 +566,7 @@ describe('lookup routes', () => {
       .get('/api/cards/lookup')
       .query({ name: 'Pikachu', number: '51' })
       .expect(503);
-    const app = createApp({ store, assets: new Assets(dir), publicDir: path.join(__dirname, '../../public'), details: new CardDetails({ fetcher: down }) });
+    const app = createApp({ store, assets: new Assets(dir), publicDir: path.join(__dirname, '../../public'), cardDatabase: new CardDetails({ fetcher: down }).database });
     const r = await request(app).get('/api/cards/lookup').query({ name: 'Pikachu', number: '51' }).expect(502);
     expect(r.body.error).toMatch(/Couldn't reach api\.tcgdex\.net/);
   });

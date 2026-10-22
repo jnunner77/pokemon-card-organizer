@@ -14,7 +14,7 @@ import { PriceCharting } from '../../server/pricing/pricecharting.ts';
 import { type Fetcher, retryPolicy } from '../../server/pricing/sources.ts';
 import { PriceUpdater } from '../../server/pricing/updater.ts';
 import { Security } from '../../server/security.ts';
-import { DETAILS_VERSION } from '../../server/details.ts';
+import { DETAILS_VERSION } from '../../src/domain/cards/attention.ts';
 import { cardsNeedingAttention } from '../../src/domain/cards/attention.ts';
 import { Store } from '../../src/infrastructure/json-store/store.ts';
 

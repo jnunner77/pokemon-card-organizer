@@ -1703,7 +1703,7 @@ function binderModal(id){
   sync();
 }
 /* ---------- master set ----------
-   Every card of one set, its sub-sets included, in every variant (server/masterset.ts), checked
+   Every card of one set, its sub-sets included, in every variant (src/domain/catalog/master-sets.ts), checked
    against TCGplayer's catalog, previewed, then made into a new binder of placeholders for the
    owner chosen. Promo printings (stamps, Cosmos holos) are left out unless ticked. */
 function masterSetModal(color){
@@ -1781,7 +1781,7 @@ function masterSetModal(color){
   setTimeout(()=>q.focus(), 30);
 }
 /* ---------- cards to check ----------
-   What the nightly check against TCGdex (server/details.ts) found wrong with a card, plus cards
+   What the nightly check against TCGdex (src/application/catalog/fill-card-details.ts) found wrong with a card, plus cards
    without a certain price match. The same rules as status.txt (src/domain/cards/attention.ts, detailsProblem). */
 const checkIdentity = c => `${String(c.name??"").trim().toLowerCase()}|${String(c.number??"").replace(/\s+/g,"").toLowerCase()}`;
 const normLabel = s => String(s??"").toLowerCase().replace(/[^a-z0-9]/g,"");
@@ -3199,7 +3199,7 @@ function findKey(e){
 
 /* ---------- any card ---------- */
 /* Find a card → Any card: any card from the card database (TCGdex), found by name, set and number on
-   the server (lookup.ts); choosing one shows its picture and today's prices for each printing, worked
+   the server (src/application/catalog/search-any-card.ts); choosing one shows its picture and today's prices for each printing, worked
    out as the daily update would. Nothing is saved; Add to a binder opens the new card form filled in. */
 function findMode(mode){
   if(mode===FIND.mode && !FIND.look) return;

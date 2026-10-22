@@ -7,7 +7,6 @@ import { createApp } from '../../src/compose.ts';
 import { PhotoFiles as Assets } from '../../src/infrastructure/photos/photo-files.ts';
 import { createBackups } from '../../src/compose.ts';
 import { AdminFile as Config } from '../../src/infrastructure/admin/admin-file.ts';
-import type { CardDetails } from '../../server/details.ts';
 import { Catalog, chooseVariant, printingOf, variantPrices, tcgdexCardmarket, tcgdexTcgplayer, type TcgdexCard } from '../../server/pricing/catalog.ts';
 import { catalogMismatch, chooseMatch, detailsFromProduct, otherBall, searchQuery, variantFromProduct } from '../../server/pricing/match.ts';
 import { PriceCharting, PriceGuide, gradedPrice, oldAddress, parseCsv, parseProduct } from '../../server/pricing/pricecharting.ts';
@@ -20,7 +19,7 @@ import { Store } from '../../src/infrastructure/json-store/store.ts';
 
 retryPolicy.baseMs = 1; // retries happen at once in tests
 
-const fixture = (f: string) => fs.readFileSync(path.join(__dirname, 'fixtures', f), 'utf8');
+const fixture = (f: string) => fs.readFileSync(path.join(__dirname, '../fixtures', f), 'utf8');
 const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('a card image')]);
 const PC_SEARCH = JSON.parse(fixture('pricecharting-api-search.json')) as { products: Record<string, unknown>[] };
 /** 30th Celebration Lapras: ungraded US$13.20, with graded prices. */
@@ -934,7 +933,7 @@ describe('prices and pictures from the card databases', () => {
 
     // Everything, told to ask again: details looked up again (even this week), then price and picture.
     const fills: [string, boolean][] = [];
-    const details = { fill: async (_s: Store, id: string, force = false) => (fills.push([id, force]), 'skipped' as const) } as unknown as CardDetails;
+    const details = { execute: async ({ cardId, force = false }: { cardId: string; force?: boolean }) => (fills.push([cardId, force]), 'skipped' as const) };
     net = tgNet();
     await new PriceUpdater({ store, assets, fetcher: net.fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', catalog: new Catalog({ fetcher: net.fetcher }), details }).runAll('manual', 'all', true);
     expect(fills).toEqual([['tg', true], ['done', true], ['small', true], ['sold', true]]);
@@ -944,7 +943,7 @@ describe('prices and pictures from the card databases', () => {
   });
 
   it("fills what the databases lack from TCGplayer's own catalog (tcgcsv.com): price, product, picture, rarity and release date", async () => {
-    const tcgcsvFile = (f: string) => () => new Response(fs.readFileSync(path.join(__dirname, 'fixtures', 'tcgcsv', f), 'utf8'), { headers: { 'Content-Type': 'application/json' } });
+    const tcgcsvFile = (f: string) => () => new Response(fs.readFileSync(path.join(__dirname, '../fixtures', 'tcgcsv', f), 'utf8'), { headers: { 'Content-Type': 'application/json' } });
     const tcgcsvNet = (over: Record<string, () => Response> = {}) =>
       dbNet({
         'api.tcgdex.net/v2/en/cards/swsh11tg-TG10': () => Response.json(JSON.parse(fixture('tcgdex-snorlax-tg.json'))),
@@ -957,7 +956,7 @@ describe('prices and pictures from the card databases', () => {
       });
     const withTcgcsv = (net: Net) =>
       new PriceUpdater({ store, assets, fetcher: net.fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', catalog: new Catalog({ fetcher: net.fetcher }), tcgcsv: new TcgCsv({ fetcher: net.fetcher, now: () => now, gapMs: 0 }), pricecharting: pcApi(net, null) });
-    const tgMarket = (JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'tcgcsv', '3172-prices.json'), 'utf8')).results as { productId: number; marketPrice: number }[]).find((p) => p.productId === 284270)!.marketPrice;
+    const tgMarket = (JSON.parse(fs.readFileSync(path.join(__dirname, '../fixtures', 'tcgcsv', '3172-prices.json'), 'utf8')).results as { productId: number; marketPrice: number }[]).find((p) => p.productId === 284270)!.marketPrice;
     // TCGdex knows Snorlax TG10 but has no TCGplayer price for it.
     store.set('cards', 'tg', { name: 'Snorlax', set: 'Lost Origin Trainer Gallery', number: 'TG10/TG30', status: 'binder', prices: [], details: { source: 'tcgdex', result: 'complete', id: 'swsh11tg-TG10', checkedAt: '2026-10-01T00:00:00Z' } });
     // TCGdex doesn't know these at all: TCGplayer's catalog names their products (the Poké Ball one its own).

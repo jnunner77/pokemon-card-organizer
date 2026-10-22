@@ -1,5 +1,6 @@
 import type { Brand } from '#shared/brand.ts';
 import { err, ok, type Result } from '#shared/result.ts';
+import { formerCardForgotten, type LookupFound, type LookupResult, lookupRecord } from '../catalog/details.ts';
 import type { InvalidDocument } from '../ledger/check-document.ts';
 import type { Fields } from '../ledger/document.ts';
 import type { LedgerEvent } from '../ledger/events.ts';
@@ -93,6 +94,21 @@ export class Card {
     if (now.page === page && now.slot === slot) return ok(false);
     const moved = this.merge({ page, slot, updatedAt: at.toISOString() }, at);
     return moved.ok ? ok(true) : moved;
+  }
+
+  /**
+   * What a card database lookup made at `at` found: the card's empty details filled from a single
+   * match (what the person typed always wins), and the lookup recorded as its `details`.
+   */
+  recordLookup(found: LookupFound, at: Date): Result<LookupResult, InvalidDocument> {
+    const { patch, result } = lookupRecord(this.#fields, found, at.toISOString());
+    const merged = this.merge(patch, at);
+    return merged.ok ? ok(result) : merged;
+  }
+
+  /** It became a different card (its name or number changed): what was found for the card it was goes. */
+  forgetFormerCard(at: Date): Result<void, InvalidDocument> {
+    return this.merge(formerCardForgotten(this.#fields), at);
   }
 
   delete(at: Date): void {

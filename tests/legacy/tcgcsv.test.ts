@@ -7,7 +7,7 @@ import { TcgCsv, candidateGroups, chooseProduct, ownNumber, productName, setName
 
 retryPolicy.baseMs = 1; // retries happen at once in tests
 
-const fixture = <T>(f: string) => (JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'tcgcsv', f), 'utf8')) as { results: T }).results;
+const fixture = <T>(f: string) => (JSON.parse(fs.readFileSync(path.join(__dirname, '../fixtures', 'tcgcsv', f), 'utf8')) as { results: T }).results;
 const groups = fixture<TcgGroup[]>('groups.json');
 const tg = fixture<TcgProduct[]>('3172-products.json');
 const tgPrices = fixture<TcgPrice[]>('3172-prices.json');
@@ -22,7 +22,7 @@ function fakeTcgcsv(down = false) {
     if (down) return new Response('', { status: 500 });
     const m = /tcgplayer\/3\/(groups|(\d+)\/(products|prices))$/.exec(url);
     const file = m ? (m[1] === 'groups' ? 'groups.json' : `${m[2]}-${m[3]}.json`) : '';
-    const p = path.join(__dirname, 'fixtures', 'tcgcsv', file);
+    const p = path.join(__dirname, '../fixtures', 'tcgcsv', file);
     return file && fs.existsSync(p) ? new Response(fs.readFileSync(p, 'utf8'), { headers: { 'Content-Type': 'application/json' } }) : new Response('not found', { status: 404 });
   };
   return { fetcher, calls };

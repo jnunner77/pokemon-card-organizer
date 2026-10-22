@@ -5,8 +5,11 @@ import request from 'supertest';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../../src/compose.ts';
 import { PhotoFiles as Assets } from '../../src/infrastructure/photos/photo-files.ts';
-import { CardDetails, DETAILS_VERSION } from '../../server/details.ts';
-import { MasterSets, groupOf, isExtra, placeholderCards, subGroupsOf, tcgVariant, variantText } from '../../server/masterset.ts';
+import { MasterSetFinder } from '../../src/application/catalog/master-set-finder.ts';
+import type { CardDatabase, TcgplayerCatalog } from '../../src/application/catalog/ports.ts';
+import { DETAILS_VERSION } from '../../src/domain/cards/attention.ts';
+import { groupOf, isExtra, placeholderCards, subGroupsOf, tcgVariant, variantText } from '../../src/domain/catalog/master-sets.ts';
+import { TcgdexCardDatabase as CardDetails } from '../../src/infrastructure/catalog/tcgdex.ts';
 import { type TcgdexCard, chooseVariant } from '../../server/pricing/catalog.ts';
 import { type Fetcher, retryPolicy } from '../../server/pricing/sources.ts';
 import { TcgCsv, type TcgGroup } from '../../server/pricing/tcgcsv.ts';
@@ -15,7 +18,7 @@ import { Store } from '../../src/infrastructure/json-store/store.ts';
 retryPolicy.baseMs = 1;
 
 // Real TCGdex responses for Celebrations and its Classic Collection (tests/fixtures/tcgdex), replayed by URL.
-const FIXTURES = path.join(__dirname, 'fixtures/tcgdex');
+const FIXTURES = path.join(__dirname, '../fixtures/tcgdex');
 const API = 'https://api.tcgdex.net/v2/en';
 const fixture = (p: string) => path.join(FIXTURES, encodeURIComponent(p) + '.json');
 const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
@@ -54,6 +57,23 @@ function replay(calls: string[] = []): Fetcher {
 const down: Fetcher = async () => {
   throw new Error('getaddrinfo ENOTFOUND api.tcgdex.net');
 };
+
+/** Master sets (src/application/catalog) over this card database and TCGplayer catalog, as these tests ask for them. */
+class MasterSets {
+  private readonly finder: MasterSetFinder;
+
+  constructor(database: CardDatabase, tcgplayer?: TcgplayerCatalog) {
+    this.finder = new MasterSetFinder({ database, tcgplayer: tcgplayer ?? null });
+  }
+
+  findSet(query: string) {
+    return this.finder.find(query);
+  }
+
+  sets() {
+    return this.finder.sets();
+  }
+}
 
 describe("a set's master set", () => {
   it('lists every card of the set and its sub-sets, in number order', async () => {
@@ -204,7 +224,7 @@ describe('master sets in the app', () => {
     store = new Store(dir);
   });
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
-  const app = (fetcher: Fetcher | null = replay()) => createApp({ store, assets: new Assets(dir), publicDir: path.join(__dirname, '../../public'), ...(fetcher ? { details: new CardDetails({ fetcher }) } : {}) });
+  const app = (fetcher: Fetcher | null = replay()) => createApp({ store, assets: new Assets(dir), publicDir: path.join(__dirname, '../../public'), ...(fetcher ? { cardDatabase: new CardDetails({ fetcher }) } : {}) });
 
   it("makes a set's master set, leaving promo printings out unless asked", async () => {
     store.set('binders', 'old', { name: 'Binder 1', pockets: 9, order: 3 });
@@ -226,7 +246,7 @@ describe('master sets in the app', () => {
 
   it('checks the set against TCGplayer when the server has its catalog', async () => {
     const fetcher = replay();
-    const a = createApp({ store, assets: new Assets(dir), publicDir: path.join(__dirname, '../../public'), details: new CardDetails({ fetcher }), tcgcsv: new TcgCsv({ fetcher, gapMs: 0 }) });
+    const a = createApp({ store, assets: new Assets(dir), publicDir: path.join(__dirname, '../../public'), cardDatabase: new CardDetails({ fetcher }), tcgcsv: new TcgCsv({ fetcher, gapMs: 0 }) });
     const p = await request(a).get('/api/master-sets/preview').query({ set: 'Celebrations' }).expect(200);
     expect(p.body).toMatchObject({ cards: 51, tcgplayer: { checked: true, added: 3 } });
     const r = await request(a).post('/api/master-sets').send({ set: 'Celebrations', owner: 'Megan', name: 'Celebrations', pockets: 9 }).expect(201);

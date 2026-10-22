@@ -7,3 +7,10 @@ export class RandomHexIds implements IdGenerator {
     return crypto.randomBytes(16).toString('hex');
   }
 }
+
+/** 64-bit random ids as 16 hex characters (binders and cards the server makes). */
+export class RandomShortIds implements IdGenerator {
+  next(): string {
+    return crypto.randomBytes(8).toString('hex');
+  }
+}

@@ -1,7 +1,9 @@
 import type { PhotoFiles } from '#infrastructure/photos/photo-files.ts';
 import { MAX_PHOTO_BYTES } from '#domain/photos/photo.ts';
 import type { AdminSettingsStore as Config } from '#application/admin/ports.ts';
-import { type CardDetails, type DetailsStatus, checkIdentity } from '../details.ts';
+import type { FillCardDetails } from '#application/catalog/fill-card-details.ts';
+import { checkIdentity } from '#domain/cards/attention.ts';
+import type { DetailsStatus } from '#domain/catalog/details.ts';
 import type { ServerLog as Logger } from '#application/logging.ts';
 import { quietLogger } from '#infrastructure/logging/logger.ts';
 import { type BlendSettings, blend } from '../blend.ts';
@@ -75,8 +77,8 @@ export interface UpdaterOptions {
   config?: Config | undefined;
   /** Consecutive failures from one site before the rest of the run stops asking it. */
   breakerAfter?: number | undefined;
-  /** Fills cards' empty set, set code, rarity, illustrator and release date before pricing them (details.ts). */
-  details?: CardDetails | undefined;
+  /** Fills cards' empty set, set code, rarity, illustrator and release date before pricing them (src/application/catalog). */
+  details?: Pick<FillCardDetails, 'execute'> | undefined;
   /** TCGplayer and Cardmarket prices and pictures from TCGdex (catalog.ts). */
   catalog?: Catalog | undefined;
   /** TCGplayer's own catalog (tcgcsv.ts), for what TCGdex doesn't have. */
@@ -280,7 +282,7 @@ const productOf = (l: { source: Source; id?: string | null; url?: string | null;
   linkedBy: l.linkedBy ?? null,
   linkedAt: l.linkedAt ?? null,
 });
-/** Looking up cards (lookup.ts) asks PriceCharting only while the day's calls are under this share of its budget. */
+/** Looking up any card (Find a card → Any card, server/pricing/any-card.ts) asks PriceCharting only while the day's calls are under this share of its budget. */
 export const LOOKUP_SHARE = 0.75;
 /** How long before the other site is searched again for a card it had no certain match for. */
 const PAIR_RETRY_MS = 7 * 86_400_000;
@@ -316,7 +318,7 @@ export class PriceUpdater {
   private readonly log: Logger;
   private readonly config?: Config;
   private readonly breakerAfter: number;
-  private readonly details?: CardDetails;
+  private readonly details?: Pick<FillCardDetails, 'execute'>;
   private readonly catalog?: Catalog;
   private readonly tcgcsv?: TcgCsv;
   private readonly pc?: PriceCharting;
@@ -520,7 +522,7 @@ export class PriceUpdater {
               // most once a week each, unless the person asked for everything): a known set helps
               // find the right product.
               this.step = 'filling in its details from TCGdex';
-              if (this.details && scope === 'all') await this.details.fill(this.store, id, run.force).catch(() => {});
+              if (this.details && scope === 'all') await this.details.execute({ cardId: id, force: run.force }).catch(() => {});
               this.step = 'pricing it';
               outcome = await this.updateCard(id, rate);
             }
@@ -1328,7 +1330,7 @@ export class PriceUpdater {
 
   /**
    * PriceCharting's products for a search, for a card looked up without being in the ledger (Find
-   * a card → Any card, lookup.ts). Throws why PriceCharting isn't asked (no token, paused, or the
+   * a card → Any card, any-card.ts). Throws why PriceCharting isn't asked (no token, paused, or the
    * day's calls past LOOKUP_SHARE of its budget, kept for the daily update) or its error. Not
    * counted against a running update's failures.
    */

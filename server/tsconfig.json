@@ -1,6 +1,6 @@
 {
-  // The Express server for the slices not yet moved into the layers (Administration, card details,
-  // master sets, prices) and the request pipeline. It sits outside the onion and may use every
+  // The Express server for the slices not yet moved into the layers (prices, security) and the
+  // request pipeline. It sits outside the onion and may use every
   // layer. Its code predates the stricter checks below, so they are relaxed for it.
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
