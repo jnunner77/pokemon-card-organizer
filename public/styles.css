@@ -230,6 +230,12 @@ tr.ended td{background:var(--bad-soft)}
 .filtacts{justify-content:flex-end;align-items:flex-start}
 .ownerpick{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:4px 0 8px}
 .ownerpick>:first-child{grid-column:1/-1}
+.statuspick{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:4px 0 8px}
+.statuspick>[data-setstatus="listed"]{grid-column:1/-1;order:-1}
+.statuspick .btn[aria-pressed="true"]{outline:2px solid var(--accent);outline-offset:1px}
+.statuspick small{font-weight:400;opacity:.8}
+/* a bigger target for pressing and holding a pocket's status badge */
+.pocket .flag:not(.placeholder)::before{content:"";position:absolute;inset:-4px -5px -10px}
 .tablewrap{overflow-x:auto}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{position:sticky;top:0;text-align:left;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-weight:600;padding:9px 10px;border-bottom:1px solid var(--line);background:var(--surface);white-space:nowrap}

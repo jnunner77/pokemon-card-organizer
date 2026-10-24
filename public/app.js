@@ -278,7 +278,7 @@ function pickBar(){
   const n = S.pick.size, allOn = S.shown.length && S.shown.every(id=>S.pick.has(id));
   const right = S.pickConfirm
     ? `<span class="confirm">Delete ${n} card${n===1?"":"s"} and their price history? <button class="btn sm danger solid" type="button" id="pickDelYes">Delete ${n}</button><button class="btn sm" type="button" id="pickDelNo">Keep</button></span>`
-    : `<button class="btn sm" type="button" id="pickAll">${allOn?"Clear all":"Select all"}</button><button class="btn sm" type="button" id="pickCancel">Cancel</button><button class="btn sm primary" type="button" id="pickSell" ${nSellable()?"":"disabled"}>Quick sell${nSellable()?` ${nSellable()}`:""}</button><button class="btn sm" type="button" id="pickMove" ${n?"":"disabled"} title="Move to another binder, at the end or in a pocket you choose">Move${n?` ${n}`:""}</button>${n===2?`<button class="btn sm" type="button" id="pickSwap" title="The two selected cards trade places">Swap</button>`:""}<button class="btn sm" type="button" id="pickPh" ${n?"":"disabled"} title="${pickAllPh()?"You have these cards now: count them in your totals":"Hold these pockets for cards you don't have yet: not counted in your totals"}">${pickAllPh()?"Owned":"Placeholder"}${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickOwner" ${n?"":"disabled"} title="Set who these cards belong to">Owner${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickDup" ${n?"":"disabled"}>Duplicate${n?` ${n}`:""}</button><button class="btn sm danger solid" type="button" id="pickDel" ${n?"":"disabled"}>Delete${n?` ${n}`:""}</button>`;
+    : `<button class="btn sm" type="button" id="pickAll">${allOn?"Clear all":"Select all"}</button><button class="btn sm" type="button" id="pickCancel">Cancel</button><button class="btn sm primary" type="button" id="pickSell" ${nSellable()?"":"disabled"}>Quick sell${nSellable()?` ${nSellable()}`:""}</button><button class="btn sm" type="button" id="pickStatus" ${n?"":"disabled"} title="Set these cards' status: listed for sale, out for grading, back in the binder…">Status${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickMove" ${n?"":"disabled"} title="Move to another binder, at the end or in a pocket you choose">Move${n?` ${n}`:""}</button>${n===2?`<button class="btn sm" type="button" id="pickSwap" title="The two selected cards trade places">Swap</button>`:""}<button class="btn sm" type="button" id="pickPh" ${n?"":"disabled"} title="${pickAllPh()?"You have these cards now: count them in your totals":"Hold these pockets for cards you don't have yet: not counted in your totals"}">${pickAllPh()?"Owned":"Placeholder"}${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickOwner" ${n?"":"disabled"} title="Set who these cards belong to">Owner${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickDup" ${n?"":"disabled"}>Duplicate${n?` ${n}`:""}</button><button class="btn sm danger solid" type="button" id="pickDel" ${n?"":"disabled"}>Delete${n?` ${n}`:""}</button>`;
   return `<div class="pickbar" role="toolbar" aria-label="Selection"><span class="cnt">${n} selected</span>${right}</div>`;
 }
 const nSellable = () => S.pick ? [...S.pick].filter(id => { const c = S.cards.find(x=>x.id===id); return c && owned(c); }).length : 0;
@@ -311,6 +311,43 @@ function ownerModal(){
     toast(ok===todo.length ? `${l.length} card${l.length===1?"":"s"}: owner ${who}` : `${ok} of ${todo.length} saved. Try the rest again.`);
     endPick();
   };
+}
+/* set the status of one card (press and hold its status) or of every selected card; which ones
+   change, and why any don't, is worked out in public/status.js. Sold opens Quick sell. */
+function statusModal(ids){
+  if(!S.db) return toast("Saving isn't available in this view.");
+  const l = ids.map(id=>S.cards.find(c=>c.id===id)).filter(Boolean); if(!l.length) return;
+  const ST = window.BinderStatus, cur = ST.shared(l), one = l.length===1;
+  $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard narrow" role="dialog" aria-modal="true" aria-labelledby="stTitle">
+    <h2 id="stTitle">Status of ${one ? esc(l[0].name||"this card") : `${l.length} cards`}</h2>
+    <p class="lead">Tap ${one?"its":"their"} new status. It saves straight away.</p>
+    <div class="statuspick">${STATUSES.map(([v,lab])=>`<button class="btn${v==="listed"?" primary":""}" type="button" data-setstatus="${v}" aria-pressed="${v===cur}">${esc(lab)}${v==="sold"?"…":""}${v===cur?` <small>· now</small>`:""}</button>`).join("")}</div>
+    <p class="hint">Sold opens Quick sell, to record what ${one?"it":"they"} sold for.</p>
+    <div class="mfoot"><button class="btn" type="button" data-mclose>Cancel</button></div>
+  </div></div>`;
+  $(".statuspick").onclick = async e => {
+    const b = e.target.closest("[data-setstatus]"); if(!b) return;
+    const p = ST.plan(l, b.dataset.setstatus);
+    if(p.status==="sold"){ if(!p.change.length) return toast(ST.summary(p, 0)); closeModal(); return quickSellModal(p.change); }
+    const was = new Map(l.map(c=>[c.id, ST.statusOf(c)]));
+    document.querySelectorAll("[data-setstatus]").forEach(x=>x.disabled=true);
+    const res = await Promise.allSettled(p.change.map(id => S.db.doc("cards/"+id).update({status:p.status, updatedAt:nowISO()})));
+    const done = p.change.filter((_,i)=>res[i].status==="fulfilled"), failed = p.change.length-done.length;
+    closeModal(); if(S.pick) endPick();
+    if(failed && !done.length){ console.error(res.find(r=>r.status==="rejected")?.reason); return writeErr(res.find(r=>r.status==="rejected")?.reason); }
+    toast(ST.summary(p, done.length) + (failed ? ` ${failed} didn't save. Try them again.` : ""), done.length ? {label:"Undo", run:()=>void undoStatus(done, was)} : null);
+  };
+}
+async function undoStatus(ids, was){
+  const res = await Promise.allSettled(ids.map(id => S.db.doc("cards/"+id).update({status:was.get(id)||"binder", updatedAt:nowISO()})));
+  const ok = res.filter(r=>r.status==="fulfilled").length;
+  toast(ok===ids.length ? `Undone: ${ok} card${ok===1?" is":"s are"} as ${ok===1?"it was":"they were"}` : `${ok} of ${ids.length} undone. Change the rest back by hand.`);
+}
+/* pressing and holding a card's status badge changes its status straight away */
+function statusHold(id){
+  if(S.sel===id){ if(!discardOk()) return; closeDrawer(); }
+  try{ navigator.vibrate?.(15); }catch(_){}
+  statusModal([id]);
 }
 function startPick(id){ if(S.sel && !discardOk()) return; S.pick = new Set(id?[id]:[]); S.pickConfirm=false; try{ navigator.vibrate?.(15); }catch(_){} if(S.sel) closeDrawer(); else renderMain(); }
 function endPick(){ S.pick=null; S.pickConfirm=false; renderMain(); }
@@ -358,7 +395,7 @@ function renderMainInner(){
       <div class="pageinfo">
         <span><b>${pageCards.length}</b> of ${n} pockets filled</span>
         <span>Page value <b>${money(pst.val)}</b></span>
-        <span class="hint">${n}-pocket pages. Tap a card to price it or move it. Tap an empty pocket to add one. Tap Photos to flip through every picture full screen. Swipe left or right on the page to flip pages. Press and hold a card to quick sell it or move it to another binder, or to select several to sell, move, mark as placeholders, duplicate or delete.</span>
+        <span class="hint">${n}-pocket pages. Tap a card to price it or move it. Tap an empty pocket to add one. Tap Photos to flip through every picture full screen. Swipe left or right on the page to flip pages. Press and hold a card to quick sell it, set its status (list it for sale) or move it to another binder, or to select several to sell, list, move, mark as placeholders, duplicate or delete. Press and hold a card's status badge to change just its status.</span>
       </div>
     </aside></div>`;
 }
@@ -389,7 +426,7 @@ function renderCase(m, b){
       <div class="pageinfo">
         <span><b>${list.length}</b> card${list.length===1?"":"s"} in the case</span>
         <span>Case value <b>${money(st.val)}</b></span>
-        <span class="hint">A display case has no pages or pockets: its cards are shown together. Tap a card to price it or move it, or + to add one. Press and hold a card to quick sell it or move it to a binder, or to select several. To fill the case, select cards in a binder and Move them here.</span>
+        <span class="hint">A display case has no pages or pockets: its cards are shown together. Tap a card to price it or move it, or + to add one. Press and hold a card to quick sell it, set its status or move it to a binder, or to select several. Press and hold a card's status badge to change just its status. To fill the case, select cards in a binder and Move them here.</span>
       </div>
     </aside></div>`;
 }
@@ -428,7 +465,7 @@ function renderList(m){
       <label class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" type="search" placeholder="Search name, set, number, rarity…" value="${esc(S.q)}" aria-label="Search cards"></label>
       <div class="seg" role="group" aria-label="Scope"><button type="button" data-scope="binder" aria-pressed="${S.scope!=="all"}">${S.binderId==="__loose"?"Loose":"This binder"}</button><button type="button" data-scope="all" aria-pressed="${S.scope==="all"}">All cards</button></div>
       <button class="btn sm${nf?" primary":""}" type="button" id="btnFilt" aria-expanded="${!!S.filtOpen}" aria-controls="filtPane">Filters${nf?` · ${nf}`:""}</button>
-      <span class="hint">${list.length} shown${nf||q?` · ${money(statsFor(list).val)} value`:""}${S.pick||!list.length?"":" · hold a row to quick sell or select"}</span></div>
+      <span class="hint">${list.length} shown${nf||q?` · ${money(statsFor(list).val)} value`:""}${S.pick||!list.length?"":" · hold a row to quick sell, list or select it, or its status to change it"}</span></div>
     ${S.filtOpen?filterPane(base, S.filt, "ff", "filtPane", STATUSES, {placeholders:true}):""}
     <div class="tablewrap"><table><thead><tr>${S.pick?"<th></th>":""}<th></th>${th("name","Card")}${th("set","Set · No.")}${th("released","Released")}${th("loc","Location")}${th("status","Status")}${th("value","Value","r")}${th("paid","Paid","r")}</tr></thead>
     <tbody>${rows || `<tr><td colspan="${S.pick?9:8}" class="empty-state">${q||nf?"No cards match. Try fewer filters, or All cards.":"No cards here yet."}</td></tr>`}</tbody></table></div>`;
@@ -2803,9 +2840,11 @@ let hold = null, suppressClick = false;
 document.addEventListener("pointerdown", e => {
   suppressClick=false; if(e.button>0) return;
   const cd = e.target.closest("[data-card]"); if(!cd || cd.closest(".drawer") || S.mode!=="ready") return;
+  const badge = e.target.closest(".flag:not(.placeholder),.chip:not(.placeholder)");
   clearTimeout(hold?.t);
   hold = {x:e.clientX, y:e.clientY, t:setTimeout(()=>{
     hold=null; suppressClick=true; const id=cd.dataset.card;
+    if(!S.pick && badge && cd.contains(badge) && canEdit()) return statusHold(id);
     if(S.pick){ S.pick.has(id)?S.pick.delete(id):S.pick.add(id); S.pickConfirm=false; renderMain(); } else startPick(id);
   }, HOLD_MS)};
 });
@@ -2935,6 +2974,7 @@ document.addEventListener("click", e => {
     if(t.closest("#pickSell")) return quickSellModal([...S.pick]);
     if(t.closest("#pickMove")) return moveModal([...S.pick]);
     if(t.closest("#pickOwner")) return ownerModal();
+    if(t.closest("#pickStatus")) return statusModal([...S.pick]);
     const pcd = t.closest("#main [data-card]");
     if(pcd){ const id=pcd.dataset.card; S.pick.has(id)?S.pick.delete(id):S.pick.add(id); S.pickConfirm=false; if(!S.pick.size) return endPick(); return renderMain(); }
     if(t.closest("#main [data-empty],#main [data-caseadd]")) return;
