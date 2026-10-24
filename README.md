@@ -644,6 +644,11 @@ when you've rearranged the binder and want to keep the new layout instead.
   empty pocket after its card, with the same details, photo and market prices; what you paid,
   listings and sales stay with the original. One copy opens it; several leave the original open
   and say where they went.
+- **Quick status**, to list cards for sale fast: press and hold a card's status badge (*Listed*,
+  *Grading*… on a pocket, or the status in the List view) and tap its new status, or press and hold
+  a card, select more, and tap *Status*. It saves straight away, with *Undo*. *Sold* opens Quick
+  sell, so the price is recorded. Placeholders can't be listed, graded, sold or traded, and cards
+  sold with Quick sell keep their sale (undo it to change them); it says which were left as they were.
 - **Quick sell** one or many cards (press and hold to select), with profit against what you
   paid (or the market price). A **Sales** tab totals it, and a sale can be undone.
   Several cards sold together for one price (3 cards for $18) are a **bundle**: choose *One price
