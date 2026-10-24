@@ -14,14 +14,15 @@
 
   /* The cards that change (ids), and how many stay as they are: already that status, placeholders,
      and cards sold with Quick sell (they keep their sale; undoing it puts them back). Sold is
-     recorded by Quick sell, so `change` is then the cards to open it for. */
+     recorded by Quick sell, so `change` is then the cards to open it for: a traded card can't be sold. */
   function plan(cards, status) {
-    const out = { change: [], same: 0, placeholder: 0, quickSold: 0 };
+    const out = { change: [], same: 0, placeholder: 0, quickSold: 0, traded: 0 };
     for (const c of cards) {
       if (!c) continue;
       if (c.sale && statusOf(c) === "sold") out.quickSold++;
       else if (statusOf(c) === status) out.same++;
       else if (c.placeholder && NEEDS_CARD.includes(status)) out.placeholder++;
+      else if (status === "sold" && statusOf(c) === "traded") out.traded++;
       else out.change.push(c.id);
     }
     return out;
@@ -34,6 +35,7 @@
     const why = [];
     if (p.same) why.push(n(p.same, "was already", "were already") + " " + (ALREADY[p.status] || "that"));
     if (p.placeholder) why.push(n(p.placeholder, "is a placeholder", "are placeholders"));
+    if (p.traded) why.push(n(p.traded, "was traded", "were traded"));
     if (p.quickSold) why.push(n(p.quickSold, "was sold with Quick sell (undo the sale to change it)", "were sold with Quick sell (undo the sale to change them)"));
     return why.join("; ");
   }

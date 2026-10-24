@@ -5,16 +5,17 @@ import { describe, expect, it } from 'vitest';
 
 // public/status.js is a plain browser script; load it the way the page does.
 type Card = { id: string; status?: string; placeholder?: boolean; sale?: object | null };
-type Plan = { change: string[]; same: number; placeholder: number; quickSold: number; status: string };
+type Plan = { change: string[]; same: number; placeholder: number; quickSold: number; traded: number; status: string };
 type Status = {
   plan: (cards: (Card | undefined)[], status: string) => Plan;
   summary: (p: Plan, saved: number) => string;
+  leftAlone: (p: Plan) => string;
   shared: (cards: Card[]) => string;
   statusOf: (c: Card) => string;
 };
 const sandbox = { window: {} as { BinderStatus: Status } };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public/status.js'), 'utf8'), sandbox);
-const { plan, summary, shared, statusOf } = sandbox.window.BinderStatus;
+const { plan, summary, leftAlone, shared, statusOf } = sandbox.window.BinderStatus;
 const plain = <T>(v: T): T => JSON.parse(JSON.stringify(v));
 
 const inBinder: Card = { id: 'a' };
@@ -26,7 +27,7 @@ const grading: Card = { id: 'f', status: 'grading' };
 
 describe('a quick status change', () => {
   it('lists cards for sale, leaving the ones already listed', () => {
-    expect(plain(plan([inBinder, listed, grading], 'listed'))).toEqual({ change: ['a', 'f'], same: 1, placeholder: 0, quickSold: 0, status: 'listed' });
+    expect(plain(plan([inBinder, listed, grading], 'listed'))).toEqual({ change: ['a', 'f'], same: 1, placeholder: 0, quickSold: 0, traded: 0, status: 'listed' });
   });
 
   it("doesn't list, grade, sell or trade a placeholder, but can put it back in the binder", () => {
@@ -36,6 +37,15 @@ describe('a quick status change', () => {
 
   it('leaves a card sold with Quick sell alone, whatever status is chosen', () => {
     for (const s of ['binder', 'listed', 'grading', 'sold', 'traded']) expect(plan([quickSold], s)).toMatchObject({ change: [], quickSold: 1 });
+  });
+
+  it("sends only cards that can be sold to Quick sell, and says why the rest weren't", () => {
+    const traded: Card = { id: 'g', status: 'traded' };
+    const p = plan([inBinder, listed, traded, ph, soldByHand, quickSold], 'sold');
+    expect(plain(p.change)).toEqual(['a', 'b']);
+    expect(leftAlone(p)).toBe('1 was already sold; 1 is a placeholder; 1 was traded; 1 was sold with Quick sell (undo the sale to change it)');
+    expect(summary(plan([traded], 'sold'), 0)).toBe('Nothing changed. Left as they were: 1 was traded.');
+    expect(plain(plan([traded], 'binder').change)).toEqual(['g']);
   });
 
   it('can put a card marked sold by hand back', () => {

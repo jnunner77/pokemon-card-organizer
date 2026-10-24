@@ -328,7 +328,12 @@ function statusModal(ids){
   $(".statuspick").onclick = async e => {
     const b = e.target.closest("[data-setstatus]"); if(!b) return;
     const p = ST.plan(l, b.dataset.setstatus);
-    if(p.status==="sold"){ if(!p.change.length) return toast(ST.summary(p, 0)); closeModal(); return quickSellModal(p.change); }
+    if(p.status==="sold"){
+      if(!p.change.length) return toast(ST.summary(p, 0));
+      closeModal(); quickSellModal(p.change);
+      const left = ST.leftAlone(p); if(left) toast(`Quick sell has ${p.change.length} of ${l.length} cards. Left as they were: ${left}.`);
+      return;
+    }
     const was = new Map(l.map(c=>[c.id, ST.statusOf(c)]));
     document.querySelectorAll("[data-setstatus]").forEach(x=>x.disabled=true);
     const res = await Promise.allSettled(p.change.map(id => S.db.doc("cards/"+id).update({status:p.status, updatedAt:nowISO()})));
