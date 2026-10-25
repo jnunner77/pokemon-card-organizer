@@ -25,24 +25,38 @@ PO_USERNAME = "jnunner77"  # PBIs, Bugs, Features and Epics are assigned to Just
 TIMEOUT = 30  # seconds to wait for the Boards server before giving up
 
 
+def one_line(text):  # a message as one short line
+    return " ".join(str(text).split())[:300]
+
+
 def call(method, path, body=None):
     url, tok = os.environ.get("BOARDS_URL", "").rstrip("/"), os.environ.get("BOARDS_TOKEN", "")
     if not url or not tok:
         sys.exit("BOARDS_URL and BOARDS_TOKEN must be set (ask the user to add them to the environment).")
+    if not url.startswith(("http://", "https://")):
+        sys.exit(f"BOARDS_URL must start with http:// or https:// (got {url!r})")
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", tok):  # Boards issues boards_ + base64url; never print it
+        sys.exit("BOARDS_TOKEN has characters a Boards token doesn't (a space or line break copied with it?); "
+                 "ask the user to set it again.")
     req = urllib.request.Request(url + path, method=method, data=None if body is None else json.dumps(body).encode(),
                                  headers={"Authorization": "Bearer " + tok, "Content-Type": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
             raw = r.read()
     except urllib.error.HTTPError as e:
-        sys.exit(f"{method} {path}: HTTP {e.code} {e.read().decode(errors='replace')[:300]}")
+        try:
+            detail = e.read().decode(errors="replace")
+        except Exception as cut:  # the error reply's own body cut short or timed out
+            detail = f"(reply cut short: {type(cut).__name__})"
+        sys.exit(f"{method} {path}: HTTP {e.code} {one_line(detail)}")
     except urllib.error.URLError as e:  # includes a connection that times out
-        sys.exit(f"cannot reach {url}: {e.reason}")
+        sys.exit(f"cannot reach {url}: {one_line(e.reason)}")
     except TimeoutError:  # connected, but no answer in time
         sys.exit(f"{method} {path}: no answer from {url} in {TIMEOUT}s")
     except (ConnectionError, http.client.HTTPException) as e:  # dropped mid-reply, or not an HTTP server
-        sys.exit(f"{method} {path}: {url} broke off or didn't answer as HTTP "
-                 f"({type(e).__name__}: {' '.join(str(e).split())[:300]})")
+        sys.exit(f"{method} {path}: {url} broke off or didn't answer as HTTP ({type(e).__name__}: {one_line(e)})")
+    except Exception as e:  # anything else from urllib, http.client or the socket (bad port, TLS): one line
+        sys.exit(f"{method} {path}: {url}: {type(e).__name__}: {one_line(str(e).replace(tok, '<token>'))}")
     not_json = f"{method} {path}: {url} didn't answer with JSON; is BOARDS_URL the Boards server?"
     if not raw:  # every endpoint used here answers with a JSON object
         sys.exit(not_json)
@@ -147,7 +161,7 @@ def main(a):
         sys.exit(f"usage: boards.py {usage}")
 
     def num(i):  # a work item id
-        if not (i.isascii() and i.isdigit()):
+        if not (i.isascii() and i.isdigit() and len(i) <= 9):
             sys.exit(f"usage: boards.py {usage}  (ID is a number, e.g. 110; got {i!r})")
         return int(i)
 
