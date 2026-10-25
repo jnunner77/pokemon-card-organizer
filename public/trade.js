@@ -169,5 +169,5 @@
     return out;
   }
 
-  root.BinderTrade = { amount, percent, side, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, regradeNote, missingGradeNote, restore };
+  root.BinderTrade = { amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, regradeNote, missingGradeNote, restore };
 })(typeof window !== "undefined" ? window : globalThis);
