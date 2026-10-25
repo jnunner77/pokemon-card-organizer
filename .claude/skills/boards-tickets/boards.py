@@ -25,8 +25,33 @@ PO_USERNAME = "jnunner77"  # PBIs, Bugs, Features and Epics are assigned to Just
 TIMEOUT = 30  # seconds to wait for the Boards server before giving up
 
 
-def one_line(text):  # a message as one short line
-    return " ".join(str(text).split())[:300]
+def one_line(text):  # a message from the server or the network: one short line, never the token
+    text = " ".join(str(text).split())
+    tok = os.environ.get("BOARDS_TOKEN", "")
+    return (text.replace(tok, "<token>") if tok else text)[:300]
+
+
+def need(v, fields, where):
+    """v as a JSON object with the fields the script reads ({name: type}); otherwise stop with one line."""
+    bad = [k for k, kind in fields.items() if not isinstance(v, dict) or k not in v or not isinstance(v[k], kind)]
+    if bad:
+        sys.exit(f"{where}: the reply lacks {', '.join(bad)} as Boards sends it; is BOARDS_URL the Boards server?")
+    return v
+
+
+def result(reply, fields, where):  # the work item a change answers with
+    return need(need(reply, {"result": dict}, where)["result"], fields, where)
+
+
+def bootstrap():  # the project, with every field the script reads checked once
+    where = "GET /api/bootstrap"
+    db = need(need(call("GET", "/api/bootstrap"), {"db": dict}, where)["db"],
+              {"members": list, "sprints": list, "workItems": list}, where)
+    for key, fields in (("members", {"id": str}), ("sprints", {"id": str}),
+                        ("workItems", {"id": int, "type": str, "state": str, "title": str})):
+        for x in db[key]:
+            need(x, fields, f"{where} ({key})")
+    return db
 
 
 def call(method, path, body=None):
@@ -56,28 +81,33 @@ def call(method, path, body=None):
     except (ConnectionError, http.client.HTTPException) as e:  # dropped mid-reply, or not an HTTP server
         sys.exit(f"{method} {path}: {url} broke off or didn't answer as HTTP ({type(e).__name__}: {one_line(e)})")
     except Exception as e:  # anything else from urllib, http.client or the socket (bad port, TLS): one line
-        sys.exit(f"{method} {path}: {url}: {type(e).__name__}: {one_line(str(e).replace(tok, '<token>'))}")
-    not_json = f"{method} {path}: {url} didn't answer with JSON; is BOARDS_URL the Boards server?"
+        sys.exit(f"{method} {path}: {url}: {type(e).__name__}: {one_line(e)}")
+    not_json = f"{method} {path}: {url} didn't answer with a JSON object; is BOARDS_URL the Boards server?"
     if not raw:  # every endpoint used here answers with a JSON object
         sys.exit(not_json)
     try:
-        return json.loads(raw)
+        data = json.loads(raw)
     except ValueError:
         sys.exit(not_json)
+    if not isinstance(data, dict):
+        sys.exit(not_json)
+    return data
 
 
 def context():
-    user = call("GET", "/api/auth/status").get("user")
-    if not user:
+    where = "GET /api/auth/status"
+    user = need(call("GET", "/api/auth/status"), {"user": (dict, type(None))}, where)["user"]
+    if user is None:
         sys.exit(f"{os.environ['BOARDS_URL']} has sign-in off, so it doesn't report who the token acts as "
                  "and tasks can't be assigned to Claude. Point BOARDS_URL at the team's live Boards server "
                  "(sign-in on), or ask a person to turn sign-in on.")
-    me = user["memberId"]
-    db = call("GET", "/api/bootstrap")["db"]
+    me = need(user, {"memberId": str}, where)["memberId"]
+    db = bootstrap()
     po = next((m["id"] for m in db["members"] if m.get("username") == PO_USERNAME), None)
     today = date.today().isoformat()
-    sprint = next((s for s in db["sprints"]  # undated sprints (both dates null) are never current
-                   if s.get("startDate") and s.get("finishDate") and s["startDate"] <= today <= s["finishDate"]), None)
+    sprint = next((s for s in db["sprints"]  # undated sprints (dates null) are never current
+                   if isinstance(s.get("startDate"), str) and isinstance(s.get("finishDate"), str)
+                   and s["startDate"] <= today <= s["finishDate"]), None)
     return db, me, po, sprint
 
 
@@ -100,12 +130,14 @@ def create(spec_path):
         sys.exit('tasks must be a list of titles or {"title": ...} objects (see SKILL.md)')
     it = sprint["id"] if sprint else None
     fields = {k: v for k, v in spec.items() if k not in ("tasks", "type")}
-    item = call("POST", "/api/workitems", {"type": kind, "assignedTo": po, "iterationId": it, "priority": 2, "position": "bottom", **fields})["result"]
-    print(f"{kind} {item['id']}: {item['title']}  ({sprint['name'] if sprint else 'backlog'})")
+    item = result(call("POST", "/api/workitems", {"type": kind, "assignedTo": po, "iterationId": it, "priority": 2, "position": "bottom", **fields}),
+                  {"id": int, "title": str}, "POST /api/workitems")
+    print(f"{kind} {item['id']}: {item['title']}  ({(sprint.get('name') or sprint['id']) if sprint else 'backlog'})")
     for n, t in enumerate(tasks):
         try:
-            task = call("POST", "/api/workitems", {"type": "Task", "parentId": item["id"], "assignedTo": me, "iterationId": it,
-                                                   "priority": fields.get("priority", 2), "activity": "Development", **t})["result"]
+            task = result(call("POST", "/api/workitems", {"type": "Task", "parentId": item["id"], "assignedTo": me, "iterationId": it,
+                                                          "priority": fields.get("priority", 2), "activity": "Development", **t}),
+                          {"id": int, "title": str}, "POST /api/workitems")
         except SystemExit as e:  # call() stops at the first failed request: say what the backlog now holds
             left = ", ".join(repr(x["title"]) for x in tasks[n:])
             sys.exit(f"{e.code} -- {kind} AB#{item['id']} was created, but these tasks may not have been: {left}. "
@@ -115,7 +147,7 @@ def create(spec_path):
 
 
 def show(i):
-    db = call("GET", "/api/bootstrap")["db"]
+    db = bootstrap()
     if not any(w["id"] == i for w in db["workItems"]):
         sys.exit(f"no work item {i}")
     for w in db["workItems"]:
@@ -131,13 +163,13 @@ def text(h):
 
 
 def brief(i):
-    db = call("GET", "/api/bootstrap")["db"]
+    db = bootstrap()
     w = next((w for w in db["workItems"] if w["id"] == i), None)
     if not w:
         sys.exit(f"no work item {i}")
     print(f"{w['type']} AB#{w['id']} [{w['state']}] {w['title']}")
     for key, label in (("description", "Description"), ("reproSteps", "Repro steps"), ("acceptanceCriteria", "Acceptance criteria")):
-        if w.get(key):
+        if isinstance(w.get(key), str) and w[key]:
             print(f"\n{label}:\n{text(w[key])}")
     tasks = [t for t in db["workItems"] if t.get("parentId") == i]
     if tasks:
@@ -167,14 +199,14 @@ def main(a):
 
     if cmd == "whoami":
         db, me, po, sprint = context()
-        name = {m["id"]: m["name"] for m in db["members"]}
-        print(f"token acts as: {name.get(me)}; product owner: {name.get(po)}; current sprint: {sprint['name'] if sprint else 'none (backlog)'}")
+        name = {m["id"]: m.get("name") for m in db["members"]}
+        print(f"token acts as: {name.get(me)}; product owner: {name.get(po)}; current sprint: {(sprint.get('name') or sprint['id']) if sprint else 'none (backlog)'}")
     elif cmd == "create":
         create(a[1])
     elif cmd == "state":
         state, ids = a[1], [num(i) for i in a[2:]]
         for i in ids:
-            r = call("PATCH", f"/api/workitems/{i}", {"state": state})["result"]
+            r = result(call("PATCH", f"/api/workitems/{i}", {"state": state}), {"id": int, "state": str}, f"PATCH /api/workitems/{i}")
             print(f"{r['id']} -> {r['state']}")
     elif cmd == "comment":
         call("POST", f"/api/workitems/{num(a[1])}/comments", {"text": a[2]}); print("commented")
