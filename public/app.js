@@ -237,7 +237,7 @@ function renderTabs(){
   let h = bs.map(b => `<button class="tab${isCase(b)?" case":""}" role="tab" type="button" data-binder="${esc(b.id)}" aria-selected="${S.binderId===b.id}" title="${S.binderId===b.id?`Click to rename or edit this ${isCase(b)?"display case":"binder"}`:esc(b.name)+(isCase(b)?" (display case)":"")}" style="--bc:${esc(b.color||BINDER_COLORS[0])}"><span class="swatch"></span><span>${esc(b.name)}</span><span class="count">${cardsIn(b.id).length}</span>${S.binderId===b.id?`<span class="edit" data-rename="${esc(b.id)}" title="Rename ${isCase(b)?"display case":"binder"}" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m14 6 4 4"/></svg></span>`:""}</button>`).join("");
   if(loose || S.binderId==="__loose") h += `<button class="tab loose" role="tab" type="button" data-binder="__loose" aria-selected="${S.binderId==="__loose"}"><span class="swatch"></span><span>Not in a binder</span><span class="count">${loose}</span></button>`;
   const nSales = salesList().length;
-  if(nSales || S.binderId==="__sales") h += `<button class="tab sales" role="tab" type="button" data-binder="__sales" aria-selected="${S.binderId==="__sales"}"><span class="swatch"></span><span>Sales</span><span class="count">${nSales}</span></button>`;
+  if(nSales || S.binderId==="__sales" || S.cards.some(c => c.trade?.id)) h += `<button class="tab sales" role="tab" type="button" data-binder="__sales" aria-selected="${S.binderId==="__sales"}"><span class="swatch"></span><span>Sales</span><span class="count">${nSales}</span></button>`;
   h += `<button class="tab add" type="button" id="btnNewBinder" title="A binder with pages and pockets, or a display case">+ New binder</button>`;
   $("#tabs").innerHTML = h;
   const b = curBinder(); $("#sheet").style.setProperty("--bc", b?.color || "#77838F"); $("#btnBinderSettings").hidden = !b;
@@ -508,10 +508,9 @@ function readFilters(){ S.filt = filtersFrom("ff", "filtPane"); store.set("filt"
 function renderSales(m){
   S.shown = [];
   const l = salesList(), t = salesTotals();
-  if(!l.length){ m.innerHTML = `<div class="empty-state"><p>No sales yet.</p><p class="hint">Press and hold a card in a binder, then tap Quick sell.</p></div>`; return; }
-  // A bundle's cards go together, under one row for the bundle, where its first card falls.
-  const groups = []; const byBundle = new Map();
-  for(const x of l){ const b = x.s.bundle?.id; if(!b){ groups.push(x); continue; } if(!byBundle.has(b)){ const g = {bundle:x.s.bundle, items:[]}; byBundle.set(b, g); groups.push(g); } byBundle.get(b).items.push(x); }
+  // Bundles and trades as groups, and trades where I gave only cash too (trade.js salesGroups).
+  const groups = window.BinderTrade.salesGroups(l, S.cards);
+  if(!groups.length){ m.innerHTML = `<div class="empty-state"><p>No sales yet.</p><p class="hint">Press and hold a card in a binder, then tap Quick sell.</p></div>`; return; }
   const saleRow = ({c,s}, inBundle) => `<tr data-sale="${esc(c.id)}" class="${isFound(c.id)?"found":""}${inBundle?" inbundle":""}">
       <td class="mono">${inBundle?"":esc(s.date||"—")}</td>
       <td class="hide-sm">${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="" loading="lazy">`:`<span class="thumb"></span>`}</td>
@@ -535,7 +534,30 @@ function renderSales(m){
       <td class="r mono ${!profs.length?"":prof>=0?"pos":"neg"}">${profs.length?signed(prof):"—"}</td>
       <td class="r"><button class="btn sm ghost" type="button" data-unbundle="${esc(g.bundle.id)}" title="Put all ${g.items.length} cards back where they were">Undo</button></td></tr>`;
   };
-  const rows = groups.map(g => g.bundle ? bundleRow(g) + g.items.map(x=>saleRow(x, true)).join("") : saleRow(g, false)).join("");
+  /* A trade: what I gave and got, my cards (sold for their share of what I got), and the cards I got with what each cost. */
+  const tradeRow = g => {
+    const T = g.trade, got = S.cards.filter(c => c.trade?.id===T.id);
+    const rev = g.items.reduce((a,x)=>a+x.s.soldCAD,0), cost = g.items.reduce((a,x)=>a+(x.s.cost??0),0);
+    const profs = g.items.filter(x=>x.s.profit!=null), prof = profs.reduce((a,x)=>a+x.s.profit,0);
+    const n = (k, cash) => [k ? `${k} card${k===1?"":"s"}` : "", cash ? money(cash) : ""].filter(Boolean).join(" + ") || "nothing";
+    const what = `Gave ${n(T.gave ?? g.items.length, T.gaveCash)} for ${n(T.got ?? got.length, T.gotCash)}`;
+    return `<tr class="bundlerow traderow" data-trade="${esc(T.id)}">
+      <td class="mono">${esc(g.items[0]?.s.date || T.date || "—")}</td>
+      <td class="hide-sm"><span class="bundleicon" aria-hidden="true">⇄</span></td>
+      <td class="cellname"><b>Trade${T.with?` with ${esc(T.with)}`:""}</b><span>${esc(what)}</span></td>
+      <td class="r mono">${g.items.length?money(rev):"—"}</td>
+      <td class="hide-sm"></td>
+      <td class="r mono hide-sm">${g.items.length?money(cost):"—"}</td>
+      <td class="r mono ${!profs.length?"":prof>=0?"pos":"neg"}">${profs.length?signed(prof):"—"}</td>
+      <td class="r"><button class="btn sm ghost" type="button" data-untrade="${esc(T.id)}" title="Put your cards back and take out the cards you got">Undo</button></td></tr>`
+      + g.items.map(x=>saleRow(x, true)).join("")
+      + got.map(c => { const pd = paidOf(c); return `<tr data-sale="${esc(c.id)}" class="inbundle gotrow${isFound(c.id)?" found":""}">
+        <td class="mono"></td>
+        <td class="hide-sm">${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="" loading="lazy">`:`<span class="thumb"></span>`}</td>
+        <td class="cellname"><b><span class="gotmark">Got</span> ${esc(c.name||"Unnamed card")}</b><span>${esc([metaLine(c), window.BinderTrade.gradeLabel(c.grader, c.grade), locText(c)].filter(Boolean).join(" · "))}</span></td>
+        <td class="r mono hint">${pd!=null?`paid ${money(pd)}`:""}</td><td class="hide-sm"></td><td class="hide-sm"></td><td></td><td></td></tr>`; }).join("");
+  };
+  const rows = groups.map(g => g.bundle ? bundleRow(g) + g.items.map(x=>saleRow(x, true)).join("") : g.trade ? tradeRow(g) : saleRow(g, false)).join("");
   m.innerHTML = `<div class="salesum">
       <div class="stat"><span class="k">Cards sold</span><span class="v">${t.n}</span></div>
       <div class="stat"><span class="k">Sold for</span><span class="v">${money(t.rev)}</span></div>
@@ -878,7 +900,8 @@ async function bulkBuyUndo(btn, list){
    A trade with a dealer worked out before agreeing to it (public/trade.js): what the dealer gives
    (any card, looked up in the card database with its prices, or typed in) and what I give (cards I
    own, or typed in), graded or not, and cash, with the trade percentage each side's cards are taken
-   at. Nothing is saved to the ledger; the trade being worked out is kept in this browser until Start over. */
+   at. Nothing is saved to the ledger until it's recorded (below); the trade being worked out is
+   kept in this browser until Start over. */
 const TR_SIDES = ["dealer","mine"];
 const TR_NAME = {dealer:"Dealer gives", mine:"I give"};
 let TR = null;
@@ -998,10 +1021,10 @@ function tradeModal(){
   TR = trLoad();
   $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard tr-card" id="tr_card" role="dialog" aria-modal="true" aria-labelledby="trTitle">
     <h2 id="trTitle">Trade evaluator</h2>
-    <p class="lead">Find the dealer's cards (any card, with today's price, or PriceCharting's for its grade) and yours, add cash, and put in the dealer's percentage ("your cards at 80%"). Values are in CAD. Nothing is saved to your ledger; the trade stays here until you start over.</p>
+    <p class="lead">Find the dealer's cards (any card, with today's price, or PriceCharting's for its grade) and yours, add cash, and put in the dealer's percentage ("your cards at 80%"). Values are in CAD. Nothing changes in your ledger until you record the trade, and it stays here until you start over.</p>
     <div class="tr-sides">${trSideHTML("dealer")}${trSideHTML("mine")}</div>
     <section class="tr-sum" id="tr_sum" aria-live="polite" aria-label="Breakdown"></section>
-    <div class="mfoot"><button class="btn ghost" type="button" id="tr_clear">Start over</button><button class="btn primary" type="button" data-mclose>Close</button></div>
+    <div class="mfoot"><button class="btn ghost" type="button" id="tr_clear">Start over</button><button class="btn" type="button" data-mclose>Close</button>${S.db && canEdit() ? `<button class="btn primary" type="button" id="tr_record" title="Add the dealer's cards to your ledger and mark yours Traded">Record trade…</button>` : ""}</div>
   </div></div>`;
   const card = $("#tr_card");
   const onEdit = e => {
@@ -1031,6 +1054,7 @@ function tradeModal(){
     const ad = t.closest("[data-tradd]"); if(ad) return trAddTyped(ad.dataset.tradd);
     const dl = t.closest("[data-trdel]"); if(dl){ const [k, key] = dl.dataset.trdel.split(":"); TR[k].items = TR[k].items.filter(x => x.key!==key); trList(k); trResults(k); trSave(); trRefresh(); return; }
     const ev = t.closest("[data-treven]"); if(ev){ const k = ev.dataset.treven, r = window.BinderTrade.evaluate(TR); TR[k].cash = window.BinderTrade.addCash(TR[k].cash, r.even.cash); $(`#tr_cash_${k}`).value = TR[k].cash; trSave(); trRefresh(); return; }
+    if(t.closest("#tr_record")) return trRecordModal();
     if(t.closest("#tr_clear")){ if(!trAny() || confirm("Start over? This trade is cleared.")){ TR = trBlank(); TRS = {...TRS, q:"", hits:[], busy:false, error:""}; TRS.seq++; trSave(); TR_SIDES.forEach(k => { $(`#tr_cash_${k}`).value = ""; $(`#tr_pct_${k}`).value = "100"; $(`[data-trq="${k}"]`).value = ""; trList(k); trResults(k); }); trRefresh(); } return; }
   });
   card.addEventListener("keydown", e => {
@@ -1163,6 +1187,95 @@ function trSummary(r){
   if(r.theirRate!=null) rates.push(`The dealer's cards cost you <b>${esc(BT.pctText(r.theirRate))}%</b> of theirs${m.counted ? ", counting your cards at market" : ""}.`);
   if(rates.length) h += `<p class="tr-line">${rates.join(" ")}</p>`;
   return h + warn();
+}
+
+/* ---------- recording a trade ----------
+   Once a trade is agreed: the dealer's cards come into the ledger, each where I choose (a binder's
+   next free pocket, a display case, the pocket of a placeholder for it, or Not in a binder for now),
+   each with its share of what I gave as its Paid price; my cards are marked Traded, each with its
+   share of what I got as its sale (trade.js settle). Saved all at once on the server (POST
+   api/trades, src/domain/ledger/trade.ts), and undone from the toast or the Sales tab. */
+let TRR = null;
+const TR_NOWHERE = "";
+/* The dealer's cards as the record step lists them, with the placeholders each could fill. */
+function trrItems(){
+  const BT = window.BinderTrade, s = BT.settle(TR);
+  const rows = TR.dealer.items.map(it => { const f = BT.newCard(it); return {name:f.name, number:f.number}; });
+  const best = window.BinderBulkBuy.match(rows, S.cards, {order:SORTS.loc});
+  return TR.dealer.items.map((it, i) => {
+    // its own placeholders (the first free one of each printing), and the one it fills alongside the others
+    const one = window.BinderBulkBuy.match([rows[i]], S.cards, {order:SORTS.loc})[0];
+    const ph = best[i].status==="match" ? trCard(best[i].cardId) : null;
+    const phs = [...new Set([ph, ...(one.printings || []).map(p => p.card)].filter(Boolean))];
+    return {it, card:BT.newCard(it), paid:s.paid[i], value:BT.amount(it.value), phs, ph:ph?.id || null};
+  });
+}
+const trrLandOpts = (x, v) => [
+  ...x.phs.map(c => [`ph:${c.id}`, `Its placeholder: ${locText(c)}${c.variant?` (${c.variant})`:""}`]),
+  ...sortedBinders().map(b => [`b:${b.id}`, isCase(b) ? `${b.name} (display case)` : `${b.name}: next empty pocket`]),
+  [TR_NOWHERE, "Not in a binder for now"],
+].map(([val, lab]) => `<option value="${esc(val)}" ${val===v?"selected":""}>${esc(lab)}</option>`).join("");
+function trRecordModal(){
+  if(!S.db || !canEdit()) return toast("Saving isn't available in this view.");
+  const items = trrItems();
+  TRR = {busy:false, land:window.BinderTrade.landings(items.map(x => ({key:x.it.key, ph:x.ph, phIds:x.phs.map(c => c.id)})), TRR?.land, sortedBinders().map(b => b.id))};
+  const BT = window.BinderTrade, s = BT.settle(TR);
+  const mine = TR.mine.items.map((it, i) => ({it, c:trCard(it.cardId), sold:s.sold[i]}));
+  const given = mine.filter(x => x.c && owned(x.c));
+  const getRow = x => { const g = BT.gradeLabel(x.card.grader, x.card.grade), L = x.it.look;
+    return `<div class="rt-row" data-rtget="${esc(x.it.key)}">
+      ${L?.thumb?`<img class="thumb" src="${esc(L.thumb)}" alt="" loading="lazy">`:`<span class="thumb"></span>`}
+      <div class="cellname"><b>${esc(x.card.name||"Unnamed card")}${g?` <span class="tr-grade">${esc(g)}</span>`:""}</b><span class="hint">${esc([x.card.set, x.card.number, x.card.variant].filter(Boolean).join(" · "))}</span>
+        <span class="rt-amt">${x.value!=null?`Worth ${esc(money(x.value))} · `:""}Paid <b>${esc(money(x.paid))}</b> <span class="hint">its share</span></span></div>
+      <div class="field rt-land"><label for="rt_land_${esc(x.it.key)}">Goes to</label><select id="rt_land_${esc(x.it.key)}" data-rtland="${esc(x.it.key)}">${trrLandOpts(x, TRR.land[x.it.key])}</select></div>
+    </div>`; };
+  const giveRow = x => { if(!x.c) return `<div class="rt-row rt-give"><span class="thumb"></span><div class="cellname"><b>${esc(x.it.name||"Typed-in card")}</b><span class="hint">Not in your ledger, so nothing changes for it.</span></div></div>`;
+    if(!owned(x.c)) return `<div class="rt-row rt-give"><span class="thumb"></span><div class="cellname"><b>${esc(x.c.name||"Unnamed card")}</b><span class="warn-text">Already sold or traded: it's left as it is.</span></div></div>`;
+    const cb = costBasis(x.c), p = cb.cost!=null ? x.sold - cb.cost : null;
+    return `<div class="rt-row rt-give">${shown(x.c)?`<img class="thumb" src="${imgURL(shown(x.c))}" alt="">`:`<span class="thumb"></span>`}
+      <div class="cellname"><b>${esc(x.c.name||"Unnamed card")}</b><span class="hint">${esc(locShort(x.c))}</span>
+        <span class="rt-amt">Traded for <b>${esc(money(x.sold))}</b>${p!=null?` <span class="${p>=0?"pos":"neg"}">${esc(signed(p))} ${esc(BASIS_LABEL[cb.basis])}</span>`:""}</span></div></div>`; };
+  const cash = [s.gaveCash ? `You pay ${money(s.gaveCash)} cash.` : "", s.gotCash ? `The dealer pays you ${money(s.gotCash)} cash.` : ""].filter(Boolean).join(" ");
+  $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard rt-card" id="rt_card" role="dialog" aria-modal="true" aria-labelledby="rtTitle">
+    <h2 id="rtTitle">Record the trade</h2>
+    <p class="lead">The cards you get are added to your ledger, each where you choose, with its share of what you gave (${esc(money(s.forTheirs))}) as its Paid price. Your cards are marked Traded, each with its share of what you got (${esc(money(s.forMine))}), and the trade shows on the Sales tab, where you can undo it.${cash?` ${esc(cash)}`:""}</p>
+    <h3 class="rt-h">You get <span class="hint">${items.length} card${items.length===1?"":"s"}</span></h3>
+    <div class="rt-list">${items.length ? items.map(getRow).join("") : `<p class="hint">No cards${s.gotCash?`, ${esc(money(s.gotCash))} cash`:""}.</p>`}</div>
+    <h3 class="rt-h">You give <span class="hint">${mine.length} card${mine.length===1?"":"s"}</span></h3>
+    <div class="rt-list">${mine.length ? mine.map(giveRow).join("") : `<p class="hint">No cards${s.gaveCash?`, ${esc(money(s.gaveCash))} cash`:""}.</p>`}</div>
+    <div class="rt-opts">
+      <div class="field"><label for="rt_date">Date</label><input id="rt_date" type="date" value="${today()}"></div>
+      <div class="field"><label for="rt_with">Traded with <span class="hint">(optional)</span></label><input id="rt_with" type="text" maxlength="100" placeholder="Dealer or shop" autocomplete="off"></div>
+    </div>
+    <p class="rt-problem warn-text" id="rt_problem" role="status"></p>
+    <div class="mfoot"><button class="btn ghost" type="button" id="rt_back">← Back to the trade</button><button class="btn primary" type="button" id="rt_go">Record trade</button></div>
+  </div></div>`;
+  const check = () => { const why = BT.recordProblem(TR, items.map(x => TRR.land[x.it.key]), given.length); $("#rt_problem").textContent = why; $("#rt_go").disabled = !!why || TRR.busy; };
+  const card = $("#rt_card");
+  card.addEventListener("change", e => { const k = e.target.dataset.rtland; if(k!=null){ TRR.land[k] = e.target.value; check(); } });
+  $("#rt_back").onclick = () => tradeModal();
+  $("#rt_go").onclick = () => void trRecord(items);
+  check();
+}
+async function trRecord(items){
+  const go = $("#rt_go"); if(!go || go.disabled || TRR.busy) return;
+  TRR.busy = true; go.disabled = true; go.textContent = "Recording…";
+  const id = rid();
+  const mine = TR.mine.items.map(it => { const c = trCard(it.cardId); if(!c || !owned(c)) return null; const cb = costBasis(c); return {cardId:c.id, cost:cb.cost, basis:cb.basis}; });
+  const body = window.BinderTrade.recordBody(TR, {id, date:$("#rt_date").value || today(), at:nowISO(), who:$("#rt_with").value.trim(), newId:rid, mine, lands:items.map(x => TRR.land[x.it.key]), owner:newCardOwner});
+  try{ await S.db.trade(body); }
+  catch(e){ TRR.busy = false; go.textContent = "Record trade"; go.disabled = false; writeErr(e); return; }
+  TR = trBlank(); TRS = {...TRS, q:"", hits:[], busy:false, error:""}; TRS.seq++; trSave(); TRR = null;
+  closeModal();
+  toast(`Trade recorded: ${body.received.length} card${body.received.length===1?"":"s"} in, ${body.given.length} traded away`, {label:"Undo", run:()=>void undoTrade(id)});
+  render();
+}
+/* Undo a recorded trade (the server puts everything back, src/domain/ledger/trade.ts undoTrade). */
+async function undoTrade(id, ask){
+  if(ask && !confirm("Undo this trade? Your cards go back where they were, the cards you got are taken out of your ledger, and placeholders they filled are placeholders again.")) return;
+  try{ await S.db.undoTrade(id); toast("Trade undone: your cards are back"); }
+  catch(e){ writeErr(e); }
+  render();
 }
 
 /* ---------- drawer ---------- */
@@ -3334,6 +3447,7 @@ document.addEventListener("click", e => {
   if(t.closest("#filtClear")){ S.filt = {...window.BinderFilter.EMPTY}; store.set("filt", S.filt); renderMain(); return; }
   const us = t.closest("[data-unsell]"); if(us) return void undoSale(us.dataset.unsell);
   const ub = t.closest("[data-unbundle]"); if(ub) return void undoBundle(ub.dataset.unbundle);
+  const ut = t.closest("[data-untrade]"); if(ut) return void undoTrade(ut.dataset.untrade, true);
   const sr = t.closest("[data-sale]"); if(sr){ return openCard(sr.dataset.sale); }
   const cd = t.closest("[data-card]"); if(cd && !t.closest(".drawer")){ return openCard(cd.dataset.card); }
   if(t.closest("[data-close]")){ if(discardOk()) closeDrawer(); return; }
@@ -3962,7 +4076,7 @@ function svTable(rows){
   const body = list.map(x => {
     if(isCard){
       const c = x.card, s = x.sale;
-      const meta = [metaLine(c), window.BinderSelling.whereOf(s), s.bundle ? `bundle of ${s.bundle.count}` : ""].filter(Boolean).join(" · ");
+      const meta = [metaLine(c), window.BinderSelling.whereOf(s), s.bundle ? `bundle of ${s.bundle.count}` : s.trade ? (s.trade.with ? `trade with ${s.trade.with}` : "in a trade") : ""].filter(Boolean).join(" · ");
       return `<tr data-svcard="${esc(c.id)}" tabindex="0"><td class="mono sv-date">${esc(s.date ? dLabel(s.date) : "—")}</td><td class="hide-sm">${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="" loading="lazy">`:`<span class="thumb"></span>`}</td><td class="cellname"><b>${esc(c.name||"Unnamed card")}</b><span>${esc(meta)}</span></td>${nums(s.soldCAD, s.profit==null?null:s.cost, s.profit, marginOf(s))}</tr>`;
     }
     const sub = [`${x.cards} card${x.cards===1?"":"s"}`, x.sales!==x.cards ? `${x.sales} sale${x.sales===1?"":"s"}` : "", SV.group!=="occasion" && SV.group!=="month" && x.last ? `last ${dLabel(x.last)}` : ""].filter(Boolean).join(" · ");

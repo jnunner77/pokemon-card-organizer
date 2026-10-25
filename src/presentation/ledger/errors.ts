@@ -6,6 +6,7 @@ import type { PutDocumentError } from '#application/ledger/put-document.ts';
 import { singular } from '#domain/ledger/document.ts';
 import { DOCUMENT_ID_RULE } from '#domain/ledger/ids.ts';
 import type { PlaceError } from '#domain/ledger/place.ts';
+import type { TradeError } from '#domain/ledger/trade.ts';
 import { assertNever } from '#shared/result.ts';
 import { badRequest } from '../http/errors.ts';
 import type { Failure } from '../http/respond.ts';
@@ -89,6 +90,39 @@ export function placeFailure(e: PlaceError): Failure {
       return conflict('A pocket was filled meanwhile, so nothing moved. Try again.');
     case 'INVALID_DOCUMENT':
       return badRequest(e.message);
+    default:
+      return assertNever(e);
+  }
+}
+
+export function tradeFailure(e: TradeError): Failure {
+  switch (e.code) {
+    case 'NOTHING_TO_RECORD':
+      return badRequest('The trade has no cards to record.');
+    case 'CARD_GIVEN_TWICE':
+      return badRequest('A card was given twice.');
+    case 'CARD_DELETED_MEANWHILE':
+      return conflict('A card in the trade was deleted meanwhile, so nothing was recorded.');
+    case 'CARD_NOT_HELD':
+      return conflict(`${e.name ?? 'A card of yours'} is already sold, traded or a placeholder, so nothing was recorded.`);
+    case 'NOT_A_PLACEHOLDER':
+      return conflict(`${e.name ?? 'That card'} isn't a placeholder any more, so nothing was recorded.`);
+    case 'CARD_ID_TAKEN':
+      return conflict("A new card's id is already taken, so nothing was recorded. Try again.");
+    case 'BINDER_GONE':
+      return conflict('A binder in the trade no longer exists, so nothing was recorded.');
+    case 'TRADE_NOT_FOUND':
+      return notFound('That trade is already undone.');
+    case 'TRADED_CARD_GONE_ON':
+      return conflict(`${e.name ?? 'A card you got in this trade'} has been sold or traded since, so the trade can't be undone. Undo that sale first.`);
+    case 'INVALID_ID':
+      return badRequest(DOCUMENT_ID_RULE);
+    case 'INVALID_DOCUMENT':
+      return badRequest(e.message);
+    case 'PRICES_SENT_AS_FIELDS':
+      return badRequest('Price entries are sent as add, update and remove.');
+    case 'PRICE_ENTRY_GONE':
+      return conflict('A price entry was changed or removed meanwhile, so nothing was saved. Try again.');
     default:
       return assertNever(e);
   }

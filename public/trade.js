@@ -5,8 +5,10 @@
    - In trade terms, the side giving less owes the difference in cash: that's the cash that evens it.
    - In market terms, what I get (the dealer's cards and cash) against what I give (my cards and
      cash) is what I gain or give up, and the rate my cards effectively go at.
+   - Recorded (settle), what I gave is the dealer's cards' cost and what I got my cards' sale price,
+     each split across that side's cards by value.
    Amounts are worked out in cents so totals add up exactly.
-   A plain script: the page uses window.BinderTrade, and the tests load it the same way. */
+   A plain script, loaded after bulkbuy.js: the page uses window.BinderTrade, and the tests load it the same way. */
 (function (root) {
   "use strict";
 
@@ -168,14 +170,15 @@
 
   /**
    * A card looked up in the card database, as the trade keeps it: from the search hit ({id, name,
-   * set, number, total, thumb}) and the card's prices ({printings:[{label, price:{cad},
-   * pricecharting:{grades:[{label, cad}]}}]}). Each printing keeps its price and graded prices in
-   * CAD; the one shown first is the first with a price (the regular card comes first).
+   * set, number, total, thumb}) and the card's prices ({printings:[{label, variant, price:{cad},
+   * pricecharting:{grades:[{label, cad}]}}]}). Each printing keeps its variant (for the card a
+   * recorded trade adds), price and graded prices in CAD; the one shown first is the first with a
+   * price (the regular card comes first).
    */
   function lookFrom(hit, card) {
     const h = hit || {}, num = h.total && /^\d+$/.test(String(h.number)) ? `${h.number}/${h.total}` : String(h.number ?? "");
     const printings = (Array.isArray(card?.printings) ? card.printings : []).map(p => ({
-      label: String(p?.label ?? ""),
+      label: String(p?.label ?? ""), variant: String(p?.variant ?? ""),
       cad: typeof p?.price?.cad === "number" ? p.price.cad : null,
       grades: (Array.isArray(p?.pricecharting?.grades) ? p.pricecharting.grades : []).filter(g => g && typeof g.cad === "number").map(g => ({ label: String(g.label ?? ""), cad: g.cad })),
     }));
@@ -223,7 +226,7 @@
     if (!l || typeof l !== "object" || typeof l.id !== "string" || !l.id) return null;
     const str = v => typeof v === "string" ? v : "";
     const printings = Array.isArray(l.printings) ? l.printings.filter(p => p && typeof p === "object").map(p => ({
-      label: str(p.label), cad: typeof p.cad === "number" ? p.cad : null,
+      label: str(p.label), variant: str(p.variant), cad: typeof p.cad === "number" ? p.cad : null,
       grades: (Array.isArray(p.grades) ? p.grades : []).filter(g => g && typeof g.cad === "number").map(g => ({ label: str(g.label), cad: g.cad })),
     })) : null;
     const pi = Number.isInteger(l.pi) && printings && l.pi >= 0 && l.pi < printings.length ? l.pi : 0;
@@ -258,5 +261,129 @@
     return out;
   }
 
-  root.BinderTrade = { amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, addCash, restore };
+
+  /**
+   * What recording the trade puts on each card, in market terms, from the same sides evaluate()
+   * takes ({dealer, mine}, each with cash and items' values as typed):
+   * - forTheirs: what I gave for the dealer's cards (my cards' values and my cash, less the dealer's
+   *   cash; never below $0), and paid: each dealer card's share of it, by value;
+   * - forMine: what I got for my cards (the dealer's cards' values and their cash, less my cash;
+   *   never below $0), and sold: each of my cards' share of it, by value;
+   * - gaveCash, gotCash: the cash each way; missing: how many cards have no value yet (the trade
+   *   can't be recorded until every card has one).
+   * The shares add up to their totals exactly, to the cent (bulkbuy.js allocate).
+   */
+  function settle(t) {
+    const values = k => (t?.[k]?.items || []).map(it => amount(it?.value));
+    const d = values("dealer"), m = values("mine");
+    const sum = list => list.reduce((a, v) => a + cents(v ?? 0), 0);
+    const dc = cents(amount(t?.dealer?.cash) ?? 0), mc = cents(amount(t?.mine?.cash) ?? 0);
+    const forTheirs = Math.max(0, sum(m) + mc - dc), forMine = Math.max(0, sum(d) + dc - mc);
+    const split = (total, list) => root.BinderBulkBuy.allocate(dollars(total), list);
+    return {
+      missing: [...d, ...m].filter(v => v == null).length,
+      forTheirs: dollars(forTheirs), forMine: dollars(forMine), paid: split(forTheirs, d), sold: split(forMine, m),
+      gaveCash: dollars(mc), gotCash: dollars(dc),
+    };
+  }
+
+  /* The card a dealer's card becomes in my ledger when the trade is recorded: a looked-up card's
+     name, set, number and printing, or what was typed in, with its grader and grade. */
+  function newCard(it) {
+    const L = it?.look, p = L?.printings?.[L.pi];
+    const graded = it?.grader && it.grader !== "Raw";
+    return {
+      name: String((L ? L.name : it?.name) ?? "").trim(), set: L ? L.set : "", number: L ? L.number : "", variant: p?.variant || "",
+      grader: graded ? it.grader : "Raw", grade: graded ? String(it.grade ?? "").trim() : "",
+    };
+  }
+
+  /* What stops the trade being recorded, as the record step says it, or "" when nothing does.
+     lands: each dealer card's landing ("ph:<placeholder id>", "b:<binder id>", or "" for no binder);
+     given: how many of my cards are in the ledger (and so change). */
+  function recordProblem(t, lands, given) {
+    const s = settle(t), got = t?.dealer?.items || [];
+    if (s.missing) return `${s.missing} card${s.missing === 1 ? " has" : "s have"} no value yet. Go back and put ${s.missing === 1 ? "it" : "them"} in.`;
+    if (!got.length && !given) return "There's nothing in your ledger to change: add the dealer's cards, or cards of yours.";
+    if (got.some(it => !newCard(it).name)) return "Give every card you get a name. Go back and type it in.";
+    const phs = (lands || []).filter(v => String(v).startsWith("ph:"));
+    if (new Set(phs).size !== phs.length) return "Two cards fill the same placeholder: choose somewhere else for one of them.";
+    return "";
+  }
+
+  const usd = n => `$${n.toFixed(2)}`;
+  const round2 = n => Math.round(n * 100) / 100;
+
+  /**
+   * The trade as POST api/trades takes it (src/presentation/ledger/parse.ts tradeRecord). o:
+   * - id, date, at, who (traded with, may be blank), newId(): a new id each call;
+   * - mine: per I-give card, {cardId, cost, basis} (its cost basis) when it's a card of mine in the
+   *   ledger that changes, else null (typed in: it counts in the split but nothing is recorded for it);
+   * - lands: per dealer card, its landing (as recordProblem); owner(binderId): a new card's owner.
+   * My ledger cards get a sale of their share of what I got, with its profit; each dealer card a
+   * Paid entry of its share of what I gave and a market entry of its value, as a new card or
+   * filling its placeholder. The summary (cash each way, how many cards, who with) goes on every card.
+   */
+  function recordBody(t, o) {
+    const s = settle(t), gave = (t?.mine?.items || []).length, got = (t?.dealer?.items || []).length;
+    const n = (k, cash) => [k ? `${k} card${k === 1 ? "" : "s"}` : "", cash ? usd(cash) : ""].filter(Boolean).join(" + ") || "nothing";
+    const note = `Trade${o.who ? ` with ${o.who}` : ""}: ${n(gave, s.gaveCash)} for ${n(got, s.gotCash)}`;
+    const entry = (type, amt, extra) => ({ id: o.newId(), at: o.at, type, amount: amt, currency: "CAD", date: o.date, where: "Trade", note, ...extra });
+    const given = [];
+    (o.mine || []).forEach((m, i) => {
+      if (!m) return;
+      const sold = s.sold[i], cost = m.cost == null ? null : round2(m.cost);
+      given.push({ id: m.cardId, entry: entry("mysale", sold), sale: { amount: sold, currency: "CAD", soldCAD: sold, cost, basis: m.basis, profit: cost == null ? null : round2(sold - cost), date: o.date, where: "Trade", at: o.at } });
+    });
+    const received = (t?.dealer?.items || []).map((it, i) => {
+      const value = amount(it.value), card = newCard(it), land = String(o.lands?.[i] ?? "");
+      const entries = [entry("paid", s.paid[i]), ...(value == null ? [] : [entry("market", value, { note: it.valueFrom ? `Value in the trade: ${it.valueFrom}` : "Value in the trade" })])];
+      if (land.startsWith("ph:")) return { id: land.slice(3), placeholder: true, grader: card.grader, grade: card.grade, entries };
+      const binderId = land.startsWith("b:") ? land.slice(2) : null;
+      return { id: o.newId(), binderId, entries, doc: { ...card, setCode: "", rarity: "", artist: "", language: "English", condition: "Near Mint", notes: "", owner: o.owner(binderId), imageId: null } };
+    });
+    const summary = { date: o.date, gaveCash: s.gaveCash, gotCash: s.gotCash, gave, got, ...(o.who ? { with: o.who } : {}) };
+    return { id: o.id, summary, given, received };
+  }
+
+  /**
+   * Where each card I get goes when the record step opens: what was chosen before, while it's still
+   * on offer (its binder still there, its placeholder still free for it), else its placeholder (the
+   * one it fills alongside the others), else no binder (""). items: [{key, ph: placeholder id or
+   * null, phIds: the placeholders on offer for it}]; before: {key: landing} chosen earlier;
+   * binderIds: the binders and cases there are now. Returns {key: landing}.
+   */
+  function landings(items, before, binderIds) {
+    const binders = new Set(binderIds || []), out = {};
+    for (const x of items || []) {
+      const v = before?.[x.key], fallback = x.ph ? `ph:${x.ph}` : "";
+      const ok = typeof v === "string" && (v === "" || (v.startsWith("b:") && binders.has(v.slice(2))) || (v.startsWith("ph:") && (x.phIds || []).includes(v.slice(3))));
+      out[x.key] = ok ? v : fallback;
+    }
+    return out;
+  }
+
+  /**
+   * The Sales tab's rows, newest first: a bundle's sales together, a trade's sales together, and a
+   * trade where I gave no card of mine (cash only) as a group of its own, found by the cards I got.
+   * sales: [{c, s}] newest first (s: the sale, with its date, bundle and trade); cards: every card.
+   * Returns sales ({c, s}), {bundle, items} and {trade, items} groups (items [] for a cash-only trade).
+   */
+  function salesGroups(sales, cards) {
+    const groups = [], byKey = new Map();
+    for (const x of sales || []) {
+      const b = x.s.bundle?.id, tr = x.s.trade?.id, key = b ? `b:${b}` : tr ? `t:${tr}` : null;
+      if (!key) { groups.push(x); continue; }
+      if (!byKey.has(key)) { const g = b ? { bundle: x.s.bundle, items: [] } : { trade: x.s.trade, items: [] }; byKey.set(key, g); groups.push(g); }
+      byKey.get(key).items.push(x);
+    }
+    for (const c of cards || []) {
+      const T = c.trade;
+      if (T?.id && !byKey.has(`t:${T.id}`)) { const g = { trade: T, items: [] }; byKey.set(`t:${T.id}`, g); groups.push(g); }
+    }
+    const dateOf = g => String((g.items ? g.items[0]?.s.date ?? g.trade?.date : g.s.date) || "");
+    return groups.sort((a, b) => dateOf(b).localeCompare(dateOf(a)));
+  }
+
+  root.BinderTrade = { settle, newCard, recordProblem, recordBody, landings, salesGroups, amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, addCash, restore };
 })(typeof window !== "undefined" ? window : globalThis);

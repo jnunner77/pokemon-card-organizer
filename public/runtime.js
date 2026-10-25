@@ -4,7 +4,8 @@
  * provides the same three things backed by this app's own server, so the page itself
  * barely changed:
  *
- *   db         collection(name).onSnapshot / .doc(id).set, doc(path).update / .delete / .onSnapshot
+ *   db         collection(name).onSnapshot / .doc(id).set, doc(path).update / .delete / .onSnapshot,
+ *              trade(body) / undoTrade(id) for a trade with a dealer, all its cards at once
  *   assets     upload(blob) -> {id}, delete(id); photos are served at blob/<id>
  *   downloads  save({filename, data}) saves a file in the browser
  *
@@ -123,7 +124,11 @@
       return () => docWatchers.get(key)?.delete(fn);
     },
   });
+  /** A trade recorded or undone all at once (POST and DELETE api/trades): the cards it changed and deleted. */
+  const traded = r => { for (const { id, ...d } of r.cards || []) apply("cards", id, d); for (const id of r.deleted || []) apply("cards", id, null); };
   const db = {
+    async trade(body) { traded(await call("POST", "api/trades", body)); },
+    async undoTrade(id) { traded(await call("DELETE", `api/trades/${encodeURIComponent(id)}`)); },
     collection(col) {
       if (!COLS.includes(col)) throw fail("invalid_argument", "Unknown collection " + col);
       return {

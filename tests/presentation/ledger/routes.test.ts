@@ -23,6 +23,8 @@ async function setUp(over: Partial<LedgerRouteDeps> = {}) {
     changePriceEntries: record(ok({ id: 'c1' })),
     arrangeBinder: record(ok({ moved: 1, cards: 2, layoutSaved: null })),
     placeCards: record(err({ code: 'POCKET_TAKEN' } as const)),
+    recordTrade: record(ok({ cards: [{ id: 'c1' }], deleted: [] })),
+    undoTrade: record(err({ code: 'TRADE_NOT_FOUND' } as const)),
     ...over,
   });
   return { base: await serve(routes.handle), asked };
@@ -95,5 +97,38 @@ describe('ledger routes', () => {
   it('deletes with no content', async () => {
     const { base } = await setUp({ mergeDocument: unused });
     assert.equal((await fetch(`${base}/docs/cards/c1`, as('editor', { method: 'DELETE' }))).status, 204);
+  });
+
+  it('records a trade for an editor, with who recorded it, and undoes one by its id', async () => {
+    const { base, asked } = await setUp();
+    const trade = { id: 't1', given: [{ id: 'c1', sale: { soldCAD: 10 }, entry: { id: 'p1', type: 'mysale', amount: 10 } }], received: [{ id: 'n1', binderId: null, doc: { name: 'Mew' } }, { id: 'ph', placeholder: true, grader: 'PSA', grade: '10' }] };
+    assert.equal((await fetch(`${base}/trades`, as('viewer', json(trade)))).status, 403);
+    const r = await fetch(`${base}/trades`, as('editor', json(trade)));
+    assert.deepEqual([r.status, await r.json()], [200, { cards: [{ id: 'c1' }], deleted: [] }]);
+    assert.deepEqual(asked, [
+      {
+        actor: 'justin',
+        tradeId: 't1',
+        summary: {},
+        given: [{ cardId: 'c1', sale: { soldCAD: 10 }, entry: { id: 'p1', type: 'mysale', amount: 10 } }],
+        received: [
+          { kind: 'new', cardId: 'n1', doc: { name: 'Mew' }, binderId: null, entries: [] },
+          { kind: 'placeholder', cardId: 'ph', grader: 'PSA', grade: '10', entries: [] },
+        ],
+      },
+    ]);
+    const undo = await fetch(`${base}/trades/t1`, as('editor', { method: 'DELETE' }));
+    assert.deepEqual([undo.status, await undo.json()], [404, { error: 'That trade is already undone.', code: 'not_found' }]);
+  });
+
+  it('refuses a trade it cannot read', async () => {
+    const { base, asked } = await setUp();
+    for (const bad of [{ given: [], received: [] }, { id: 't1', given: [{ id: 'c1' }], received: [] }, { id: 't1', given: [], received: [{ id: 'n1', binderId: 'bad id', doc: {} }] }, { id: 't1', given: [], received: [{ id: 'n1', placeholder: 'yes' }] }, { id: 't1', summary: 'x', given: [], received: [] }]) {
+      const r = await fetch(`${base}/trades`, as('editor', json(bad)));
+      assert.deepEqual([r.status, await r.json()], [400, { error: 'Send the trade with its id, the cards given and the cards received.', code: 'invalid_argument' }]);
+    }
+    const badId = await fetch(`${base}/trades/bad%20id`, as('editor', { method: 'DELETE' }));
+    assert.equal(badId.status, 400);
+    assert.deepEqual(asked, []);
   });
 });

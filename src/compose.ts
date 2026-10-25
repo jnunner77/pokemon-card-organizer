@@ -86,6 +86,8 @@ import { DeleteDocument } from '#application/ledger/delete-document.ts';
 import type { LedgerDeps } from '#application/ledger/deps.ts';
 import { MergeDocument } from '#application/ledger/merge-document.ts';
 import { PlaceCards } from '#application/ledger/place-cards.ts';
+import { RecordTrade } from '#application/ledger/record-trade.ts';
+import { UndoTrade } from '#application/ledger/undo-trade.ts';
 import { PutDocument } from '#application/ledger/put-document.ts';
 import { ReadLedger } from '#application/ledger/read-ledger.ts';
 import { DeletePhoto } from '#application/photos/delete-photo.ts';
@@ -174,6 +176,8 @@ export function composeLedgerRoutes(store: Store, identify: CallerResolver, acti
     changePriceEntries: new ChangePriceEntries(deps),
     arrangeBinder: new ArrangeBinder(deps),
     placeCards: new PlaceCards(deps),
+    recordTrade: new RecordTrade(deps),
+    undoTrade: new UndoTrade(deps),
   });
 }
 
