@@ -7,11 +7,13 @@ application, infrastructure, presentation); what hasn't moved yet still runs on 
 
 ## Tickets first
 
-Before starting any work (a feature, a fix, docs, config, even a one-line change), create its
+Before changing anything (a feature, a fix, docs, config, even a one-line change), create its
 ticket in Boards: a **PBI** for new or changed behaviour, or a **Bug** for something broken, with its
-**tasks**. Follow the `boards-tickets` skill (`.claude/skills/boards-tickets/`), which creates them
-through the Boards API (`BOARDS_URL`, `BOARDS_TOKEN`), and tell the user the AB# numbers before
-writing code. If the API isn't reachable, stop and ask; don't start without a ticket.
+**tasks**. Only the planner's read-only plan comes first, since it writes the ticket's spec (see
+Who does what); the ticket exists before the implementer starts or any file is edited. Follow
+the `boards-tickets` skill (`.claude/skills/boards-tickets/`), which creates them through the
+Boards API (`BOARDS_URL`, `BOARDS_TOKEN`), and tell the user the AB# numbers before writing code.
+If the API isn't reachable, stop and ask; don't start without a ticket.
 
 Link the work to it: `AB#<id>` in every commit subject and in the pull request, task states kept
 current (In Progress when started, Done when merged), and the PBI/Bug closed only once the change is
