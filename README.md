@@ -488,6 +488,39 @@ a card show) against the [placeholders](#placeholders) waiting for them:
 
 Closing it with cards typed asks first. View-only accounts don't see it.
 
+## Trade evaluator
+
+**Trade** (at the top, next to *Bulk buy*) works out a trade with a dealer before you agree to it:
+two of your cards for one of theirs and cash, a graded card for a stack of yours, or any mix. It
+only works it out: nothing in the ledger changes.
+
+1. **Dealer gives** and **I give** each take cards and cash.
+   - **Your cards:** type part of a name, set or number under *I give* and pick it (Enter takes the
+     first). It comes with its current value (a graded card's is its grade's price), its grade and
+     where it is. Only cards you own are listed, each once.
+   - **The dealer's cards:** *+ Type in a card* takes a name, *Graded by* and grade (a PSA 10) and its
+     value. Or start from a card in your ledger (the placeholder for the card you're after, or a copy
+     you have) to fill in its name and value; when you change its grade (your raw copy, their PSA 10)
+     it reminds you to put in the value for that grade.
+   - *+ Type in a card* works on your side too, for a card that isn't in the ledger.
+2. **Trade %:** when the dealer takes your cards at a percentage ("80%"), put it in *Dealer takes my
+   cards at*; *Dealer's cards count at* does the same for theirs (a dealer selling at 110%). It
+   applies to cards, never to cash. A card can have its own percentage (high-end cards at 85%, the
+   rest at 70%); blank uses its side's.
+3. The **breakdown** shows each side's cards' market value, trade %, trade value, cash and total in
+   trade, then:
+   - the **cash that evens it** at those percentages and who adds it, with a button that puts it in
+     that side's cash;
+   - what you **gain or give up in market value** (the dealer's cards and cash against yours, and as a
+     percentage of what you give), within a dollar or half a percent called about even;
+   - the rate your cards **effectively go at** (what you get for them, counting the dealer's cards at
+     market), and what the dealer's cards cost you as a percentage of theirs.
+   A card with no value yet is flagged and not counted.
+
+Values are in CAD. The trade being worked out stays in this browser (closing the dialog doesn't lose
+it) until *Start over*; a card of yours sold or traded since is dropped from it. View-only accounts
+can use it too.
+
 ## Master sets
 
 A **master set** is every card of one set in every variant. *+ New binder → Master set…* makes one

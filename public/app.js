@@ -874,6 +874,204 @@ async function bulkBuyUndo(btn, list){
   render();
 }
 
+/* ---------- trade evaluator ----------
+   A trade with a dealer worked out before agreeing to it (public/trade.js): what the dealer gives
+   and what I give, each as cards (mine picked from the ledger, or typed in, graded or not) and
+   cash, with the trade percentage each side's cards are taken at. Nothing is saved to the ledger;
+   the trade being worked out is kept in this browser until Start over. */
+const TR_SIDES = ["dealer","mine"];
+const TR_NAME = {dealer:"Dealer gives", mine:"I give"};
+let TR = null;
+const trBlank = () => ({dealer:{pct:"100", cash:"", items:[]}, mine:{pct:"100", cash:"", items:[]}, q:{dealer:"", mine:""}});
+const trCard = id => id ? S.cards.find(c => c.id===id) : null;
+const trAny = () => !!TR && TR_SIDES.some(k => TR[k].items.length || TR[k].cash.trim() || (TR[k].pct.trim() && TR[k].pct.trim()!=="100"));
+/* The trade kept in this browser, if any (trade.js restore). Cards of mine that are gone, sold or
+   traded since are left out, but only once the ledger is loaded: before then (or with no server) a
+   card can't be told apart from one that's gone. */
+function trLoad(){
+  const ownedIds = S.mode==="ready" ? new Set(S.cards.filter(owned).map(c => c.id)) : null;
+  const t = window.BinderTrade.restore(store.get("trade", null), ownedIds, GRADERS);
+  for(const k of TR_SIDES) t[k].items.forEach(it => { it.key = rid(); });
+  return {...t, q:{dealer:"", mine:""}};
+}
+function trSave(){
+  if(!TR) return;
+  const side = k => ({pct:TR[k].pct, cash:TR[k].cash, items:TR[k].items.map(({key, ...it}) => it)});
+  store.set("trade", {dealer:side("dealer"), mine:side("mine")});
+}
+const trPct = k => window.BinderTrade.percent(TR[k].pct) ?? 100;
+/* A card to add from the ledger: mine are the cards I own; the dealer's start from any card I have
+   (a placeholder for the card I'm after, or another copy) for its details and value. */
+function trCandidates(k){
+  const taken = new Set(TR.mine.items.map(it => it.cardId).filter(Boolean));
+  const list = S.cards.filter(c => k==="mine" ? owned(c) && !taken.has(c.id) : held(c));
+  return window.BinderSearch.search(list, TR.q[k], {limit:6, order:SORTS.loc}).map(r => r.card);
+}
+function trResults(k){
+  const el = $(`[data-trres="${k}"]`); if(!el) return;
+  if(!TR.q[k].trim()){ el.innerHTML = ""; return; }
+  const list = trCandidates(k);
+  el.innerHTML = list.length ? list.map(c => { const g = window.BinderTrade.gradeLabel(c.grader, c.grade), v = valueOf(c); return `<button class="tr-hit" type="button" data-trpick="${k}:${esc(c.id)}">${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="">`:`<span class="thumb"></span>`}<span class="bb-what"><b>${esc(c.name||"Unnamed card")}</b><span class="hint">${esc([metaLine(c), c.variant, g, c.placeholder?"Placeholder":""].filter(Boolean).join(" · "))}</span><span class="hint">${esc(locShort(c))}</span></span><span class="mono tr-hitv">${esc(money(v))}</span></button>`; }).join("")
+    : `<p class="hint tr-none">${k==="mine" ? "None of your cards match (cards already in the trade aren't listed)." : "No card in your ledger matches. Type it in instead."}</p>`;
+}
+const trInput = (it, f, label, extra="") => `<input data-trf="${f}" value="${esc(it[f])}" aria-label="${esc(label)}" autocomplete="off" ${extra}>`;
+function trItemHTML(k, it, i){
+  const c = trCard(it.cardId), n = `${TR_NAME[k]}, card ${i+1}`;
+  const nums = `<div class="tr-nums">
+      <label class="tr-val"><span>$</span>${trInput(it, "value", `${n}: value`, `class="mono" type="text" inputmode="decimal" placeholder="Value"`)}</label>
+      <label class="tr-pct">${trInput(it, "pct", `${n}: trade percentage (blank for the side's)`, `class="mono" type="text" inputmode="decimal" placeholder="${esc(window.BinderTrade.pctText(trPct(k)))}"`)}<span>%</span></label>
+      <span class="tr-tv mono" data-trv></span>
+      <button class="btn sm ghost" type="button" data-trdel="${k}:${it.key}" aria-label="Remove ${esc(n)}" title="Remove this card">✕</button>
+    </div><div class="tr-note hint" data-trnote></div>`;
+  if(c){
+    const g = window.BinderTrade.gradeLabel(c.grader, c.grade);
+    return `<div class="tr-item" data-tritem="${k}:${it.key}"><div class="tr-cardrow">${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="">`:`<span class="thumb"></span>`}<span class="bb-what"><b>${esc(c.name||"Unnamed card")}${g?` <span class="tr-grade">${esc(g)}</span>`:""}</b><span class="hint">${esc([metaLine(c), c.variant].filter(Boolean).join(" · "))}</span><span class="hint">${esc(locShort(c))}</span></span></div>${nums}</div>`;
+  }
+  return `<div class="tr-item manual" data-tritem="${k}:${it.key}"><div class="tr-man">
+      ${trInput(it, "name", `${n}: name`, `placeholder="Card, e.g. Umbreon VMAX 215/203" autocapitalize="words" spellcheck="false"`)}
+      <select data-trf="grader" aria-label="${esc(n)}: graded by">${opt(GRADERS, it.grader)}</select>
+      ${trInput(it, "grade", `${n}: grade`, `class="mono" placeholder="Grade" inputmode="decimal"${it.grader==="Raw"?" disabled":""}`)}
+    </div>${nums}</div>`;
+}
+function trList(k){
+  const el = $(`[data-trlist="${k}"]`); if(!el) return;
+  el.innerHTML = TR[k].items.length ? TR[k].items.map((it,i) => trItemHTML(k, it, i)).join("")
+    : `<p class="hint tr-empty">${k==="mine" ? "No cards yet. Find yours above, or type one in." : "No cards yet. Type in what the dealer offers, or start from a card in your ledger."}</p>`;
+}
+function trSideHTML(k){
+  const mine = k==="mine";
+  return `<section class="tr-side" data-trside="${k}" aria-labelledby="tr_h_${k}">
+    <h3 id="tr_h_${k}">${TR_NAME[k]} <span class="hint" data-trhead></span></h3>
+    <div class="tr-add">
+      <input type="search" data-trq="${k}" value="${esc(TR.q[k])}" placeholder="${mine ? "Add one of your cards: name, set or number" : "Start from a card in your ledger"}" aria-label="${mine ? "Find one of your cards to give" : "Find a card in your ledger to start the dealer's card from"}" autocomplete="off" spellcheck="false" enterkeyhint="done">
+      <button class="btn sm" type="button" data-tradd="${k}">+ Type in a card</button>
+      <div class="tr-res" data-trres="${k}"></div>
+    </div>
+    <div class="tr-list" data-trlist="${k}"></div>
+    <div class="tr-opts">
+      <div class="field"><label for="tr_cash_${k}">${mine ? "Cash I add" : "Cash from the dealer"}</label><input id="tr_cash_${k}" class="mono" data-trs="cash" value="${esc(TR[k].cash)}" type="text" inputmode="decimal" placeholder="$0.00" autocomplete="off"></div>
+      <div class="field"><label for="tr_pct_${k}">${mine ? "Dealer takes my cards at" : "Dealer's cards count at"}</label><span class="tr-pctin"><input id="tr_pct_${k}" class="mono" data-trs="pct" value="${esc(TR[k].pct)}" type="text" inputmode="decimal" placeholder="100" autocomplete="off"><span>%</span></span></div>
+    </div>
+  </section>`;
+}
+function tradeModal(){
+  TR = trLoad();
+  $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard tr-card" id="tr_card" role="dialog" aria-modal="true" aria-labelledby="trTitle">
+    <h2 id="trTitle">Trade evaluator</h2>
+    <p class="lead">Put in what the dealer offers and what you offer: cards (graded or not) and cash. When the dealer says they'll take your cards at a percentage (80%), put it under your side; a card can have its own. Values are market values in CAD. Nothing is saved to your ledger; the trade stays here until you start over.</p>
+    <div class="tr-sides">${trSideHTML("dealer")}${trSideHTML("mine")}</div>
+    <section class="tr-sum" id="tr_sum" aria-live="polite" aria-label="Breakdown"></section>
+    <div class="mfoot"><button class="btn ghost" type="button" id="tr_clear">Start over</button><button class="btn primary" type="button" data-mclose>Close</button></div>
+  </div></div>`;
+  const card = $("#tr_card");
+  const onEdit = e => {
+    const t = e.target, side = t.closest("[data-trside]")?.dataset.trside; if(!side) return;
+    if(t.dataset.trq!=null){ TR.q[side] = t.value; trResults(side); return; }
+    if(t.dataset.trs){
+      TR[side][t.dataset.trs] = t.value;
+      if(t.dataset.trs==="pct") card.querySelectorAll(`[data-trside="${side}"] [data-trf="pct"]`).forEach(x => { x.placeholder = window.BinderTrade.pctText(trPct(side)); });
+    }
+    const it = trItemOf(t), f = t.dataset.trf;
+    if(it && f){
+      it[f] = t.value;
+      if(f==="grader"){ const g = t.closest(".tr-man")?.querySelector('[data-trf="grade"]'); if(g){ g.disabled = t.value==="Raw"; if(t.value!=="Raw" && e.type==="change") g.focus(); } }
+    }
+    trSave(); trRefresh();
+  };
+  card.addEventListener("input", onEdit);
+  card.addEventListener("change", e => { if(e.target.matches("select")) onEdit(e); });
+  card.addEventListener("click", e => {
+    const t = e.target;
+    const pk = t.closest("[data-trpick]"); if(pk){ const [k, id] = pk.dataset.trpick.split(":"); return trAddCard(k, id); }
+    const ad = t.closest("[data-tradd]"); if(ad) return trAddTyped(ad.dataset.tradd);
+    const dl = t.closest("[data-trdel]"); if(dl){ const [k, key] = dl.dataset.trdel.split(":"); TR[k].items = TR[k].items.filter(x => x.key!==key); trList(k); trResults(k); trSave(); trRefresh(); return; }
+    const ev = t.closest("[data-treven]"); if(ev){ const k = ev.dataset.treven, r = window.BinderTrade.evaluate(TR); TR[k].cash = (Math.round(((window.BinderTrade.amount(TR[k].cash) ?? 0) + r.even.cash)*100)/100).toFixed(2); $(`#tr_cash_${k}`).value = TR[k].cash; trSave(); trRefresh(); return; }
+    if(t.closest("#tr_clear")){ if(!trAny() || confirm("Start over? This trade is cleared.")){ TR = trBlank(); trSave(); TR_SIDES.forEach(k => { $(`#tr_cash_${k}`).value = ""; $(`#tr_pct_${k}`).value = "100"; $(`[data-trq="${k}"]`).value = ""; trList(k); trResults(k); }); trRefresh(); } return; }
+  });
+  card.addEventListener("keydown", e => {
+    const k = e.target.dataset?.trq; if(k==null) return;
+    if(e.key==="Enter"){ e.preventDefault(); const first = trCandidates(k)[0]; if(first) trAddCard(k, first.id); }
+    else if(e.key==="Escape" && TR.q[k]){ e.preventDefault(); e.stopPropagation(); e.target.value = ""; TR.q[k] = ""; trResults(k); }
+  });
+  TR_SIDES.forEach(trList); trRefresh();
+}
+const trItemOf = el => { const [k, key] = (el.closest("[data-tritem]")?.dataset.tritem || "").split(":"); return k && TR[k] ? TR[k].items.find(x => x.key===key) : null; };
+function trAddCard(k, id){
+  const c = trCard(id); if(!c) return;
+  const v = valueOf(c), value = v==null ? "" : v.toFixed(2);
+  TR[k].items.push(k==="mine"
+    ? {key:rid(), cardId:c.id, from:null, name:c.name||"", grader:c.grader||"Raw", grade:c.grade||"", value, pct:""}
+    : {key:rid(), cardId:null, from:c.id, name:[c.name, c.number].filter(Boolean).join(" "), grader:GRADERS.includes(c.grader) ? c.grader : "Raw", grade:c.grade||"", value, pct:""});
+  TR.q[k] = ""; const q = $(`[data-trq="${k}"]`); q.value = "";
+  trList(k); trResults(k); trSave(); trRefresh();
+  q.focus();
+}
+function trAddTyped(k){
+  const it = {key:rid(), cardId:null, from:null, name:"", grader:"Raw", grade:"", value:"", pct:""};
+  TR[k].items.push(it); trList(k); trSave(); trRefresh();
+  $(`[data-tritem="${k}:${it.key}"] [data-trf="name"]`)?.focus();
+}
+/* Each card's trade value and notes, each side's heading, and the breakdown. */
+function trRefresh(){
+  if(!TR || !$("#tr_card")) return;
+  const BT = window.BinderTrade, r = BT.evaluate(TR);
+  for(const k of TR_SIDES){
+    const sidePct = trPct(k);
+    TR[k].items.forEach(it => {
+      const el = $(`[data-tritem="${k}:${it.key}"]`); if(!el) return;
+      const v = BT.amount(it.value), p = BT.percent(it.pct) ?? sidePct;
+      el.querySelector("[data-trv]").innerHTML = v==null ? `<span class="warn-text">No value</span>` : p===100 ? esc(money(v)) : `${esc(BT.pctText(p))}% → <b>${esc(money(BT.cardTrade(v, p)))}</b>`;
+      el.dataset.state = v==null ? "novalue" : "";
+      const notes = [], c = trCard(it.cardId), src = trCard(it.from);
+      if(c){ const now = valueOf(c); if(now!=null && v!=null && Math.abs(now - v) >= 0.005) notes.push(`Its value in your ledger: ${money(now)}.`); else if(now==null) notes.push("No price in your ledger: put in its value."); }
+      if(src){
+        notes.push(`Started from your ${src.placeholder ? "placeholder" : "card"}: ${[metaLine(src), src.variant, BT.gradeLabel(src.grader, src.grade)].filter(Boolean).join(" · ")}.`);
+        const regrade = BT.regradeNote(src, it); if(regrade) notes.push(`<span class="warn-text">${esc(regrade)}</span>`);
+      }
+      const noGrade = c ? null : BT.missingGradeNote(it); if(noGrade) notes.push(`<span class="warn-text">${esc(noGrade)}</span>`);
+      const h = notes.map(n => n.startsWith("<span") ? n : esc(n)).join(" "), ne = el.querySelector("[data-trnote]");
+      if(ne.dataset.h!==h){ ne.innerHTML = h; ne.dataset.h = h; }
+    });
+    const s = r[k], head = $(`[data-trside="${k}"] [data-trhead]`);
+    head.textContent = s.items || s.cash ? `· ${s.items} card${s.items===1?"":"s"}${s.cash?` + ${money(s.cash)}`:""}` : "";
+  }
+  $("#tr_sum").innerHTML = trSummary(r);
+}
+function trSummary(r){
+  const BT = window.BinderTrade, d = r.dealer, m = r.mine;
+  const warn = () => BT.warnings(r).map(w => `<p class="tr-line warn-text">${esc(w)}</p>`).join("");
+  const unread = TR_SIDES.some(k => r[k].unread.cash || r[k].unread.pct || r[k].unread.cardPct);
+  if(!d.items && !m.items && !d.cash && !m.cash && !unread) return `<p class="hint">The breakdown shows here once there's something on either side.</p>`;
+  // nothing valued yet: no even trade or market result to state
+  if(r.verdict==="empty") return `<p class="hint">Put in the cards' values (or cash) to see the breakdown.</p>${warn()}`;
+  const cards = s => `${esc(money(s.market))}<small>${s.counted} card${s.counted===1?"":"s"}${s.unvalued?`, ${s.unvalued} with no value`:""}</small>`;
+  const pct = s => { const c = BT.pctCell(s); return !c ? "—" : `${esc(c.text)}${c.overall ? "<small>overall (cards differ)</small>" : ""}`; };
+  const row = (h, a, b, cls="") => `<tr${cls?` class="${cls}"`:""}><th scope="row">${h}</th><td>${a}</td><td>${b}</td></tr>`;
+  let h = `<div class="tr-tablewrap"><table class="tr-table"><thead><tr><th></th><th scope="col">Dealer gives</th><th scope="col">I give</th></tr></thead><tbody>
+    ${row("Cards' market value", cards(d), cards(m))}
+    ${row("Trade %", pct(d), pct(m))}
+    ${row("Trade value", esc(money(d.trade)), esc(money(m.trade)))}
+    ${row("Cash", esc(money(d.cash)), esc(money(m.cash)))}
+    ${row("Total in trade", `<b>${esc(money(d.total))}</b>`, `<b>${esc(money(m.total))}</b>`, "tot")}
+  </tbody></table></div>`;
+  // in trade terms: who'd add cash to even it at these percentages
+  h += r.even.who==null
+    ? `<p class="tr-line tr-even good">At these percentages the trade is even: ${esc(money(m.total))} each way.</p>`
+    : `<p class="tr-line tr-even">At these percentages, ${r.even.who==="dealer" ? "the dealer should add" : "you'd add"} <b>${esc(money(r.even.cash))}</b> cash to even it (you put in ${esc(money(m.total))}, the dealer ${esc(money(d.total))}). <button class="btn sm" type="button" data-treven="${r.even.who==="dealer"?"dealer":"mine"}">Add it to ${r.even.who==="dealer"?"the dealer's":"my"} cash</button></p>`;
+  // in market value: what I end up with
+  const parts = (s, who) => [s.counted ? `${who} cards ${money(s.market)}` : "", s.cash ? `${money(s.cash)} cash` : ""].filter(Boolean).join(" + ") || "nothing";
+  const pctOf = r.netPct==null ? "" : ` (${r.netPct>=0?"+":"−"}${BT.pctText(Math.abs(r.netPct))}%)`;
+  const verdict = r.verdict==="ahead" ? `You come out <b>${esc(money(r.net))} ahead</b> in market value${esc(pctOf)}.`
+    : r.verdict==="behind" ? `You give up <b>${esc(money(-r.net))}</b> in market value${esc(pctOf)}.`
+    : `About even in market value${r.net ? ` (${esc(signed(r.net))})` : ""}.`;
+  h += `<p class="tr-line tr-verdict" data-verdict="${r.verdict}">${verdict} You get ${esc(money(r.get))} (${esc(parts(d, "the dealer's"))}) and give ${esc(money(r.give))} (${esc(parts(m, "your"))}).</p>`;
+  const rates = [];
+  if(r.myRate!=null) rates.push(`Your cards go at <b>${esc(BT.pctText(r.myRate))}%</b> of their market value${d.counted ? ", counting the dealer's cards at market" : ""}.`);
+  if(r.theirRate!=null) rates.push(`The dealer's cards cost you <b>${esc(BT.pctText(r.theirRate))}%</b> of theirs${m.counted ? ", counting your cards at market" : ""}.`);
+  if(rates.length) h += `<p class="tr-line">${rates.join(" ")}</p>`;
+  return h + warn();
+}
+
 /* ---------- drawer ---------- */
 function selCard(){ return S.sel==="__new" ? S.draft : S.cards.find(c=>c.id===S.sel); }
 /* The open drawer has changes the person hasn't saved (formsync.js) */
@@ -3020,6 +3218,7 @@ document.addEventListener("click", e => {
   if(t.closest("#btnImport")) return importModal();
   if(t.closest("#btnCsvImport")) return csvImportModal();
   if(t.closest("#btnBulkBuy")) return bulkBuyModal();
+  if(t.closest("#btnTrade")) return tradeModal();
   if(t.closest("#btnExport")) return void exportCSV();
   if(t.closest("#btnSettings") || t.closest("#btnFirstRestore") || t.closest("#btnPriceStatus")) return settingsModal();
   const ua = t.closest("[data-uall]"); if(ua) return void updateAll(ua.dataset.uall, ua);
