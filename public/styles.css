@@ -590,6 +590,25 @@ tbody tr.sel{background:var(--accent-soft)}
 .tr-table tr.tot th,.tr-table tr.tot td{border-bottom:none;font-size:14px}
 .tr-line{margin:10px 0 0;font-size:14px;line-height:1.45}
 .tr-line b{font-family:var(--f-mono)}
+/* recording a trade: where each card I get lands, and what each card goes for */
+.mcard.rt-card{width:min(680px,100%)}
+.rt-h{margin:14px 0 6px;font-size:15px;font-weight:800;font-stretch:85%}
+.rt-h .hint{font-weight:600;font-stretch:100%}
+.rt-list{display:flex;flex-direction:column;gap:8px}
+.rt-list>.hint{margin:0}
+.rt-row{display:grid;grid-template-columns:44px minmax(0,1fr) minmax(0,230px);gap:10px;align-items:center;border:1px solid var(--line-2);border-radius:8px;padding:8px 10px}
+.rt-row.rt-give{grid-template-columns:44px minmax(0,1fr)}
+.rt-row .thumb{width:44px;height:61px}
+.rt-row .cellname>*{display:block;overflow-wrap:anywhere}
+.rt-amt{font-size:13px;margin-top:3px}
+.rt-row .cellname .rt-amt>*{display:inline}
+.rt-amt b{font-family:var(--f-mono)}
+.rt-opts{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+.rt-problem{margin:10px 0 0;font-weight:600;color:var(--warn)}
+.rt-problem:empty{display:none}
+.salestbl tr.traderow .bundleicon{font-size:15px}
+.gotmark{display:inline-block;font-size:11px;font-weight:700;padding:1px 6px;border-radius:5px;background:var(--accent-soft);color:var(--ink);vertical-align:1px}
+@media (max-width:640px){.rt-row{grid-template-columns:40px minmax(0,1fr)}.rt-row .thumb{width:40px;height:56px}.rt-land{grid-column:1/-1}.rt-opts{grid-template-columns:1fr}}
 .tr-line .btn{margin-left:4px;vertical-align:1px}
 .tr-even.good{color:var(--good);font-weight:600}
 .tr-verdict{padding:8px 10px;border-radius:8px;background:var(--surface)}

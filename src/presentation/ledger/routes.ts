@@ -7,14 +7,16 @@ import type { MergeDocument } from '#application/ledger/merge-document.ts';
 import type { PlaceCards } from '#application/ledger/place-cards.ts';
 import type { PutDocument } from '#application/ledger/put-document.ts';
 import type { ReadLedger } from '#application/ledger/read-ledger.ts';
+import type { RecordTrade } from '#application/ledger/record-trade.ts';
+import type { UndoTrade } from '#application/ledger/undo-trade.ts';
 import { DOCUMENT_ID_RULE, isDocumentId } from '#domain/ledger/ids.ts';
 import { readJsonBody } from '../http/body.ts';
 import type { CallerResolver } from '../http/caller.ts';
 import { accessFailure, badRequest, bodyFailure } from '../http/errors.ts';
 import { sendFailure, sendJson, sendNoContent } from '../http/respond.ts';
 import { Router } from '../http/router.ts';
-import { arrangeFailure, documentFailure, placeFailure, priceEntriesFailure } from './errors.ts';
-import { arrangement, placements, priceChange } from './parse.ts';
+import { arrangeFailure, documentFailure, placeFailure, priceEntriesFailure, tradeFailure } from './errors.ts';
+import { arrangement, placements, priceChange, tradeRecord } from './parse.ts';
 
 export interface LedgerRouteDeps {
   readonly identify: CallerResolver;
@@ -25,6 +27,8 @@ export interface LedgerRouteDeps {
   readonly changePriceEntries: Pick<ChangePriceEntries, 'execute'>;
   readonly arrangeBinder: Pick<ArrangeBinder, 'execute'>;
   readonly placeCards: Pick<PlaceCards, 'execute'>;
+  readonly recordTrade: Pick<RecordTrade, 'execute'>;
+  readonly undoTrade: Pick<UndoTrade, 'execute'>;
 }
 
 /** Binders, cards and settings: the ledger itself, as routes relative to /api. */
@@ -118,6 +122,30 @@ export function ledgerRoutes(deps: LedgerRouteDeps): Router {
         const r = await deps.placeCards.execute({ actor: caller.name, placements: moves });
         if (r.ok) sendJson(res, 200, r.value);
         else sendFailure(res, placeFailure(r.error));
+      })
+
+      // A trade with a dealer recorded all together: my cards traded away, theirs added (or
+      // filling placeholders); and undone, by its id.
+      .add('POST', '/trades', async (req, res) => {
+        const caller = allowed(req, res, 'editor');
+        if (!caller) return;
+        const raw = await body(req, res);
+        if (!raw) return;
+        const trade = tradeRecord(raw.value);
+        if (!trade) return sendFailure(res, badRequest('Send the trade with its id, the cards given and the cards received.'));
+        const r = await deps.recordTrade.execute({ actor: caller.name, ...trade });
+        if (r.ok) sendJson(res, 200, r.value);
+        else sendFailure(res, tradeFailure(r.error));
+      })
+      .add('DELETE', '/trades/:id', async (req, res, p) => {
+        const caller = allowed(req, res, 'editor');
+        if (!caller) return;
+        req.resume();
+        const tradeId = p['id'] ?? '';
+        if (!isDocumentId(tradeId)) return sendFailure(res, badRequest(DOCUMENT_ID_RULE));
+        const r = await deps.undoTrade.execute({ actor: caller.name, tradeId });
+        if (r.ok) sendJson(res, 200, r.value);
+        else sendFailure(res, tradeFailure(r.error));
       })
   );
 }

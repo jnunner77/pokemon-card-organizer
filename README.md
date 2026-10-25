@@ -491,8 +491,8 @@ Closing it with cards typed asks first. View-only accounts don't see it.
 ## Trade evaluator
 
 **Trade** (at the top, next to *Bulk buy*) works out a trade with a dealer before you agree to it:
-two of your cards for one of theirs and cash, a graded card for a stack of yours, or any mix. It
-only works it out: nothing in the ledger changes.
+two of your cards for one of theirs and cash, a graded card for a stack of yours, or any mix.
+Nothing in the ledger changes until you record it (step 4).
 
 1. **Dealer gives** and **I give** each take cards and cash.
    - **Your cards:** type part of a name, set or number under *I give* and pick it (Enter takes the
@@ -523,9 +523,26 @@ only works it out: nothing in the ledger changes.
      market), and what the dealer's cards cost you as a percentage of theirs.
    A card with no value yet is flagged and not counted.
 
+4. **Record trade…** once it's agreed. Each card you get has its own **Goes to**: a binder's next
+   empty pocket, a display case, the pocket of its placeholder (offered first when you have one for
+   it, as *Bulk buy* finds them), or *Not in a binder for now*. Every card needs a value first.
+   Recording it, all at once or not at all:
+   - adds the dealer's cards to your ledger (or fills their placeholders), each with a **Paid** price
+     of its share, by value, of what you gave for them (your cards' value plus the cash you gave,
+     less the cash you got; *Paid where* Trade) and its value in the trade as its market price;
+     looked-up cards fill in their details and picture like any new card;
+   - marks your cards **Traded**, out of their binders (their pockets stay empty), each sold for its
+     share, by value, of what you got (the dealer's cards' value plus the cash you got, less the
+     cash you gave), with its profit;
+   - shows the trade on the **Sales** tab as one group: what you gave and got, your cards with their
+     profit, and the cards you got with what each cost. Its **Undo** (or the one on the toast) puts
+     your cards back where they were, removes the cards you got and makes filled placeholders
+     placeholders again. A trade where you give no cards of yours (only cash) isn't a sale, so it
+     isn't on the Sales tab; undo it from the toast.
+
 Values are in CAD. The trade being worked out stays in this browser (closing the dialog doesn't lose
-it) until *Start over*; a card of yours sold or traded since is dropped from it. View-only accounts
-can use it too.
+it) until *Start over* or it's recorded; a card of yours sold or traded since is dropped from it.
+View-only accounts can use it too, but can't record it.
 
 ## Master sets
 
@@ -904,7 +921,8 @@ in `src/` is its own TypeScript project that may only import the layers inside i
   rules for what a document may hold (`ledger/check-document.ts`, kept loose so fields the rules
   don't know are never dropped), changing a card's price entries one by one against its list as it
   is now (`cards/price-entries.ts`, with `public/priceops.js` working out what the page changed),
-  sorting a binder (`ledger/arrange.ts`) and moving cards (`ledger/place.ts`); photos (`photos/`:
+  sorting a binder (`ledger/arrange.ts`), moving cards (`ledger/place.ts`) and recording or
+  undoing a trade with a dealer (`ledger/trade.ts`); photos (`photos/`:
   a picture's type from its bytes, ids, the trash that keeps a deleted photo while any copy of the
   ledger refers to it) and backups (`backups/`: retention, the copies' names and kinds, the full
   backup format and what makes one restorable); people and sign-in (`accounts/`: roles, usernames,

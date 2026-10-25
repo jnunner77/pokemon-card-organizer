@@ -4,6 +4,7 @@ import { MAX_PAGE, MAX_POCKETS } from '#domain/cards/card-fields.ts';
 import type { PocketMove } from '#domain/ledger/arrange.ts';
 import { isDocumentId } from '#domain/ledger/ids.ts';
 import type { Placement } from '#domain/ledger/place.ts';
+import type { GivenCard, ReceivedCard, TradeRecord } from '#domain/ledger/trade.ts';
 import { isCount, isRecord, isText, listOf } from '../http/parse.ts';
 
 // The ledger routes' request bodies, checked by hand. Each returns null when the body isn't the
@@ -59,4 +60,37 @@ const placement = (v: unknown): Placement | null => {
 /** POST /api/cards/place: { moves: [{ id, binderId, page, slot }] }, at least one. */
 export function placements(body: unknown): Placement[] | null {
   return isRecord(body) ? listOf(body['moves'], placement, { min: 1, max: MAX_MOVES }) : null;
+}
+
+const MAX_TRADE_CARDS = 200;
+const MAX_TRADE_ENTRIES = 5;
+
+const tradeEntries = (v: unknown) => (v === undefined ? [] : listOf(v, priceEntry, { max: MAX_TRADE_ENTRIES }));
+
+const givenCard = (v: unknown): GivenCard | null => {
+  if (!isRecord(v)) return null;
+  const { id, sale, entry } = v;
+  const e = priceEntry(entry);
+  return isDocumentId(id) && isRecord(sale) && e ? { cardId: id, sale, entry: e } : null;
+};
+
+const receivedCard = (v: unknown): ReceivedCard | null => {
+  if (!isRecord(v)) return null;
+  const { id, placeholder, binderId, doc, grader, grade } = v;
+  const entries = tradeEntries(v['entries']);
+  if (!isDocumentId(id) || entries === null) return null;
+  if (placeholder === true) return isText(grader, 0, 20) && isText(grade, 0, 20) ? { kind: 'placeholder', cardId: id, grader, grade, entries } : null;
+  if (placeholder !== undefined && placeholder !== false) return null;
+  return isRecord(doc) && (binderId === null || isDocumentId(binderId)) ? { kind: 'new', cardId: id, doc, binderId, entries } : null;
+};
+
+/**
+ * POST /api/trades: { id, given: [{ id, sale, entry }], received: [{ id, binderId, doc, entries }
+ * or { id, placeholder: true, grader, grade, entries }] }.
+ */
+export function tradeRecord(body: unknown): TradeRecord | null {
+  if (!isRecord(body) || !isDocumentId(body['id'])) return null;
+  const given = listOf(body['given'], givenCard, { max: MAX_TRADE_CARDS });
+  const received = listOf(body['received'], receivedCard, { max: MAX_TRADE_CARDS });
+  return given && received ? { tradeId: body['id'], given, received } : null;
 }

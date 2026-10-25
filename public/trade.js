@@ -5,8 +5,10 @@
    - In trade terms, the side giving less owes the difference in cash: that's the cash that evens it.
    - In market terms, what I get (the dealer's cards and cash) against what I give (my cards and
      cash) is what I gain or give up, and the rate my cards effectively go at.
+   - Recorded (settle), what I gave is the dealer's cards' cost and what I got my cards' sale price,
+     each split across that side's cards by value.
    Amounts are worked out in cents so totals add up exactly.
-   A plain script: the page uses window.BinderTrade, and the tests load it the same way. */
+   A plain script, loaded after bulkbuy.js: the page uses window.BinderTrade, and the tests load it the same way. */
 (function (root) {
   "use strict";
 
@@ -168,14 +170,15 @@
 
   /**
    * A card looked up in the card database, as the trade keeps it: from the search hit ({id, name,
-   * set, number, total, thumb}) and the card's prices ({printings:[{label, price:{cad},
-   * pricecharting:{grades:[{label, cad}]}}]}). Each printing keeps its price and graded prices in
-   * CAD; the one shown first is the first with a price (the regular card comes first).
+   * set, number, total, thumb}) and the card's prices ({printings:[{label, variant, price:{cad},
+   * pricecharting:{grades:[{label, cad}]}}]}). Each printing keeps its variant (for the card a
+   * recorded trade adds), price and graded prices in CAD; the one shown first is the first with a
+   * price (the regular card comes first).
    */
   function lookFrom(hit, card) {
     const h = hit || {}, num = h.total && /^\d+$/.test(String(h.number)) ? `${h.number}/${h.total}` : String(h.number ?? "");
     const printings = (Array.isArray(card?.printings) ? card.printings : []).map(p => ({
-      label: String(p?.label ?? ""),
+      label: String(p?.label ?? ""), variant: String(p?.variant ?? ""),
       cad: typeof p?.price?.cad === "number" ? p.price.cad : null,
       grades: (Array.isArray(p?.pricecharting?.grades) ? p.pricecharting.grades : []).filter(g => g && typeof g.cad === "number").map(g => ({ label: String(g.label ?? ""), cad: g.cad })),
     }));
@@ -223,7 +226,7 @@
     if (!l || typeof l !== "object" || typeof l.id !== "string" || !l.id) return null;
     const str = v => typeof v === "string" ? v : "";
     const printings = Array.isArray(l.printings) ? l.printings.filter(p => p && typeof p === "object").map(p => ({
-      label: str(p.label), cad: typeof p.cad === "number" ? p.cad : null,
+      label: str(p.label), variant: str(p.variant), cad: typeof p.cad === "number" ? p.cad : null,
       grades: (Array.isArray(p.grades) ? p.grades : []).filter(g => g && typeof g.cad === "number").map(g => ({ label: str(g.label), cad: g.cad })),
     })) : null;
     const pi = Number.isInteger(l.pi) && printings && l.pi >= 0 && l.pi < printings.length ? l.pi : 0;
@@ -258,5 +261,42 @@
     return out;
   }
 
-  root.BinderTrade = { amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, addCash, restore };
+
+  /**
+   * What recording the trade puts on each card, in market terms, from the same sides evaluate()
+   * takes ({dealer, mine}, each with cash and items' values as typed):
+   * - forTheirs: what I gave for the dealer's cards (my cards' values and my cash, less the dealer's
+   *   cash; never below $0), and paid: each dealer card's share of it, by value;
+   * - forMine: what I got for my cards (the dealer's cards' values and their cash, less my cash;
+   *   never below $0), and sold: each of my cards' share of it, by value;
+   * - gaveCash, gotCash: the cash each way; missing: how many cards have no value yet (the trade
+   *   can't be recorded until every card has one).
+   * The shares add up to their totals exactly, to the cent (bulkbuy.js allocate).
+   */
+  function settle(t) {
+    const values = k => (t?.[k]?.items || []).map(it => amount(it?.value));
+    const d = values("dealer"), m = values("mine");
+    const sum = list => list.reduce((a, v) => a + cents(v ?? 0), 0);
+    const dc = cents(amount(t?.dealer?.cash) ?? 0), mc = cents(amount(t?.mine?.cash) ?? 0);
+    const forTheirs = Math.max(0, sum(m) + mc - dc), forMine = Math.max(0, sum(d) + dc - mc);
+    const split = (total, list) => root.BinderBulkBuy.allocate(dollars(total), list);
+    return {
+      missing: [...d, ...m].filter(v => v == null).length,
+      forTheirs: dollars(forTheirs), forMine: dollars(forMine), paid: split(forTheirs, d), sold: split(forMine, m),
+      gaveCash: dollars(mc), gotCash: dollars(dc),
+    };
+  }
+
+  /* The card a dealer's card becomes in my ledger when the trade is recorded: a looked-up card's
+     name, set, number and printing, or what was typed in, with its grader and grade. */
+  function newCard(it) {
+    const L = it?.look, p = L?.printings?.[L.pi];
+    const graded = it?.grader && it.grader !== "Raw";
+    return {
+      name: String((L ? L.name : it?.name) ?? "").trim(), set: L ? L.set : "", number: L ? L.number : "", variant: p?.variant || "",
+      grader: graded ? it.grader : "Raw", grade: graded ? String(it.grade ?? "").trim() : "",
+    };
+  }
+
+  root.BinderTrade = { settle, newCard, amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, addCash, restore };
 })(typeof window !== "undefined" ? window : globalThis);

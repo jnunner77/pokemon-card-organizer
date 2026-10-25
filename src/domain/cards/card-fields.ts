@@ -1,4 +1,4 @@
-import { arrayOf, bool, count, loose, nullish, number, oneOf, optText, integer, someOf, text, type Shape } from '../ledger/rules.ts';
+import { arrayOf, bool, count, documentIdRule, loose, nullish, number, oneOf, optText, integer, someOf, text, type Shape } from '../ledger/rules.ts';
 
 // The fields of a card the ledger knows about, and what each may hold. Anything else on a card is
 // kept as it is (see ledger/document.ts).
@@ -82,6 +82,16 @@ const sale = loose({
   priceId: optText(64),
   /** Sold together with other cards for one price, split across them (public/sales.js). */
   bundle: nullish(loose({ id: text(64), total: number({ min: 0 }), currency: optText(8), count: integer(1, 500), split: optText(20) })),
+  /** Traded away to a dealer (public/trade.js): the trade, with what each side gave. */
+  trade: nullish(loose({ id: documentIdRule, gaveCash: nullish(number({ min: 0 })), gotCash: nullish(number({ min: 0 })), gave: nullish(integer(0, 500)), got: nullish(integer(0, 500)), with: optText(200) })),
+});
+
+/** Came in a trade (ledger/trade.ts): a new card, or a placeholder it filled and what it was before. */
+const trade = loose({
+  id: documentIdRule,
+  filled: nullish(bool),
+  was: nullish(loose({ grader: optText(20), grade: optText(20) })),
+  entryIds: nullish(arrayOf(text(64), 20)),
 });
 
 const details = loose({
@@ -116,6 +126,7 @@ export const CARD_FIELDS: Shape = {
   page: nullish(count(MAX_PAGE)),
   slot: nullish(count(MAX_POCKETS)),
   sale: nullish(sale),
+  trade: nullish(trade),
   pricing: nullish(pricing),
   /** Holds its pocket for a card the person doesn't have yet: priced, but left out of totals. */
   placeholder: nullish(bool),
