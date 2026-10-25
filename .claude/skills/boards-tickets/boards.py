@@ -58,14 +58,16 @@ def call(method, path, body=None):
     url, tok = os.environ.get("BOARDS_URL", "").rstrip("/"), os.environ.get("BOARDS_TOKEN", "")
     if not url or not tok:
         sys.exit("BOARDS_URL and BOARDS_TOKEN must be set (ask the user to add them to the environment).")
-    if not url.startswith(("http://", "https://")):
-        sys.exit(f"BOARDS_URL must start with http:// or https:// (got {url!r})")
     if not re.fullmatch(r"[A-Za-z0-9_-]+", tok):  # Boards issues boards_ + base64url; never print it
         sys.exit("BOARDS_TOKEN has characters a Boards token doesn't (a space or line break copied with it?); "
                  "ask the user to set it again.")
-    req = urllib.request.Request(url + path, method=method, data=None if body is None else json.dumps(body).encode(),
-                                 headers={"Authorization": "Bearer " + tok, "Content-Type": "application/json"})
-    try:
+    shown = one_line(url)  # BOARDS_URL as messages print it: the token redacted if it was pasted there
+    if not url.startswith(("http://", "https://")):
+        sys.exit(f"BOARDS_URL must start with http:// or https:// (got {shown!r})")
+    payload = None if body is None else json.dumps(body).encode()
+    try:  # Request() parses BOARDS_URL, so a malformed one (http://[::1) gets the one line below too
+        req = urllib.request.Request(url + path, method=method, data=payload,
+                                     headers={"Authorization": "Bearer " + tok, "Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
             raw = r.read()
     except urllib.error.HTTPError as e:
@@ -75,19 +77,19 @@ def call(method, path, body=None):
             detail = f"(reply cut short: {type(cut).__name__})"
         sys.exit(f"{method} {path}: HTTP {e.code} {one_line(detail)}")
     except urllib.error.URLError as e:  # includes a connection that times out
-        sys.exit(f"cannot reach {url}: {one_line(e.reason)}")
+        sys.exit(f"cannot reach {shown}: {one_line(e.reason)}")
     except TimeoutError:  # connected, but no answer in time
-        sys.exit(f"{method} {path}: no answer from {url} in {TIMEOUT}s")
+        sys.exit(f"{method} {path}: no answer from {shown} in {TIMEOUT}s")
     except (ConnectionError, http.client.HTTPException) as e:  # dropped mid-reply, or not an HTTP server
-        sys.exit(f"{method} {path}: {url} broke off or didn't answer as HTTP ({type(e).__name__}: {one_line(e)})")
+        sys.exit(f"{method} {path}: {shown} broke off or didn't answer as HTTP ({type(e).__name__}: {one_line(e)})")
     except Exception as e:  # anything else from urllib, http.client or the socket (bad port, TLS): one line
-        sys.exit(f"{method} {path}: {url}: {type(e).__name__}: {one_line(e)}")
-    not_json = f"{method} {path}: {url} didn't answer with a JSON object; is BOARDS_URL the Boards server?"
+        sys.exit(f"{method} {path}: {shown}: {type(e).__name__}: {one_line(e)}")
+    not_json = f"{method} {path}: {shown} didn't answer with a JSON object; is BOARDS_URL the Boards server?"
     if not raw:  # every endpoint used here answers with a JSON object
         sys.exit(not_json)
     try:
         data = json.loads(raw)
-    except ValueError:
+    except (ValueError, RecursionError):  # not JSON, or nested too deep to parse
         sys.exit(not_json)
     if not isinstance(data, dict):
         sys.exit(not_json)
@@ -98,7 +100,7 @@ def context():
     where = "GET /api/auth/status"
     user = need(call("GET", "/api/auth/status"), {"user": (dict, type(None))}, where)["user"]
     if user is None:
-        sys.exit(f"{os.environ['BOARDS_URL']} has sign-in off, so it doesn't report who the token acts as "
+        sys.exit(f"{one_line(os.environ['BOARDS_URL'])} has sign-in off, so it doesn't report who the token acts as "
                  "and tasks can't be assigned to Claude. Point BOARDS_URL at the team's live Boards server "
                  "(sign-in on), or ask a person to turn sign-in on.")
     me = need(user, {"memberId": str}, where)["memberId"]
@@ -115,7 +117,7 @@ def create(spec_path):
     try:
         with open(spec_path) as f:
             spec = json.load(f)
-    except (OSError, ValueError) as e:  # missing file, or not JSON
+    except (OSError, ValueError, RecursionError) as e:  # missing file, not JSON, or nested too deep
         sys.exit(f"cannot read {spec_path}: {e}")
     if not isinstance(spec, dict):
         sys.exit(f"{spec_path} must hold a JSON object (see SKILL.md)")
@@ -130,8 +132,12 @@ def create(spec_path):
         sys.exit('tasks must be a list of titles or {"title": ...} objects (see SKILL.md)')
     it = sprint["id"] if sprint else None
     fields = {k: v for k, v in spec.items() if k not in ("tasks", "type")}
-    item = result(call("POST", "/api/workitems", {"type": kind, "assignedTo": po, "iterationId": it, "priority": 2, "position": "bottom", **fields}),
-                  {"id": int, "title": str}, "POST /api/workitems")
+    try:
+        item = result(call("POST", "/api/workitems", {"type": kind, "assignedTo": po, "iterationId": it, "priority": 2, "position": "bottom", **fields}),
+                      {"id": int, "title": str}, "POST /api/workitems")
+    except SystemExit as e:  # the server may have made the item before the reply was lost
+        sys.exit(f"{e.code} -- the {kind} may have been created anyway: check Boards for one titled "
+                 f"{one_line(fields.get('title'))!r} before running create again.")
     print(f"{kind} {item['id']}: {item['title']}  ({(sprint.get('name') or sprint['id']) if sprint else 'backlog'})")
     for n, t in enumerate(tasks):
         try:
@@ -185,6 +191,7 @@ USAGE = {  # command: (arguments it needs, usage)
 
 
 def main(a):
+    sys.stdout.reconfigure(errors="backslashreplace")  # a title Boards stored with a lone surrogate, or a non-UTF-8 terminal
     if not a or a[0] in ("-h", "--help"):
         print(__doc__); return
     cmd = a[0]

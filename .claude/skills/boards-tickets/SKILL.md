@@ -37,8 +37,9 @@ ticket is created from it before the implementer starts or any file is edited.
 - `create` makes the PBI/Bug first, then each task. If a task fails, it says which item was
   created and which tasks may be missing: check with `boards.py show <id>`, then add those tasks
   in Boards by hand (or delete the item) instead of running `create` again, which would make a
-  second PBI/Bug. After a timeout on the first request, check the backlog the same way: the
-  server may have made the item anyway.
+  second PBI/Bug. If the first request fails (no answer in time, a dropped connection, a reply
+  cut short), it says so: look in the backlog for an item with that title before running
+  `create` again, since the server may have made it anyway.
 - whoami and create need the server to say who the token acts as, which Boards does only with
   sign-in on (as on the team's live server). Against a server with sign-in off (a local or demo
   one) they stop and say so: file tickets on the live server.
