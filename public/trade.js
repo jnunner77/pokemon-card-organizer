@@ -1,0 +1,98 @@
+/* Trade evaluator: what a trade with a dealer comes to. Each side (the dealer's and mine) has cards
+   and cash; the cards' values are market values in CAD, and each side has a trade percentage (the
+   dealer takes my cards "at 80%") that a card can override with its own.
+   - A card's trade value is its value times its percentage, to the cent; cash is never discounted.
+   - In trade terms, the side giving less owes the difference in cash: that's the cash that evens it.
+   - In market terms, what I get (the dealer's cards and cash) against what I give (my cards and
+     cash) is what I gain or give up, and the rate my cards effectively go at.
+   Amounts are worked out in cents so totals add up exactly.
+   A plain script: the page uses window.BinderTrade, and the tests load it the same way. */
+(function (root) {
+  "use strict";
+
+  /* "12.50", "$1,200", " 7 " → 12.5, 1200, 7; "", "abc", "-3" → null */
+  function amount(s) {
+    if (typeof s === "number") return Number.isFinite(s) && s >= 0 ? s : null;
+    const t = String(s ?? "").replace(/[$,\s]/g, "").replace(/^CA/i, "");
+    if (!/^\d*\.?\d+$|^\d+\.$/.test(t)) return null;
+    const n = Number(t);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  }
+  /* "80", "80%", " 72.5 % " → 80, 80, 72.5; "", "abc", "-5" → null. Up to 1000%. */
+  function percent(s) {
+    if (typeof s === "number") return Number.isFinite(s) && s >= 0 && s <= 1000 ? s : null;
+    const t = String(s ?? "").replace(/[%\s]/g, "");
+    if (!/^\d*\.?\d+$|^\d+\.$/.test(t)) return null;
+    const n = Number(t);
+    return Number.isFinite(n) && n <= 1000 ? n : null;
+  }
+  const cents = n => Math.round(n * 100);
+  const dollars = c => c / 100;
+
+  /* One side: {pct, cash, items:[{value, pct}]} with values and percentages as typed (or numbers).
+     The side's percentage is 100 when blank; a card's is the side's when blank. */
+  function side(s) {
+    const o = s || {};
+    const pct = percent(o.pct) ?? 100;
+    let market = 0, trade = 0, counted = 0, unvalued = 0, mixed = false;
+    for (const it of o.items || []) {
+      const v = amount(it?.value);
+      if (v == null) { unvalued++; continue; }
+      const own = percent(it.pct);
+      if (own != null && own !== pct) mixed = true;
+      const p = own ?? pct;
+      market += cents(v);
+      trade += Math.round(cents(v) * p / 100);
+      counted++;
+    }
+    const cash = cents(amount(o.cash) ?? 0);
+    return {
+      pct, mixed, counted, unvalued, items: (o.items || []).length,
+      market: dollars(market), trade: dollars(trade), cash: dollars(cash), total: dollars(trade + cash),
+      // what its cards come to overall, as a percentage of their market value (null with none)
+      rate: market > 0 ? trade / market * 100 : null,
+      _c: { market, trade, cash },
+    };
+  }
+
+  /**
+   * The whole trade: {dealer, mine} sides as above. Returns
+   * - dealer, mine: each side's market value, trade value, cash and total (trade value + cash);
+   * - even: the cash that balances it in trade terms, and who adds it ("dealer", "me", or null when
+   *   it's already even);
+   * - get, give, net, netPct: in market value, what I receive (dealer's cards + their cash), what I
+   *   give (my cards + my cash), the difference, and that as a percentage of what I give;
+   * - verdict: "ahead", "behind" or "even" (within a dollar or half a percent of what I give);
+   * - myRate: what my cards effectively go for, as a percentage of their market value, counting
+   *   the dealer's cards at market (null when I give no cards);
+   * - theirRate: what the dealer's cards cost me as a percentage of their market value, counting
+   *   my cards at market (null when the dealer gives no cards).
+   */
+  function evaluate(t) {
+    const d = side(t?.dealer), m = side(t?.mine);
+    const balance = (m._c.trade + m._c.cash) - (d._c.trade + d._c.cash);
+    const get = d._c.market + d._c.cash, give = m._c.market + m._c.cash, net = get - give;
+    const within = Math.abs(net) < 100 || (give > 0 && Math.abs(net) / give < 0.005);
+    const strip = s => { const { _c, ...rest } = s; return rest; };
+    return {
+      dealer: strip(d), mine: strip(m),
+      even: { cash: dollars(Math.abs(balance)), who: balance > 0 ? "dealer" : balance < 0 ? "me" : null },
+      get: dollars(get), give: dollars(give), net: dollars(net),
+      netPct: give > 0 ? net / give * 100 : null,
+      verdict: get === 0 && give === 0 ? "empty" : within ? "even" : net > 0 ? "ahead" : "behind",
+      myRate: m._c.market > 0 ? (d._c.market + d._c.cash - m._c.cash) / m._c.market * 100 : null,
+      theirRate: d._c.market > 0 ? (m._c.market + m._c.cash - d._c.cash) / d._c.market * 100 : null,
+    };
+  }
+
+  /* A grade as it's shown: "PSA 10", "BGS 9.5"; "" for a raw card or a grader with no grade. */
+  function gradeLabel(grader, grade) {
+    const g = String(grade ?? "").trim(), by = String(grader ?? "").trim();
+    return by && by !== "Raw" && g ? `${by} ${g}` : "";
+  }
+
+  /* A percentage as it's shown: 80, 72.5, 87.3 (one decimal at most). */
+  const pctText = n => n == null ? "" : String(Math.round(n * 10) / 10);
+
+  root.BinderTrade = { amount, percent, side, evaluate, gradeLabel, pctText };
+})(typeof window !== "undefined" ? window : globalThis);
