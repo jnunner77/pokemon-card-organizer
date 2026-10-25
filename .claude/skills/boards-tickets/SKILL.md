@@ -28,8 +28,9 @@ python3 $B brief 110                      # description, acceptance criteria and
 
 - **PBI** (`"Product Backlog Item"`) for new or changed behaviour; **Bug** for something broken.
   Several unrelated asks get one ticket each.
-- Write the spec in the scratchpad, not the repo. `boards.py create` assigns the PBI/Bug to Justin
-  Nunner and the tasks to Claude, puts all of them in the current sprint, priority 2.
+- The spec comes from the planner's plan (`model-roles` skill). Write it in the scratchpad, not
+  the repo. `boards.py create` assigns the PBI/Bug to Justin Nunner and the tasks to Claude, puts
+  all of them in the current sprint, priority 2.
 
 ```json
 {
@@ -74,7 +75,8 @@ Tell the user the ticket numbers (e.g. "AB#113 with tasks AB#114–AB#116") befo
 
 - Before opening it, the pushed branch must pass the `review-loop` skill: the `code-reviewer` agent
   reviews it against this ticket (`boards.py brief <id>` prints the description, acceptance criteria
-  and tasks to hand it) until it passes with no findings.
+  and tasks to hand it) until it passes with no findings, or until the eighth review fails and its
+  findings have a ticket of their own.
 - When the PR is opened: `link <pbi> <PR url> "Pull request #N"` and a comment saying what was
   done and how it was tested.
 - After the merge: set the Development tasks to `Done`. Boards moves items from merge webhooks,
