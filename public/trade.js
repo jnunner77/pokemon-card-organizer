@@ -128,12 +128,88 @@
     return out;
   }
 
-  /* A dealer's card started from a card in my ledger keeps that card's value; when its grade is
-     changed (my raw copy, their PSA 10), the value needs changing too. null when the grade is the same. */
-  function regradeNote(src, it) {
-    const was = gradeLabel(src?.grader, src?.grade), is = gradeLabel(it?.grader, it?.grade);
-    return was === is ? null : `Its value was for ${was || "a raw card"}: put in the value for ${is || "a raw card"}.`;
+  /* PriceCharting's graded prices are labelled "Grade 9", "Grade 9.5", "PSA 10", "CGC 10 Pristine",
+     "BGS 10 Black Label"…: the grade each is for, its grader (10s only) and whether it's special. */
+  function gradeOfLabel(label) {
+    const l = String(label ?? "").trim();
+    let m = l.match(/^Grade (\d{1,2}(?:\.5)?)$/i);
+    if (m) return { grade: Number(m[1]), grader: "", special: "" };
+    m = l.match(/^([A-Z]+) 10( Pristine| Black Label)?$/i);
+    if (m) return { grade: 10, grader: m[1].toUpperCase(), special: m[2] ? (/pristine/i.test(m[2]) ? "pristine" : "black") : "" };
+    return null;
   }
+
+  /**
+   * The price for a graded card among a printing's graded prices ([{label, cad}]), as the daily update
+   * picks it: its grader's and grade's (7 and 7.5 are "Grade 7", a 10 is its grader's own), else the
+   * nearest grade there is (a 10 by its grader, then PSA's, then another's; the lower of two equally
+   * near), never a Pristine or Black Label 10 for a plain one. {label, cad, exact}, or null for a raw
+   * card, a grade it can't read, or no graded prices.
+   */
+  function gradePrice(grades, grader, grade) {
+    const by = String(grader ?? "").trim().toUpperCase().replace(/^BECKETT$/, "BGS");
+    const text = String(grade ?? "").toLowerCase();
+    const num = Number(text.match(/\d{1,2}(?:\.\d)?/)?.[0]);
+    if (!by || by === "RAW" || !(num >= 1 && num <= 10)) return null;
+    const special = /pristine/.test(text) ? "pristine" : /black/.test(text) ? "black" : "";
+    const priced = (grades || []).map(g => ({ g, k: gradeOfLabel(g?.label) })).filter(x => x.k && typeof x.g.cad === "number");
+    const own = k => num >= 10
+      ? k.grade === 10 && k.grader === by && k.special === (special && k.grader === by ? special : "")
+      : k.grade === (num >= 7 && num < 9 ? Math.floor(num) : num) && !k.grader;
+    const exact = priced.find(x => own(x.k));
+    if (exact) return { label: exact.g.label, cad: exact.g.cad, exact: true };
+    const near = priced
+      .filter(x => !x.k.special || (x.k.special === special && x.k.grader === by))
+      .map(x => ({ x, d: Math.abs(x.k.grade - num), rank: x.k.grader === by ? 0 : x.k.grader === "PSA" ? 1 : x.k.grader ? 2 : 0 }))
+      .sort((a, b) => a.d - b.d || a.rank - b.rank || a.x.k.grade - b.x.k.grade);
+    const hit = near[0]?.x;
+    return hit ? { label: hit.g.label, cad: hit.g.cad, exact: false } : null;
+  }
+
+  /**
+   * A card looked up in the card database, as the trade keeps it: from the search hit ({id, name,
+   * set, number, total, thumb}) and the card's prices ({printings:[{label, price:{cad},
+   * pricecharting:{grades:[{label, cad}]}}]}). Each printing keeps its price and graded prices in
+   * CAD; the one shown first is the first with a price (the regular card comes first).
+   */
+  function lookFrom(hit, card) {
+    const h = hit || {}, num = h.total && /^\d+$/.test(String(h.number)) ? `${h.number}/${h.total}` : String(h.number ?? "");
+    const printings = (Array.isArray(card?.printings) ? card.printings : []).map(p => ({
+      label: String(p?.label ?? ""),
+      cad: typeof p?.price?.cad === "number" ? p.price.cad : null,
+      grades: (Array.isArray(p?.pricecharting?.grades) ? p.pricecharting.grades : []).filter(g => g && typeof g.cad === "number").map(g => ({ label: String(g.label ?? ""), cad: g.cad })),
+    }));
+    const first = printings.findIndex(p => p.cad != null);
+    return { id: String(h.id ?? ""), name: String(h.name ?? ""), set: String(h.set ?? ""), number: num, thumb: String(h.thumb ?? ""), printings, pi: first < 0 ? 0 : first };
+  }
+
+  /**
+   * What a looked-up card is worth as its printing, grader and grade: {value, from} with where the
+   * value comes from ("today's price, regular", "PriceCharting's PSA 10 price", or the nearest grade
+   * it has), or {value: null, why} when there's no price for it.
+   */
+  function lookValue(look, grader, grade) {
+    const p = look?.printings?.[look.pi] || look?.printings?.[0];
+    if (!p) return { value: null, why: "No prices for this card" };
+    const g = gradeLabel(grader, grade);
+    if (g) {
+      const gp = gradePrice(p.grades, grader, grade);
+      if (!gp) return { value: null, why: `No ${g} price from PriceCharting` };
+      return { value: gp.cad, from: gp.exact ? `PriceCharting's ${gp.label} price` : `PriceCharting's ${gp.label} price (it has none for ${g})` };
+    }
+    return p.cad == null ? { value: null, why: `No price for the ${p.label || "card"}` } : { value: p.cad, from: `today's price, ${p.label || "regular"}` };
+  }
+
+  /* A looked-up card's value after its printing or grade changes (lookValue's answer): a price for
+     them replaces the value; with none, a value the lookup had filled in is cleared rather than kept
+     for another grade, and a value typed by hand (valueFrom "") stays. {value, valueFrom}. */
+  function followLook(it, lv) {
+    if (lv && lv.value != null) return { value: lv.value.toFixed(2), valueFrom: lv.from };
+    return it.valueFrom ? { value: "", valueFrom: "" } : { value: it.value, valueFrom: "" };
+  }
+
+  /* Cash with an amount added (the cash that evens the trade): "40" + 12.5 → "52.50"; unreadable or blank cash counts as $0. */
+  const addCash = (cash, add) => dollars(cents(amount(cash) ?? 0) + cents(add)).toFixed(2);
 
   /* A typed-in card with a grader but no grade yet. */
   function missingGradeNote(it) {
@@ -141,11 +217,24 @@
     return by && by !== "Raw" && !String(it?.grade ?? "").trim() ? `Put in its ${by} grade.` : null;
   }
 
+  /* A looked-up card as it was saved (lookFrom's shape), or null. Its printings are null when its
+     prices hadn't come back yet, so they're asked for again. */
+  function savedLook(l) {
+    if (!l || typeof l !== "object" || typeof l.id !== "string" || !l.id) return null;
+    const str = v => typeof v === "string" ? v : "";
+    const printings = Array.isArray(l.printings) ? l.printings.filter(p => p && typeof p === "object").map(p => ({
+      label: str(p.label), cad: typeof p.cad === "number" ? p.cad : null,
+      grades: (Array.isArray(p.grades) ? p.grades : []).filter(g => g && typeof g.cad === "number").map(g => ({ label: str(g.label), cad: g.cad })),
+    })) : null;
+    const pi = Number.isInteger(l.pi) && printings && l.pi >= 0 && l.pi < printings.length ? l.pi : 0;
+    return { id: l.id, name: str(l.name), set: str(l.set), number: str(l.number), thumb: str(l.thumb), printings, pi };
+  }
+
   /**
-   * A trade saved in the browser, read back: {dealer, mine}, each {pct, cash, items:[{cardId, from,
-   * name, grader, grade, value, pct}]} with every field a string (cardId and from a card id or null).
-   * Anything that isn't a saved trade gives an empty one; a grader not in `graders` is "Raw"; only my
-   * side's cards link to a card of mine (cardId). `ownedIds` is the set of card ids I own, or null
+   * A trade saved in the browser, read back: {dealer, mine}, each {pct, cash, items:[{cardId, look,
+   * name, grader, grade, value, valueFrom, pct}]} with the other fields strings. Anything that isn't a
+   * saved trade gives an empty one; a grader not in `graders` is "Raw"; only my side's cards link to a
+   * card of mine (cardId, else null), and only the dealer's to a looked-up card (look, else null). `ownedIds` is the set of card ids I own, or null
    * when the ledger isn't loaded: with a set, my linked cards not in it (gone, sold, traded) are
    * dropped; with null, they're all kept.
    */
@@ -157,9 +246,9 @@
       const s = saved && typeof saved === "object" ? saved[k] : null;
       const ok = s && typeof s === "object";
       const items = (ok && Array.isArray(s.items) ? s.items : []).filter(it => it && typeof it === "object").map(it => ({
-        cardId: k === "mine" ? id(it.cardId) : null, from: id(it.from),
+        cardId: k === "mine" ? id(it.cardId) : null, look: k === "dealer" ? savedLook(it.look) : null,
         name: str(it.name), grader: (graders || []).includes(it.grader) ? it.grader : "Raw",
-        grade: str(it.grade), value: str(it.value), pct: str(it.pct),
+        grade: str(it.grade), value: str(it.value), valueFrom: str(it.valueFrom), pct: str(it.pct),
       }));
       out[k] = {
         pct: ok ? str(s.pct) : "100", cash: ok ? str(s.cash) : "",
@@ -169,5 +258,5 @@
     return out;
   }
 
-  root.BinderTrade = { amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, regradeNote, missingGradeNote, restore };
+  root.BinderTrade = { amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, addCash, restore };
 })(typeof window !== "undefined" ? window : globalThis);
