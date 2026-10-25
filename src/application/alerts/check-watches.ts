@@ -19,6 +19,9 @@ export interface CheckWatchesResult {
   readonly errors: readonly string[];
 }
 
+/** US$1 in CAD before the first price update saves the day's rate (public/app.js, the price update). */
+const DEFAULT_USD_TO_CAD = 1.37;
+
 type Due = { readonly id: string; readonly card: Readonly<Record<string, unknown>>; readonly value: number | null; readonly hits: ReturnType<typeof dueWatches> };
 
 /**
@@ -48,7 +51,9 @@ export class CheckWatches {
     const now = deps.clock.now();
     const at = now.toISOString();
     const ledger = await deps.ledger.read();
-    const rate = Number(ledger.settings.find((s) => s.id === 'main')?.['usdToCad']) || 1;
+    // The same rate the binder shows prices at: the last update's, or 1.37 before there is one (as the page and the update use).
+    const saved = Number(ledger.settings.find((s) => s.id === 'main')?.['usdToCad']);
+    const rate = saved > 0 ? saved : DEFAULT_USD_TO_CAD;
     const valueOf = (id: string, fields: Readonly<Record<string, unknown>>) => cardValue({ ...fields, id }, rate, (c, p) => deps.condition.adjust(c, p));
 
     const touched: Due[] = [];
@@ -89,21 +94,28 @@ export class CheckWatches {
 
     // Record what went out, and clear what moved back, on the cards as they are now.
     if (touched.length) {
-      const saved = await commit(deps, async () => {
+      // A card that can't take the record (a field the rules refuse) is skipped and logged, so the
+      // others' records are kept and their alerts aren't sent again.
+      const skipped: string[] = [];
+      const recorded = await commit(deps, async () => {
         const events: LedgerEvent[] = [];
         for (const d of touched) {
           const id = documentId<CardId>(d.id);
           const card = id.ok ? await deps.cards.findById(id.value) : undefined;
           if (!card) continue;
           const changed = card.noteWatchCheck(valueOf(d.id, card.fields), sent.get(d.id) ?? new Set(), now);
-          if (!changed.ok) return changed;
+          if (!changed.ok) {
+            skipped.push(`${String(d.card['name'] ?? d.id)}: ${changed.error.message}`);
+            continue;
+          }
           if (!changed.value) continue;
           await deps.cards.save(card);
           events.push(...card.pullEvents());
         }
         return ok({ value: undefined, events });
       });
-      if (!saved.ok) deps.log.error('pricing', `Couldn't record the price alerts on the cards: ${saved.error.message}`);
+      if (!recorded.ok) deps.log.error('pricing', `Couldn't record the price alerts on the cards: ${recorded.error.message}`);
+      for (const why of skipped) deps.log.error('pricing', `Couldn't record the price alert on ${why}. It may be emailed again.`);
     }
 
     if (counts.buy || counts.sell || errors.length) deps.history.note({ at, buy: counts.buy, sell: counts.sell, error: errors.length ? errors.join(' ') : null });

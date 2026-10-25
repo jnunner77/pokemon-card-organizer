@@ -129,6 +129,23 @@ describe('Checking price watches', () => {
     assert.equal(t.mailer.sent.at(-1)?.message.subject, 'Buy alert: Umbreon at $4.00 (your price $5.00)');
   });
 
+  it('prices USD at 1.37 before the first update saves a rate, as the binder does', async () => {
+    t.setUpMail();
+    t.ledger.seed('cards', 'c1', { name: 'Eevee', watch: { sell: 13 }, prices: [{ ...market(10), currency: 'USD' }] });
+    await t.check.execute();
+    assert.match(t.mailer.sent[0]?.message.subject ?? '', /Eevee at \$13\.70/);
+  });
+
+  it('keeps the other cards\' records when one card can\'t take its record', async () => {
+    t.setUpMail();
+    t.ledger.seed('cards', 'bad', { name: 'Broken', page: 0, watch: { buy: 5 }, prices: [market(4)] });
+    t.ledger.seed('cards', 'ok', { name: 'Umbreon', watch: { buy: 5 }, prices: [market(4)] });
+    await t.check.execute();
+    assert.ok(t.ledger.tables.cards.get('ok')?.['watchAlerts']);
+    assert.equal(t.ledger.tables.cards.get('bad')?.['watchAlerts'], undefined);
+    assert.ok(t.log.query({ level: 'error' }).some((e) => /Couldn't record the price alert on Broken/.test(e.msg)));
+  });
+
   it('says so, and sends nothing, when alert emails aren\'t set up', async () => {
     t.ledger.seed('cards', 'c1', { name: 'Umbreon', watch: { buy: 5 }, prices: [market(4)] });
     assert.deepEqual(await t.check.execute(), { buy: 0, sell: 0, notSetUp: true, errors: [] });
