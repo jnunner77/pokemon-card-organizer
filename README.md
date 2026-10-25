@@ -655,6 +655,9 @@ when you've rearranged the binder and want to keep the new layout instead.
   for all*, enter the total, and it's split across the cards by market value, evenly or by hand
   (to the cent; Sell waits until the shares add up). Each card gets its own sale price and profit,
   and the Sales tab keeps the bundle together under one row, whose *Undo* puts every card back.
+- **Where** a price came from, a card sold or was bought (*Add a price*, Quick sell, Bulk buy) is a
+  dropdown of the usual places (eBay, Card show, PriceCharting…); *Custom…* shows a field to type
+  any other place.
 - **CSV import and export**, with a template, per-row checks and a "rows to fix" file.
 - **Full backups** with photos: *Settings → Download full backup* / *Restore from backup*.
   The server also keeps the ledger as it was at the start of each of the last 14 days.
