@@ -472,7 +472,7 @@ PriceCharting products and an eBay search.
 
 The value compared is the one the binder shows: the latest market price or sold comp, a played card's
 automatic price adjusted for its condition, and a graded card's price for its grade. Watches are
-checked after each price update and every hour (so a price logged by hand or a card's *Update now*
+checked after each price update and a card's *Update now*, and every hour (so a price logged by hand
 counts too), and an alert is sent **once** when a card reaches its price, and again only after its
 value has moved back past it and reaches it again (or its price is changed). An email that couldn't
 be sent is logged as an error (Problems) and tried again at the next check. Prices are daily

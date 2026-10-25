@@ -363,6 +363,11 @@ export class PriceUpdater {
     if (o.afterPrices) this.afterPrices = o.afterPrices;
   }
 
+  /** Prices changed (an update finished, or a card's Update now): the price watches are checked. */
+  pricesChanged() {
+    if (this.afterPrices) safely(this.log, 'pricing', 'Checking the price watches', this.afterPrices);
+  }
+
   /** Whether the daily run is on, and its hour (administrators can change both); whether PriceCharting has its token. */
   schedule() {
     const c = this.config?.get().pricing;
@@ -592,7 +597,7 @@ export class PriceUpdater {
     if (scope === 'pictures') this.log[lvl]('pricing', `Picture update finished: ${counts.updated} pictured, ${counts.noPicture} without a picture, ${counts.failed} failed`, { ...counts });
     else {
       this.log[lvl]('pricing', `${capital(name)} finished${scope === 'prices' ? ' (prices only)' : ''}: ${counts.updated} updated, ${counts.needsMatch} need a match, ${counts.noPrice} without a price, ${counts.failed} failed`, { ...counts, tripped: [...run.tripped.keys()] });
-      if (this.afterPrices) safely(this.log, 'pricing', 'Checking the price watches', this.afterPrices);
+      this.pricesChanged();
     }
     return summary;
   }

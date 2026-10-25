@@ -519,6 +519,17 @@ describe('the daily update with PriceCharting', () => {
     expect(pcCalls(net)).toEqual([]);
   });
 
+  it('checks the price watches after a price update and an Update now, not after a picture update', async () => {
+    let checks = 0;
+    const u = new PriceUpdater({ store, assets, fetcher: fakeNet().fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', afterPrices: () => void checks++ });
+    await u.runAll('manual', 'prices');
+    expect(checks).toBe(1);
+    await u.runAll('manual', 'pictures');
+    expect(checks).toBe(1);
+    u.pricesChanged();
+    expect(checks).toBe(2);
+  });
+
   it('runs once a day after the set hour, catching up after downtime', () => {
     const u = new PriceUpdater({ store, assets, fetcher: fakeNet().fetcher, now: () => now, hour: 5, timeZone: 'America/Vancouver' });
     expect(u.today(new Date('2026-10-03T06:30:00Z'))).toBe('2026-10-02'); // still the 2nd in Vancouver

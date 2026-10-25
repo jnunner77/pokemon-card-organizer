@@ -332,6 +332,8 @@ export function createExpressApp(o: AppOptions) {
   api.post('/pricing/refresh/:id', need('editor'), async (req, res) => {
     const { id } = cardFor(req.params.id);
     const outcome = await needUpdater().updateCard(id);
+    // Update now: the card's new price is checked against its watches straight away.
+    if (outcome === 'updated') needUpdater().pricesChanged();
     res.json({ outcome, card: { id, ...store.get('cards', id) } });
   });
 
