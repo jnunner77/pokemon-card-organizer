@@ -2984,7 +2984,8 @@ function ciValidate(P, o){
   const pocketsFor = k => k.startsWith("id:") ? pocketsOf(binderById(k.slice(3))) : res.newBinders.get(k).pockets;
   const occ = new Map(), occCard = new Map(), occRow = new Map();
   S.cards.forEach(c=>{ if(c.binderId && binderById(c.binderId) && c.page && c.slot){ const k=`id:${c.binderId}|${c.page}|${c.slot}`; occ.set(k, `${c.name||"a card"} (already in your ledger)`); occCard.set(k, c); } });
-  const have = new Set(S.cards.filter(c=>c.name).map(dupKey));
+  // cards the person has (not ones only on the watchlist), for "this adds another copy"
+  const have = new Set(ledgerCards().filter(c=>c.name).map(dupKey));
   const MAX = 2000; let count = 0;
   for(let i=1;i<all.length;i++){
     const raw = all[i]; if(raw.every(c=>!c.trim())) continue;
@@ -4410,7 +4411,7 @@ function tbHead(cols){
 }
 function tbLists(){
   const uniq = a => [...new Set(a.map(x=>String(x??"").trim()).filter(Boolean))].sort((x,y)=>x.localeCompare(y));
-  const from = k => k==="rarity" ? uniq([...RARITIES, ...S.cards.map(c=>c.rarity)]) : uniq(S.cards.map(c=>c[k]));
+  const from = k => k==="rarity" ? uniq([...RARITIES, ...ledgerCards().map(c=>c.rarity)]) : uniq(ledgerCards().map(c=>c[k]));
   return TBL.COLUMNS.filter(c=>c.suggest).map(c => `<datalist id="tdl_${c.k}">${from(c.k).map(v=>`<option value="${esc(v)}">`).join("")}</datalist>`).join("")
     + `<datalist id="tdl__blank"><option value="${TBL.BLANK}"><option value="${TBL.FILLED}"></datalist>`;
 }
@@ -4464,7 +4465,7 @@ function tbSortClick(t){
 /* a dropdown filter's list: tick any number of values, or turn it around to none of them */
 function tbPopHTML(){
   const k = TB.pop.k, col = TBL.BY[k], f = TBL.filterOf(col, TB.filt[k]) || {in:[], not:false};
-  const ch = TBL.choices(S.cards, col, tbCtx);
+  const ch = TBL.choices(ledgerCards(), col, tbCtx);
   const list = [...ch, ...f.in.filter(v => !ch.some(x=>x.v===v)).map(v => ({v, label: tbPickText(col, {in:[v]}), n:0}))];
   const q = TBL.norm(TB.pop.q || "");
   return `<div class="tfpop" id="tfPop" role="dialog" aria-label="Filter ${esc(col.h)}">
@@ -4559,18 +4560,18 @@ function tbExprPane(){
 function tbxStatus(){
   const st = $("#tbxStatus"); if(!st) return;
   const x = EXPR.editState(TB.expr.text, TB.expr.applied), e = x.error, err = $("#tbxErr");
-  const of = n => `${n} of ${S.cards.length} card${S.cards.length===1?"":"s"}`;
+  const nAll = ledgerCards().length, of = n => `${n} of ${nAll} card${nAll===1?"":"s"}`;
   if(e){
     const t = TB.expr.text.trim(), a = Math.min(e.at, t.length), b = Math.max(a + 1, Math.min(e.end, t.length));
     err.hidden = false;
     err.innerHTML = `<code>${esc(t.slice(0, a))}<mark>${esc(t.slice(a, b) || " ")}</mark>${esc(t.slice(b))}</code><span>${esc(e.error)}</span>`;
   } else { err.hidden = true; err.innerHTML = ""; }
   if(x.dirty){
-    const ast = e ? null : EXPR.parse(TB.expr.text).ast, n = ast ? S.cards.filter(c => EXPR.test(ast, c, tbCtx)).length : S.cards.length;
+    const ast = e ? null : EXPR.parse(TB.expr.text).ast, n = ast ? ledgerCards().filter(c => EXPR.test(ast, c, tbCtx)).length : nAll;
     st.className = "tbx-status hint " + (e ? "err" : "pending");
     st.textContent = e ? "Not applied: fix the mistake to apply it." : !ast ? "Not applied yet: Apply to stop filtering with an expression." : `Not applied yet: ${of(n)} would match. Apply, or press Enter.`;
   } else {
-    const n = TB.ast ? S.cards.filter(c => EXPR.test(TB.ast, c, tbCtx)).length : 0;
+    const n = TB.ast ? ledgerCards().filter(c => EXPR.test(TB.ast, c, tbCtx)).length : 0;
     st.className = "tbx-status hint" + (tbExprOn() ? " ok" : "");
     st.textContent = !TB.ast ? "Type an expression, or add conditions below, then Apply." : `${TB.expr.on ? "" : "Off · "}${of(n)} match${n===1?"es":""} it`;
   }
@@ -4582,7 +4583,7 @@ function tbxStatus(){
 /* the suggestions for where the caret is */
 function tbxSuggest(){
   const ta = $("#tbxText"), box = $("#tbxSug"); if(!ta || !box) return;
-  const r = EXPR.suggest(ta.value, ta.selectionStart, S.cards, tbCtx);
+  const r = EXPR.suggest(ta.value, ta.selectionStart, ledgerCards(), tbCtx);
   TB.sug = r;
   box.innerHTML = r.items.map((x, i) => `<button type="button" class="tbxs${r.kind==="op"||r.kind==="join"?" mono":""}" data-tbxs="${i}" title="${esc(x.hint ? `${x.label}: ${x.hint}` : x.label)}">${esc(x.label)}${x.hint && r.kind!=="value" ? ` <small>${esc(x.hint)}</small>` : ""}</button>`).join("");
 }
@@ -4594,7 +4595,7 @@ function tbxBuildOps(){
   const k = $("#tbxF").value, o = $("#tbxO"), cur = o.value;
   o.innerHTML = EXPR.opsFor(k).map(x => `<option value="${esc(x.v)}">${esc(x.hint)} (${esc(x.v.replace(/ \($/, ""))})</option>`).join("");
   if([...o.options].some(x=>x.value===cur)) o.value = cur;
-  $("#tbxVals").innerHTML = EXPR.values(S.cards, k, tbCtx).slice(0, 200).map(x=>`<option value="${esc(x.v)}">${esc(x.label)} (${x.n})</option>`).join("");
+  $("#tbxVals").innerHTML = EXPR.values(ledgerCards(), k, tbCtx).slice(0, 200).map(x=>`<option value="${esc(x.v)}">${esc(x.label)} (${x.n})</option>`).join("");
   tbxBuildVal();
 }
 function tbxBuildVal(){
@@ -4747,7 +4748,7 @@ function tbDraw(rebuild){
   const now = [...body.children].map(tr => tr.dataset.trow).filter(Boolean);
   const skip = new Set();
   if(rebuild || now.join() !== TB.rows.join()){
-    tbKeepFocus(() => { body.innerHTML = TB.rows.length ? TB.rows.map(id=>html.get(id)).join("") : `<tr><td class="empty-state" colspan="${cols.length}">${S.cards.length?"No cards match these filters.":"No cards yet."}</td></tr>`; });
+    tbKeepFocus(() => { body.innerHTML = TB.rows.length ? TB.rows.map(id=>html.get(id)).join("") : `<tr><td class="empty-state" colspan="${cols.length}">${ledgerCards().length?"No cards match these filters.":"No cards yet."}</td></tr>`; });
   } else {
     const a = document.activeElement;
     for(const tr of [...body.children]){
