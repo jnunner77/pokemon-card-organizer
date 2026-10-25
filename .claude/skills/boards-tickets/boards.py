@@ -124,15 +124,20 @@ def create(spec_path):
         sys.exit(one_line(f"cannot read {spec_path}: {e}"))
     if not isinstance(spec, dict):
         sys.exit(one_line(f"{spec_path} must hold a JSON object (see SKILL.md)"))
-    _, me, po, sprint = context()
-    kind = spec.get("type", "Product Backlog Item")
+    def titled(x):  # Boards trims a title and refuses an empty one
+        return isinstance(x, dict) and isinstance(x.get("title"), str) and bool(x["title"].strip())
+
+    kind = spec.get("type", "Product Backlog Item")  # the spec is checked before any request
     if kind not in ("Product Backlog Item", "Bug"):
         sys.exit('type must be "Product Backlog Item" or "Bug"')
+    if not titled(spec):
+        sys.exit(one_line(f'{spec_path} needs a "title" (see SKILL.md)'))
     if not spec.get("tasks"):
         sys.exit("Add the tasks: every PBI or Bug needs at least one task before work starts.")
     tasks = [{"title": t} if isinstance(t, str) else t for t in spec["tasks"]] if isinstance(spec["tasks"], list) else None
-    if not tasks or not all(isinstance(t, dict) and t.get("title") for t in tasks):
+    if not tasks or not all(titled(t) for t in tasks):
         sys.exit('tasks must be a list of titles or {"title": ...} objects (see SKILL.md)')
+    _, me, po, sprint = context()
     it = sprint["id"] if sprint else None
     fields = {k: v for k, v in spec.items() if k not in ("tasks", "type")}
     try:
@@ -140,7 +145,7 @@ def create(spec_path):
                       {"id": int, "title": str}, "POST /api/workitems")
     except SystemExit as e:  # the server may have made the item before the reply was lost
         sys.exit(f"{e.code} -- the {kind} may have been created anyway: check Boards for one titled "
-                 f"{one_line(fields.get('title'))!r} before running create again.")
+                 f"{one_line(spec['title'])!r} before running create again.")
     print(one_line(f"{kind} {item['id']}: {item['title']}  ({(sprint.get('name') or sprint['id']) if sprint else 'backlog'})", None))
     for n, t in enumerate(tasks):
         try:
