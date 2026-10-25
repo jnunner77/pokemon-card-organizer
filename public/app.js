@@ -897,7 +897,8 @@ function trLoad(){
       cardId: k==="mine" && typeof it.cardId==="string" ? it.cardId : null, from: typeof it.from==="string" ? it.from : null,
       name:trStr(it.name), grader:GRADERS.includes(it.grader) ? it.grader : "Raw", grade:trStr(it.grade), value:trStr(it.value), pct:trStr(it.pct)}));
   }
-  if(S.mode!=="loading") t.mine.items = t.mine.items.filter(it => { if(!it.cardId) return true; const c = trCard(it.cardId); return !!c && owned(c); });
+  // only once the ledger is loaded: before then (or with no server) a card can't be told apart from one that's gone
+  if(S.mode==="ready") t.mine.items = t.mine.items.filter(it => { if(!it.cardId) return true; const c = trCard(it.cardId); return !!c && owned(c); });
   return t;
 }
 function trSave(){
