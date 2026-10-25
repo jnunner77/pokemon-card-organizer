@@ -572,7 +572,7 @@ function quickSellModal(ids){
     <div class="qs-opts">
       <div class="field"><label for="qs_cur">Currency</label><select id="qs_cur">${opt(["CAD","USD"],"CAD")}</select></div>
       <div class="field"><label for="qs_date">Date</label><input id="qs_date" type="date" value="${today()}"></div>
-      <div class="field"><label for="qs_where">Sold where <span class="hint">(optional)</span></label><input id="qs_where" list="qs_dl" value="Card show" placeholder="FB Marketplace, card show…"><datalist id="qs_dl">${["Facebook Marketplace","eBay","Local card shop","Card show","Trade","Friend"].map(s=>`<option value="${s}">`).join("")}</datalist></div>
+      <div class="field"><label for="qs_where">Sold where <span class="hint">(optional)</span></label>${window.BinderWhere.html("qs_where", ["Facebook Marketplace","eBay","Local card shop","Card show","Trade","Friend"], "Card show", "FB Marketplace, card show…")}</div>
     </div>
     <div class="qs-total" id="qs_total"></div>
     <div class="mfoot"><button class="btn" type="button" data-mclose>Cancel</button><button class="btn primary" type="button" id="qs_go" disabled>Sell</button></div>
@@ -635,7 +635,7 @@ function quickSellModal(ids){
 }
 async function doQuickSell(card, bundleOpts){
   const go = $("#qs_go"); if(go.disabled) return; go.disabled = true;
-  const cur = $("#qs_cur").value, date = $("#qs_date").value || today(), where = $("#qs_where").value.trim();
+  const cur = $("#qs_cur").value, date = $("#qs_date").value || today(), where = window.BinderWhere.read($("#qs_where"), $("#qs_where_custom"));
   const rowsIn = [...card.querySelectorAll("[data-qs]")];
   const bundle = bundleOpts ? {id:rid(), total:Math.round(bundleOpts.total*100)/100, currency:cur, count:rowsIn.length, split:bundleOpts.split} : null;
   const jobs = [];
@@ -723,7 +723,7 @@ function bulkBuyModal(){
         <div class="field"><label for="bb_tax">Tax</label><input id="bb_tax" type="number" step="0.01" min="0" inputmode="decimal" placeholder="0.00"></div>
         <div class="field"><label for="bb_cur">Currency</label><select id="bb_cur">${opt(["CAD","USD"],"CAD")}</select></div>
         <div class="field"><label for="bb_date">Date</label><input id="bb_date" type="date" value="${today()}"></div>
-        <div class="field"><label for="bb_where">Bought where <span class="hint">(optional)</span></label><input id="bb_where" list="bb_dl" placeholder="Card show, local card shop…"><datalist id="bb_dl">${["Card show","Local card shop","Facebook Marketplace","eBay","TCGplayer","Friend"].map(s=>`<option value="${s}">`).join("")}</datalist></div>
+        <div class="field"><label for="bb_where">Bought where <span class="hint">(optional)</span></label>${window.BinderWhere.html("bb_where", ["Card show","Local card shop","Facebook Marketplace","eBay","TCGplayer","Friend"], "", "Card show, local card shop…")}</div>
       </div>
       <div class="qs-total" id="bb_total"></div>
       <datalist id="bb_names">${bbNames()}</datalist>
@@ -835,7 +835,7 @@ async function bulkBuySave(){
   BB.busy = true; go.disabled = true; go.textContent = "Recording…";
   const form = [$("#bb_list"), $("#bb_card .bb-opts"), $("#bb_card .bb-scope")]; // nothing changes while it's being recorded
   form.forEach(el => { el.inert = true; });
-  const cur = $("#bb_cur").value, date = $("#bb_date").value || today(), where = $("#bb_where").value.trim();
+  const cur = $("#bb_cur").value, date = $("#bb_date").value || today(), where = window.BinderWhere.read($("#bb_where"), $("#bb_where_custom"));
   const {count, tax, buy, flagged} = window.BinderBulkBuy.plan(BB.rows, BB.res, BB.tax);
   const jobs = [];
   for(const b of buy){
@@ -1042,13 +1042,14 @@ function priceRowView(p){
     ${(p.where||p.note)?`<span class="where" style="grid-column:1/-1">${esc(p.where||"")}${p.note?`<small>${esc(p.note)}</small>`:""}</span>`:""}
   </div>`;
 }
+const WHERE_PRICES = ["eBay","TCGplayer","PriceCharting","Facebook Marketplace","Local card shop","Card show","Collectr","Trade"];
 function priceFields(pre, p={}){
   return `<div class="pricebox">
     <div class="field"><label for="${pre}_type">Type</label><select id="${pre}_type">${opt(PTYPES,p.type||"market")}</select></div>
     <div class="field"><label for="${pre}_amount">Amount</label><input id="${pre}_amount" class="mono" type="number" step="0.01" min="0" inputmode="decimal" value="${p.amount!=null?esc(p.amount):""}" placeholder="0.00"></div>
     <div class="field"><label for="${pre}_cur">Currency</label><select id="${pre}_cur">${opt(["CAD","USD"],p.currency||"CAD")}</select></div>
     <div class="field"><label for="${pre}_date">Date</label><input id="${pre}_date" type="date" value="${esc(p.date||today())}"></div>
-    <div class="field w2"><label for="${pre}_where">Where</label><input id="${pre}_where" list="dl_where" value="${esc(p.where ?? (pre==="n"?"PriceCharting":""))}" placeholder="eBay, TCGplayer, FB Marketplace, card show…"></div>
+    <div class="field w2"><label for="${pre}_where">Where</label>${window.BinderWhere.html(pre+"_where", WHERE_PRICES, p.where ?? (pre==="n"?"PriceCharting":""), "eBay, TCGplayer, FB Marketplace, card show…")}</div>
     <div class="field full"><label for="${pre}_note">Note</label><input id="${pre}_note" value="${esc(p.note||"")}" placeholder="Condition, grade, lot of 3, shipping incl…"></div>
   </div>`;
 }
@@ -1059,7 +1060,6 @@ function priceSection(c){
   const fixPast = daily.length && S.me?.user?.role!=="viewer" && window.BinderPastPrices.sources(list).length > 1 ? `<div class="links" style="margin-top:6px"><button class="btn sm" type="button" data-fixpast="${esc(c.id)}">Fix past daily prices…</button></div>` : "";
   return `<div class="sec" id="priceSec"><h3>Price log <span class="hint" style="letter-spacing:0;text-transform:none;font-weight:400">newest first</span></h3>
     ${mine.length?`<div class="plog" id="plog">${mine.map(priceRowView).join("")}</div>`:daily.length?"":`<p class="hint" style="margin:0">No prices logged yet.</p>`}${dailyLog}${fixPast}
-    <datalist id="dl_where">${["eBay","TCGplayer","PriceCharting","Facebook Marketplace","Local card shop","Card show","Collectr","Trade"].map(s=>`<option value="${s}">`).join("")}</datalist>
     <div style="margin-top:14px;border:1px dashed var(--line);border-radius:8px;padding:12px">
       <h3 style="margin-bottom:8px">Add a price</h3>
       ${priceFields("n")}
@@ -1069,7 +1069,7 @@ function priceSection(c){
 function readPriceFields(pre){
   const amount = parseFloat($("#"+pre+"_amount").value);
   if(isNaN(amount) || amount < 0){ toast("Enter an amount, like 42.50."); $("#"+pre+"_amount").focus(); return null; }
-  return { type: $("#"+pre+"_type").value, amount: Math.round(amount*100)/100, currency: $("#"+pre+"_cur").value, date: $("#"+pre+"_date").value || today(), where: $("#"+pre+"_where").value.trim(), note: $("#"+pre+"_note").value.trim() };
+  return { type: $("#"+pre+"_type").value, amount: Math.round(amount*100)/100, currency: $("#"+pre+"_cur").value, date: $("#"+pre+"_date").value || today(), where: window.BinderWhere.read($("#"+pre+"_where"), $("#"+pre+"_where_custom")), note: $("#"+pre+"_note").value.trim() };
 }
 function readForm(){
   const f = $("#cardForm"); const o = {};
@@ -3092,6 +3092,7 @@ async function switchPlaceholder(box){
   toast(on ? `${c.name||"Card"} is a placeholder: not counted in your totals` : `${c.name||"Card"} is counted in your totals now`);
 }
 document.addEventListener("change", e => {
+  window.BinderWhere.toggle(e.target);
   if(e.target.closest("#filtPane") && e.target.type!=="number"){ readFilters(); renderMain(); }
   if(e.target.closest("#priceSec")) S.priceTouched=true;
   if(e.target.closest("#moveSec")) S.moveTouched=true;
