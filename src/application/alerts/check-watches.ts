@@ -97,7 +97,7 @@ export class CheckWatches {
       // A card that can't take the record (a field the rules refuse) is skipped and logged, so the
       // others' records are kept and their alerts aren't sent again.
       const skipped: string[] = [];
-      const recorded = await commit(deps, async () => {
+      await commit(deps, async () => {
         const events: LedgerEvent[] = [];
         for (const d of touched) {
           const id = documentId<CardId>(d.id);
@@ -114,7 +114,6 @@ export class CheckWatches {
         }
         return ok({ value: undefined, events });
       });
-      if (!recorded.ok) deps.log.error('pricing', `Couldn't record the price alerts on the cards: ${recorded.error.message}`);
       for (const why of skipped) deps.log.error('pricing', `Couldn't record the price alert on ${why}. It may be emailed again.`);
     }
 
