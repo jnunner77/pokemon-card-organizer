@@ -48,9 +48,10 @@ every Agent call; it doesn't plan or write the change itself.
   skill (`.claude/skills/review-loop/`). It spawns the `code-reviewer` agent
   (`.claude/agents/code-reviewer.md`, on the cheapest model, Haiku) with the diff and the ticket's
   description, acceptance criteria and tasks; the implementer fixes its findings, and the branch is
-  pushed and reviewed again until it passes with no findings (or the eighth fails, as above), and
-  only then is the pull request opened. Don't ask GitHub Copilot to review pull requests: the
-  owner turned that off.
+  reviewed again until it passes with no findings (or the eighth fails, as above), and only then is
+  the pull request opened. Before a pull request exists, push and then review; once one is open,
+  review the local commits first and push only after a pass. Don't ask GitHub Copilot to review
+  pull requests: the owner turned that off.
 - Browser-only logic that's worth testing lives in small plain scripts in `public/` (like
   `sales.js`, `move.js`, `filter.js`) loaded before `app.js`, with tests in `tests/legacy/` that load them
   the same way.
