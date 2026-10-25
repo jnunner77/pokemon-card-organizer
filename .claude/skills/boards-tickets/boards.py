@@ -12,6 +12,7 @@ Needs BOARDS_URL and BOARDS_TOKEN in the environment. The token is sent as a hea
   boards.py brief ID                    an item's description, acceptance criteria and tasks, as text (for reviews)
 """
 import html
+import http.client
 import json
 import os
 import re
@@ -39,10 +40,16 @@ def call(method, path, body=None):
         sys.exit(f"cannot reach {url}: {e.reason}")
     except TimeoutError:  # connected, but no answer in time
         sys.exit(f"{method} {path}: no answer from {url} in {TIMEOUT}s")
+    except (ConnectionError, http.client.HTTPException) as e:  # dropped mid-reply, or not an HTTP server
+        sys.exit(f"{method} {path}: {url} broke off or didn't answer as HTTP "
+                 f"({type(e).__name__}: {' '.join(str(e).split())[:300]})")
+    not_json = f"{method} {path}: {url} didn't answer with JSON; is BOARDS_URL the Boards server?"
+    if not raw:  # every endpoint used here answers with a JSON object
+        sys.exit(not_json)
     try:
-        return json.loads(raw or b"null")
+        return json.loads(raw)
     except ValueError:
-        sys.exit(f"{method} {path}: {url} didn't answer with JSON; is BOARDS_URL the Boards server?")
+        sys.exit(not_json)
 
 
 def context():
@@ -140,7 +147,7 @@ def main(a):
         sys.exit(f"usage: boards.py {usage}")
 
     def num(i):  # a work item id
-        if not i.isdigit():
+        if not (i.isascii() and i.isdigit()):
             sys.exit(f"usage: boards.py {usage}  (ID is a number, e.g. 110; got {i!r})")
         return int(i)
 
