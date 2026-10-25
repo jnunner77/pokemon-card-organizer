@@ -24,10 +24,13 @@ type Trade = {
   evaluate: (t: { dealer?: Side; mine?: Side }) => Result;
   gradeLabel: (grader: Typed, grade: Typed) => string;
   pctText: (n: number | null) => string;
+  restore: (saved: unknown, ownedIds: Set<string> | null, graders: string[]) => Record<'dealer' | 'mine', SavedSide>;
 };
+type SavedItem = { cardId: string | null; from: string | null; name: string; grader: string; grade: string; value: string; pct: string };
+type SavedSide = { pct: string; cash: string; items: SavedItem[] };
 const sandbox = { window: {} as { BinderTrade: Trade } };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public/trade.js'), 'utf8'), sandbox);
-const { amount, percent, evaluate, gradeLabel, pctText } = sandbox.window.BinderTrade;
+const { amount, percent, evaluate, gradeLabel, pctText, restore } = sandbox.window.BinderTrade;
 
 describe('reading what was typed', () => {
   it('reads amounts with or without a dollar sign and commas', () => {
@@ -158,5 +161,40 @@ describe('a trade with a dealer', () => {
     expect(buy.verdict).toBe('ahead');
     expect(buy.theirRate).toBe(90);
     expect(buy.myRate).toBeNull();
+  });
+});
+
+describe('the trade kept in the browser', () => {
+  const GRADERS = ['Raw', 'PSA', 'CGC', 'BGS', 'TAG', 'ACE'];
+  const blank = { pct: '100', cash: '', items: [] };
+
+  it('gives an empty trade for anything that is not a saved trade', () => {
+    for (const saved of [null, undefined, 'x', 42, [], { dealer: 'x', mine: 5 }]) {
+      expect(restore(saved, null, GRADERS)).toEqual({ dealer: blank, mine: blank });
+    }
+  });
+
+  it('reads each field back as text, and an unknown grader as Raw', () => {
+    const t = restore({ dealer: { pct: 90, cash: '20', items: [{ name: 'Umbreon VMAX', grader: 'PSA', grade: '10', value: 400, pct: '' }, { name: 'Odd', grader: 'XYZ', grade: 9 }, null, 'junk'] } }, null, GRADERS);
+    expect(t.dealer.pct).toBe('90');
+    expect(t.dealer.cash).toBe('20');
+    expect(t.dealer.items).toEqual([
+      { cardId: null, from: null, name: 'Umbreon VMAX', grader: 'PSA', grade: '10', value: '400', pct: '' },
+      { cardId: null, from: null, name: 'Odd', grader: 'Raw', grade: '9', value: '', pct: '' },
+    ]);
+    expect(t.mine).toEqual(blank);
+  });
+
+  it("links only my side's cards to cards of mine; the dealer's keep where they started from", () => {
+    const t = restore({ dealer: { items: [{ cardId: 'a', from: 'p1', name: 'Pikachu' }] }, mine: { items: [{ cardId: 'a' }] } }, null, GRADERS);
+    expect(t.dealer.items[0]).toMatchObject({ cardId: null, from: 'p1' });
+    expect(t.mine.items[0]).toMatchObject({ cardId: 'a' });
+  });
+
+  it('drops my cards that are gone, sold or traded once the ledger is loaded, and keeps typed-in ones', () => {
+    const saved = { mine: { items: [{ cardId: 'kept', name: 'Charizard ex' }, { cardId: 'sold', name: 'Mew ex' }, { cardId: null, name: 'Typed in' }] } };
+    expect(restore(saved, new Set(['kept']), GRADERS).mine.items.map((i) => i.name)).toEqual(['Charizard ex', 'Typed in']);
+    // not loaded yet (or no server): nothing is dropped
+    expect(restore(saved, null, GRADERS).mine.items.map((i) => i.name)).toEqual(['Charizard ex', 'Mew ex', 'Typed in']);
   });
 });

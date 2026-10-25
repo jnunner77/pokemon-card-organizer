@@ -883,23 +883,16 @@ const TR_SIDES = ["dealer","mine"];
 const TR_NAME = {dealer:"Dealer gives", mine:"I give"};
 let TR = null;
 const trBlank = () => ({dealer:{pct:"100", cash:"", items:[]}, mine:{pct:"100", cash:"", items:[]}, q:{dealer:"", mine:""}});
-const trStr = v => typeof v==="string" ? v : typeof v==="number" ? String(v) : "";
 const trCard = id => id ? S.cards.find(c => c.id===id) : null;
 const trAny = () => !!TR && TR_SIDES.some(k => TR[k].items.length || TR[k].cash.trim() || (TR[k].pct.trim() && TR[k].pct.trim()!=="100"));
-/* The trade kept in this browser, if any. Cards of mine that are gone, sold or traded since are left out. */
+/* The trade kept in this browser, if any (trade.js restore). Cards of mine that are gone, sold or
+   traded since are left out, but only once the ledger is loaded: before then (or with no server) a
+   card can't be told apart from one that's gone. */
 function trLoad(){
-  const saved = store.get("trade", null), t = trBlank();
-  for(const k of TR_SIDES){
-    const s = saved && typeof saved==="object" ? saved[k] : null;
-    if(!s || typeof s!=="object") continue;
-    t[k].pct = trStr(s.pct); t[k].cash = trStr(s.cash);
-    t[k].items = (Array.isArray(s.items) ? s.items : []).filter(it => it && typeof it==="object").map(it => ({key:rid(),
-      cardId: k==="mine" && typeof it.cardId==="string" ? it.cardId : null, from: typeof it.from==="string" ? it.from : null,
-      name:trStr(it.name), grader:GRADERS.includes(it.grader) ? it.grader : "Raw", grade:trStr(it.grade), value:trStr(it.value), pct:trStr(it.pct)}));
-  }
-  // only once the ledger is loaded: before then (or with no server) a card can't be told apart from one that's gone
-  if(S.mode==="ready") t.mine.items = t.mine.items.filter(it => { if(!it.cardId) return true; const c = trCard(it.cardId); return !!c && owned(c); });
-  return t;
+  const ownedIds = S.mode==="ready" ? new Set(S.cards.filter(owned).map(c => c.id)) : null;
+  const t = window.BinderTrade.restore(store.get("trade", null), ownedIds, GRADERS);
+  for(const k of TR_SIDES) t[k].items.forEach(it => { it.key = rid(); });
+  return {...t, q:{dealer:"", mine:""}};
 }
 function trSave(){
   if(!TR) return;
@@ -1061,7 +1054,7 @@ function trSummary(r){
   // nothing valued yet: no even trade or market result to state
   if(r.verdict==="empty") return `<p class="hint">Put in the cards' values (or cash) to see the breakdown.</p>${warn()}`;
   const cards = s => `${esc(money(s.market))}<small>${s.counted} card${s.counted===1?"":"s"}${s.unvalued?`, ${s.unvalued} with no value`:""}</small>`;
-  const pct = s => !s.counted ? "—" : s.mixed ? `${esc(BT.pctText(s.rate))}%<small>overall (cards differ)</small>` : `${esc(BT.pctText(s.pct))}%`;
+  const pct = s => !s.counted ? "—" : s.mixed ? s.rate==null ? "—" : `${esc(BT.pctText(s.rate))}%<small>overall (cards differ)</small>` : `${esc(BT.pctText(s.pct))}%`;
   const row = (h, a, b, cls="") => `<tr${cls?` class="${cls}"`:""}><th scope="row">${h}</th><td>${a}</td><td>${b}</td></tr>`;
   let h = `<div class="tr-tablewrap"><table class="tr-table"><thead><tr><th></th><th scope="col">Dealer gives</th><th scope="col">I give</th></tr></thead><tbody>
     ${row("Cards' market value", cards(d), cards(m))}

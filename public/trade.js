@@ -98,5 +98,33 @@
   /* A percentage as it's shown: 80, 72.5, 87.3 (one decimal at most). */
   const pctText = n => n == null ? "" : String(Math.round(n * 10) / 10);
 
-  root.BinderTrade = { amount, percent, side, evaluate, gradeLabel, pctText };
+  /**
+   * A trade saved in the browser, read back: {dealer, mine}, each {pct, cash, items:[{cardId, from,
+   * name, grader, grade, value, pct}]} with every field a string (cardId and from a card id or null).
+   * Anything that isn't a saved trade gives an empty one; a grader not in `graders` is "Raw"; only my
+   * side's cards link to a card of mine (cardId). `ownedIds` is the set of card ids I own, or null
+   * when the ledger isn't loaded: with a set, my linked cards not in it (gone, sold, traded) are
+   * dropped; with null, they're all kept.
+   */
+  function restore(saved, ownedIds, graders) {
+    const str = v => typeof v === "string" ? v : typeof v === "number" ? String(v) : "";
+    const id = v => typeof v === "string" && v ? v : null;
+    const out = {};
+    for (const k of ["dealer", "mine"]) {
+      const s = saved && typeof saved === "object" ? saved[k] : null;
+      const ok = s && typeof s === "object";
+      const items = (ok && Array.isArray(s.items) ? s.items : []).filter(it => it && typeof it === "object").map(it => ({
+        cardId: k === "mine" ? id(it.cardId) : null, from: id(it.from),
+        name: str(it.name), grader: (graders || []).includes(it.grader) ? it.grader : "Raw",
+        grade: str(it.grade), value: str(it.value), pct: str(it.pct),
+      }));
+      out[k] = {
+        pct: ok ? str(s.pct) : "100", cash: ok ? str(s.cash) : "",
+        items: k === "mine" && ownedIds ? items.filter(it => !it.cardId || ownedIds.has(it.cardId)) : items,
+      };
+    }
+    return out;
+  }
+
+  root.BinderTrade = { amount, percent, side, evaluate, gradeLabel, pctText, restore };
 })(typeof window !== "undefined" ? window : globalThis);
