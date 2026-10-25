@@ -25,10 +25,13 @@ PO_USERNAME = "jnunner77"  # PBIs, Bugs, Features and Epics are assigned to Just
 TIMEOUT = 30  # seconds to wait for the Boards server before giving up
 
 
-def one_line(text):  # a message from the server or the network: one short line, never the token
-    text = " ".join(str(text).split())
+def redact(text):  # text from the server, the environment or the arguments, as it may be printed: never the token
     tok = os.environ.get("BOARDS_TOKEN", "")
-    return (text.replace(tok, "<token>") if tok else text)[:300]
+    return text.replace(tok, "<token>") if tok else text
+
+
+def one_line(text, limit=300):  # one line (cut to limit, unless None), never the token
+    return redact(" ".join(str(text).split()))[:limit]
 
 
 def need(v, fields, where):
@@ -118,9 +121,9 @@ def create(spec_path):
         with open(spec_path) as f:
             spec = json.load(f)
     except (OSError, ValueError, RecursionError) as e:  # missing file, not JSON, or nested too deep
-        sys.exit(f"cannot read {spec_path}: {e}")
+        sys.exit(one_line(f"cannot read {spec_path}: {e}"))
     if not isinstance(spec, dict):
-        sys.exit(f"{spec_path} must hold a JSON object (see SKILL.md)")
+        sys.exit(one_line(f"{spec_path} must hold a JSON object (see SKILL.md)"))
     _, me, po, sprint = context()
     kind = spec.get("type", "Product Backlog Item")
     if kind not in ("Product Backlog Item", "Bug"):
@@ -138,18 +141,18 @@ def create(spec_path):
     except SystemExit as e:  # the server may have made the item before the reply was lost
         sys.exit(f"{e.code} -- the {kind} may have been created anyway: check Boards for one titled "
                  f"{one_line(fields.get('title'))!r} before running create again.")
-    print(f"{kind} {item['id']}: {item['title']}  ({(sprint.get('name') or sprint['id']) if sprint else 'backlog'})")
+    print(one_line(f"{kind} {item['id']}: {item['title']}  ({(sprint.get('name') or sprint['id']) if sprint else 'backlog'})", None))
     for n, t in enumerate(tasks):
         try:
             task = result(call("POST", "/api/workitems", {"type": "Task", "parentId": item["id"], "assignedTo": me, "iterationId": it,
                                                           "priority": fields.get("priority", 2), "activity": "Development", **t}),
                           {"id": int, "title": str}, "POST /api/workitems")
         except SystemExit as e:  # call() stops at the first failed request: say what the backlog now holds
-            left = ", ".join(repr(x["title"]) for x in tasks[n:])
+            left = one_line(", ".join(repr(x["title"]) for x in tasks[n:]), None)
             sys.exit(f"{e.code} -- {kind} AB#{item['id']} was created, but these tasks may not have been: {left}. "
-                     f"Check with `boards.py show {item['id']}` and add the missing ones in Boards by hand "
-                     f"(or delete AB#{item['id']}) before running create again.")
-        print(f"  Task {task['id']}: {task['title']}  [{task.get('activity')}]")
+                     f"Don't run create again for this spec: check with `boards.py show {item['id']}` and add "
+                     f"the missing tasks in Boards by hand, or delete AB#{item['id']} first.")
+        print("  " + one_line(f"Task {task['id']}: {task['title']}  [{task.get('activity')}]", None))
 
 
 def show(i):
@@ -158,7 +161,7 @@ def show(i):
         sys.exit(f"no work item {i}")
     for w in db["workItems"]:
         if w["id"] == i or w.get("parentId") == i:
-            print(f"{'  ' if w['id'] != i else ''}{w['type']} {w['id']} [{w['state']}] {w['title']}")
+            print(("  " if w["id"] != i else "") + one_line(f"{w['type']} {w['id']} [{w['state']}] {w['title']}", None))
 
 
 def text(h):
@@ -173,15 +176,15 @@ def brief(i):
     w = next((w for w in db["workItems"] if w["id"] == i), None)
     if not w:
         sys.exit(f"no work item {i}")
-    print(f"{w['type']} AB#{w['id']} [{w['state']}] {w['title']}")
+    print(one_line(f"{w['type']} AB#{w['id']} [{w['state']}] {w['title']}", None))
     for key, label in (("description", "Description"), ("reproSteps", "Repro steps"), ("acceptanceCriteria", "Acceptance criteria")):
         if isinstance(w.get(key), str) and w[key]:
-            print(f"\n{label}:\n{text(w[key])}")
+            print(f"\n{label}:\n{redact(text(w[key]))}")
     tasks = [t for t in db["workItems"] if t.get("parentId") == i]
     if tasks:
         print("\nTasks:")
         for t in tasks:
-            print(f"- AB#{t['id']} [{t['state']}] {t['title']}")
+            print(one_line(f"- AB#{t['id']} [{t['state']}] {t['title']}", None))
 
 
 USAGE = {  # command: (arguments it needs, usage)
@@ -201,20 +204,20 @@ def main(a):
 
     def num(i):  # a work item id
         if not (i.isascii() and i.isdigit() and len(i) <= 9):
-            sys.exit(f"usage: boards.py {usage}  (ID is a number, e.g. 110; got {i!r})")
+            sys.exit(f"usage: boards.py {usage}  (ID is a number, e.g. 110; got {one_line(repr(i))})")
         return int(i)
 
     if cmd == "whoami":
         db, me, po, sprint = context()
         name = {m["id"]: m.get("name") for m in db["members"]}
-        print(f"token acts as: {name.get(me)}; product owner: {name.get(po)}; current sprint: {(sprint.get('name') or sprint['id']) if sprint else 'none (backlog)'}")
+        print(one_line(f"token acts as: {name.get(me)}; product owner: {name.get(po)}; current sprint: {(sprint.get('name') or sprint['id']) if sprint else 'none (backlog)'}", None))
     elif cmd == "create":
         create(a[1])
     elif cmd == "state":
         state, ids = a[1], [num(i) for i in a[2:]]
         for i in ids:
             r = result(call("PATCH", f"/api/workitems/{i}", {"state": state}), {"id": int, "state": str}, f"PATCH /api/workitems/{i}")
-            print(f"{r['id']} -> {r['state']}")
+            print(one_line(f"{r['id']} -> {r['state']}", None))
     elif cmd == "comment":
         call("POST", f"/api/workitems/{num(a[1])}/comments", {"text": a[2]}); print("commented")
     elif cmd == "link":
@@ -224,7 +227,7 @@ def main(a):
     elif cmd == "brief":
         brief(num(a[1]))
     else:
-        sys.exit(f"unknown command {cmd}\n{__doc__}")
+        sys.exit(f"unknown command {one_line(repr(cmd))}; run boards.py --help for the commands")
 
 
 if __name__ == "__main__":
