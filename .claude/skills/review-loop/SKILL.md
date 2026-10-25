@@ -87,8 +87,9 @@ findings itself.
   the AB# ids); the session pushes and goes back to step 2 with the round number increased and the
   list of previous findings.
 
-Repeat until the review passes with no findings. Use a fresh reviewer each round (a new Agent call,
-not a continued one), so every round reads the branch as it is now.
+Repeat until the review passes with no findings, or until round 8 fails (below). Use a fresh
+reviewer each round (a new Agent call, not a continued one), so every round reads the branch as it
+is now.
 
 - A finding the reviewer still raises after a rebuttal: the planner decides whether the rebuttal
   stands; if it does, say so in the next round's prompt.
@@ -97,8 +98,8 @@ not a continued one), so every round reads the branch as it is now.
   findings and the planner's recommendation.
 - Round 5 doesn't pass: the Opus implementer fixes the findings of rounds 5-7.
 - Round 8 doesn't pass: its findings aren't fixed. Create a ticket for them (a Bug for defects, a
-  PBI otherwise, listing each finding and the reviewer's reasoning) and open the pull request
-  anyway (step 4).
+  PBI otherwise, its `reproSteps` or `description` listing each finding and the reviewer's
+  reasoning) and open the pull request anyway (step 4).
 
 ## 4. Open the pull request
 

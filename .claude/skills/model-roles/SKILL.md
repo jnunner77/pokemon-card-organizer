@@ -90,9 +90,10 @@ next round. Sonnet's work gets five reviews; if none passes, Opus gets three mor
   `model: "opus"`, giving it the plan, every round's findings and what was done about each.
   Questions still go to the planner.
 - **Round 8 doesn't pass**: its findings aren't fixed. Create a ticket for them with
-  `boards-tickets` (a Bug for defects, a PBI otherwise; its description lists each finding with the
-  reviewer's reasoning), then open the pull request anyway (`review-loop` step 4),
-  naming that ticket in its **Code review** section. Tell the user the pull request and the ticket.
+  `boards-tickets` (a Bug for defects, a PBI otherwise; its `reproSteps`, or a PBI's `description`,
+  lists each finding with the reviewer's reasoning), then open the pull request anyway
+  (`review-loop` step 4), naming that ticket in its **Code review** section. Tell the user the pull
+  request and the ticket.
 
 Push after every fix, then review again, as `review-loop` says.
 
