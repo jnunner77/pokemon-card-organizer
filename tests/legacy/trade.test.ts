@@ -9,6 +9,7 @@ type Side = { pct?: Typed; cash?: Typed; items?: { value: Typed; pct?: Typed }[]
 type SideResult = {
   pct: number; mixed: boolean; counted: number; unvalued: number; items: number;
   market: number; trade: number; cash: number; total: number; rate: number | null;
+  unread: { cash: boolean; pct: boolean; cardPct: number };
 };
 type Result = {
   dealer: SideResult; mine: SideResult;
@@ -118,6 +119,15 @@ describe('a trade with a dealer', () => {
   it('counts cards without a value as nothing, and says how many', () => {
     const r = evaluate({ dealer: { items: [{ value: '' }, { value: '20' }, { value: 'abc' }] } });
     expect(r.dealer).toMatchObject({ market: 20, counted: 1, unvalued: 2, items: 3 });
+  });
+
+  it("says when cash or a percentage was typed but can't be read", () => {
+    const r = evaluate({ dealer: { cash: '40 dollars', pct: '80 pct', items: [{ value: 10, pct: 'lots' }, { value: 5, pct: '' }] } });
+    expect(r.dealer.unread).toEqual({ cash: true, pct: true, cardPct: 1 });
+    expect(r.dealer).toMatchObject({ cash: 0, pct: 100, trade: 15 });
+    const fine = evaluate({ dealer: { cash: '', pct: '', items: [{ value: 10 }] }, mine: { cash: '$5', pct: '80%' } });
+    expect(fine.dealer.unread).toEqual({ cash: false, pct: false, cardPct: 0 });
+    expect(fine.mine.unread).toEqual({ cash: false, pct: false, cardPct: 0 });
   });
 
   it('takes a blank or garbled side percentage as 100%', () => {

@@ -26,6 +26,7 @@
     const n = Number(t);
     return Number.isFinite(n) && n <= 1000 ? n : null;
   }
+  const typed = s => typeof s === "string" ? s.trim() !== "" : s != null;
   const cents = n => Math.round(n * 100);
   const dollars = c => c / 100;
 
@@ -34,11 +35,12 @@
   function side(s) {
     const o = s || {};
     const pct = percent(o.pct) ?? 100;
-    let market = 0, trade = 0, counted = 0, unvalued = 0, mixed = false;
+    let market = 0, trade = 0, counted = 0, unvalued = 0, badPct = 0, mixed = false;
     for (const it of o.items || []) {
       const v = amount(it?.value);
       if (v == null) { unvalued++; continue; }
       const own = percent(it.pct);
+      if (own == null && typed(it.pct)) badPct++;
       if (own != null && own !== pct) mixed = true;
       const p = own ?? pct;
       market += cents(v);
@@ -48,6 +50,8 @@
     const cash = cents(amount(o.cash) ?? 0);
     return {
       pct, mixed, counted, unvalued, items: (o.items || []).length,
+      // typed but unreadable ("40 dollars", "80 pct"): counted as no cash, 100%, or the side's percentage
+      unread: { cash: amount(o.cash) == null && typed(o.cash), pct: percent(o.pct) == null && typed(o.pct), cardPct: badPct },
       market: dollars(market), trade: dollars(trade), cash: dollars(cash), total: dollars(trade + cash),
       // what its cards come to overall, as a percentage of their market value (null with none)
       rate: market > 0 ? trade / market * 100 : null,

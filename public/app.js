@@ -920,12 +920,12 @@ function trResults(k){
   el.innerHTML = list.length ? list.map(c => { const g = window.BinderTrade.gradeLabel(c.grader, c.grade), v = valueOf(c); return `<button class="tr-hit" type="button" data-trpick="${k}:${esc(c.id)}">${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="">`:`<span class="thumb"></span>`}<span class="bb-what"><b>${esc(c.name||"Unnamed card")}</b><span class="hint">${esc([metaLine(c), c.variant, g, c.placeholder?"Placeholder":""].filter(Boolean).join(" · "))}</span><span class="hint">${esc(locShort(c))}</span></span><span class="mono tr-hitv">${esc(money(v))}</span></button>`; }).join("")
     : `<p class="hint tr-none">${k==="mine" ? "None of your cards match (cards already in the trade aren't listed)." : "No card in your ledger matches. Type it in instead."}</p>`;
 }
-const trInput = (k, it, f, label, extra="") => `<input data-trf="${f}" value="${esc(it[f])}" aria-label="${esc(label)}" autocomplete="off" ${extra}>`;
+const trInput = (it, f, label, extra="") => `<input data-trf="${f}" value="${esc(it[f])}" aria-label="${esc(label)}" autocomplete="off" ${extra}>`;
 function trItemHTML(k, it, i){
   const c = trCard(it.cardId), n = `${TR_NAME[k]}, card ${i+1}`;
   const nums = `<div class="tr-nums">
-      <label class="tr-val"><span>$</span>${trInput(k, it, "value", `${n}: value`, `class="mono" type="text" inputmode="decimal" placeholder="Value"`)}</label>
-      <label class="tr-pct">${trInput(k, it, "pct", `${n}: trade percentage (blank for the side's)`, `class="mono" type="text" inputmode="decimal" placeholder="${esc(window.BinderTrade.pctText(trPct(k)))}"`)}<span>%</span></label>
+      <label class="tr-val"><span>$</span>${trInput(it, "value", `${n}: value`, `class="mono" type="text" inputmode="decimal" placeholder="Value"`)}</label>
+      <label class="tr-pct">${trInput(it, "pct", `${n}: trade percentage (blank for the side's)`, `class="mono" type="text" inputmode="decimal" placeholder="${esc(window.BinderTrade.pctText(trPct(k)))}"`)}<span>%</span></label>
       <span class="tr-tv mono" data-trv></span>
       <button class="btn sm ghost" type="button" data-trdel="${k}:${it.key}" aria-label="Remove ${esc(n)}" title="Remove this card">✕</button>
     </div><div class="tr-note hint" data-trnote></div>`;
@@ -934,9 +934,9 @@ function trItemHTML(k, it, i){
     return `<div class="tr-item" data-tritem="${k}:${it.key}"><div class="tr-cardrow">${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="">`:`<span class="thumb"></span>`}<span class="bb-what"><b>${esc(c.name||"Unnamed card")}${g?` <span class="tr-grade">${esc(g)}</span>`:""}</b><span class="hint">${esc([metaLine(c), c.variant].filter(Boolean).join(" · "))}</span><span class="hint">${esc(locShort(c))}</span></span></div>${nums}</div>`;
   }
   return `<div class="tr-item manual" data-tritem="${k}:${it.key}"><div class="tr-man">
-      ${trInput(k, it, "name", `${n}: name`, `placeholder="Card, e.g. Umbreon VMAX 215/203" autocapitalize="words" spellcheck="false"`)}
+      ${trInput(it, "name", `${n}: name`, `placeholder="Card, e.g. Umbreon VMAX 215/203" autocapitalize="words" spellcheck="false"`)}
       <select data-trf="grader" aria-label="${esc(n)}: graded by">${opt(GRADERS, it.grader)}</select>
-      ${trInput(k, it, "grade", `${n}: grade`, `class="mono" placeholder="Grade" inputmode="decimal"${it.grader==="Raw"?" disabled":""}`)}
+      ${trInput(it, "grade", `${n}: grade`, `class="mono" placeholder="Grade" inputmode="decimal"${it.grader==="Raw"?" disabled":""}`)}
     </div>${nums}</div>`;
 }
 function trList(k){
@@ -1046,7 +1046,19 @@ function trRefresh(){
 }
 function trSummary(r){
   const BT = window.BinderTrade, d = r.dealer, m = r.mine;
-  if(r.verdict==="empty" && !d.items && !m.items) return `<p class="hint">The breakdown shows here once there's something on either side.</p>`;
+  const unread = [[d, "the dealer's"], [m, "your"]].flatMap(([s, who]) => [
+    s.unread.cash && `${who} cash isn't a number, so it counts as $0.00`,
+    s.unread.pct && `${who} trade % isn't a number, so it counts as 100%`,
+    s.unread.cardPct && `${s.unread.cardPct} of ${who} cards' own % ${s.unread.cardPct===1?"isn't a number":"aren't numbers"}, so ${s.unread.cardPct===1?"it uses":"they use"} the side's`]).filter(Boolean);
+  const warn = () => {
+    const nov = d.unvalued + m.unvalued;
+    let w = nov ? `<p class="tr-line warn-text">${nov} card${nov===1?" has":"s have"} no value yet and ${nov===1?"isn't":"aren't"} counted.</p>` : "";
+    if(unread.length) w += `<p class="tr-line warn-text">${esc(unread.map(u => u[0].toUpperCase() + u.slice(1)).join(". "))}.</p>`;
+    return w;
+  };
+  if(!d.items && !m.items && !d.cash && !m.cash && !unread.length) return `<p class="hint">The breakdown shows here once there's something on either side.</p>`;
+  // nothing valued yet: no even trade or market result to state
+  if(r.verdict==="empty") return `<p class="hint">Put in the cards' values (or cash) to see the breakdown.</p>${warn()}`;
   const cards = s => `${esc(money(s.market))}<small>${s.counted} card${s.counted===1?"":"s"}${s.unvalued?`, ${s.unvalued} with no value`:""}</small>`;
   const pct = s => !s.counted ? "—" : s.mixed ? `${esc(BT.pctText(s.rate))}%<small>overall (cards differ)</small>` : `${esc(BT.pctText(s.pct))}%`;
   const row = (h, a, b, cls="") => `<tr${cls?` class="${cls}"`:""}><th scope="row">${h}</th><td>${a}</td><td>${b}</td></tr>`;
@@ -1072,9 +1084,7 @@ function trSummary(r){
   if(r.myRate!=null) rates.push(`Your cards go at <b>${esc(BT.pctText(r.myRate))}%</b> of their market value${d.counted ? ", counting the dealer's cards at market" : ""}.`);
   if(r.theirRate!=null) rates.push(`The dealer's cards cost you <b>${esc(BT.pctText(r.theirRate))}%</b> of theirs${m.counted ? ", counting your cards at market" : ""}.`);
   if(rates.length) h += `<p class="tr-line">${rates.join(" ")}</p>`;
-  const nov = d.unvalued + m.unvalued;
-  if(nov) h += `<p class="tr-line warn-text">${nov} card${nov===1?" has":"s have"} no value yet and ${nov===1?"isn't":"aren't"} counted.</p>`;
-  return h;
+  return h + warn();
 }
 
 /* ---------- drawer ---------- */
