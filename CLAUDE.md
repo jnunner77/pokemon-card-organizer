@@ -17,6 +17,22 @@ Link the work to it: `AB#<id>` in every commit subject and in the pull request, 
 current (In Progress when started, Done when merged), and the PBI/Bug closed only once the change is
 confirmed on the live binder.
 
+## Who does what
+
+Every change is split across models the same way, whatever model the session runs on: follow the
+`model-roles` skill (`.claude/skills/model-roles/`). The session coordinates and passes `model` on
+every Agent call; it doesn't plan or write the change itself.
+
+- **Opus plans**: the `planner` agent (`.claude/agents/planner.md`) writes the plan and the ticket's
+  spec, and answers every architecture and implementation question. Only what needs the user's own
+  decision goes to the user.
+- **Sonnet implements**: the `implementer` agent (`.claude/agents/implementer.md`) writes the code,
+  runs the checks, commits, and fixes review findings. It sends questions to the planner, not the
+  user.
+- **Haiku reviews**: the `code-reviewer` agent, through the `review-loop` skill.
+- If the fifth review still doesn't pass, Opus takes over the fixes for three more rounds. If the
+  eighth doesn't pass, the open findings get their own ticket and the pull request is opened anyway.
+
 ## Workflow
 
 - Never commit to `main`; each change goes on a branch and is merged through a pull request.
@@ -30,9 +46,10 @@ confirmed on the live binder.
 - Every push is reviewed before it becomes (or updates) a pull request: follow the `review-loop`
   skill (`.claude/skills/review-loop/`). It spawns the `code-reviewer` agent
   (`.claude/agents/code-reviewer.md`, on the cheapest model, Haiku) with the diff and the ticket's
-  description, acceptance criteria and tasks; fix its findings, push and review again until it
-  passes with no findings, and only then open the pull request. Don't ask GitHub Copilot to
-  review pull requests: the owner turned that off.
+  description, acceptance criteria and tasks; the implementer fixes its findings, and the branch is
+  pushed and reviewed again until it passes with no findings (or eight rounds go by, as above), and
+  only then is the pull request opened. Don't ask GitHub Copilot to review pull requests: the
+  owner turned that off.
 - Browser-only logic that's worth testing lives in small plain scripts in `public/` (like
   `sales.js`, `move.js`, `filter.js`) loaded before `app.js`, with tests in `tests/legacy/` that load them
   the same way.
