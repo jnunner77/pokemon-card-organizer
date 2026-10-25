@@ -5,6 +5,7 @@ import type { InvalidDocument } from '../ledger/check-document.ts';
 import type { Fields } from '../ledger/document.ts';
 import type { LedgerEvent } from '../ledger/events.ts';
 import { mergedFields, replacedFields } from '../ledger/fields-state.ts';
+import { alertsAfterCheck, type WatchSide } from './watch.ts';
 import { applyPriceEntries, checkPriceEntryFields, type PriceEntryChange, type PriceEntryError } from './price-entries.ts';
 
 export type CardId = Brand<string, 'CardId'>;
@@ -109,6 +110,17 @@ export class Card {
   /** It became a different card (its name or number changed): what was found for the card it was goes. */
   forgetFormerCard(at: Date): Result<void, InvalidDocument> {
     return this.merge(formerCardForgotten(this.#fields), at);
+  }
+
+  /**
+   * A price check compared the card's value with its watches and emailed `sent`: what was emailed
+   * is recorded, and watches no longer reached are cleared to be emailed again. False when nothing changed.
+   */
+  noteWatchCheck(value: number | null, sent: ReadonlySet<WatchSide>, at: Date): Result<boolean, InvalidDocument> {
+    const patch = alertsAfterCheck(this.#fields, value, sent, at.toISOString());
+    if (!patch) return ok(false);
+    const merged = this.merge(patch, at);
+    return merged.ok ? ok(true) : merged;
   }
 
   delete(at: Date): void {

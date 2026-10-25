@@ -87,6 +87,8 @@ export interface UpdaterOptions {
   pricecharting?: PriceCharting | undefined;
   /** How long a run may go without finishing a card before it's flagged as stalled. */
   stallMs?: number | undefined;
+  /** Called after a price update finishes (not a picture update): the price watches are checked then. */
+  afterPrices?: (() => unknown) | undefined;
 }
 
 /** What rebuilding the past daily prices changes (or changed). */
@@ -322,6 +324,7 @@ export class PriceUpdater {
   private readonly catalog?: Catalog;
   private readonly tcgcsv?: TcgCsv;
   private readonly pc?: PriceCharting;
+  private readonly afterPrices?: () => unknown;
   /** The euro rate fetched for the current run (Cardmarket's prices are in euros). */
   private eur: number | null = null;
   /** During a run: each site's failures in a row, and the sites left alone for the rest of it (with why). */
@@ -357,6 +360,7 @@ export class PriceUpdater {
     this.tcgcsv = o.tcgcsv;
     this.pc = o.pricecharting;
     this.stallMs = o.stallMs ?? 10 * 60_000;
+    if (o.afterPrices) this.afterPrices = o.afterPrices;
   }
 
   /** Whether the daily run is on, and its hour (administrators can change both); whether PriceCharting has its token. */
@@ -586,7 +590,10 @@ export class PriceUpdater {
     this.step = null;
     const lvl = counts.failed ? 'warn' : 'info';
     if (scope === 'pictures') this.log[lvl]('pricing', `Picture update finished: ${counts.updated} pictured, ${counts.noPicture} without a picture, ${counts.failed} failed`, { ...counts });
-    else this.log[lvl]('pricing', `${capital(name)} finished${scope === 'prices' ? ' (prices only)' : ''}: ${counts.updated} updated, ${counts.needsMatch} need a match, ${counts.noPrice} without a price, ${counts.failed} failed`, { ...counts, tripped: [...run.tripped.keys()] });
+    else {
+      this.log[lvl]('pricing', `${capital(name)} finished${scope === 'prices' ? ' (prices only)' : ''}: ${counts.updated} updated, ${counts.needsMatch} need a match, ${counts.noPrice} without a price, ${counts.failed} failed`, { ...counts, tripped: [...run.tripped.keys()] });
+      if (this.afterPrices) safely(this.log, 'pricing', 'Checking the price watches', this.afterPrices);
+    }
     return summary;
   }
 

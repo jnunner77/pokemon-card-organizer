@@ -1045,3 +1045,32 @@ html.tblopen,html.tblopen body{overflow:hidden}
 .msx{display:flex;gap:8px;align-items:flex-start;margin:8px 0;font-size:13px;font-weight:600;cursor:pointer}
 .msx input{width:16px;height:16px;margin:2px 0 0;flex:none}
 .msx .hint{display:block;font-weight:400}
+
+/* ---------- price watches (watch.js): buy is green, sell amber, as in the alert emails ---------- */
+.tab.watch .swatch{background:var(--info)}
+.tab .count.hit{color:var(--good);font-weight:700}
+.pocket .wmark{position:absolute;bottom:5px;left:5px;z-index:1;width:18px;height:18px;border-radius:50%;background:rgba(5,8,11,.72);color:#fff;font-size:11px;line-height:18px;text-align:center}
+.pocket .wmark.hit{background:var(--good);color:#fff}
+.chip.watching{background:var(--info-soft);color:var(--info)}
+.chip.watching.hit,.chip.wreach.buy,.chip.wstate.buy.hit{background:var(--good-soft);color:var(--good)}
+.chip.wreach.sell,.chip.wstate.sell.hit{background:var(--warn-soft);color:var(--warn)}
+.chip.wstate{background:var(--muted-soft);color:var(--ink-2,inherit)}
+.chip.wreach,.chip.wstate.hit{font-weight:700}
+.wstates{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.watchform{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
+.watchform .btns{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px}
+.watchnote{border:1px solid var(--info);background:var(--info-soft);border-radius:8px;padding:10px 12px;margin-bottom:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.watchnote p{margin:0;flex:1 1 220px}
+.watchtbl .wcell{white-space:nowrap}
+.watchtbl .show-sm{display:none;font-family:var(--f-ui);font-weight:400}
+.look-watch{display:flex;flex-direction:column;gap:6px;margin-top:10px;padding:10px 12px;border:1px solid var(--line,#d5dbe1);border-radius:8px}
+.look-watchrow{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.look-watchrow input{flex:1 1 120px;min-width:0}
+@media (max-width:640px){
+  .watchtbl .hide-sm{display:none}
+  .watchtbl .show-sm{display:block}
+  .watchtbl td,.watchtbl th{padding:7px 5px}
+  .watchtbl .wcell{white-space:normal}
+  .watchtbl .wcell .chip{display:inline-block;margin-top:2px}
+}
+@media (max-width:420px){.watchform{grid-template-columns:1fr}}

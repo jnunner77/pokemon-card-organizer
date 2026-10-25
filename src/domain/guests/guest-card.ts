@@ -1,3 +1,5 @@
+import { cardValue } from '../cards/value.ts';
+
 // What guests see of a card listed for sale: its details, market value (rounded up to the dollar)
 // and picture; never what was paid, sales, notes, owner, binder location or price logs.
 
@@ -31,17 +33,9 @@ export function shownImage(card: CardRecord): string | null {
 }
 
 /** A card's market value in CAD as the page works it out (latest market price or sold comp, condition-adjusted), rounded up to the dollar. */
-const isValuePrice = (p: unknown): p is PriceRecord => typeof p === 'object' && p !== null && !Array.isArray(p) && ('type' in p ? p.type === 'market' || p.type === 'comp' : false) && 'amount' in p && typeof p.amount === 'number';
-
 export function guestValue(card: CardRecord, usdToCad: number, adjust: ConditionAdjust): number | null {
-  const listed: unknown = card['prices'];
-  const prices = (Array.isArray(listed) ? listed.filter(isValuePrice) : [])
-    .sort((a, b) => String(b['date'] ?? '').localeCompare(String(a['date'] ?? '')) || String(b['at'] ?? '').localeCompare(String(a['at'] ?? '')));
-  const p = prices[0];
-  if (!p) return null;
-  const amount = adjust(card, p);
-  if (amount == null) return null;
-  const cad = p['currency'] === 'USD' ? amount * (usdToCad || 1) : amount;
+  const cad = cardValue(card, usdToCad, adjust);
+  if (cad === null) return null;
   // To the cent first, so 21.000000001 stays $21.
   return Math.ceil(Math.round(cad * 100) / 100);
 }

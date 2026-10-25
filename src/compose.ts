@@ -2,6 +2,13 @@
 // together. main.ts starts the server with it; tests build apps with it.
 
 import { AccountsHealth } from '#application/accounts/accounts-health.ts';
+import { CheckWatches } from '#application/alerts/check-watches.ts';
+import type { AlertDeps } from '#application/alerts/deps.ts';
+import type { Mailer } from '#application/alerts/ports.ts';
+import { ReadAlertSettings } from '#application/alerts/read-alert-settings.ts';
+import { RemoveAlertSettings } from '#application/alerts/remove-alert-settings.ts';
+import { SaveAlertSettings } from '#application/alerts/save-alert-settings.ts';
+import { SendTestAlert } from '#application/alerts/send-test-alert.ts';
 import { AdminOverview } from '#application/admin/admin-overview.ts';
 import { ChangePriceMethod } from '#application/admin/change-price-method.ts';
 import { ChangePriceSchedule } from '#application/admin/change-price-schedule.ts';
@@ -96,6 +103,9 @@ import type { ActivityLog, EventPublisher } from '#application/ports.ts';
 import type { Category } from '#domain/admin/log.ts';
 import { FileAccountStore } from '#infrastructure/accounts/auth-file.ts';
 import { AdminFile } from '#infrastructure/admin/admin-file.ts';
+import { FileSecret } from '#infrastructure/admin/file-secret.ts';
+import { SmtpMailer } from '#infrastructure/alerts/smtp-mailer.ts';
+import { MemoryAlertHistory } from '#infrastructure/memory/alerts.ts';
 import { NodeDiskUsage, NodeRuntime } from '#infrastructure/admin/node-server.ts';
 import { FileOffsiteRecord, FileStatusFile } from '#infrastructure/admin/status-files.ts';
 import { ScryptHasher } from '#infrastructure/accounts/scrypt-hasher.ts';
@@ -125,6 +135,7 @@ import { RandomHexIds, RandomShortIds } from '#infrastructure/random-ids.ts';
 import { SystemClock } from '#infrastructure/system-clock.ts';
 import { accountRoutes } from '#presentation/accounts/routes.ts';
 import { adminRoutes } from '#presentation/admin/routes.ts';
+import { alertRoutes } from '#presentation/alerts/routes.ts';
 import { backupRoutes } from '#presentation/backups/routes.ts';
 import { catalogRoutes } from '#presentation/catalog/routes.ts';
 import { GuestCardFeed } from '#presentation/guests/feed.ts';
@@ -491,6 +502,45 @@ export function createAdmin(o: CreateAdminOptions) {
 
 export type Admin = ReturnType<typeof createAdmin>;
 
+export interface CreateAlertsOptions {
+  readonly store: Store;
+  readonly config: AdminSettingsStore;
+  /** The Gmail app password (a file of its own in SECRETS_DIR). */
+  readonly password: TokenVault;
+  /** Gmail's SMTP server if omitted. */
+  readonly mailer?: Mailer | undefined;
+  readonly log?: ServerLog | undefined;
+  readonly events?: EventPublisher | undefined;
+  readonly now?: (() => Date) | undefined;
+}
+
+/** Price watches checked against cards' values, and the buy and sell alert emails they send. */
+export function createAlerts(o: CreateAlertsOptions) {
+  const unitOfWork = new StoreUnitOfWork(o.store);
+  const deps: AlertDeps = {
+    settings: o.config,
+    password: o.password,
+    mailer: o.mailer ?? new SmtpMailer(),
+    history: new MemoryAlertHistory(),
+    ledger: new StoreLedgerReader(o.store),
+    cards: new JsonCardRepository(unitOfWork),
+    condition: new PageConditionRules(),
+    unitOfWork,
+    events: o.events ?? new LocalEventBus(),
+    clock: { now: o.now ?? (() => new Date()) },
+    log: o.log ?? quietLogger(),
+  };
+  return {
+    checkWatches: new CheckWatches(deps),
+    readAlertSettings: new ReadAlertSettings(deps),
+    saveAlertSettings: new SaveAlertSettings(deps),
+    removeAlertSettings: new RemoveAlertSettings(deps),
+    sendTestAlert: new SendTestAlert(deps),
+  };
+}
+
+export type Alerts = ReturnType<typeof createAlerts>;
+
 export interface CreateAppOptions extends Omit<AppOptions, 'layeredRoutes' | 'backups' | 'people'> {
   /** Card photos (backups, the overview and the guest page use them). */
   readonly assets: PhotoFiles;
@@ -512,16 +562,19 @@ export interface CreateAppOptions extends Omit<AppOptions, 'layeredRoutes' | 'ba
   readonly cardDatabase?: CardDatabase | undefined;
   /** TCGplayer's own catalog (tcgcsv.com), which master sets are checked against. */
   readonly tcgcsv?: TcgplayerCatalog | undefined;
+  /** Price watches and alert emails; made with the app password in <data>/secrets if omitted. */
+  readonly alerts?: Alerts | undefined;
 }
 
 /** The whole app: the layered slices plugged into the Express server that still hosts the rest. */
 export function createApp(options: CreateAppOptions) {
-  const { events = new LocalEventBus(), accounts, guests, config: given, envPassword, cardLookups: givenLookups, cardDatabase, tcgcsv, ...rest } = options;
+  const { events = new LocalEventBus(), accounts, guests, config: given, envPassword, cardLookups: givenLookups, cardDatabase, tcgcsv, alerts: givenAlerts, ...rest } = options;
   const log = options.log ?? quietLogger();
   const config = given ?? new AdminFile(options.store.dataDir);
   const now = options.now ?? (() => new Date());
   const backups = options.backups ?? createBackups({ store: options.store, assets: options.assets, config, log, now });
   const lookups = givenLookups ?? (cardDatabase ? createCardLookups({ store: options.store, database: cardDatabase, tcgcsv, updater: () => options.updater, log, events, now }) : null);
+  const alerts = givenAlerts ?? createAlerts({ store: options.store, config, password: new FileSecret(`${options.store.dataDir}/secrets`, 'gmail-app-password'), log, events, now });
   const admin = createAdmin({ store: options.store, assets: options.assets, config, log, now, backups, accounts, envPassword, security: options.security, updater: options.updater, pricecharting: options.pricecharting });
   const layeredRoutes = (c: LayeredContext): LayeredRoutes => {
     const photos = photoRoutes({ identify: c.identify, ...backups });
@@ -534,6 +587,7 @@ export function createApp(options: CreateAppOptions) {
         backupRoutes({ identify: c.identify, ...backups }),
         adminRoutes({ identify: c.identify, identity: c.identity, client: c.client, guest: guests ? c.guest : null, trustsProxy: !!options.trustProxy, ...admin }),
         catalogRoutes({ identify: c.identify, catalog: lookups }),
+        alertRoutes({ identify: c.identify, ...alerts }),
       ),
       root: photos.root,
     };
