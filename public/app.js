@@ -1855,7 +1855,8 @@ async function moveCard(c, bid, page, slot){
 /* duplicate: same details and photo, market/comp prices carried over; paid, listing and sale entries
    stay with the original. Several copies at once: each in the next empty pocket (duplicate.js). */
 function dupData(c, loc){
-  const {id, createdAt, updatedAt, prices:pr, status, binderId, page, slot, ...rest} = c;
+  // A copy starts with no price alert sent: watchAlerts is the original's record (the server's).
+  const {id, createdAt, updatedAt, prices:pr, status, binderId, page, slot, watchAlerts, ...rest} = c;
   const keep = (Array.isArray(pr)?pr:[]).filter(p => p.type==="comp" || p.type==="market").map(p => ({...p, id:rid()}));
   return {...rest, binderId:loc.binderId, page:loc.page, slot:loc.slot, status:"binder", prices:keep, createdAt:nowISO(), updatedAt:nowISO()};
 }

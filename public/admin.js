@@ -348,7 +348,7 @@
       btn.disabled = true;
       act(() => api("PUT", "admin/alerts", body), "Saved: a test email is on its way").finally(() => { btn.disabled = false; });
     };
-    const t = $("#alertTest"); if (t) t.onclick = () => { t.disabled = true; act(async () => { const r = await api("POST", "admin/alerts/test"); toast(`Test email sent to ${r.to.join(", ")}`); return r; }); };
+    const t = $("#alertTest"); if (t) t.onclick = () => { t.disabled = true; act(async () => { const r = await api("POST", "admin/alerts/test"); toast(`Test email sent to ${r.to.join(", ")}`); return r; }).finally(() => { t.disabled = false; }); };
     const o = $("#alertOff"); if (o) o.onclick = () => { if (confirm("Turn price alert emails off? The Gmail app password is removed; watches on cards stay.")) act(() => api("DELETE", "admin/alerts"), "Alert emails are off"); };
   }
 

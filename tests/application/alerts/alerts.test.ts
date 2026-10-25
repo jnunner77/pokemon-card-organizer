@@ -201,6 +201,7 @@ describe('Setting up price alert emails', () => {
     assert.deepEqual(refused, { ok: false, error: { code: 'MAIL_REFUSED', message: '535 Username and Password not accepted' } });
     assert.equal(t.password.read(), null);
     assert.equal(t.settings.get().alerts, undefined);
+    assert.ok(t.log.query({ level: 'warn' }).some((e) => /tried to set up price alert emails from me@gmail\.com, and the test email failed: 535/.test(e.msg)));
     assert.deepEqual(await new SaveAlertSettings(t.deps).execute({ actor: 'justin', body: { gmail: 'me@gmail.com' } }), { ok: false, error: { code: 'APP_PASSWORD_NEEDED' } });
   });
 

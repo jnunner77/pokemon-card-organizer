@@ -31,6 +31,7 @@ export class SaveAlertSettings {
       await d.mailer.send({ address: settings.gmail, password }, testEmail(settings.to, settings.link, await watching(d.ledger)));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      d.log.warn('admin', `${input.actor} tried to set up price alert emails from ${settings.gmail}, and the test email failed: ${message}`);
       return err(error instanceof MailRefused ? { code: 'MAIL_REFUSED', message } : { code: 'MAIL_FAILED', message });
     }
     if (checked.value.password) d.password.write(password);
