@@ -29,6 +29,10 @@
   const typed = s => typeof s === "string" ? s.trim() !== "" : s != null;
   const cents = n => Math.round(n * 100);
   const dollars = c => c / 100;
+  /* A card's trade value in cents: its value in cents times its percentage, rounded to the cent. */
+  const tradeCents = (value, pct) => Math.round(cents(value) * pct / 100);
+  /* A card's trade value in dollars, as the breakdown counts it ($0.29 at 50% is $0.15). */
+  const cardTrade = (value, pct) => dollars(tradeCents(value, pct));
 
   /* One side: {pct, cash, items:[{value, pct}]} with values and percentages as typed (or numbers).
      The side's percentage is 100 when blank; a card's is the side's when blank. */
@@ -44,7 +48,7 @@
       if (own != null && own !== pct) mixed = true;
       const p = own ?? pct;
       market += cents(v);
-      trade += Math.round(cents(v) * p / 100);
+      trade += tradeCents(v, p);
       counted++;
     }
     const cash = cents(amount(o.cash) ?? 0);
@@ -165,5 +169,5 @@
     return out;
   }
 
-  root.BinderTrade = { amount, percent, side, evaluate, gradeLabel, pctText, pctCell, warnings, regradeNote, missingGradeNote, restore };
+  root.BinderTrade = { amount, percent, side, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, regradeNote, missingGradeNote, restore };
 })(typeof window !== "undefined" ? window : globalThis);

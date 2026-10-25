@@ -22,6 +22,7 @@ type Trade = {
   amount: (s: Typed) => number | null;
   percent: (s: Typed) => number | null;
   evaluate: (t: { dealer?: Side; mine?: Side }) => Result;
+  cardTrade: (value: number, pct: number) => number;
   gradeLabel: (grader: Typed, grade: Typed) => string;
   pctText: (n: number | null) => string;
   pctCell: (s: SideResult) => { text: string; overall: boolean } | null;
@@ -35,7 +36,7 @@ type SavedItem = { cardId: string | null; from: string | null; name: string; gra
 type SavedSide = { pct: string; cash: string; items: SavedItem[] };
 const sandbox = { window: {} as { BinderTrade: Trade } };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public/trade.js'), 'utf8'), sandbox);
-const { amount, percent, evaluate, gradeLabel, pctText, pctCell, warnings, regradeNote, missingGradeNote, restore } = sandbox.window.BinderTrade;
+const { amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, regradeNote, missingGradeNote, restore } = sandbox.window.BinderTrade;
 
 describe('reading what was typed', () => {
   it('reads amounts with or without a dollar sign and commas', () => {
@@ -122,6 +123,16 @@ describe('a trade with a dealer', () => {
     expect(r.mine.market).toBe(2.97);
     const sum = evaluate({ dealer: { items: [{ value: '0.1' }, { value: '0.2' }] } });
     expect(sum.dealer.market).toBe(0.3);
+  });
+
+  it("shows each card's trade value as the breakdown counts it", () => {
+    expect(cardTrade(0.29, 50)).toBe(0.15);
+    expect(cardTrade(1.15, 50)).toBe(0.58);
+    for (const value of [0.29, 1.15, 0.99, 12.34, 19.99]) {
+      for (const pct of [50, 70, 72.5, 80, 85, 110]) {
+        expect(cardTrade(value, pct)).toBe(evaluate({ mine: { pct, items: [{ value }] } }).mine.trade);
+      }
+    }
   });
 
   it('counts cards without a value as nothing, and says how many', () => {

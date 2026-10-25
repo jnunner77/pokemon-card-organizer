@@ -1020,7 +1020,7 @@ function trRefresh(){
     TR[k].items.forEach(it => {
       const el = $(`[data-tritem="${k}:${it.key}"]`); if(!el) return;
       const v = BT.amount(it.value), p = BT.percent(it.pct) ?? sidePct;
-      el.querySelector("[data-trv]").innerHTML = v==null ? `<span class="warn-text">No value</span>` : p===100 ? esc(money(v)) : `${esc(BT.pctText(p))}% → <b>${esc(money(Math.round(v*p)/100))}</b>`;
+      el.querySelector("[data-trv]").innerHTML = v==null ? `<span class="warn-text">No value</span>` : p===100 ? esc(money(v)) : `${esc(BT.pctText(p))}% → <b>${esc(money(BT.cardTrade(v, p)))}</b>`;
       el.dataset.state = v==null ? "novalue" : "";
       const notes = [], c = trCard(it.cardId), src = trCard(it.from);
       if(c){ const now = valueOf(c); if(now!=null && v!=null && Math.abs(now - v) >= 0.005) notes.push(`Its value in your ledger: ${money(now)}.`); else if(now==null) notes.push("No price in your ledger: put in its value."); }
