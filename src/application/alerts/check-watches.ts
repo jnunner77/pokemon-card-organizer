@@ -29,21 +29,35 @@ type Due = { readonly id: string; readonly card: Readonly<Record<string, unknown
  * update and every hour. The cards that reached a buy price go in one email and those that
  * reached a sell price in another; what was emailed is recorded on the cards, so each is sent once
  * until its value moves back past its price. Nothing is recorded for an email that didn't go out,
- * so it's tried again at the next check. A second call while one runs joins it.
+ * so it's tried again at the next check. A call while one runs runs again once it's done.
  */
 export class CheckWatches {
   readonly #deps: AlertDeps;
   #running: Promise<CheckWatchesResult> | null = null;
+  #next: Promise<CheckWatchesResult> | null = null;
 
   constructor(deps: AlertDeps) {
     this.#deps = deps;
   }
 
   execute(): Promise<CheckWatchesResult> {
-    this.#running ??= this.#check().finally(() => {
-      this.#running = null;
+    // Asked while one runs (an update saved new prices meanwhile): one more check after it, which
+    // every call made in the meantime shares.
+    const running = this.#running;
+    if (running) {
+      this.#next ??= running
+        .catch(() => undefined)
+        .then(() => {
+          this.#next = null;
+          return this.execute();
+        });
+      return this.#next;
+    }
+    const started = this.#check().finally(() => {
+      if (this.#running === started) this.#running = null;
     });
-    return this.#running;
+    this.#running = started;
+    return started;
   }
 
   async #check(): Promise<CheckWatchesResult> {

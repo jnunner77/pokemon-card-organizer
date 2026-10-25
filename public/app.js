@@ -43,7 +43,7 @@ const paidOf = c => { const p = latestOf(c, ["paid"]); return p ? toCAD(p) : nul
 const soldOf = c => { const p = latestOf(c, ["mysale"]); return p ? toCAD(p) : null; };
 const held = c => !["sold","traded"].includes(c.status);
 /* a placeholder holds its pocket for a card not owned yet: priced, but not counted or sold */
-const owned = c => held(c) && !c.placeholder;
+const owned = c => held(c) && !c.placeholder && c.watchlist!==true;
 /* price watches (watch.js): a card only on the watchlist isn't in the collection, so it's left out of its lists and totals */
 const W = window.BinderWatch;
 const ledgerCards = () => S.cards.filter(c => !W.onWatchlist(c));
@@ -295,7 +295,8 @@ const pickedCards = () => S.pick ? [...S.pick].map(id=>S.cards.find(c=>c.id===id
 const pickAllPh = () => { const l = pickedCards(); return l.length>0 && l.every(c=>c.placeholder); };
 async function placeholderPicked(){
   const l = pickedCards(), on = !pickAllPh(); if(!l.length) return;
-  const res = await Promise.allSettled(l.map(c => S.db.doc("cards/"+c.id).update({placeholder:on, updatedAt:nowISO()})));
+  // Owned on a card from the watchlist is "I got it": it's the person's now, no longer watched to buy.
+  const res = await Promise.allSettled(l.map(c => S.db.doc("cards/"+c.id).update({...(!on && W.onWatchlist(c) ? W.gotIt(c) : {placeholder:on}), updatedAt:nowISO()})));
   const ok = res.filter(r=>r.status==="fulfilled").length;
   toast(ok===l.length ? (on ? `${ok} card${ok===1?" is a placeholder":"s are placeholders"}: not counted in your totals` : `${ok} card${ok===1?"":"s"} counted in your totals now`) : `${ok} of ${l.length} saved. Try the rest again.`);
   endPick();
@@ -1307,7 +1308,7 @@ function renderDrawer(force){
           <div class="field"><label for="f_released">Released</label><input id="f_released" class="mono" value="${esc(c.released)}" readonly placeholder="${S.sel==="__new"?"Filled in after saving":"Not found yet"}" title="When the card's set came out, from TCGdex. Used to sort a binder by release date."></div>
           <div class="field"><label for="f_status">Status</label><select id="f_status" name="status">${opt(STATUSES,c.status||"binder")}</select></div>
           <div class="field"><label for="f_owner">Owner</label><select id="f_owner" name="owner">${opt(OWNERS,c.owner||"")}</select></div>
-          <div class="field full"><label class="phswitch"><input type="checkbox" id="f_placeholder" role="switch" ${c.placeholder?"checked":""}><span><b>Placeholder</b> <span class="hint">Holds this pocket for a card you don't have yet. Its price is tracked but not counted in your totals.${isNew?"":" Saves straight away."}</span></span></label></div>
+          <div class="field full"${!isNew && W.onWatchlist(c)?" hidden":""}><label class="phswitch"><input type="checkbox" id="f_placeholder" role="switch" ${c.placeholder?"checked":""}><span><b>Placeholder</b> <span class="hint">Holds this pocket for a card you don't have yet. Its price is tracked but not counted in your totals.${isNew?"":" Saves straight away."}</span></span></label></div>
           <div class="field full"><label for="f_notes">Notes</label><textarea id="f_notes" name="notes" placeholder="Centering, where you pulled it, trade notes…">${esc(c.notes)}</textarea></div>
         </div>
         <datalist id="dl_sets">${sets.map(s=>`<option value="${esc(s)}">`).join("")}</datalist>
@@ -1409,7 +1410,7 @@ async function saveWatch(stop){
 async function gotWatched(){
   const c = selCard(); if(!c || !W.onWatchlist(c)) return;
   if(await updateCard(c.id, W.gotIt(c))){
-    const ph = $("#f_placeholder"); if(ph){ ph.checked = false; ph.defaultChecked = false; }
+    const ph = $("#f_placeholder"); if(ph){ ph.checked = false; ph.defaultChecked = false; const f = ph.closest(".field"); if(f) f.hidden = false; }
     S.watchTouched = false; render(); refreshParts(selCard(), {watch:true, move:true});
     toast(`${c.name||"Card"} is in your cards now. Choose its binder under Location.`);
   }
@@ -3494,6 +3495,7 @@ document.addEventListener("input", e => {
 /* the drawer's Placeholder switch on a saved card: saves at once, without touching the form */
 async function switchPlaceholder(box){
   const c = selCard(), on = box.checked; if(!c) return;
+  if(W.onWatchlist(c)){ box.checked = !on; return toast("It's on your watchlist: tap I got it when you have it."); }
   if(!(await updateCard(c.id, {placeholder:on}))){ box.checked = !on; return; }
   box.defaultChecked = on; // saved: not a change to ask about when the drawer closes
   const qs = $("#btnQuickSell"); if(qs) qs.hidden = on;

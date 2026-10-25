@@ -154,11 +154,17 @@ describe('Checking price watches', () => {
     assert.equal((await t.check.execute()).buy, 1);
   });
 
-  it('joins a check already running', async () => {
+  it('checks again after a check already running, so prices saved meanwhile aren\'t missed', async () => {
     t.setUpMail();
     t.ledger.seed('cards', 'c1', { name: 'Umbreon', watch: { buy: 5 }, prices: [market(4)] });
-    await Promise.all([t.check.execute(), t.check.execute()]);
-    assert.equal(t.mailer.sent.length, 1);
+    const first = t.check.execute();
+    // New prices land while the first check runs.
+    t.ledger.seed('cards', 'c2', { name: 'Eevee', watch: { buy: 5 }, prices: [market(3)] });
+    const [a, b, c] = await Promise.all([first, t.check.execute(), t.check.execute()]);
+    assert.equal(a.buy, 1);
+    assert.equal(b.buy, 1);
+    assert.equal(b, c);
+    assert.deepEqual(t.mailer.sent.map((m) => m.message.subject), ['Buy alert: Umbreon at $4.00 (your price $5.00)', 'Buy alert: Eevee at $3.00 (your price $5.00)']);
   });
 
   it('lists each card\'s details and where to buy or sell it', () => {

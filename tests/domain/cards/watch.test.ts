@@ -73,6 +73,21 @@ describe('Price watches', () => {
     assert.equal(c.pullEvents().length, 1);
   });
 
+  it('takes a card off the watchlist once it is put in a binder, however it gets there', () => {
+    const w = { watchlist: true, placeholder: true, binderId: null, page: null, slot: null, watch: { buy: 5 } };
+    const moved = card('c1', w);
+    assert.equal(value(moved.moveTo({ binderId: 'b1', page: 1, slot: 3 }, AT)), true);
+    assert.equal(moved.fields['watchlist'], false);
+    assert.equal(moved.fields['placeholder'], true);
+    assert.deepEqual(moved.fields['watch'], { buy: 5 });
+    const swapped = card('c2', w);
+    value(swapped.merge({ binderId: 'b1', page: 2, slot: 1 }, AT));
+    assert.equal(swapped.fields['watchlist'], false);
+    const stays = card('c3', w);
+    value(stays.merge({ watch: { buy: 4 } }, AT));
+    assert.equal(stays.fields['watchlist'], true);
+  });
+
   it('refuses a watch price that is not a positive number', () => {
     assert.equal(card('c1').merge({ watch: { buy: -1 } }, AT).ok, false);
     assert.equal(card('c1').merge({ watch: { buy: 0 } }, AT).ok, false);

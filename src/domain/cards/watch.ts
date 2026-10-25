@@ -42,6 +42,15 @@ export function watchTargets(card: CardFields): WatchTargets {
 /** Only on the watchlist: a card the person doesn't have, in no binder. */
 export const onWatchlist = (card: CardFields): boolean => card['watchlist'] === true;
 
+/**
+ * A card put in a binder or display case is no longer only on the watchlist (it stays a
+ * placeholder, and stays watched): the fields with `watchlist` cleared then, else as they are.
+ */
+export function offWatchlistWhenPlaced<F extends CardFields>(fields: F): F | (F & { watchlist: false }) {
+  const binderId = fields['binderId'];
+  return onWatchlist(fields) && typeof binderId === 'string' && binderId !== '' ? { ...fields, watchlist: false } : fields;
+}
+
 /** The person has the card: not sold or traded, not a placeholder, not only on the watchlist. */
 export const ownsCard = (card: CardFields): boolean => !['sold', 'traded'].includes(String(card['status'] ?? '')) && !card['placeholder'] && !onWatchlist(card);
 
