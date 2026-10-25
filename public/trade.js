@@ -200,20 +200,20 @@
     return p.cad == null ? { value: null, why: `No price for the ${p.label || "card"}` } : { value: p.cad, from: `today's price, ${p.label || "regular"}` };
   }
 
+  /* A looked-up card's value after its printing or grade changes (lookValue's answer): a price for
+     them replaces the value; with none, a value the lookup had filled in is cleared rather than kept
+     for another grade, and a value typed by hand (valueFrom "") stays. {value, valueFrom}. */
+  function followLook(it, lv) {
+    if (lv && lv.value != null) return { value: lv.value.toFixed(2), valueFrom: lv.from };
+    return it.valueFrom ? { value: "", valueFrom: "" } : { value: it.value, valueFrom: "" };
+  }
+
   /* A typed-in card with a grader but no grade yet. */
   function missingGradeNote(it) {
     const by = String(it?.grader ?? "").trim();
     return by && by !== "Raw" && !String(it?.grade ?? "").trim() ? `Put in its ${by} grade.` : null;
   }
 
-  /**
-   * A trade saved in the browser, read back: {dealer, mine}, each {pct, cash, items:[{cardId, look,
-   * name, grader, grade, value, valueFrom, pct}]} with the other fields strings. Anything that isn't a
-   * saved trade gives an empty one; a grader not in `graders` is "Raw"; only my side's cards link to a
-   * card of mine (cardId, else null), and only the dealer's to a looked-up card (look, else null). `ownedIds` is the set of card ids I own, or null
-   * when the ledger isn't loaded: with a set, my linked cards not in it (gone, sold, traded) are
-   * dropped; with null, they're all kept.
-   */
   /* A looked-up card as it was saved (lookFrom's shape), or null. Its printings are null when its
      prices hadn't come back yet, so they're asked for again. */
   function savedLook(l) {
@@ -227,6 +227,14 @@
     return { id: l.id, name: str(l.name), set: str(l.set), number: str(l.number), thumb: str(l.thumb), printings, pi };
   }
 
+  /**
+   * A trade saved in the browser, read back: {dealer, mine}, each {pct, cash, items:[{cardId, look,
+   * name, grader, grade, value, valueFrom, pct}]} with the other fields strings. Anything that isn't a
+   * saved trade gives an empty one; a grader not in `graders` is "Raw"; only my side's cards link to a
+   * card of mine (cardId, else null), and only the dealer's to a looked-up card (look, else null). `ownedIds` is the set of card ids I own, or null
+   * when the ledger isn't loaded: with a set, my linked cards not in it (gone, sold, traded) are
+   * dropped; with null, they're all kept.
+   */
   function restore(saved, ownedIds, graders) {
     const str = v => typeof v === "string" ? v : typeof v === "number" ? String(v) : "";
     const id = v => typeof v === "string" && v ? v : null;
@@ -247,5 +255,5 @@
     return out;
   }
 
-  root.BinderTrade = { amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, restore };
+  root.BinderTrade = { amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, restore };
 })(typeof window !== "undefined" ? window : globalThis);

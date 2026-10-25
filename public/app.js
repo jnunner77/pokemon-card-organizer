@@ -1094,10 +1094,7 @@ function trLookPrice(it, refresh=true){
   if(!it.look?.printings) return;
   const lv = window.BinderTrade.lookValue(it.look, it.grader, it.grade);
   const was = it.value;
-  // a price from the lookup follows the printing and grade; with none for them, it's cleared rather than
-  // kept for another grade (a value typed by hand stays)
-  if(lv.value!=null){ it.value = lv.value.toFixed(2); it.valueFrom = lv.from; }
-  else if(it.valueFrom){ it.value = ""; it.valueFrom = ""; }
+  Object.assign(it, window.BinderTrade.followLook(it, lv));
   const inp = $(`[data-tritem="dealer:${it.key}"] [data-trf="value"]`); if(inp && it.value!==was) inp.value = it.value;
   if(refresh){ trSave(); trRefresh(); }
 }

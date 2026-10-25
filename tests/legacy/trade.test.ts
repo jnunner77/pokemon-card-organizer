@@ -30,6 +30,7 @@ type Trade = {
   gradePrice: (grades: { label: string; cad: number }[], grader: string, grade: string) => { label: string; cad: number; exact: boolean } | null;
   lookFrom: (hit: unknown, card: unknown) => Look;
   lookValue: (look: Look, grader: string, grade: string) => { value: number; from: string } | { value: null; why: string };
+  followLook: (it: { value: string; valueFrom: string }, lv: { value: number; from: string } | { value: null; why: string }) => { value: string; valueFrom: string };
   missingGradeNote: (it: Grade) => string | null;
   restore: (saved: unknown, ownedIds: Set<string> | null, graders: string[]) => Record<'dealer' | 'mine', SavedSide>;
 };
@@ -40,7 +41,7 @@ type SavedItem = { cardId: string | null; look: Look | null; name: string; grade
 type SavedSide = { pct: string; cash: string; items: SavedItem[] };
 const sandbox = { window: {} as { BinderTrade: Trade } };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public/trade.js'), 'utf8'), sandbox);
-const { amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, restore } = sandbox.window.BinderTrade;
+const { amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, restore } = sandbox.window.BinderTrade;
 
 describe('reading what was typed', () => {
   it('reads amounts with or without a dollar sign and commas', () => {
@@ -318,5 +319,13 @@ describe('a card looked up in the card database', () => {
     expect(lookValue({ ...look, pi: 0 }, 'Raw', '')).toEqual({ value: null, why: 'No price for the regular' });
     expect(lookValue({ ...look, pi: 0 }, 'PSA', '10')).toEqual({ value: null, why: 'No PSA 10 price from PriceCharting' });
     expect(lookValue({ ...look, printings: [] }, 'Raw', '')).toEqual({ value: null, why: 'No prices for this card' });
+  });
+
+  it('follows the printing and grade: a price replaces the value, none clears a looked-up one but keeps a typed one', () => {
+    const priced = { value: 2400, from: "PriceCharting's PSA 10 price" }, none = { value: null, why: 'No PSA 10 price from PriceCharting' };
+    expect(followLook({ value: '590.50', valueFrom: "today's price, holo" }, priced)).toEqual({ value: '2400.00', valueFrom: "PriceCharting's PSA 10 price" });
+    expect(followLook({ value: '5000', valueFrom: '' }, priced)).toEqual({ value: '2400.00', valueFrom: "PriceCharting's PSA 10 price" });
+    expect(followLook({ value: '590.50', valueFrom: "today's price, holo" }, none)).toEqual({ value: '', valueFrom: '' });
+    expect(followLook({ value: '5000', valueFrom: '' }, none)).toEqual({ value: '5000', valueFrom: '' });
   });
 });

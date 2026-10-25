@@ -574,7 +574,7 @@ tbody tr.sel{background:var(--accent-soft)}
 .tr-tv b{color:var(--ink)}
 .tr-note{overflow-wrap:anywhere}
 .tr-note:empty{display:none}
-.tr-item .warn-text,.tr-sum .warn-text{color:var(--warn);font-weight:600}
+.tr-item .warn-text,.tr-sum .warn-text,.tr-res .warn-text{color:var(--warn);font-weight:600}
 .tr-opts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:auto;padding-top:4px;border-top:1px dashed var(--line-2)}
 .tr-sum{margin-top:14px;border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--surface-2)}
 .tr-sum>p:not(.tr-line){margin:0}
