@@ -111,6 +111,16 @@ describe('undoing a trade', () => {
     assert.deepEqual(byId(saved, 'mine')?.place, { binderId: 'b1', page: 1, slot: 3 });
   });
 
+  it('undoes nothing once a card I got has been sold or traded on', () => {
+    const list = recorded();
+    const ph = byId(list, 'ph');
+    assert.ok(ph);
+    value(ph.merge({ status: 'sold', sale: { soldCAD: 400 } }, AT));
+    const before = list.map((c) => c.fields);
+    assert.deepEqual(undoTrade('t1', list, binders, AT), refused('TRADED_CARD_GONE_ON', { name: 'Charizard' }));
+    assert.deepEqual(list.map((c) => c.fields), before);
+  });
+
   it('puts my card under no binder when its binder is gone, and says when there is no such trade', () => {
     const list = recorded([]);
     assert.deepEqual(byId(value(undoTrade('t1', list, [], AT)).saved, 'mine')?.place, { binderId: null, page: null, slot: null });

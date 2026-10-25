@@ -24,6 +24,8 @@ type Trade = {
   newCard: (it: { look?: Look | null; name?: string; grader?: string; grade?: string }) => Record<string, string>;
   recordProblem: (t: unknown, lands: string[], given: number) => string;
   recordBody: (t: unknown, o: Record<string, unknown>) => any;
+  landings: (items: { key: string; ph: string | null; phIds: string[] }[], before: Record<string, string> | null | undefined, binderIds: string[]) => Record<string, string>;
+  salesGroups: (sales: unknown[], cards: unknown[]) => any[];
   amount: (s: Typed) => number | null;
   percent: (s: Typed) => number | null;
   evaluate: (t: { dealer?: Side; mine?: Side }) => Result;
@@ -48,7 +50,7 @@ type SavedSide = { pct: string; cash: string; items: SavedItem[] };
 const sandbox = { window: {} as { BinderTrade: Trade } };
 // bulkbuy.js comes first, as on the page: trade.js shares amounts out with its allocate.
 for (const f of ['bulkbuy.js', 'trade.js']) vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public', f), 'utf8'), sandbox);
-const { settle, newCard, recordProblem, recordBody, amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, addCash, restore } = sandbox.window.BinderTrade;
+const { settle, newCard, recordProblem, recordBody, landings, salesGroups, amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, addCash, restore } = sandbox.window.BinderTrade;
 
 describe('reading what was typed', () => {
   it('reads amounts with or without a dollar sign and commas', () => {
@@ -419,5 +421,31 @@ describe('the trade as it is recorded', () => {
     // cash only on my side
     const cash = recordBody({ dealer: trade.dealer, mine: { cash: '70', items: [] } }, o({ who: '', mine: [], lands: ['', ''] }));
     expect(cash.received[0].entries[0].note).toBe('Trade: $70.00 for 2 cards');
+  });
+});
+
+describe('where the cards I get go, and the Sales tab', () => {
+  it('starts each card at its placeholder or no binder, and keeps a choice still on offer', () => {
+    const items = [{ key: 'a', ph: 'p1', phIds: ['p1', 'p2'] }, { key: 'b', ph: null, phIds: [] }, { key: 'c', ph: null, phIds: [] }];
+    expect(landings(items, undefined, ['b1'])).toEqual({ a: 'ph:p1', b: '', c: '' });
+    expect(landings(items, { a: 'ph:p2', b: 'b:b1', c: '' }, ['b1'])).toEqual({ a: 'ph:p2', b: 'b:b1', c: '' });
+    // a binder deleted meanwhile, a placeholder no longer free for it
+    expect(landings(items, { a: 'ph:gone', b: 'b:old' }, ['b1'])).toEqual({ a: 'ph:p1', b: '', c: '' });
+  });
+
+  it('groups bundles and trades, adds a cash-only trade by the cards I got, newest first', () => {
+    const sale = (id: string, date: string, extra: Record<string, unknown> = {}) => ({ c: { id }, s: { date, ...extra } });
+    const sales = [
+      sale('x', '2026-10-20', { trade: { id: 't1' } }),
+      sale('y', '2026-10-20', { trade: { id: 't1' } }),
+      sale('z', '2026-10-10', { bundle: { id: 'b1' } }),
+      sale('w', '2026-10-05'),
+    ];
+    const cards = [{ id: 'got1', trade: { id: 't1' } }, { id: 'got2', trade: { id: 't2', date: '2026-10-15' } }, { id: 'plain' }];
+    const g = salesGroups(sales, cards);
+    expect(g.map((x) => x.trade?.id ?? x.bundle?.id ?? x.c.id)).toEqual(['t1', 't2', 'b1', 'w']);
+    expect(g[0].items.map((x: { c: { id: string } }) => x.c.id)).toEqual(['x', 'y']);
+    expect(g[1]).toEqual({ trade: { id: 't2', date: '2026-10-15' }, items: [] });
+    expect(salesGroups([], [{ id: 'plain' }])).toEqual([]);
   });
 });

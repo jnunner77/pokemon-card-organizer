@@ -346,5 +346,44 @@
     return { id: o.id, summary, given, received };
   }
 
-  root.BinderTrade = { settle, newCard, recordProblem, recordBody, amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, addCash, restore };
+  /**
+   * Where each card I get goes when the record step opens: what was chosen before, while it's still
+   * on offer (its binder still there, its placeholder still free for it), else its placeholder (the
+   * one it fills alongside the others), else no binder (""). items: [{key, ph: placeholder id or
+   * null, phIds: the placeholders on offer for it}]; before: {key: landing} chosen earlier;
+   * binderIds: the binders and cases there are now. Returns {key: landing}.
+   */
+  function landings(items, before, binderIds) {
+    const binders = new Set(binderIds || []), out = {};
+    for (const x of items || []) {
+      const v = before?.[x.key], fallback = x.ph ? `ph:${x.ph}` : "";
+      const ok = typeof v === "string" && (v === "" || (v.startsWith("b:") && binders.has(v.slice(2))) || (v.startsWith("ph:") && (x.phIds || []).includes(v.slice(3))));
+      out[x.key] = ok ? v : fallback;
+    }
+    return out;
+  }
+
+  /**
+   * The Sales tab's rows, newest first: a bundle's sales together, a trade's sales together, and a
+   * trade where I gave no card of mine (cash only) as a group of its own, found by the cards I got.
+   * sales: [{c, s}] newest first (s: the sale, with its date, bundle and trade); cards: every card.
+   * Returns sales ({c, s}), {bundle, items} and {trade, items} groups (items [] for a cash-only trade).
+   */
+  function salesGroups(sales, cards) {
+    const groups = [], byKey = new Map();
+    for (const x of sales || []) {
+      const b = x.s.bundle?.id, tr = x.s.trade?.id, key = b ? `b:${b}` : tr ? `t:${tr}` : null;
+      if (!key) { groups.push(x); continue; }
+      if (!byKey.has(key)) { const g = b ? { bundle: x.s.bundle, items: [] } : { trade: x.s.trade, items: [] }; byKey.set(key, g); groups.push(g); }
+      byKey.get(key).items.push(x);
+    }
+    for (const c of cards || []) {
+      const T = c.trade;
+      if (T?.id && !byKey.has(`t:${T.id}`)) { const g = { trade: T, items: [] }; byKey.set(`t:${T.id}`, g); groups.push(g); }
+    }
+    const dateOf = g => String((g.items ? g.items[0]?.s.date ?? g.trade?.date : g.s.date) || "");
+    return groups.sort((a, b) => dateOf(b).localeCompare(dateOf(a)));
+  }
+
+  root.BinderTrade = { settle, newCard, recordProblem, recordBody, landings, salesGroups, amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, addCash, restore };
 })(typeof window !== "undefined" ? window : globalThis);

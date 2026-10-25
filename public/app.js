@@ -508,22 +508,9 @@ function readFilters(){ S.filt = filtersFrom("ff", "filtPane"); store.set("filt"
 function renderSales(m){
   S.shown = [];
   const l = salesList(), t = salesTotals();
-  // Trades where I gave no card of mine (cash for the dealer's cards): no sale, but shown with the rest.
-  const sold = new Set(l.map(x => x.s.trade?.id).filter(Boolean)), bought = new Map();
-  for(const c of S.cards){ const T = c.trade; if(T?.id && !sold.has(T.id) && !bought.has(T.id)) bought.set(T.id, {trade:T, items:[]}); }
-  if(!l.length && !bought.size){ m.innerHTML = `<div class="empty-state"><p>No sales yet.</p><p class="hint">Press and hold a card in a binder, then tap Quick sell.</p></div>`; return; }
-  // A bundle's cards go together, under one row for the bundle, where its first card falls; so do a trade's.
-  const groups = []; const byGroup = new Map();
-  for(const x of l){
-    const b = x.s.bundle?.id, tr = x.s.trade?.id, key = b ? `b:${b}` : tr ? `t:${tr}` : null;
-    if(!key){ groups.push(x); continue; }
-    if(!byGroup.has(key)){ const g = b ? {bundle:x.s.bundle, items:[]} : {trade:x.s.trade, items:[]}; byGroup.set(key, g); groups.push(g); }
-    byGroup.get(key).items.push(x);
-  }
-  // newest first, as the sales are; a trade with no sale goes by its date
-  const dateOf = g => (g.items ? g.items[0]?.s.date ?? g.trade?.date : g.s.date) || "";
-  groups.push(...bought.values());
-  groups.sort((a,b) => dateOf(b).localeCompare(dateOf(a)));
+  // Bundles and trades as groups, and trades where I gave only cash too (trade.js salesGroups).
+  const groups = window.BinderTrade.salesGroups(l, S.cards);
+  if(!groups.length){ m.innerHTML = `<div class="empty-state"><p>No sales yet.</p><p class="hint">Press and hold a card in a binder, then tap Quick sell.</p></div>`; return; }
   const saleRow = ({c,s}, inBundle) => `<tr data-sale="${esc(c.id)}" class="${isFound(c.id)?"found":""}${inBundle?" inbundle":""}">
       <td class="mono">${inBundle?"":esc(s.date||"—")}</td>
       <td class="hide-sm">${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="" loading="lazy">`:`<span class="thumb"></span>`}</td>
@@ -1231,9 +1218,7 @@ const trrLandOpts = (x, v) => [
 function trRecordModal(){
   if(!S.db || !canEdit()) return toast("Saving isn't available in this view.");
   const items = trrItems();
-  TRR = {busy:false, land:Object.fromEntries(items.map(x => [x.it.key, TRR?.land?.[x.it.key] ?? (x.ph ? `ph:${x.ph}` : TR_NOWHERE)]))};
-  const keep = new Set(sortedBinders().map(b => `b:${b.id}`)); // a binder deleted meanwhile isn't offered
-  for(const x of items){ const v = TRR.land[x.it.key]; if(v.startsWith("b:") && !keep.has(v)) TRR.land[x.it.key] = TR_NOWHERE; if(v.startsWith("ph:") && !x.phs.some(c => `ph:${c.id}`===v)) TRR.land[x.it.key] = x.ph ? `ph:${x.ph}` : TR_NOWHERE; }
+  TRR = {busy:false, land:window.BinderTrade.landings(items.map(x => ({key:x.it.key, ph:x.ph, phIds:x.phs.map(c => c.id)})), TRR?.land, sortedBinders().map(b => b.id))};
   const BT = window.BinderTrade, s = BT.settle(TR);
   const mine = TR.mine.items.map((it, i) => ({it, c:trCard(it.cardId), sold:s.sold[i]}));
   const given = mine.filter(x => x.c && owned(x.c));

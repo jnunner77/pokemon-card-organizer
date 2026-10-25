@@ -42,6 +42,7 @@ export type TradeError =
   | { readonly code: 'CARD_ID_TAKEN' }
   | { readonly code: 'BINDER_GONE' }
   | { readonly code: 'TRADE_NOT_FOUND' }
+  | { readonly code: 'TRADED_CARD_GONE_ON'; readonly name: string | null }
   | InvalidId
   | InvalidDocument
   | PriceEntryError;
@@ -170,6 +171,10 @@ export function undoTrade(tradeId: string, cards: readonly Card[], binders: read
   const given = cards.filter((c) => isRecord(c.fields['sale']) && tradeOf(c.fields['sale']['trade'])?.['id'] === tradeId);
   const received = cards.filter((c) => tradeOf(c.fields['trade'])?.['id'] === tradeId);
   if (!given.length && !received.length) return err({ code: 'TRADE_NOT_FOUND' });
+
+  // A card I got and have sold or traded on since can't be taken back: nothing is undone.
+  const goneOn = received.find((c) => !held(c));
+  if (goneOn) return err({ code: 'TRADED_CARD_GONE_ON', name: nameOf(goneOn) });
 
   const deleted = received.filter((c) => tradeOf(c.fields['trade'])?.['filled'] !== true);
   const going = new Set(deleted.map((c) => String(c.id)));

@@ -113,6 +113,8 @@ export function tradeFailure(e: TradeError): Failure {
       return conflict('A binder in the trade no longer exists, so nothing was recorded.');
     case 'TRADE_NOT_FOUND':
       return notFound('That trade is already undone.');
+    case 'TRADED_CARD_GONE_ON':
+      return conflict(`${e.name ?? 'A card you got in this trade'} has been sold or traded since, so the trade can't be undone. Undo that sale first.`);
     case 'INVALID_ID':
       return badRequest(DOCUMENT_ID_RULE);
     case 'INVALID_DOCUMENT':
