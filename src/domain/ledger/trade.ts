@@ -2,6 +2,7 @@ import { err, ok, type Result } from '#shared/result.ts';
 import type { Binder } from '../binders/binder.ts';
 import { Card, type CardId, type CardPlace } from '../cards/card.ts';
 import type { PriceEntry, PriceEntryError } from '../cards/price-entries.ts';
+import { onWatchlist } from '../cards/watch.ts';
 import type { InvalidDocument } from './check-document.ts';
 import { type Fields, isRecord } from './document.ts';
 import { documentId, type InvalidId } from './ids.ts';
@@ -116,7 +117,8 @@ export function recordTrade(t: TradeRecord, cards: readonly Card[], binders: rea
     if (r.kind === 'placeholder') {
       const card = cardById.get(r.cardId);
       if (!card) return err({ code: 'CARD_DELETED_MEANWHILE' });
-      if (!held(card) || !isPlaceholder(card)) return err({ code: 'NOT_A_PLACEHOLDER', name: nameOf(card) });
+      // A card only on the watchlist isn't a pocket waiting for it: the person gets it with I got it.
+      if (!held(card) || !isPlaceholder(card) || onWatchlist(card.fields)) return err({ code: 'NOT_A_PLACEHOLDER', name: nameOf(card) });
     } else {
       const id = documentId<CardId>(r.cardId);
       if (!id.ok) return id;

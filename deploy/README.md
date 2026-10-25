@@ -126,6 +126,6 @@ docker compose --profile caddy up -d --build
 | `TZ` | `America/Vancouver` | Time zone for "today" in the price log and for the daily run |
 | `PRICE_UPDATE_HOUR` | `5` | Starting hour for the daily update (then set under Administration → Prices) |
 | `PRICE_UPDATES` | `on` | `off` starts with the daily update turned off (Administration → Prices turns it on) |
-| `SECRETS_DIR` | `/secrets` in Docker, else `<DATA_DIR>/secrets` | Where PriceCharting's API token is kept (entered under Administration → Prices) |
+| `SECRETS_DIR` | `/secrets` in Docker, else `<DATA_DIR>/secrets` | Where PriceCharting's API token (Administration → Prices) and the Gmail app password for price alerts (Administration → Alerts) are kept |
 | `DOMAIN` | | Host name, only with `--profile caddy` |
 | `BOARDS_NETWORK` | `agile-development-operations_default` | Boards' Docker network, only with `deploy/with-boards.yml` |

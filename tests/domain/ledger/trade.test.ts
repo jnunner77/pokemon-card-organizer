@@ -10,6 +10,7 @@ const cards = () => [
   card('other', { binderId: 'b1', page: 1, slot: 2 }),
   card('ph', { name: 'Charizard', binderId: 'b1', page: 2, slot: 3, placeholder: true, grader: 'Raw', grade: '', prices: [{ id: 'm1', type: 'market', amount: 300, currency: 'CAD' }] }),
   card('sold', { status: 'sold', binderId: null, page: null, slot: null }),
+  card('watched', { name: 'Umbreon', binderId: null, page: null, slot: null, placeholder: true, watchlist: true, watch: { buy: 5 } }),
 ];
 const given = (cardId: string) => ({ cardId, sale: { amount: 40, currency: 'CAD', soldCAD: 40, cost: 21.2, basis: 'market', profit: 18.8, date: '2026-10-25', where: 'Trade' }, entry: { id: `s-${cardId}`, type: 'mysale', amount: 40, currency: 'CAD', date: '2026-10-25', where: 'Trade' } });
 const paid = (id: string) => [{ id, type: 'paid', amount: 30, currency: 'CAD', date: '2026-10-25', where: 'Trade' }];
@@ -70,6 +71,8 @@ describe('recording a trade', () => {
     assert.deepEqual(recordTrade(trade({ given: [given('sold')] }), list, binders, AT), refused('CARD_NOT_HELD', { name: 'Lapras' }));
     assert.deepEqual(recordTrade(trade({ given: [given('ph')] }), list, binders, AT), refused('CARD_NOT_HELD', { name: 'Charizard' }));
     assert.deepEqual(recordTrade(trade({ received: [fill('other')] }), list, binders, AT), refused('NOT_A_PLACEHOLDER', { name: 'Lapras' }));
+    // A card only on the watchlist isn't a placeholder a trade fills.
+    assert.deepEqual(recordTrade(trade({ received: [fill('watched')] }), list, binders, AT), refused('NOT_A_PLACEHOLDER', { name: 'Umbreon' }));
     assert.deepEqual(recordTrade(trade({ received: [fresh('other', null)] }), list, binders, AT), refused('CARD_ID_TAKEN'));
     assert.deepEqual(recordTrade(trade({ received: [fresh('n1', 'nope')] }), list, binders, AT), refused('BINDER_GONE'));
     assert.deepEqual(recordTrade(trade({ received: [fresh('bad id', null)] }), list, binders, AT), refused('INVALID_ID', { id: 'bad id' }));

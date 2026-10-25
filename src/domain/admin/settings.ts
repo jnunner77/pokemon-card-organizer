@@ -1,5 +1,6 @@
 import { err, ok, type Result } from '#shared/result.ts';
 import { DEFAULT_RETENTION, type Retention } from '../backups/retention.ts';
+import { type AlertSettings, alertSettingsFrom } from './alerts.ts';
 import { booleanProblem, choiceProblem, expected, isRecord, numberProblem, unrecognized } from './input.ts';
 
 // Settings only administrators change, kept outside the ledger so restoring a backup of it never
@@ -36,6 +37,8 @@ export interface AdminSettings {
   readonly lastFullBackupAt: string | null;
   /** When an administrator last marked the problems (warnings and errors) as seen. */
   readonly problemsSeenAt?: string | null;
+  /** Where price alert emails come from and go to; null or missing until they're set up. */
+  readonly alerts?: AlertSettings | null;
 }
 
 export const DEFAULT_ADMIN_SETTINGS: AdminSettings = { backups: DEFAULT_RETENTION, pricing: { enabled: true, hour: 5, cardmarket: true }, lastFullBackupAt: null };
@@ -125,6 +128,7 @@ export function adminSettingsFrom(saved: Readonly<Record<string, unknown>> | nul
   const method = saved?.['priceMethod'];
   const priceMethod = method === undefined ? base.priceMethod : method === null ? null : priceMethodFrom(method);
   const seen = timeOr(saved?.['problemsSeenAt'], base.problemsSeenAt);
+  const alerts = saved && 'alerts' in saved ? alertSettingsFrom(saved['alerts']) : base.alerts;
   return {
     backups: { daily: numberOr(backups['daily'], base.backups.daily), weekly: numberOr(backups['weekly'], base.backups.weekly), monthly: numberOr(backups['monthly'], base.backups.monthly) },
     pricing: {
@@ -135,5 +139,6 @@ export function adminSettingsFrom(saved: Readonly<Record<string, unknown>> | nul
     ...(priceMethod === undefined ? {} : { priceMethod }),
     lastFullBackupAt: timeOr(saved?.['lastFullBackupAt'], base.lastFullBackupAt),
     ...(seen === undefined ? {} : { problemsSeenAt: seen }),
+    ...(alerts === undefined ? {} : { alerts }),
   };
 }

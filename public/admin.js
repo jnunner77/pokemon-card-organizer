@@ -1,5 +1,5 @@
 // Administration page: health and security checks, people, sign-in settings, API tokens,
-// sessions, guests, backups, price updates, security and logs. Only administrators can open it.
+// sessions, guests, backups, price updates, price alert emails, security and logs. Only administrators can open it.
 (() => {
   "use strict";
   const $ = (s, r = document) => r.querySelector(s);
@@ -320,6 +320,38 @@
     };
   }
 
+  // ---- Alerts: price watch emails through Gmail ------------------------------------------
+  const alertLine = r => `${r.buy ? `buy alert (${r.buy} card${r.buy === 1 ? "" : "s"})` : ""}${r.buy && r.sell ? " and " : ""}${r.sell ? `sell alert (${r.sell} card${r.sell === 1 ? "" : "s"})` : ""}`;
+  async function alerts() {
+    const a = await api("GET", "admin/alerts");
+    const s = a.settings, on = !!s && a.password.set;
+    return `<form class="adminform" id="alertForm" autocomplete="off"><h3>Price alert emails</h3>
+      <p>${on ? `${chip("pass", "On")} <span class="hint">from ${esc(s.gmail)} to ${esc(s.to.join(", "))}</span>` : chip("info", "Off")}</p>
+      ${a.lastError ? `<p>${chip("fail", "Last alert failed")} <span class="hint">${esc(when(a.lastError.at))}: ${esc(a.lastError.error)}</span></p>` : ""}
+      ${a.lastSent ? `<p class="hint">Last sent ${esc(when(a.lastSent.at))}: ${esc(alertLine(a.lastSent))}.</p>` : ""}
+      <p class="hint">Watching ${a.watching.buy} card${a.watching.buy === 1 ? "" : "s"} to buy and ${a.watching.sell} to sell. After each price update (and every hour), cards whose value reached a watch price are emailed: a <b>Buy alert</b> and a separate <b>Sell alert</b>, each listing every card that got there. A card is emailed once, and again only after its value moves back past the price and reaches it again. Watches are set on each card (Watch price), or in the binder's Watchlist.</p>
+      <p class="hint">Alerts are sent through a Gmail account with an <b>app password</b> (free): turn on 2-Step Verification in your Google Account, then <b>Security → 2-Step Verification → App passwords</b>, make one and paste its 16 letters here. It's kept in its own file on the server, never shown here again, logged or put in backups. Saving sends a test email first: a password Gmail refuses isn't saved.</p>
+      <div class="form">
+        <div class="field"><label for="al_gmail">Gmail address (sends the alerts)</label><input id="al_gmail" name="gmail" type="email" required maxlength="254" autocapitalize="none" spellcheck="false" value="${esc(s?.gmail || "")}" placeholder="you@gmail.com"></div>
+        <div class="field"><label for="al_to">Send alerts to</label><input id="al_to" name="to" maxlength="1300" autocapitalize="none" spellcheck="false" value="${esc(s ? s.to.join(", ") : "")}" placeholder="The Gmail address, or others (commas between)"></div>
+        <div class="field"><label for="al_pw">App password</label><input id="al_pw" name="password" type="password" maxlength="40" autocomplete="new-password" spellcheck="false" placeholder="${a.password.set ? "Saved: paste a new one to replace it" : "16 letters, like abcd efgh ijkl mnop"}" ${a.password.set ? "" : "required"}></div>
+      </div>
+      <div class="formfoot"><span class="hint">Links in the emails open this binder at ${esc(location.origin)}.</span><span style="display:flex;gap:8px;flex-wrap:wrap">${on ? `<button class="btn" type="button" id="alertTest">Send test email</button><button class="btn" type="button" id="alertOff">Turn off</button>` : ""}<button class="btn primary" type="submit">${on ? "Save" : "Save and send a test email"}</button></span></div>
+    </form>`;
+  }
+  function wireAlerts() {
+    const f = $("#alertForm");
+    f.onsubmit = e => {
+      e.preventDefault();
+      const d = formData(f), btn = f.querySelector("[type=submit]");
+      const body = { gmail: d.gmail.trim(), to: d.to.trim(), link: location.origin + location.pathname.replace(/\/[^/]*$/, ""), ...(d.password.trim() ? { password: d.password } : {}) };
+      btn.disabled = true;
+      act(() => api("PUT", "admin/alerts", body), "Saved: a test email is on its way").finally(() => { btn.disabled = false; });
+    };
+    const t = $("#alertTest"); if (t) t.onclick = () => { t.disabled = true; act(async () => { const r = await api("POST", "admin/alerts/test"); toast(`Test email sent to ${r.to.join(", ")}`); return r; }).finally(() => { t.disabled = false; }); };
+    const o = $("#alertOff"); if (o) o.onclick = () => { if (confirm("Turn price alert emails off? The Gmail app password is removed; watches on cards stay.")) act(() => api("DELETE", "admin/alerts"), "Alert emails are off"); };
+  }
+
   // ---- Security ------------------------------------------------------------------------
   async function security() {
     const s = await api("GET", "admin/security");
@@ -418,7 +450,7 @@
   }
 
   // ---- routing -------------------------------------------------------------------------
-  const VIEWS = { overview: [overview], people: [people, wirePeople], signin: [signin, wireSignin], tokens: [tokens, wireTokens], sessions: [sessions, wireSessions], guests: [guests, wireGuests], backups: [backups, wireBackups], prices: [prices, wirePrices], security: [security, wireSecurity], problems: [problems, wireProblems], logs: [logs, wireLogs] };
+  const VIEWS = { overview: [overview], people: [people, wirePeople], signin: [signin, wireSignin], tokens: [tokens, wireTokens], sessions: [sessions, wireSessions], guests: [guests, wireGuests], backups: [backups, wireBackups], prices: [prices, wirePrices], alerts: [alerts, wireAlerts], security: [security, wireSecurity], problems: [problems, wireProblems], logs: [logs, wireLogs] };
   async function show() {
     const key = (location.hash.slice(1) in VIEWS) ? location.hash.slice(1) : "overview";
     document.querySelectorAll(".admintabs .tab").forEach(t => t.setAttribute("aria-selected", t.getAttribute("href") === "#" + key));

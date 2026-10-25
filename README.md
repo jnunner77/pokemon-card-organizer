@@ -447,6 +447,48 @@ Profit is what each card sold for against what you paid for it, or its market pr
 logged a paid price, as it was on the day you sold it (the same profit as the Sales tab). Cards with
 neither are counted in what sold but not in the profit.
 
+## Price watches and alerts
+
+Watch a card for a price, and get an email when it gets there: a **buy** price (at or below it) for a
+card you want, and a **sell** price (at or above it) for one you have. Buy and sell alerts come as
+**separate emails** ("Buy alert: …" in green, "Sell alert: …" in amber), each listing every card that
+reached its price, with its value, your price, how far past it is, and links to its TCGplayer and
+PriceCharting products and an eBay search.
+
+- **A card you have:** its details have a *Watch price* section, with *Buy at or below* (to buy another
+  copy) and *Sell at or above*. Or press and hold cards, select more, and tap **Watch** to give them
+  all the same prices (a blank box stops watching that side).
+- **A card you don't have:** *Find a card* → **Any card**, choose it (and its printing), tap **Watch
+  price** and type the price you'd buy it at. It goes on the **Watchlist**, not in a binder: it gets a
+  price every day like a placeholder, but isn't in any binder, total, the List's *All cards*, the
+  Table, Pricing, Bulk buy or the CSV export. *Find a card* finds it, *On your watchlist*. Once you
+  get it, **I got it: add to my cards** in its details makes it yours (no longer watched to buy), ready
+  to put in a binder under *Location*; moving it into a binder straight away makes it a placeholder
+  there, still watched.
+- **The Watchlist** tab lists every watched card and every card on the watchlist, the ones that
+  reached a price first (*Buy now*, *Sell now*), then the closest. Watched cards have a mark on their
+  pocket (a star once a price is reached) and *Watching* in the List view. The alert emails' *Open your
+  watchlist* link opens it.
+
+The value compared is the one the binder shows: the latest market price or sold comp, a played card's
+automatic price adjusted for its condition, and a graded card's price for its grade. Watches are
+checked after each price update and a card's *Update now*, and every hour (so a price logged by hand
+counts too), and an alert is sent **once** when a card reaches its price, and again only after its
+value has moved back past it and reaches it again (or its price is changed). An email that couldn't
+be sent is logged as an error (Problems) and tried again at the next check. Prices are daily
+market values, so a card's value reaching $5 means it's worth that now, not that someone is selling
+one for $5.
+
+**Setting up the emails** (*Administration → Alerts*, administrators only): alerts are sent through a
+Gmail account with an **app password**, which is free. Turn on 2-Step Verification in your Google
+Account, then *Security → 2-Step Verification → App passwords*, make one and paste its 16 letters,
+with the Gmail address and who the alerts go to (the Gmail address itself by default, or up to five
+addresses). Saving sends a test email first, so an address and password Gmail refuses aren't saved;
+*Send test email* sends another, and *Turn off* removes the settings and the password (watches stay).
+The app password is kept in a file of its own in `SECRETS_DIR` (like PriceCharting's token): never
+shown again, logged, or put in backups or exports. The server needs to reach `smtp.gmail.com` on
+port 465.
+
 ## Placeholders
 
 A **placeholder** holds a pocket for a card you don't have yet: it sits in its pocket (dimmed, with a
@@ -874,11 +916,13 @@ the existing free Google Cloud VM, at `binder.nunner.duckdns.org`).
 photos and the official pictures; deleted ones in `assets/.trash` for at least 400 days, and while
 any kept copy refers to them), `backups/`
 (daily, weekly and monthly copies, snapshots, and the ledger before every restore), `logs/` (a
-file per day, two weeks), `admin.json` (backup retention, price schedule), `auth.json` and
+file per day, two weeks), `admin.json` (backup retention, price schedule, where price alerts are
+emailed from and to), `auth.json` and
 `sessions.json` (people, password hashes, API token hashes and sessions; never in responses),
 `guests.json` (guest viewing on/off, the QR code's key and the guest log), `status.txt` (the
 Overview's checks and the cards that need a person, rewritten every five minutes for the server's
-nightly job) and `offsite.json` (written by that job after it copies a backup off the server).
+nightly job) and `offsite.json` (written by that job after it copies a backup off the server). The Gmail app password for price
+alerts, like PriceCharting's token, is a file in `SECRETS_DIR` instead (`gmail-app-password`).
 
 What each kind of backup holds:
 
@@ -930,7 +974,7 @@ in `src/` is its own TypeScript project that may only import the layers inside i
   contacts, visits and the guest log, and what guests see of a card) and Administration (`admin/`:
   the settings' rules and defaults, the overview checks, status.txt's lines, the log's levels,
   categories and hidden secrets, problems grouped since last seen, PriceCharting's token format and
-  the page errors' 30-a-minute limit); the cards that need a person are `cards/attention.ts`; and
+  the page errors' 30-a-minute limit); the cards that need a person are `cards/attention.ts`; price watches (when a buy or sell price is reached, emailed once per crossing) are `cards/watch.ts`, and a card's value as the binder shows it `cards/value.ts`; price alert settings are `admin/alerts.ts`; and
   what the card databases say about cards (`catalog/`: names, numbers and rarities however they're
   written, a card's printings and their own prices on TCGdex, matching a card to TCGdex by name,
   number, set size and the set it's filed under (reprint sub-sets, promos, TCG Pocket left out),
@@ -945,7 +989,8 @@ in `src/` is its own TypeScript project that may only import the layers inside i
   token), and administering people, sign-in settings, sessions and API tokens; `guests/`: a guest
   signing in and out, who a guest is, the cards and pictures they see, and Administration → Guests;
   `admin/`: the overview and status.txt, the price schedule and method, PriceCharting's token,
-  problems, logs and page errors; `catalog/`: look a card up, choose its match, fill one card or
+  problems, logs and page errors; `alerts/`: checking the price watches and the buy and sell alert
+  emails, and Administration → Alerts (the Gmail account, a test email); `catalog/`: look a card up, choose its match, fill one card or
   every card in (Fill in missing details), a new or changed card filling itself in and the watch
   that queues them one at a time, the look-up-again after an update, search and show any card, and
   list, preview and make master sets), ports for the clock, the unit of work, events, the server log
@@ -962,7 +1007,7 @@ in `src/` is its own TypeScript project that may only import the layers inside i
   copies (`backups/`), `auth.json` and `sessions.json` with scrypt password hashing (`accounts/`),
   `guests.json`, the page's condition rules and the QR code (`guests/`), `admin.json`, PriceCharting's
   token file, status.txt, offsite.json and the disk (`admin/`), the server log with its daily files
-  (`logging/logger.ts`), random secrets (`node-secrets.ts`), TCGdex over its API and tcgcsv.com
+  (`logging/logger.ts`), email through Gmail's SMTP server with Node's own TLS (`alerts/smtp-mailer.ts`), random secrets (`node-secrets.ts`), TCGdex over its API and tcgcsv.com
   (`catalog/`, each remembering its answers for a while), requests to other sites with retries
   (`http/get.ts`, which the price update uses too), the cards' changes from the store
   (`json-store/card-changes.ts`), Node's timers (`node-scheduler.ts`), and in-memory versions for
@@ -970,7 +1015,7 @@ in `src/` is its own TypeScript project that may only import the layers inside i
 - `src/presentation/`: the ledger's, photos', backups', sign-in and people's, guests',
   Administration's and the card lookups' routes (`ledger/`, `photos/`, `backups/`, `accounts/`,
   `guests/`, `admin/`: the overview, prices and PriceCharting token, problems, logs and the pages'
-  error reports; `catalog/`: card details, Fill in missing details, Any card and master sets, all
+  error reports; `alerts/`: Administration → Alerts; `catalog/`: card details, Fill in missing details, Any card and master sets, all
   answering 503 when `CARD_LOOKUPS=off`) on `node:http`, with hand-written checks
   of each request and an exhaustive switch from error codes to HTTP statuses; the guest page's live
   updates (`guests/feed.ts`).
@@ -996,7 +1041,7 @@ applies the rate limits.
 - `public/`: `admin.html`/`admin.js` (Administration), `login.html`/`login.js` (sign-in),
   `guest.html`/`guest.js` (the guest page).
 - `public/`: the page. `app.js` is the ledger UI; `search.js` matches cards for Find (tested in
-  `tests/legacy/search.test.ts`); `portfolio.js` and `selling.js` work out the Pricing and Selling views'
+  `tests/legacy/search.test.ts`); `watch.js` is the price watches and the Watchlist; `portfolio.js` and `selling.js` work out the Pricing and Selling views'
   numbers; `back.js` makes Back close a card's details and the Pricing and Selling views (tested in `tests/legacy/back.test.ts`); `runtime.js` connects it to the server.
 
 Tests: `tests/<layer>/` holds the node:test tests for `src/` (the domain without fakes, use cases

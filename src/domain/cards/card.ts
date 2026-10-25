@@ -5,6 +5,7 @@ import type { InvalidDocument } from '../ledger/check-document.ts';
 import type { Fields } from '../ledger/document.ts';
 import type { LedgerEvent } from '../ledger/events.ts';
 import { mergedFields, replacedFields } from '../ledger/fields-state.ts';
+import { alertsAfterCheck, offWatchlistWhenPlaced, type WatchSide } from './watch.ts';
 import { applyPriceEntries, checkPriceEntryFields, type PriceEntryChange, type PriceEntryError } from './price-entries.ts';
 
 export type CardId = Brand<string, 'CardId'>;
@@ -39,7 +40,7 @@ export class Card {
   static create(id: CardId, doc: unknown, at: Date): Result<Card, InvalidDocument> {
     const fields = replacedFields('cards', doc);
     if (!fields.ok) return fields;
-    const card = new Card(id, fields.value);
+    const card = new Card(id, offWatchlistWhenPlaced(fields.value));
     card.#saved(at);
     return ok(card);
   }
@@ -111,6 +112,17 @@ export class Card {
     return this.merge(formerCardForgotten(this.#fields), at);
   }
 
+  /**
+   * A price check compared the card's value with its watches and emailed `sent`: what was emailed
+   * is recorded, and watches no longer reached are cleared to be emailed again. False when nothing changed.
+   */
+  noteWatchCheck(value: number | null, sent: ReadonlySet<WatchSide>, at: Date): Result<boolean, InvalidDocument> {
+    const patch = alertsAfterCheck(this.#fields, value, sent, at.toISOString());
+    if (!patch) return ok(false);
+    const merged = this.merge(patch, at);
+    return merged.ok ? ok(true) : merged;
+  }
+
   delete(at: Date): void {
     this.#events.push({ type: 'DocumentDeleted', collection: 'cards', id: this.#id, occurredAt: at });
   }
@@ -127,7 +139,7 @@ export class Card {
 
   #apply(next: Result<Fields, InvalidDocument>, at: Date): Result<void, InvalidDocument> {
     if (!next.ok) return err(next.error);
-    this.#fields = next.value;
+    this.#fields = offWatchlistWhenPlaced(next.value);
     this.#saved(at);
     return ok(undefined);
   }

@@ -14,7 +14,7 @@ import { PriceUpdater } from '../server/pricing/updater.ts';
 import { Security } from '../server/security.ts';
 import { TcgCsv } from '../server/pricing/tcgcsv.ts';
 import { every } from '../server/recover.ts';
-import { createAccounts, createApp, createBackups, createCardLookups, createGuests } from './compose.ts';
+import { createAccounts, createAlerts, createApp, createBackups, createCardLookups, createGuests } from './compose.ts';
 
 const env = process.env;
 const dataDir = path.resolve(env['DATA_DIR'] ?? 'data');
@@ -79,7 +79,11 @@ const tcgcsv = catalog ? new TcgCsv() : undefined;
 // Card details, new cards filling themselves in (details, then price and picture), Any card and
 // master sets. The price update is made next: it fills cards' details with these too.
 const cardLookups = cardDatabase ? createCardLookups({ store, database: cardDatabase, tcgcsv, updater: () => updater, log, events }) : undefined;
-const updater = new PriceUpdater({ store, assets, log, config, details: cardLookups?.fillCard, catalog, tcgcsv, pricecharting, timeZone: env['TZ'] || 'America/Vancouver' });
+// Price watches: buy and sell alert emails through Gmail, with the app password administrators
+// enter under Administration → Alerts (a file of its own in SECRETS_DIR).
+const alerts = createAlerts({ store, config, password: new FileSecret(secretsDir, 'gmail-app-password'), log, events });
+const checkWatches = () => alerts.checkWatches.execute().catch((err: unknown) => log.error('pricing', `Checking the price watches failed: ${err instanceof Error ? err.message : String(err)}`));
+const updater = new PriceUpdater({ store, assets, log, config, details: cardLookups?.fillCard, catalog, tcgcsv, pricecharting, timeZone: env['TZ'] || 'America/Vancouver', afterPrices: checkWatches });
 updater.noteToken();
 // An update the saved status says is running stopped with the server: say so (a red banner) and let it start again.
 updater.recover();
@@ -112,6 +116,7 @@ const app = createApp({
   backups,
   cardLookups,
   guests,
+  alerts,
   pricecharting: { token: pcToken, api: pricecharting },
   envPassword: env['BINDER_PASSWORD'],
   trustProxy: trust === undefined ? undefined : /^\d+$/.test(trust) ? Number(trust) : trust === 'true',
@@ -126,6 +131,9 @@ every(log, 'backup', 'Housekeeping', 60 * 60_000, housekeeping);
 const writeStatus = () => app.writeStatusFile().catch((err) => log.error('app', `Couldn't write the status file: ${err instanceof Error ? err.message : err}`));
 void writeStatus();
 every(log, 'app', 'Writing the status file', 5 * 60_000, writeStatus);
+// Price watches after each price update (above), and every hour for prices logged by hand or a
+// card's Update now.
+every(log, 'pricing', 'Checking the price watches', 60 * 60_000, checkWatches);
 // Save sessions' last-seen times once a minute rather than on every request.
 every(log, 'auth', 'Saving sessions', 60_000, () => accounts?.flushSessions.execute());
 
