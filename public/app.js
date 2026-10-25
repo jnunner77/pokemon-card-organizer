@@ -1025,11 +1025,10 @@ function trRefresh(){
       const notes = [], c = trCard(it.cardId), src = trCard(it.from);
       if(c){ const now = valueOf(c); if(now!=null && v!=null && Math.abs(now - v) >= 0.005) notes.push(`Its value in your ledger: ${money(now)}.`); else if(now==null) notes.push("No price in your ledger: put in its value."); }
       if(src){
-        const was = BT.gradeLabel(src.grader, src.grade), is = BT.gradeLabel(it.grader, it.grade);
-        notes.push(`Started from your ${src.placeholder ? "placeholder" : "card"}: ${[metaLine(src), src.variant, was].filter(Boolean).join(" · ")}.`);
-        if(was!==is) notes.push(`<span class="warn-text">Its value was for ${esc(was || "a raw card")}: put in the value for ${esc(is || "a raw card")}.</span>`);
+        notes.push(`Started from your ${src.placeholder ? "placeholder" : "card"}: ${[metaLine(src), src.variant, BT.gradeLabel(src.grader, src.grade)].filter(Boolean).join(" · ")}.`);
+        const regrade = BT.regradeNote(src, it); if(regrade) notes.push(`<span class="warn-text">${esc(regrade)}</span>`);
       }
-      if(!c && it.grader!=="Raw" && !it.grade.trim()) notes.push(`<span class="warn-text">Put in its ${esc(it.grader)} grade.</span>`);
+      const noGrade = c ? null : BT.missingGradeNote(it); if(noGrade) notes.push(`<span class="warn-text">${esc(noGrade)}</span>`);
       const h = notes.map(n => n.startsWith("<span") ? n : esc(n)).join(" "), ne = el.querySelector("[data-trnote]");
       if(ne.dataset.h!==h){ ne.innerHTML = h; ne.dataset.h = h; }
     });
@@ -1040,21 +1039,13 @@ function trRefresh(){
 }
 function trSummary(r){
   const BT = window.BinderTrade, d = r.dealer, m = r.mine;
-  const unread = [[d, "the dealer's"], [m, "your"]].flatMap(([s, who]) => [
-    s.unread.cash && `${who} cash isn't a number, so it counts as $0.00`,
-    s.unread.pct && `${who} trade % isn't a number, so it counts as 100%`,
-    s.unread.cardPct && `${s.unread.cardPct} of ${who} cards' own % ${s.unread.cardPct===1?"isn't a number":"aren't numbers"}, so ${s.unread.cardPct===1?"it uses":"they use"} the side's`]).filter(Boolean);
-  const warn = () => {
-    const nov = d.unvalued + m.unvalued;
-    let w = nov ? `<p class="tr-line warn-text">${nov} card${nov===1?" has":"s have"} no value yet and ${nov===1?"isn't":"aren't"} counted.</p>` : "";
-    if(unread.length) w += `<p class="tr-line warn-text">${esc(unread.map(u => u[0].toUpperCase() + u.slice(1)).join(". "))}.</p>`;
-    return w;
-  };
-  if(!d.items && !m.items && !d.cash && !m.cash && !unread.length) return `<p class="hint">The breakdown shows here once there's something on either side.</p>`;
+  const warn = () => BT.warnings(r).map(w => `<p class="tr-line warn-text">${esc(w)}</p>`).join("");
+  const unread = TR_SIDES.some(k => r[k].unread.cash || r[k].unread.pct || r[k].unread.cardPct);
+  if(!d.items && !m.items && !d.cash && !m.cash && !unread) return `<p class="hint">The breakdown shows here once there's something on either side.</p>`;
   // nothing valued yet: no even trade or market result to state
   if(r.verdict==="empty") return `<p class="hint">Put in the cards' values (or cash) to see the breakdown.</p>${warn()}`;
   const cards = s => `${esc(money(s.market))}<small>${s.counted} card${s.counted===1?"":"s"}${s.unvalued?`, ${s.unvalued} with no value`:""}</small>`;
-  const pct = s => !s.counted ? "—" : s.mixed ? s.rate==null ? "—" : `${esc(BT.pctText(s.rate))}%<small>overall (cards differ)</small>` : `${esc(BT.pctText(s.pct))}%`;
+  const pct = s => { const c = BT.pctCell(s); return !c ? "—" : `${esc(c.text)}${c.overall ? "<small>overall (cards differ)</small>" : ""}`; };
   const row = (h, a, b, cls="") => `<tr${cls?` class="${cls}"`:""}><th scope="row">${h}</th><td>${a}</td><td>${b}</td></tr>`;
   let h = `<div class="tr-tablewrap"><table class="tr-table"><thead><tr><th></th><th scope="col">Dealer gives</th><th scope="col">I give</th></tr></thead><tbody>
     ${row("Cards' market value", cards(d), cards(m))}

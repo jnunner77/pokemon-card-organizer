@@ -98,6 +98,45 @@
   /* A percentage as it's shown: 80, 72.5, 87.3 (one decimal at most). */
   const pctText = n => n == null ? "" : String(Math.round(n * 10) / 10);
 
+  /* The "Trade %" cell for a side (from side()): null with no cards counted (or no overall rate when
+     its cards' percentages differ and they're all worth $0); the side's percentage; or, when cards
+     have their own, the overall rate, marked overall. */
+  function pctCell(s) {
+    if (!s || !s.counted) return null;
+    if (s.mixed) return s.rate == null ? null : { text: `${pctText(s.rate)}%`, overall: true };
+    return { text: `${pctText(s.pct)}%`, overall: false };
+  }
+
+  /* The warnings under the breakdown (from evaluate()): cards with no value, and cash or
+     percentages typed but unreadable, which count as $0, 100% or the side's percentage. */
+  function warnings(r) {
+    const out = [], nov = r.dealer.unvalued + r.mine.unvalued;
+    if (nov) out.push(`${nov} card${nov === 1 ? " has" : "s have"} no value yet and ${nov === 1 ? "isn't" : "aren't"} counted.`);
+    const unread = [[r.dealer, "the dealer's"], [r.mine, "your"]].flatMap(([s, who]) => {
+      const n = s.unread.cardPct;
+      return [
+        s.unread.cash && `${who} cash isn't a number, so it counts as $0.00`,
+        s.unread.pct && `${who} trade % isn't a number, so it counts as 100%`,
+        n && `${n} of ${who} cards' own % ${n === 1 ? "isn't a number" : "aren't numbers"}, so ${n === 1 ? "it uses" : "they use"} the side's`,
+      ];
+    }).filter(Boolean);
+    if (unread.length) out.push(unread.map(u => u[0].toUpperCase() + u.slice(1)).join(". ") + ".");
+    return out;
+  }
+
+  /* A dealer's card started from a card in my ledger keeps that card's value; when its grade is
+     changed (my raw copy, their PSA 10), the value needs changing too. null when the grade is the same. */
+  function regradeNote(src, it) {
+    const was = gradeLabel(src?.grader, src?.grade), is = gradeLabel(it?.grader, it?.grade);
+    return was === is ? null : `Its value was for ${was || "a raw card"}: put in the value for ${is || "a raw card"}.`;
+  }
+
+  /* A typed-in card with a grader but no grade yet. */
+  function missingGradeNote(it) {
+    const by = String(it?.grader ?? "").trim();
+    return by && by !== "Raw" && !String(it?.grade ?? "").trim() ? `Put in its ${by} grade.` : null;
+  }
+
   /**
    * A trade saved in the browser, read back: {dealer, mine}, each {pct, cash, items:[{cardId, from,
    * name, grader, grade, value, pct}]} with every field a string (cardId and from a card id or null).
@@ -126,5 +165,5 @@
     return out;
   }
 
-  root.BinderTrade = { amount, percent, side, evaluate, gradeLabel, pctText, restore };
+  root.BinderTrade = { amount, percent, side, evaluate, gradeLabel, pctText, pctCell, warnings, regradeNote, missingGradeNote, restore };
 })(typeof window !== "undefined" ? window : globalThis);

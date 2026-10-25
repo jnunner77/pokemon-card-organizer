@@ -24,13 +24,18 @@ type Trade = {
   evaluate: (t: { dealer?: Side; mine?: Side }) => Result;
   gradeLabel: (grader: Typed, grade: Typed) => string;
   pctText: (n: number | null) => string;
+  pctCell: (s: SideResult) => { text: string; overall: boolean } | null;
+  warnings: (r: Result) => string[];
+  regradeNote: (src: Grade, it: Grade) => string | null;
+  missingGradeNote: (it: Grade) => string | null;
   restore: (saved: unknown, ownedIds: Set<string> | null, graders: string[]) => Record<'dealer' | 'mine', SavedSide>;
 };
+type Grade = { grader?: string; grade?: string };
 type SavedItem = { cardId: string | null; from: string | null; name: string; grader: string; grade: string; value: string; pct: string };
 type SavedSide = { pct: string; cash: string; items: SavedItem[] };
 const sandbox = { window: {} as { BinderTrade: Trade } };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public/trade.js'), 'utf8'), sandbox);
-const { amount, percent, evaluate, gradeLabel, pctText, restore } = sandbox.window.BinderTrade;
+const { amount, percent, evaluate, gradeLabel, pctText, pctCell, warnings, regradeNote, missingGradeNote, restore } = sandbox.window.BinderTrade;
 
 describe('reading what was typed', () => {
   it('reads amounts with or without a dollar sign and commas', () => {
@@ -196,5 +201,41 @@ describe('the trade kept in the browser', () => {
     expect(restore(saved, new Set(['kept']), GRADERS).mine.items.map((i) => i.name)).toEqual(['Charizard ex', 'Typed in']);
     // not loaded yet (or no server): nothing is dropped
     expect(restore(saved, null, GRADERS).mine.items.map((i) => i.name)).toEqual(['Charizard ex', 'Mew ex', 'Typed in']);
+  });
+});
+
+describe('what the breakdown says', () => {
+  it("shows the side's trade %, the overall rate when cards differ, or nothing", () => {
+    expect(pctCell(evaluate({ mine: { pct: '80', items: [{ value: 100 }] } }).mine)).toEqual({ text: '80%', overall: false });
+    expect(pctCell(evaluate({ mine: { pct: '80', items: [{ value: 100 }, { value: 100, pct: '50' }] } }).mine)).toEqual({ text: '65%', overall: true });
+    expect(pctCell(evaluate({ mine: { items: [] } }).mine)).toBeNull();
+    // cards differ but are all worth $0: no overall rate to show
+    expect(pctCell(evaluate({ mine: { pct: '80', items: [{ value: '0', pct: '50' }] } }).mine)).toBeNull();
+  });
+
+  it('warns about cards with no value and cash or percentages it cannot read', () => {
+    expect(warnings(evaluate({ dealer: { items: [{ value: 5 }] } }))).toEqual([]);
+    expect(warnings(evaluate({ dealer: { items: [{ value: '' }] } }))).toEqual(["1 card has no value yet and isn't counted."]);
+    expect(warnings(evaluate({
+      dealer: { cash: 'forty', items: [{ value: '' }, { value: '' }] },
+      mine: { pct: '80 pct', items: [{ value: 5, pct: 'x' }, { value: 5, pct: 'y' }] },
+    }))).toEqual([
+      "2 cards have no value yet and aren't counted.",
+      "The dealer's cash isn't a number, so it counts as $0.00. Your trade % isn't a number, so it counts as 100%. 2 of your cards' own % aren't numbers, so they use the side's.",
+    ]);
+  });
+
+  it("reminds me to change a card's value when I change the grade it started from", () => {
+    expect(regradeNote({ grader: 'Raw', grade: '' }, { grader: 'PSA', grade: '10' })).toBe('Its value was for a raw card: put in the value for PSA 10.');
+    expect(regradeNote({ grader: 'PSA', grade: '9' }, { grader: 'PSA', grade: '10' })).toBe('Its value was for PSA 9: put in the value for PSA 10.');
+    expect(regradeNote({ grader: 'CGC', grade: '10' }, { grader: 'Raw', grade: '10' })).toBe('Its value was for CGC 10: put in the value for a raw card.');
+    expect(regradeNote({ grader: 'PSA', grade: '10' }, { grader: 'PSA', grade: ' 10 ' })).toBeNull();
+    expect(regradeNote({ grader: 'Raw' }, { grader: 'PSA', grade: '' })).toBeNull();
+  });
+
+  it('asks for the grade of a typed-in graded card', () => {
+    expect(missingGradeNote({ grader: 'PSA', grade: '' })).toBe('Put in its PSA grade.');
+    expect(missingGradeNote({ grader: 'PSA', grade: '10' })).toBeNull();
+    expect(missingGradeNote({ grader: 'Raw', grade: '' })).toBeNull();
   });
 });
