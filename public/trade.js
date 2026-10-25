@@ -298,5 +298,53 @@
     };
   }
 
-  root.BinderTrade = { settle, newCard, amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, addCash, restore };
+  /* What stops the trade being recorded, as the record step says it, or "" when nothing does.
+     lands: each dealer card's landing ("ph:<placeholder id>", "b:<binder id>", or "" for no binder);
+     given: how many of my cards are in the ledger (and so change). */
+  function recordProblem(t, lands, given) {
+    const s = settle(t), got = t?.dealer?.items || [];
+    if (s.missing) return `${s.missing} card${s.missing === 1 ? " has" : "s have"} no value yet. Go back and put ${s.missing === 1 ? "it" : "them"} in.`;
+    if (!got.length && !given) return "There's nothing in your ledger to change: add the dealer's cards, or cards of yours.";
+    if (got.some(it => !newCard(it).name)) return "Give every card you get a name. Go back and type it in.";
+    const phs = (lands || []).filter(v => String(v).startsWith("ph:"));
+    if (new Set(phs).size !== phs.length) return "Two cards fill the same placeholder: choose somewhere else for one of them.";
+    return "";
+  }
+
+  const usd = n => `$${n.toFixed(2)}`;
+  const round2 = n => Math.round(n * 100) / 100;
+
+  /**
+   * The trade as POST api/trades takes it (src/presentation/ledger/parse.ts tradeRecord). o:
+   * - id, date, at, who (traded with, may be blank), newId(): a new id each call;
+   * - mine: per I-give card, {cardId, cost, basis} (its cost basis) when it's a card of mine in the
+   *   ledger that changes, else null (typed in: it counts in the split but nothing is recorded for it);
+   * - lands: per dealer card, its landing (as recordProblem); owner(binderId): a new card's owner.
+   * My ledger cards get a sale of their share of what I got, with its profit; each dealer card a
+   * Paid entry of its share of what I gave and a market entry of its value, as a new card or
+   * filling its placeholder. The summary (cash each way, how many cards, who with) goes on every card.
+   */
+  function recordBody(t, o) {
+    const s = settle(t), gave = (t?.mine?.items || []).length, got = (t?.dealer?.items || []).length;
+    const n = (k, cash) => [k ? `${k} card${k === 1 ? "" : "s"}` : "", cash ? usd(cash) : ""].filter(Boolean).join(" + ") || "nothing";
+    const note = `Trade${o.who ? ` with ${o.who}` : ""}: ${n(gave, s.gaveCash)} for ${n(got, s.gotCash)}`;
+    const entry = (type, amt, extra) => ({ id: o.newId(), at: o.at, type, amount: amt, currency: "CAD", date: o.date, where: "Trade", note, ...extra });
+    const given = [];
+    (o.mine || []).forEach((m, i) => {
+      if (!m) return;
+      const sold = s.sold[i], cost = m.cost == null ? null : round2(m.cost);
+      given.push({ id: m.cardId, entry: entry("mysale", sold), sale: { amount: sold, currency: "CAD", soldCAD: sold, cost, basis: m.basis, profit: cost == null ? null : round2(sold - cost), date: o.date, where: "Trade", at: o.at } });
+    });
+    const received = (t?.dealer?.items || []).map((it, i) => {
+      const value = amount(it.value), card = newCard(it), land = String(o.lands?.[i] ?? "");
+      const entries = [entry("paid", s.paid[i]), ...(value == null ? [] : [entry("market", value, { note: it.valueFrom ? `Value in the trade: ${it.valueFrom}` : "Value in the trade" })])];
+      if (land.startsWith("ph:")) return { id: land.slice(3), placeholder: true, grader: card.grader, grade: card.grade, entries };
+      const binderId = land.startsWith("b:") ? land.slice(2) : null;
+      return { id: o.newId(), binderId, entries, doc: { ...card, setCode: "", rarity: "", artist: "", language: "English", condition: "Near Mint", notes: "", owner: o.owner(binderId), imageId: null } };
+    });
+    const summary = { date: o.date, gaveCash: s.gaveCash, gotCash: s.gotCash, gave, got, ...(o.who ? { with: o.who } : {}) };
+    return { id: o.id, summary, given, received };
+  }
+
+  root.BinderTrade = { settle, newCard, recordProblem, recordBody, amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, addCash, restore };
 })(typeof window !== "undefined" ? window : globalThis);

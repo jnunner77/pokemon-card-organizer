@@ -537,8 +537,7 @@ Nothing in the ledger changes until you record it (step 4).
    - shows the trade on the **Sales** tab as one group: what you gave and got, your cards with their
      profit, and the cards you got with what each cost. Its **Undo** (or the one on the toast) puts
      your cards back where they were, removes the cards you got and makes filled placeholders
-     placeholders again. A trade where you give no cards of yours (only cash) isn't a sale, so it
-     isn't on the Sales tab; undo it from the toast.
+     placeholders again. A trade where you give only cash is there too, with no sale.
 
 Values are in CAD. The trade being worked out stays in this browser (closing the dialog doesn't lose
 it) until *Start over* or it's recorded; a card of yours sold or traded since is dropped from it.

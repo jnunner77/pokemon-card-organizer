@@ -15,6 +15,7 @@ describe('RecordTrade and UndoTrade', () => {
     const r = await new RecordTrade(deps).execute({
       actor: 'justin',
       tradeId: 't1',
+      summary: { date: '2026-10-25', gave: 1, got: 1 },
       given: [{ cardId: 'x', sale, entry }],
       received: [{ kind: 'new', cardId: 'n1', binderId: 'b1', doc: { name: 'Mew' }, entries: [] }],
     });
@@ -34,7 +35,7 @@ describe('RecordTrade and UndoTrade', () => {
   it('saves, publishes and logs nothing when the trade is refused', async () => {
     const { ledger, deps, logged, published } = setUp();
     ledger.seed('cards', 'x', card());
-    const r = await new RecordTrade(deps).execute({ actor: 'justin', tradeId: 't1', given: [{ cardId: 'x', sale, entry }], received: [{ kind: 'new', cardId: 'n1', binderId: 'gone', doc: {}, entries: [] }] });
+    const r = await new RecordTrade(deps).execute({ actor: 'justin', tradeId: 't1', summary: {}, given: [{ cardId: 'x', sale, entry }], received: [{ kind: 'new', cardId: 'n1', binderId: 'gone', doc: {}, entries: [] }] });
     assert.deepEqual(r, { ok: false, error: { code: 'BINDER_GONE' } });
     assert.equal(ledger.tables.cards.get('x')?.['status'], 'binder');
     assert.deepEqual([logged, published], [[], []]);

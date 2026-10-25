@@ -237,7 +237,7 @@ function renderTabs(){
   let h = bs.map(b => `<button class="tab${isCase(b)?" case":""}" role="tab" type="button" data-binder="${esc(b.id)}" aria-selected="${S.binderId===b.id}" title="${S.binderId===b.id?`Click to rename or edit this ${isCase(b)?"display case":"binder"}`:esc(b.name)+(isCase(b)?" (display case)":"")}" style="--bc:${esc(b.color||BINDER_COLORS[0])}"><span class="swatch"></span><span>${esc(b.name)}</span><span class="count">${cardsIn(b.id).length}</span>${S.binderId===b.id?`<span class="edit" data-rename="${esc(b.id)}" title="Rename ${isCase(b)?"display case":"binder"}" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m14 6 4 4"/></svg></span>`:""}</button>`).join("");
   if(loose || S.binderId==="__loose") h += `<button class="tab loose" role="tab" type="button" data-binder="__loose" aria-selected="${S.binderId==="__loose"}"><span class="swatch"></span><span>Not in a binder</span><span class="count">${loose}</span></button>`;
   const nSales = salesList().length;
-  if(nSales || S.binderId==="__sales") h += `<button class="tab sales" role="tab" type="button" data-binder="__sales" aria-selected="${S.binderId==="__sales"}"><span class="swatch"></span><span>Sales</span><span class="count">${nSales}</span></button>`;
+  if(nSales || S.binderId==="__sales" || S.cards.some(c => c.trade?.id)) h += `<button class="tab sales" role="tab" type="button" data-binder="__sales" aria-selected="${S.binderId==="__sales"}"><span class="swatch"></span><span>Sales</span><span class="count">${nSales}</span></button>`;
   h += `<button class="tab add" type="button" id="btnNewBinder" title="A binder with pages and pockets, or a display case">+ New binder</button>`;
   $("#tabs").innerHTML = h;
   const b = curBinder(); $("#sheet").style.setProperty("--bc", b?.color || "#77838F"); $("#btnBinderSettings").hidden = !b;
@@ -508,7 +508,10 @@ function readFilters(){ S.filt = filtersFrom("ff", "filtPane"); store.set("filt"
 function renderSales(m){
   S.shown = [];
   const l = salesList(), t = salesTotals();
-  if(!l.length){ m.innerHTML = `<div class="empty-state"><p>No sales yet.</p><p class="hint">Press and hold a card in a binder, then tap Quick sell.</p></div>`; return; }
+  // Trades where I gave no card of mine (cash for the dealer's cards): no sale, but shown with the rest.
+  const sold = new Set(l.map(x => x.s.trade?.id).filter(Boolean)), bought = new Map();
+  for(const c of S.cards){ const T = c.trade; if(T?.id && !sold.has(T.id) && !bought.has(T.id)) bought.set(T.id, {trade:T, items:[]}); }
+  if(!l.length && !bought.size){ m.innerHTML = `<div class="empty-state"><p>No sales yet.</p><p class="hint">Press and hold a card in a binder, then tap Quick sell.</p></div>`; return; }
   // A bundle's cards go together, under one row for the bundle, where its first card falls; so do a trade's.
   const groups = []; const byGroup = new Map();
   for(const x of l){
@@ -517,6 +520,10 @@ function renderSales(m){
     if(!byGroup.has(key)){ const g = b ? {bundle:x.s.bundle, items:[]} : {trade:x.s.trade, items:[]}; byGroup.set(key, g); groups.push(g); }
     byGroup.get(key).items.push(x);
   }
+  // newest first, as the sales are; a trade with no sale goes by its date
+  const dateOf = g => (g.items ? g.items[0]?.s.date ?? g.trade?.date : g.s.date) || "";
+  groups.push(...bought.values());
+  groups.sort((a,b) => dateOf(b).localeCompare(dateOf(a)));
   const saleRow = ({c,s}, inBundle) => `<tr data-sale="${esc(c.id)}" class="${isFound(c.id)?"found":""}${inBundle?" inbundle":""}">
       <td class="mono">${inBundle?"":esc(s.date||"—")}</td>
       <td class="hide-sm">${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="" loading="lazy">`:`<span class="thumb"></span>`}</td>
@@ -542,18 +549,18 @@ function renderSales(m){
   };
   /* A trade: what I gave and got, my cards (sold for their share of what I got), and the cards I got with what each cost. */
   const tradeRow = g => {
-    const T = g.trade, s0 = g.items[0].s, got = S.cards.filter(c => c.trade?.id===T.id);
+    const T = g.trade, got = S.cards.filter(c => c.trade?.id===T.id);
     const rev = g.items.reduce((a,x)=>a+x.s.soldCAD,0), cost = g.items.reduce((a,x)=>a+(x.s.cost??0),0);
     const profs = g.items.filter(x=>x.s.profit!=null), prof = profs.reduce((a,x)=>a+x.s.profit,0);
-    const n = (k, cash) => `${k} card${k===1?"":"s"}${cash?` + ${money(cash)}`:""}`;
+    const n = (k, cash) => [k ? `${k} card${k===1?"":"s"}` : "", cash ? money(cash) : ""].filter(Boolean).join(" + ") || "nothing";
     const what = `Gave ${n(T.gave ?? g.items.length, T.gaveCash)} for ${n(T.got ?? got.length, T.gotCash)}`;
     return `<tr class="bundlerow traderow" data-trade="${esc(T.id)}">
-      <td class="mono">${esc(s0.date||"—")}</td>
+      <td class="mono">${esc(g.items[0]?.s.date || T.date || "—")}</td>
       <td class="hide-sm"><span class="bundleicon" aria-hidden="true">⇄</span></td>
       <td class="cellname"><b>Trade${T.with?` with ${esc(T.with)}`:""}</b><span>${esc(what)}</span></td>
-      <td class="r mono">${money(rev)}</td>
+      <td class="r mono">${g.items.length?money(rev):"—"}</td>
       <td class="hide-sm"></td>
-      <td class="r mono hide-sm">${money(cost)}</td>
+      <td class="r mono hide-sm">${g.items.length?money(cost):"—"}</td>
       <td class="r mono ${!profs.length?"":prof>=0?"pos":"neg"}">${profs.length?signed(prof):"—"}</td>
       <td class="r"><button class="btn sm ghost" type="button" data-untrade="${esc(T.id)}" title="Put your cards back and take out the cards you got">Undo</button></td></tr>`
       + g.items.map(x=>saleRow(x, true)).join("")
@@ -1221,15 +1228,6 @@ const trrLandOpts = (x, v) => [
   ...sortedBinders().map(b => [`b:${b.id}`, isCase(b) ? `${b.name} (display case)` : `${b.name}: next empty pocket`]),
   [TR_NOWHERE, "Not in a binder for now"],
 ].map(([val, lab]) => `<option value="${esc(val)}" ${val===v?"selected":""}>${esc(lab)}</option>`).join("");
-/* What stops the trade being recorded, if anything. */
-function trrProblem(items, s, given){
-  if(s.missing) return `${s.missing} card${s.missing===1?" has":"s have"} no value yet. Go back and put ${s.missing===1?"it":"them"} in.`;
-  if(!items.length && !given.length) return "There's nothing in your ledger to change: add the dealer's cards, or cards of yours.";
-  if(items.some(x => !x.card.name)) return "Give every card you get a name. Go back and type it in.";
-  const phs = items.map(x => TRR.land[x.it.key]).filter(v => v.startsWith("ph:"));
-  if(new Set(phs).size !== phs.length) return "Two cards fill the same placeholder: choose somewhere else for one of them.";
-  return "";
-}
 function trRecordModal(){
   if(!S.db || !canEdit()) return toast("Saving isn't available in this view.");
   const items = trrItems();
@@ -1267,33 +1265,19 @@ function trRecordModal(){
     <p class="rt-problem warn-text" id="rt_problem" role="status"></p>
     <div class="mfoot"><button class="btn ghost" type="button" id="rt_back">← Back to the trade</button><button class="btn primary" type="button" id="rt_go">Record trade</button></div>
   </div></div>`;
-  const check = () => { const why = trrProblem(items, s, given); $("#rt_problem").textContent = why; $("#rt_go").disabled = !!why || TRR.busy; };
+  const check = () => { const why = BT.recordProblem(TR, items.map(x => TRR.land[x.it.key]), given.length); $("#rt_problem").textContent = why; $("#rt_go").disabled = !!why || TRR.busy; };
   const card = $("#rt_card");
   card.addEventListener("change", e => { const k = e.target.dataset.rtland; if(k!=null){ TRR.land[k] = e.target.value; check(); } });
   $("#rt_back").onclick = () => tradeModal();
-  $("#rt_go").onclick = () => void trRecord(items, s, given);
+  $("#rt_go").onclick = () => void trRecord(items);
   check();
 }
-async function trRecord(items, s, given){
+async function trRecord(items){
   const go = $("#rt_go"); if(!go || go.disabled || TRR.busy) return;
   TRR.busy = true; go.disabled = true; go.textContent = "Recording…";
-  const date = $("#rt_date").value || today(), who = $("#rt_with").value.trim(), at = nowISO(), id = rid();
-  const n = (k, cash) => `${k} card${k===1?"":"s"}${cash?` + ${money(cash)}`:""}`;
-  const note = `Trade${who?` with ${who}`:""}: ${n(TR.mine.items.length, s.gaveCash)} for ${n(TR.dealer.items.length, s.gotCash)}`;
-  const entry = (type, amount, extra={}) => ({id:rid(), at, type, amount, currency:"CAD", date, where:"Trade", note, ...extra});
-  const body = {
-    id,
-    given: given.map(x => { const cb = costBasis(x.c), cost = cb.cost!=null ? Math.round(cb.cost*100)/100 : null, e = entry("mysale", x.sold);
-      return {id:x.c.id, entry:e, sale:{amount:x.sold, currency:"CAD", soldCAD:x.sold, cost, basis:cb.basis, profit: cost!=null ? Math.round((x.sold-cost)*100)/100 : null, date, where:"Trade", at,
-        trade:{gaveCash:s.gaveCash, gotCash:s.gotCash, gave:TR.mine.items.length, got:TR.dealer.items.length, ...(who?{with:who}:{})}}}; }),
-    received: items.map(x => {
-      const entries = [entry("paid", x.paid), ...(x.value!=null ? [entry("market", x.value, {note: x.it.valueFrom ? `Value in the trade: ${x.it.valueFrom}` : "Value in the trade"})] : [])];
-      const land = TRR.land[x.it.key];
-      if(land.startsWith("ph:")) return {id:land.slice(3), placeholder:true, grader:x.card.grader, grade:x.card.grade, entries};
-      const binderId = land.startsWith("b:") ? land.slice(2) : null;
-      return {id:rid(), binderId, entries, doc:{...x.card, setCode:"", rarity:"", artist:"", language:"English", condition:"Near Mint", notes:"", owner:newCardOwner(binderId), imageId:null}};
-    }),
-  };
+  const id = rid();
+  const mine = TR.mine.items.map(it => { const c = trCard(it.cardId); if(!c || !owned(c)) return null; const cb = costBasis(c); return {cardId:c.id, cost:cb.cost, basis:cb.basis}; });
+  const body = window.BinderTrade.recordBody(TR, {id, date:$("#rt_date").value || today(), at:nowISO(), who:$("#rt_with").value.trim(), newId:rid, mine, lands:items.map(x => TRR.land[x.it.key]), owner:newCardOwner});
   try{ await S.db.trade(body); }
   catch(e){ TRR.busy = false; go.textContent = "Record trade"; go.disabled = false; writeErr(e); return; }
   TR = trBlank(); TRS = {...TRS, q:"", hits:[], busy:false, error:""}; TRS.seq++; trSave(); TRR = null;

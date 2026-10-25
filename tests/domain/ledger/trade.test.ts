@@ -11,11 +11,11 @@ const cards = () => [
   card('ph', { name: 'Charizard', binderId: 'b1', page: 2, slot: 3, placeholder: true, grader: 'Raw', grade: '', prices: [{ id: 'm1', type: 'market', amount: 300, currency: 'CAD' }] }),
   card('sold', { status: 'sold', binderId: null, page: null, slot: null }),
 ];
-const given = (cardId: string) => ({ cardId, sale: { amount: 40, currency: 'CAD', soldCAD: 40, cost: 21.2, basis: 'market', profit: 18.8, date: '2026-10-25', where: 'Trade', trade: { gaveCash: 0, gotCash: 10 } }, entry: { id: `s-${cardId}`, type: 'mysale', amount: 40, currency: 'CAD', date: '2026-10-25', where: 'Trade' } });
+const given = (cardId: string) => ({ cardId, sale: { amount: 40, currency: 'CAD', soldCAD: 40, cost: 21.2, basis: 'market', profit: 18.8, date: '2026-10-25', where: 'Trade' }, entry: { id: `s-${cardId}`, type: 'mysale', amount: 40, currency: 'CAD', date: '2026-10-25', where: 'Trade' } });
 const paid = (id: string) => [{ id, type: 'paid', amount: 30, currency: 'CAD', date: '2026-10-25', where: 'Trade' }];
 const fresh = (cardId: string, binderId: string | null): ReceivedCard => ({ kind: 'new', cardId, binderId, doc: { name: 'Mew', set: 'Base', number: '8/102', grader: 'PSA', grade: '9', id: 'ignored', prices: [{ id: 'x' }] }, entries: paid(`p-${cardId}`) });
 const fill = (cardId: string): ReceivedCard => ({ kind: 'placeholder', cardId, grader: 'PSA', grade: '10', entries: paid(`p-${cardId}`) });
-const trade = (over: Partial<TradeRecord> = {}): TradeRecord => ({ tradeId: 't1', given: [given('mine')], received: [fresh('n1', 'b1')], ...over });
+const trade = (over: Partial<TradeRecord> = {}): TradeRecord => ({ tradeId: 't1', summary: { date: '2026-10-25', gotCash: 10, gave: 1, got: 1 }, given: [given('mine')], received: [fresh('n1', 'b1')], ...over });
 const byId = (list: readonly Card[], id: string) => list.find((c) => c.id === id);
 const refused = (code: string, extra: Record<string, unknown> = {}) => ({ ok: false, error: { code, ...extra } });
 
@@ -26,7 +26,7 @@ describe('recording a trade', () => {
     const mine = byId(saved, 'mine');
     assert.equal(mine?.fields['status'], 'traded');
     assert.deepEqual(mine?.place, { binderId: null, page: null, slot: null });
-    assert.deepEqual(mine?.fields['sale'], { ...given('mine').sale, priceId: 's-mine', from: { binderId: 'b1', page: 1, slot: 1 }, trade: { gaveCash: 0, gotCash: 10, id: 't1' } });
+    assert.deepEqual(mine?.fields['sale'], { ...given('mine').sale, priceId: 's-mine', from: { binderId: 'b1', page: 1, slot: 1 }, trade: { date: '2026-10-25', gotCash: 10, gave: 1, got: 1, id: 't1' } });
     assert.deepEqual((mine?.fields['prices'] as unknown[]).at(-1), given('mine').entry);
   });
 
@@ -41,7 +41,7 @@ describe('recording a trade', () => {
       { binderId: null, page: null, slot: null },
     ]);
     const n1 = byId(saved, 'n1');
-    assert.deepEqual([n1?.fields['name'], n1?.fields['grader'], n1?.fields['status'], n1?.fields['placeholder'], n1?.fields['trade']], ['Mew', 'PSA', 'binder', false, { id: 't1', filled: false }]);
+    assert.deepEqual([n1?.fields['name'], n1?.fields['grader'], n1?.fields['status'], n1?.fields['placeholder'], n1?.fields['trade']], ['Mew', 'PSA', 'binder', false, { date: '2026-10-25', gotCash: 10, gave: 1, got: 1, id: 't1', filled: false }]);
     assert.deepEqual(n1?.fields['prices'], paid('p-n1'));
     assert.equal(n1?.fields['createdAt'], AT.toISOString());
   });
@@ -57,7 +57,7 @@ describe('recording a trade', () => {
     const { saved } = value(recordTrade(trade({ given: [], received: [fill('ph')] }), list, binders, AT));
     const ph = byId(saved, 'ph');
     assert.deepEqual([ph?.fields['placeholder'], ph?.fields['grader'], ph?.fields['grade'], ph?.place], [false, 'PSA', '10', { binderId: 'b1', page: 2, slot: 3 }]);
-    assert.deepEqual(ph?.fields['trade'], { id: 't1', filled: true, was: { grader: 'Raw', grade: '' }, entryIds: ['p-ph'] });
+    assert.deepEqual(ph?.fields['trade'], { date: '2026-10-25', gotCash: 10, gave: 1, got: 1, id: 't1', filled: true, was: { grader: 'Raw', grade: '' }, entryIds: ['p-ph'] });
     assert.equal((ph?.fields['prices'] as unknown[]).length, 2);
   });
 

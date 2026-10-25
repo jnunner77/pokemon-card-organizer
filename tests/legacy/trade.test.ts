@@ -22,6 +22,8 @@ type Settled = { missing: number; forTheirs: number; forMine: number; paid: numb
 type Trade = {
   settle: (t: { dealer?: Side; mine?: Side }) => Settled;
   newCard: (it: { look?: Look | null; name?: string; grader?: string; grade?: string }) => Record<string, string>;
+  recordProblem: (t: unknown, lands: string[], given: number) => string;
+  recordBody: (t: unknown, o: Record<string, unknown>) => any;
   amount: (s: Typed) => number | null;
   percent: (s: Typed) => number | null;
   evaluate: (t: { dealer?: Side; mine?: Side }) => Result;
@@ -46,7 +48,7 @@ type SavedSide = { pct: string; cash: string; items: SavedItem[] };
 const sandbox = { window: {} as { BinderTrade: Trade } };
 // bulkbuy.js comes first, as on the page: trade.js shares amounts out with its allocate.
 for (const f of ['bulkbuy.js', 'trade.js']) vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public', f), 'utf8'), sandbox);
-const { settle, newCard, amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, addCash, restore } = sandbox.window.BinderTrade;
+const { settle, newCard, recordProblem, recordBody, amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, addCash, restore } = sandbox.window.BinderTrade;
 
 describe('reading what was typed', () => {
   it('reads amounts with or without a dollar sign and commas', () => {
@@ -371,5 +373,51 @@ describe('recording the trade', () => {
     const look = { ...lookFrom(hit, { printings: [{ label: 'regular' }, { label: 'holo', variant: 'Holo', price: { cad: 590.5 } }] }), pi: 1 };
     expect(newCard({ look, grader: 'PSA', grade: ' 10 ' })).toEqual({ name: 'Umbreon VMAX', set: 'Evolving Skies', number: '215/203', variant: 'Holo', grader: 'PSA', grade: '10' });
     expect(newCard({ look: null, name: ' Mew ex ', grader: 'Raw', grade: '9' })).toEqual({ name: 'Mew ex', set: '', number: '', variant: '', grader: 'Raw', grade: '' });
+  });
+
+  it('says what stops the trade being recorded', () => {
+    const t = (dealer: unknown[], mine: unknown[] = []) => ({ dealer: { items: dealer }, mine: { items: mine } });
+    expect(recordProblem(t([{ name: 'Mew', value: '' }]), [''], 0)).toBe("1 card has no value yet. Go back and put it in.");
+    expect(recordProblem(t([], [{ value: 5 }]), [], 0)).toBe("There's nothing in your ledger to change: add the dealer's cards, or cards of yours.");
+    expect(recordProblem(t([{ name: ' ', value: 5 }]), [''], 0)).toBe('Give every card you get a name. Go back and type it in.');
+    expect(recordProblem(t([{ name: 'A', value: 5 }, { name: 'B', value: 5 }]), ['ph:x', 'ph:x'], 0)).toBe('Two cards fill the same placeholder: choose somewhere else for one of them.');
+    expect(recordProblem(t([{ name: 'A', value: 5 }, { name: 'B', value: 5 }]), ['ph:x', 'b:b1'], 0)).toBe('');
+    expect(recordProblem(t([], [{ value: 5 }]), [], 1)).toBe('');
+  });
+});
+
+describe('the trade as it is recorded', () => {
+  let n = 0;
+  const o = (over: Record<string, unknown> = {}) => ({ id: 't1', date: '2026-10-25', at: 'AT', who: 'Shop', newId: () => `id${++n}`, owner: (b: string | null) => (b ? 'Megan' : 'Justin'), ...over });
+  const trade = {
+    dealer: { cash: '', items: [{ name: 'Mew ex', grader: 'PSA', grade: '10', value: '120', valueFrom: '' }, { name: 'Pikachu', grader: 'Raw', grade: '', value: '60', valueFrom: "today's price, holo" }] },
+    mine: { cash: '20', items: [{ value: '100' }, { value: '50' }] },
+  };
+
+  it('sells my ledger cards for their share, with profit, and skips a typed-in card of mine', () => {
+    n = 0;
+    const body = recordBody(trade, o({ mine: [{ cardId: 'c1', cost: 60, basis: 'paid' }, null], lands: ['ph:p1', ''] }));
+    expect(body.id).toBe('t1');
+    expect(body.summary).toEqual({ date: '2026-10-25', gaveCash: 20, gotCash: 0, gave: 2, got: 2, with: 'Shop' });
+    expect(body.given).toEqual([{
+      id: 'c1',
+      entry: { id: 'id1', at: 'AT', type: 'mysale', amount: 106.67, currency: 'CAD', date: '2026-10-25', where: 'Trade', note: 'Trade with Shop: 2 cards + $20.00 for 2 cards' },
+      sale: { amount: 106.67, currency: 'CAD', soldCAD: 106.67, cost: 60, basis: 'paid', profit: 46.67, date: '2026-10-25', where: 'Trade', at: 'AT' },
+    }]);
+  });
+
+  it('fills a placeholder or adds a new card, each with its Paid share and its value', () => {
+    n = 0;
+    const body = recordBody(trade, o({ who: '', mine: [null, null], lands: ['ph:p1', 'b:b1'] }));
+    expect(body.summary).not.toHaveProperty('with');
+    const [ph, fresh] = body.received;
+    expect(ph).toMatchObject({ id: 'p1', placeholder: true, grader: 'PSA', grade: '10' });
+    expect(ph.entries.map((e: { type: string; amount: number }) => [e.type, e.amount])).toEqual([['paid', 113.33], ['market', 120]]);
+    expect(fresh).toMatchObject({ binderId: 'b1', doc: { name: 'Pikachu', grader: 'Raw', owner: 'Megan', language: 'English', condition: 'Near Mint' } });
+    expect(fresh.entries[1].note).toBe("Value in the trade: today's price, holo");
+    expect(recordBody(trade, o({ mine: [null, null], lands: ['', ''] })).received[0]).toMatchObject({ binderId: null, doc: { owner: 'Justin' } });
+    // cash only on my side
+    const cash = recordBody({ dealer: trade.dealer, mine: { cash: '70', items: [] } }, o({ who: '', mine: [], lands: ['', ''] }));
+    expect(cash.received[0].entries[0].note).toBe('Trade: $70.00 for 2 cards');
   });
 });

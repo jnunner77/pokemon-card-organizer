@@ -109,6 +109,7 @@ describe('ledger routes', () => {
       {
         actor: 'justin',
         tradeId: 't1',
+        summary: {},
         given: [{ cardId: 'c1', sale: { soldCAD: 10 }, entry: { id: 'p1', type: 'mysale', amount: 10 } }],
         received: [
           { kind: 'new', cardId: 'n1', doc: { name: 'Mew' }, binderId: null, entries: [] },
@@ -122,7 +123,7 @@ describe('ledger routes', () => {
 
   it('refuses a trade it cannot read', async () => {
     const { base, asked } = await setUp();
-    for (const bad of [{ given: [], received: [] }, { id: 't1', given: [{ id: 'c1' }], received: [] }, { id: 't1', given: [], received: [{ id: 'n1', binderId: 'bad id', doc: {} }] }, { id: 't1', given: [], received: [{ id: 'n1', placeholder: 'yes' }] }]) {
+    for (const bad of [{ given: [], received: [] }, { id: 't1', given: [{ id: 'c1' }], received: [] }, { id: 't1', given: [], received: [{ id: 'n1', binderId: 'bad id', doc: {} }] }, { id: 't1', given: [], received: [{ id: 'n1', placeholder: 'yes' }] }, { id: 't1', summary: 'x', given: [], received: [] }]) {
       const r = await fetch(`${base}/trades`, as('editor', json(bad)));
       assert.deepEqual([r.status, await r.json()], [400, { error: 'Send the trade with its id, the cards given and the cards received.', code: 'invalid_argument' }]);
     }

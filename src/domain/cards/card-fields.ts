@@ -69,6 +69,17 @@ const pricing = loose({
   pair: nullish(pair),
 });
 
+/** What a trade with a dealer was (ledger/trade.ts), kept on every card it touched. */
+const tradeSummary = {
+  id: documentIdRule,
+  date: optText(40),
+  gaveCash: nullish(number({ min: 0 })),
+  gotCash: nullish(number({ min: 0 })),
+  gave: nullish(integer(0, 500)),
+  got: nullish(integer(0, 500)),
+  with: optText(200),
+};
+
 const sale = loose({
   amount: nullish(number()),
   currency: optText(8),
@@ -83,12 +94,12 @@ const sale = loose({
   /** Sold together with other cards for one price, split across them (public/sales.js). */
   bundle: nullish(loose({ id: text(64), total: number({ min: 0 }), currency: optText(8), count: integer(1, 500), split: optText(20) })),
   /** Traded away to a dealer (public/trade.js): the trade, with what each side gave. */
-  trade: nullish(loose({ id: documentIdRule, gaveCash: nullish(number({ min: 0 })), gotCash: nullish(number({ min: 0 })), gave: nullish(integer(0, 500)), got: nullish(integer(0, 500)), with: optText(200) })),
+  trade: nullish(loose(tradeSummary)),
 });
 
 /** Came in a trade (ledger/trade.ts): a new card, or a placeholder it filled and what it was before. */
 const trade = loose({
-  id: documentIdRule,
+  ...tradeSummary,
   filled: nullish(bool),
   was: nullish(loose({ grader: optText(20), grade: optText(20) })),
   entryIds: nullish(arrayOf(text(64), 20)),

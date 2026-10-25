@@ -85,12 +85,13 @@ const receivedCard = (v: unknown): ReceivedCard | null => {
 };
 
 /**
- * POST /api/trades: { id, given: [{ id, sale, entry }], received: [{ id, binderId, doc, entries }
- * or { id, placeholder: true, grader, grade, entries }] }.
+ * POST /api/trades: { id, summary?, given: [{ id, sale, entry }], received: [{ id, binderId, doc,
+ * entries } or { id, placeholder: true, grader, grade, entries }] }.
  */
 export function tradeRecord(body: unknown): TradeRecord | null {
   if (!isRecord(body) || !isDocumentId(body['id'])) return null;
+  const summary = body['summary'] ?? {};
   const given = listOf(body['given'], givenCard, { max: MAX_TRADE_CARDS });
   const received = listOf(body['received'], receivedCard, { max: MAX_TRADE_CARDS });
-  return given && received ? { tradeId: body['id'], given, received } : null;
+  return given && received && isRecord(summary) ? { tradeId: body['id'], summary, given, received } : null;
 }

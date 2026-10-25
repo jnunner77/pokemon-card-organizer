@@ -27,6 +27,8 @@ export type ReceivedCard =
 
 export interface TradeRecord {
   readonly tradeId: string;
+  /** What the trade was (its date, the cash each way, how many cards, who with), kept on every card it touches. */
+  readonly summary: Fields;
   readonly given: readonly GivenCard[];
   readonly received: readonly ReceivedCard[];
 }
@@ -133,7 +135,7 @@ export function recordTrade(t: TradeRecord, cards: readonly Card[], binders: rea
     const binder = r.binderId === null ? undefined : binderById.get(r.binderId);
     const place: CardPlace = binder ? pockets.next(binder) : { binderId: null, page: null, slot: null };
     const { id: _id, prices: _prices, trade: _trade, sale: _sale, ...doc } = r.doc;
-    const made = Card.create(id.value, { ...doc, ...place, status: 'binder', placeholder: false, prices: r.entries, trade: { id: t.tradeId, filled: false }, createdAt: stamp, updatedAt: stamp }, at);
+    const made = Card.create(id.value, { ...doc, ...place, status: 'binder', placeholder: false, prices: r.entries, trade: { ...t.summary, id: t.tradeId, filled: false }, createdAt: stamp, updatedAt: stamp }, at);
     if (!made.ok) return made;
     saved.push(made.value);
   }
@@ -141,7 +143,7 @@ export function recordTrade(t: TradeRecord, cards: readonly Card[], binders: rea
     const card = r.kind === 'placeholder' ? cardById.get(r.cardId) : undefined;
     if (r.kind !== 'placeholder' || !card) continue;
     const was = { grader: card.fields['grader'] ?? null, grade: card.fields['grade'] ?? null };
-    const trade = { id: t.tradeId, filled: true, was, entryIds: r.entries.map((e) => e.id) };
+    const trade = { ...t.summary, id: t.tradeId, filled: true, was, entryIds: r.entries.map((e) => e.id) };
     const done = card.changePriceEntries({ add: r.entries, fields: { placeholder: false, grader: r.grader, grade: r.grade, trade, updatedAt: stamp } }, at);
     if (!done.ok) return done;
     saved.push(card);
@@ -149,7 +151,7 @@ export function recordTrade(t: TradeRecord, cards: readonly Card[], binders: rea
   for (const g of t.given) {
     const card = cardById.get(g.cardId);
     if (!card) return err({ code: 'CARD_DELETED_MEANWHILE' });
-    const sale = { ...g.sale, priceId: g.entry.id, from: card.place, trade: { ...(isRecord(g.sale['trade']) ? g.sale['trade'] : {}), id: t.tradeId } };
+    const sale = { ...g.sale, priceId: g.entry.id, from: card.place, trade: { ...t.summary, id: t.tradeId } };
     const r = card.changePriceEntries({ add: [g.entry], fields: { status: 'traded', binderId: null, page: null, slot: null, sale, updatedAt: stamp } }, at);
     if (!r.ok) return r;
     saved.push(card);
