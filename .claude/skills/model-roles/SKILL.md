@@ -95,7 +95,8 @@ next round. Sonnet's work gets five reviews; if none passes, Opus gets three mor
   (`review-loop` step 4), naming that ticket in its **Code review** section. Tell the user the pull
   request and the ticket.
 
-Push after every fix, then review again, as `review-loop` says.
+Push after every fix while the branch has no pull request, then review again; once one is open,
+review the local commits first and push only after a pass, as `review-loop` says.
 
 ## 5. Pull request and after
 
