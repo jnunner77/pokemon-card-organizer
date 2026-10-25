@@ -565,6 +565,8 @@ tbody tr.sel{background:var(--accent-soft)}
 .tr-item input,.tr-item select,.tr-opts input{width:100%;min-width:0;border:1px solid var(--line);border-radius:7px;background:var(--surface-2);padding:6px 8px;font-size:14px}
 .tr-item input:focus,.tr-item select:focus,.tr-opts input:focus{outline:none;border-color:var(--accent-line);background:var(--surface)}
 .tr-item input:disabled{opacity:.5}
+.tr-pr1{align-self:center;overflow-wrap:anywhere}
+.tr-note .btn{margin-left:4px}
 .tr-nums{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,.8fr) minmax(0,1.3fr) 30px;gap:6px;align-items:center}
 .tr-val,.tr-pct,.tr-pctin{display:flex;align-items:center;gap:4px;color:var(--ink-3);font-size:13px}
 .tr-val input,.tr-pct input,.tr-pctin input{text-align:right}
@@ -599,7 +601,7 @@ tbody tr.sel{background:var(--accent-soft)}
   .tr-side{padding:10px}
   .tr-add input,.tr-item input,.tr-item select,.tr-opts input{font-size:16px}
   .tr-man{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
-  .tr-man [data-trf="name"]{grid-column:1/-1}
+  .tr-man [data-trf="name"],.tr-man [data-trprint],.tr-man .tr-pr1{grid-column:1/-1}
   .tr-nums{grid-template-columns:minmax(0,1fr) minmax(0,.75fr) 30px}
   .tr-tv{grid-column:1/-1;grid-row:2;text-align:left}
   .tr-table th,.tr-table td{padding:5px 4px}

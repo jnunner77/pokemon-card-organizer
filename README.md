@@ -498,11 +498,17 @@ only works it out: nothing in the ledger changes.
    - **Your cards:** type part of a name, set or number under *I give* and pick it (Enter takes the
      first). It comes with its current value (a graded card's is its grade's price), its grade and
      where it is. Only cards you own are listed, each once.
-   - **The dealer's cards:** *+ Type in a card* takes a name, *Graded by* and grade (a PSA 10) and its
-     value. Or start from a card in your ledger (the placeholder for the card you're after, or a copy
-     you have) to fill in its name and value; when you change its grade (your raw copy, their PSA 10)
-     it reminds you to put in the value for that grade.
+   - **The dealer's cards:** type part of any card's name, set or number under *Dealer gives* (the
+     same card database as *Find a card → Any card*, so it doesn't have to be in your ledger) and pick
+     it. Its value is today's price for its printing (pick another printing, like a reverse holo or a
+     1st Edition, and the value follows). Set *Graded by* and the grade (PSA 10) and the value becomes
+     PriceCharting's price for that grade, or the nearest grade it has (it says which); when there's
+     no graded price, it says so and you put in the value. A value you type in yourself stays until
+     you change the grade or printing again. *+ Type in a card* takes a card by hand: name, grader,
+     grade and value.
    - *+ Type in a card* works on your side too, for a card that isn't in the ledger.
+   - Card lookups need the server to reach the card database (and `CARD_LOOKUPS` on); without them,
+     type the dealer's cards in.
 2. **Trade %:** when the dealer takes your cards at a percentage ("80%"), put it in *Dealer takes my
    cards at*; *Dealer's cards count at* does the same for theirs (a dealer selling at 110%). It
    applies to cards, never to cash. A card can have its own percentage (high-end cards at 85%, the

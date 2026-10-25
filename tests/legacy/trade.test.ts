@@ -27,16 +27,20 @@ type Trade = {
   pctText: (n: number | null) => string;
   pctCell: (s: SideResult) => { text: string; overall: boolean } | null;
   warnings: (r: Result) => string[];
-  regradeNote: (src: Grade, it: Grade) => string | null;
+  gradePrice: (grades: { label: string; cad: number }[], grader: string, grade: string) => { label: string; cad: number; exact: boolean } | null;
+  lookFrom: (hit: unknown, card: unknown) => Look;
+  lookValue: (look: Look, grader: string, grade: string) => { value: number; from: string } | { value: null; why: string };
   missingGradeNote: (it: Grade) => string | null;
   restore: (saved: unknown, ownedIds: Set<string> | null, graders: string[]) => Record<'dealer' | 'mine', SavedSide>;
 };
 type Grade = { grader?: string; grade?: string };
-type SavedItem = { cardId: string | null; from: string | null; name: string; grader: string; grade: string; value: string; pct: string };
+type Printing = { label: string; variant: string; cad: number | null; grades: { label: string; cad: number }[] };
+type Look = { id: string; name: string; set: string; number: string; thumb: string; printings: Printing[] | null; pi: number };
+type SavedItem = { cardId: string | null; look: Look | null; name: string; grader: string; grade: string; value: string; valueFrom: string; pct: string };
 type SavedSide = { pct: string; cash: string; items: SavedItem[] };
 const sandbox = { window: {} as { BinderTrade: Trade } };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public/trade.js'), 'utf8'), sandbox);
-const { amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, regradeNote, missingGradeNote, restore } = sandbox.window.BinderTrade;
+const { amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, restore } = sandbox.window.BinderTrade;
 
 describe('reading what was typed', () => {
   it('reads amounts with or without a dollar sign and commas', () => {
@@ -196,16 +200,25 @@ describe('the trade kept in the browser', () => {
     expect(t.dealer.pct).toBe('90');
     expect(t.dealer.cash).toBe('20');
     expect(t.dealer.items).toEqual([
-      { cardId: null, from: null, name: 'Umbreon VMAX', grader: 'PSA', grade: '10', value: '400', pct: '' },
-      { cardId: null, from: null, name: 'Odd', grader: 'Raw', grade: '9', value: '', pct: '' },
+      { cardId: null, look: null, name: 'Umbreon VMAX', grader: 'PSA', grade: '10', value: '400', valueFrom: '', pct: '' },
+      { cardId: null, look: null, name: 'Odd', grader: 'Raw', grade: '9', value: '', valueFrom: '', pct: '' },
     ]);
     expect(t.mine).toEqual(blank);
   });
 
-  it("links only my side's cards to cards of mine; the dealer's keep where they started from", () => {
-    const t = restore({ dealer: { items: [{ cardId: 'a', from: 'p1', name: 'Pikachu' }] }, mine: { items: [{ cardId: 'a' }] } }, null, GRADERS);
-    expect(t.dealer.items[0]).toMatchObject({ cardId: null, from: 'p1' });
-    expect(t.mine.items[0]).toMatchObject({ cardId: 'a' });
+  it("links only my side's cards to cards of mine, and only the dealer's to looked-up cards", () => {
+    const look = { id: 'swsh7-215', name: 'Umbreon VMAX', set: 'Evolving Skies', number: '215/203', thumb: 't.png', printings: [{ label: 'regular', variant: '', cad: 590.5, grades: [{ label: 'PSA 10', cad: 2400 }] }], pi: 0 };
+    const t = restore({ dealer: { items: [{ cardId: 'a', look, value: '2400.00', valueFrom: "PriceCharting's PSA 10 price" }] }, mine: { items: [{ cardId: 'a', look }] } }, null, GRADERS);
+    expect(t.dealer.items[0]).toMatchObject({ cardId: null, look, valueFrom: "PriceCharting's PSA 10 price" });
+    expect(t.mine.items[0]).toMatchObject({ cardId: 'a', look: null });
+  });
+
+  it('reads a looked-up card back, asking for its prices again when they had not come', () => {
+    const r = (look: unknown) => restore({ dealer: { items: [{ look }] } }, null, GRADERS).dealer.items[0].look;
+    expect(r({ id: 'x', name: 'Mew', printings: null })).toMatchObject({ id: 'x', name: 'Mew', printings: null, pi: 0 });
+    expect(r({ id: 'x', printings: [{ label: 'regular', cad: 'abc', grades: [{ label: 'PSA 10', cad: 5 }, { label: 'bad' }] }], pi: 4 }))
+      .toEqual({ id: 'x', name: '', set: '', number: '', thumb: '', printings: [{ label: 'regular', variant: '', cad: null, grades: [{ label: 'PSA 10', cad: 5 }] }], pi: 0 });
+    for (const bad of [null, 'x', {}, { id: '' }, { id: 7 }]) expect(r(bad)).toBeNull();
   });
 
   it('drops my cards that are gone, sold or traded once the ledger is loaded, and keeps typed-in ones', () => {
@@ -237,17 +250,73 @@ describe('what the breakdown says', () => {
     ]);
   });
 
-  it("reminds me to change a card's value when I change the grade it started from", () => {
-    expect(regradeNote({ grader: 'Raw', grade: '' }, { grader: 'PSA', grade: '10' })).toBe('Its value was for a raw card: put in the value for PSA 10.');
-    expect(regradeNote({ grader: 'PSA', grade: '9' }, { grader: 'PSA', grade: '10' })).toBe('Its value was for PSA 9: put in the value for PSA 10.');
-    expect(regradeNote({ grader: 'CGC', grade: '10' }, { grader: 'Raw', grade: '10' })).toBe('Its value was for CGC 10: put in the value for a raw card.');
-    expect(regradeNote({ grader: 'PSA', grade: '10' }, { grader: 'PSA', grade: ' 10 ' })).toBeNull();
-    expect(regradeNote({ grader: 'Raw' }, { grader: 'PSA', grade: '' })).toBeNull();
-  });
-
   it('asks for the grade of a typed-in graded card', () => {
     expect(missingGradeNote({ grader: 'PSA', grade: '' })).toBe('Put in its PSA grade.');
     expect(missingGradeNote({ grader: 'PSA', grade: '10' })).toBeNull();
     expect(missingGradeNote({ grader: 'Raw', grade: '' })).toBeNull();
+  });
+});
+
+describe('a card looked up in the card database', () => {
+  const grades = [
+    { label: 'Grade 7', cad: 70 }, { label: 'Grade 8', cad: 80 }, { label: 'Grade 9', cad: 90 }, { label: 'Grade 9.5', cad: 95 },
+    { label: 'PSA 10', cad: 300 }, { label: 'BGS 10', cad: 280 }, { label: 'CGC 10', cad: 200 },
+    { label: 'CGC 10 Pristine', cad: 400 }, { label: 'BGS 10 Black Label', cad: 900 },
+  ];
+
+  it("finds PriceCharting's price for a grader and grade", () => {
+    expect(gradePrice(grades, 'PSA', '10')).toEqual({ label: 'PSA 10', cad: 300, exact: true });
+    expect(gradePrice(grades, 'CGC', '10')).toEqual({ label: 'CGC 10', cad: 200, exact: true });
+    expect(gradePrice(grades, 'PSA', '9')).toEqual({ label: 'Grade 9', cad: 90, exact: true });
+    expect(gradePrice(grades, 'BGS', '9.5')).toEqual({ label: 'Grade 9.5', cad: 95, exact: true });
+    // 7.5 and 8.5 are priced as 7 and 8
+    expect(gradePrice(grades, 'CGC', '8.5')).toEqual({ label: 'Grade 8', cad: 80, exact: true });
+    expect(gradePrice(grades, 'CGC', '10 Pristine')).toEqual({ label: 'CGC 10 Pristine', cad: 400, exact: true });
+    expect(gradePrice(grades, 'BGS', '10 Black Label')).toEqual({ label: 'BGS 10 Black Label', cad: 900, exact: true });
+  });
+
+  it("takes the nearest grade when PriceCharting has none for it, never a Pristine or Black Label for a plain 10", () => {
+    // TAG 10: a 10 by PSA before another grader's
+    expect(gradePrice(grades, 'TAG', '10')).toEqual({ label: 'PSA 10', cad: 300, exact: false });
+    expect(gradePrice([{ label: 'CGC 10 Pristine', cad: 400 }, { label: 'Grade 9', cad: 90 }], 'CGC', '10')).toEqual({ label: 'Grade 9', cad: 90, exact: false });
+    // 6: Grade 7 is nearest
+    expect(gradePrice(grades, 'PSA', '6')).toEqual({ label: 'Grade 7', cad: 70, exact: false });
+  });
+
+  it('has no graded price for a raw card, an unreadable grade, or no graded prices', () => {
+    expect(gradePrice(grades, 'Raw', '10')).toBeNull();
+    expect(gradePrice(grades, 'PSA', '')).toBeNull();
+    expect(gradePrice(grades, 'PSA', 'mint')).toBeNull();
+    expect(gradePrice([], 'PSA', '10')).toBeNull();
+  });
+
+  const hit = { id: 'swsh7-215', name: 'Umbreon VMAX', set: 'Evolving Skies', number: '215', total: 203, thumb: 't.png' };
+  const card = { image: 'big.png', printings: [
+    { label: 'regular', variant: '', price: null, pricecharting: null },
+    { label: 'holo', variant: 'Holo', price: { cad: 590.5, usd: 430, summary: 'x' }, pricecharting: { grades: [{ label: 'PSA 10', usd: 1750, cad: 2400 }, { label: 'Grade 9', usd: 500, cad: 690 }] } },
+  ] };
+
+  it('keeps what the trade needs from the card database: each printing with its price and graded prices', () => {
+    expect(lookFrom(hit, card)).toEqual({
+      id: 'swsh7-215', name: 'Umbreon VMAX', set: 'Evolving Skies', number: '215/203', thumb: 't.png', pi: 1,
+      printings: [
+        { label: 'regular', variant: '', cad: null, grades: [] },
+        { label: 'holo', variant: 'Holo', cad: 590.5, grades: [{ label: 'PSA 10', cad: 2400 }, { label: 'Grade 9', cad: 690 }] },
+      ],
+    });
+    expect(lookFrom({ id: 'p', name: 'Pikachu', set: 'Promos', number: 'SWSH050' }, null)).toMatchObject({ number: 'SWSH050', printings: [], pi: 0 });
+  });
+
+  it("is worth its printing's price, or its grade's", () => {
+    const look = lookFrom(hit, card);
+    expect(lookValue(look, 'Raw', '')).toEqual({ value: 590.5, from: "today's price, holo" });
+    expect(lookValue(look, 'PSA', '10')).toEqual({ value: 2400, from: "PriceCharting's PSA 10 price" });
+    expect(lookValue(look, 'CGC', '9')).toEqual({ value: 690, from: "PriceCharting's Grade 9 price" });
+    expect(lookValue(look, 'BGS', '10')).toEqual({ value: 2400, from: "PriceCharting's PSA 10 price (it has none for BGS 10)" });
+    // a grader with no grade yet: the raw price
+    expect(lookValue(look, 'PSA', '')).toEqual({ value: 590.5, from: "today's price, holo" });
+    expect(lookValue({ ...look, pi: 0 }, 'Raw', '')).toEqual({ value: null, why: 'No price for the regular' });
+    expect(lookValue({ ...look, pi: 0 }, 'PSA', '10')).toEqual({ value: null, why: 'No PSA 10 price from PriceCharting' });
+    expect(lookValue({ ...look, printings: [] }, 'Raw', '')).toEqual({ value: null, why: 'No prices for this card' });
   });
 });

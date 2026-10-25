@@ -876,12 +876,14 @@ async function bulkBuyUndo(btn, list){
 
 /* ---------- trade evaluator ----------
    A trade with a dealer worked out before agreeing to it (public/trade.js): what the dealer gives
-   and what I give, each as cards (mine picked from the ledger, or typed in, graded or not) and
-   cash, with the trade percentage each side's cards are taken at. Nothing is saved to the ledger;
-   the trade being worked out is kept in this browser until Start over. */
+   (any card, looked up in the card database with its prices, or typed in) and what I give (cards I
+   own, or typed in), graded or not, and cash, with the trade percentage each side's cards are taken
+   at. Nothing is saved to the ledger; the trade being worked out is kept in this browser until Start over. */
 const TR_SIDES = ["dealer","mine"];
 const TR_NAME = {dealer:"Dealer gives", mine:"I give"};
 let TR = null;
+/* The dealer side's search of the card database: the text it's for, its hits, and whether it's on its way. */
+let TRS = {seq:0, t:0, q:"", busy:false, error:"", hits:[]};
 const trBlank = () => ({dealer:{pct:"100", cash:"", items:[]}, mine:{pct:"100", cash:"", items:[]}, q:{dealer:"", mine:""}});
 const trCard = id => id ? S.cards.find(c => c.id===id) : null;
 const trAny = () => !!TR && TR_SIDES.some(k => TR[k].items.length || TR[k].cash.trim() || (TR[k].pct.trim() && TR[k].pct.trim()!=="100"));
@@ -896,23 +898,50 @@ function trLoad(){
 }
 function trSave(){
   if(!TR) return;
-  const side = k => ({pct:TR[k].pct, cash:TR[k].cash, items:TR[k].items.map(({key, ...it}) => it)});
+  const side = k => ({pct:TR[k].pct, cash:TR[k].cash, items:TR[k].items.map(({key, lookState, ...it}) => it)});
   store.set("trade", {dealer:side("dealer"), mine:side("mine")});
 }
 const trPct = k => window.BinderTrade.percent(TR[k].pct) ?? 100;
-/* A card to add from the ledger: mine are the cards I own; the dealer's start from any card I have
-   (a placeholder for the card I'm after, or another copy) for its details and value. */
-function trCandidates(k){
+/* My cards to add: the cards I own, each once. */
+function trCandidates(){
   const taken = new Set(TR.mine.items.map(it => it.cardId).filter(Boolean));
-  const list = S.cards.filter(c => k==="mine" ? owned(c) && !taken.has(c.id) : held(c));
-  return window.BinderSearch.search(list, TR.q[k], {limit:6, order:SORTS.loc}).map(r => r.card);
+  return window.BinderSearch.search(S.cards.filter(c => owned(c) && !taken.has(c.id)), TR.q.mine, {limit:6, order:SORTS.loc}).map(r => r.card);
+}
+const trLookups = () => !!window.ledgerApi && S.mode!=="nodb";
+/* The dealer's side looks for any card in the card database (src/application/catalog/search-any-card.ts), a moment after typing stops. */
+function trSearch(){
+  clearTimeout(TRS.t); TRS.seq++;
+  const q = TR.q.dealer.trim();
+  if(!q || !trLookups()){ TRS = {...TRS, q, busy:false, error:"", hits:[]}; return trResults("dealer"); }
+  TRS.busy = true; trResults("dealer");
+  const seq = TRS.seq;
+  TRS.t = setTimeout(async () => {
+    try{
+      const r = await window.ledgerApi.call("GET", "api/lookup/search?q=" + encodeURIComponent(q));
+      if(seq!==TRS.seq) return;
+      TRS = {...TRS, q, busy:false, error:"", hits:(r.hits || []).slice(0, 8)};
+    }catch(err){
+      if(seq!==TRS.seq) return;
+      TRS = {...TRS, q, busy:false, error:err.message || "The card database didn't answer.", hits:[]};
+    }
+    trResults("dealer");
+  }, 350);
 }
 function trResults(k){
   const el = $(`[data-trres="${k}"]`); if(!el) return;
   if(!TR.q[k].trim()){ el.innerHTML = ""; return; }
-  const list = trCandidates(k);
-  el.innerHTML = list.length ? list.map(c => { const g = window.BinderTrade.gradeLabel(c.grader, c.grade), v = valueOf(c); return `<button class="tr-hit" type="button" data-trpick="${k}:${esc(c.id)}">${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="">`:`<span class="thumb"></span>`}<span class="bb-what"><b>${esc(c.name||"Unnamed card")}</b><span class="hint">${esc([metaLine(c), c.variant, g, c.placeholder?"Placeholder":""].filter(Boolean).join(" · "))}</span><span class="hint">${esc(locShort(c))}</span></span><span class="mono tr-hitv">${esc(money(v))}</span></button>`; }).join("")
-    : `<p class="hint tr-none">${k==="mine" ? "None of your cards match (cards already in the trade aren't listed)." : "No card in your ledger matches. Type it in instead."}</p>`;
+  if(k==="dealer"){
+    const hits = TRS.q===TR.q.dealer.trim() ? TRS.hits : [];
+    el.innerHTML = !trLookups() ? `<p class="hint tr-none">Card lookups aren't available here. Type the card in instead.</p>`
+      : TRS.busy && !hits.length ? `<p class="hint tr-none">Looking it up…</p>`
+      : TRS.error ? `<p class="hint tr-none warn-text">${esc(TRS.error)} Type the card in instead.</p>`
+      : !hits.length ? `<p class="hint tr-none">No card by that name in the card database. Check the spelling, try just the Pokémon's name, or type it in.</p>`
+      : hits.map((h, i) => `<button class="tr-hit" type="button" data-trlook="${i}">${h.thumb?`<img class="thumb" src="${esc(h.thumb)}" alt="" loading="lazy">`:`<span class="thumb"></span>`}<span class="bb-what"><b>${esc(h.name)}</b><span class="hint">${esc(`${h.set} · ${cardNo(h)}`)}</span></span></button>`).join("");
+    return;
+  }
+  const list = trCandidates();
+  el.innerHTML = list.length ? list.map(c => { const g = window.BinderTrade.gradeLabel(c.grader, c.grade), v = valueOf(c); return `<button class="tr-hit" type="button" data-trpick="${esc(c.id)}">${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="">`:`<span class="thumb"></span>`}<span class="bb-what"><b>${esc(c.name||"Unnamed card")}</b><span class="hint">${esc([metaLine(c), c.variant, g].filter(Boolean).join(" · "))}</span><span class="hint">${esc(locShort(c))}</span></span><span class="mono tr-hitv">${esc(money(v))}</span></button>`; }).join("")
+    : `<p class="hint tr-none">None of your cards match (cards already in the trade aren't listed).</p>`;
 }
 const trInput = (it, f, label, extra="") => `<input data-trf="${f}" value="${esc(it[f])}" aria-label="${esc(label)}" autocomplete="off" ${extra}>`;
 function trItemHTML(k, it, i){
@@ -927,23 +956,34 @@ function trItemHTML(k, it, i){
     const g = window.BinderTrade.gradeLabel(c.grader, c.grade);
     return `<div class="tr-item" data-tritem="${k}:${it.key}"><div class="tr-cardrow">${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="">`:`<span class="thumb"></span>`}<span class="bb-what"><b>${esc(c.name||"Unnamed card")}${g?` <span class="tr-grade">${esc(g)}</span>`:""}</b><span class="hint">${esc([metaLine(c), c.variant].filter(Boolean).join(" · "))}</span><span class="hint">${esc(locShort(c))}</span></span></div>${nums}</div>`;
   }
+  const grading = `<select data-trf="grader" aria-label="${esc(n)}: graded by">${opt(GRADERS, it.grader)}</select>
+      ${trInput(it, "grade", `${n}: grade`, `class="mono" placeholder="Grade" inputmode="decimal"${it.grader==="Raw"?" disabled":""}`)}`;
+  const L = it.look;
+  if(L){
+    const prs = L.printings || [];
+    const printing = prs.length > 1 ? `<select data-trprint aria-label="${esc(n)}: printing">${prs.map((p, j) => `<option value="${j}" ${j===L.pi?"selected":""}>${esc(p.label[0] ? p.label[0].toUpperCase()+p.label.slice(1) : "Regular")}${p.cad!=null?` · ${esc(money(p.cad))}`:""}</option>`).join("")}</select>`
+      : `<span class="hint tr-pr1">${esc(prs[0]?.label ? prs[0].label[0].toUpperCase()+prs[0].label.slice(1) : "")}</span>`;
+    return `<div class="tr-item looked" data-tritem="${k}:${it.key}"><div class="tr-cardrow">${L.thumb?`<img class="thumb" src="${esc(L.thumb)}" alt="" loading="lazy">`:`<span class="thumb"></span>`}<span class="bb-what"><b>${esc(L.name)}</b><span class="hint">${esc([L.set, L.number].filter(Boolean).join(" · "))}</span></span></div>
+      <div class="tr-man">${printing}${grading}</div>${nums}</div>`;
+  }
   return `<div class="tr-item manual" data-tritem="${k}:${it.key}"><div class="tr-man">
       ${trInput(it, "name", `${n}: name`, `placeholder="Card, e.g. Umbreon VMAX 215/203" autocapitalize="words" spellcheck="false"`)}
-      <select data-trf="grader" aria-label="${esc(n)}: graded by">${opt(GRADERS, it.grader)}</select>
-      ${trInput(it, "grade", `${n}: grade`, `class="mono" placeholder="Grade" inputmode="decimal"${it.grader==="Raw"?" disabled":""}`)}
+      ${grading}
     </div>${nums}</div>`;
 }
 function trList(k){
   const el = $(`[data-trlist="${k}"]`); if(!el) return;
   el.innerHTML = TR[k].items.length ? TR[k].items.map((it,i) => trItemHTML(k, it, i)).join("")
-    : `<p class="hint tr-empty">${k==="mine" ? "No cards yet. Find yours above, or type one in." : "No cards yet. Type in what the dealer offers, or start from a card in your ledger."}</p>`;
+    : `<p class="hint tr-empty">${k==="mine" ? "No cards yet. Find yours above, or type one in." : "No cards yet. Find the dealer's card above (any card), or type one in."}</p>`;
+  // a looked-up card whose prices hadn't come back (the dialog was closed, or the page reloaded) asks again
+  TR[k].items.forEach(it => { if(it.look && !it.look.printings && !it.lookState) void trLookLoad(it); });
 }
 function trSideHTML(k){
   const mine = k==="mine";
   return `<section class="tr-side" data-trside="${k}" aria-labelledby="tr_h_${k}">
     <h3 id="tr_h_${k}">${TR_NAME[k]} <span class="hint" data-trhead></span></h3>
     <div class="tr-add">
-      <input type="search" data-trq="${k}" value="${esc(TR.q[k])}" placeholder="${mine ? "Add one of your cards: name, set or number" : "Start from a card in your ledger"}" aria-label="${mine ? "Find one of your cards to give" : "Find a card in your ledger to start the dealer's card from"}" autocomplete="off" spellcheck="false" enterkeyhint="done">
+      <input type="search" data-trq="${k}" value="${esc(TR.q[k])}" placeholder="${mine ? "Add one of your cards: name, set or number" : "Find any card: name, set or number"}" aria-label="${mine ? "Find one of your cards to give" : "Find the dealer's card in the card database"}" autocomplete="off" spellcheck="false" enterkeyhint="done">
       <button class="btn sm" type="button" data-tradd="${k}">+ Type in a card</button>
       <div class="tr-res" data-trres="${k}"></div>
     </div>
@@ -958,7 +998,7 @@ function tradeModal(){
   TR = trLoad();
   $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard tr-card" id="tr_card" role="dialog" aria-modal="true" aria-labelledby="trTitle">
     <h2 id="trTitle">Trade evaluator</h2>
-    <p class="lead">Put in what the dealer offers and what you offer: cards (graded or not) and cash. When the dealer says they'll take your cards at a percentage (80%), put it under your side; a card can have its own. Values are market values in CAD. Nothing is saved to your ledger; the trade stays here until you start over.</p>
+    <p class="lead">Find the dealer's cards (any card, with today's price, or PriceCharting's for its grade) and yours, add cash, and put in the dealer's percentage ("your cards at 80%"). Values are in CAD. Nothing is saved to your ledger; the trade stays here until you start over.</p>
     <div class="tr-sides">${trSideHTML("dealer")}${trSideHTML("mine")}</div>
     <section class="tr-sum" id="tr_sum" aria-live="polite" aria-label="Breakdown"></section>
     <div class="mfoot"><button class="btn ghost" type="button" id="tr_clear">Start over</button><button class="btn primary" type="button" data-mclose>Close</button></div>
@@ -966,7 +1006,7 @@ function tradeModal(){
   const card = $("#tr_card");
   const onEdit = e => {
     const t = e.target, side = t.closest("[data-trside]")?.dataset.trside; if(!side) return;
-    if(t.dataset.trq!=null){ TR.q[side] = t.value; trResults(side); return; }
+    if(t.dataset.trq!=null){ TR.q[side] = t.value; if(side==="dealer") trSearch(); else trResults(side); return; }
     if(t.dataset.trs){
       TR[side][t.dataset.trs] = t.value;
       if(t.dataset.trs==="pct") card.querySelectorAll(`[data-trside="${side}"] [data-trf="pct"]`).forEach(x => { x.placeholder = window.BinderTrade.pctText(trPct(side)); });
@@ -974,42 +1014,90 @@ function tradeModal(){
     const it = trItemOf(t), f = t.dataset.trf;
     if(it && f){
       it[f] = t.value;
+      if(f==="value") it.valueFrom = "";
       if(f==="grader"){ const g = t.closest(".tr-man")?.querySelector('[data-trf="grade"]'); if(g){ g.disabled = t.value==="Raw"; if(t.value!=="Raw" && e.type==="change") g.focus(); } }
+      if((f==="grader" || f==="grade") && it.look) trLookPrice(it);
     }
+    if(it && t.matches("[data-trprint]") && it.look?.printings){ it.look.pi = +t.value; trLookPrice(it); }
     trSave(); trRefresh();
   };
   card.addEventListener("input", onEdit);
   card.addEventListener("change", e => { if(e.target.matches("select")) onEdit(e); });
   card.addEventListener("click", e => {
     const t = e.target;
-    const pk = t.closest("[data-trpick]"); if(pk){ const [k, id] = pk.dataset.trpick.split(":"); return trAddCard(k, id); }
+    const pk = t.closest("[data-trpick]"); if(pk) return trAddCard(pk.dataset.trpick);
+    const lk = t.closest("[data-trlook]"); if(lk) return trAddLooked(TRS.hits[+lk.dataset.trlook]);
+    const ra = t.closest("[data-trretry]"); if(ra){ const it = trItemOf(ra); if(it){ it.lookState = null; void trLookLoad(it); } return; }
     const ad = t.closest("[data-tradd]"); if(ad) return trAddTyped(ad.dataset.tradd);
     const dl = t.closest("[data-trdel]"); if(dl){ const [k, key] = dl.dataset.trdel.split(":"); TR[k].items = TR[k].items.filter(x => x.key!==key); trList(k); trResults(k); trSave(); trRefresh(); return; }
     const ev = t.closest("[data-treven]"); if(ev){ const k = ev.dataset.treven, r = window.BinderTrade.evaluate(TR); TR[k].cash = (Math.round(((window.BinderTrade.amount(TR[k].cash) ?? 0) + r.even.cash)*100)/100).toFixed(2); $(`#tr_cash_${k}`).value = TR[k].cash; trSave(); trRefresh(); return; }
-    if(t.closest("#tr_clear")){ if(!trAny() || confirm("Start over? This trade is cleared.")){ TR = trBlank(); trSave(); TR_SIDES.forEach(k => { $(`#tr_cash_${k}`).value = ""; $(`#tr_pct_${k}`).value = "100"; $(`[data-trq="${k}"]`).value = ""; trList(k); trResults(k); }); trRefresh(); } return; }
+    if(t.closest("#tr_clear")){ if(!trAny() || confirm("Start over? This trade is cleared.")){ TR = trBlank(); TRS = {...TRS, q:"", hits:[], busy:false, error:""}; TRS.seq++; trSave(); TR_SIDES.forEach(k => { $(`#tr_cash_${k}`).value = ""; $(`#tr_pct_${k}`).value = "100"; $(`[data-trq="${k}"]`).value = ""; trList(k); trResults(k); }); trRefresh(); } return; }
   });
   card.addEventListener("keydown", e => {
     const k = e.target.dataset?.trq; if(k==null) return;
-    if(e.key==="Enter"){ e.preventDefault(); const first = trCandidates(k)[0]; if(first) trAddCard(k, first.id); }
-    else if(e.key==="Escape" && TR.q[k]){ e.preventDefault(); e.stopPropagation(); e.target.value = ""; TR.q[k] = ""; trResults(k); }
+    if(e.key==="Enter"){
+      e.preventDefault();
+      if(k==="mine"){ const first = trCandidates()[0]; if(first) trAddCard(first.id); }
+      else if(!TRS.busy && TRS.q===TR.q.dealer.trim() && TRS.hits[0]) trAddLooked(TRS.hits[0]);
+    }
+    else if(e.key==="Escape" && TR.q[k]){ e.preventDefault(); e.stopPropagation(); e.target.value = ""; TR.q[k] = ""; if(k==="dealer") trSearch(); else trResults(k); }
   });
   TR_SIDES.forEach(trList); trRefresh();
 }
 const trItemOf = el => { const [k, key] = (el.closest("[data-tritem]")?.dataset.tritem || "").split(":"); return k && TR[k] ? TR[k].items.find(x => x.key===key) : null; };
-function trAddCard(k, id){
+function trAddCard(id){
   const c = trCard(id); if(!c) return;
-  const v = valueOf(c), value = v==null ? "" : v.toFixed(2);
-  TR[k].items.push(k==="mine"
-    ? {key:rid(), cardId:c.id, from:null, name:c.name||"", grader:c.grader||"Raw", grade:c.grade||"", value, pct:""}
-    : {key:rid(), cardId:null, from:c.id, name:[c.name, c.number].filter(Boolean).join(" "), grader:GRADERS.includes(c.grader) ? c.grader : "Raw", grade:c.grade||"", value, pct:""});
-  TR.q[k] = ""; const q = $(`[data-trq="${k}"]`); q.value = "";
-  trList(k); trResults(k); trSave(); trRefresh();
+  const v = valueOf(c);
+  TR.mine.items.push({key:rid(), cardId:c.id, look:null, name:c.name||"", grader:c.grader||"Raw", grade:c.grade||"", value:v==null ? "" : v.toFixed(2), valueFrom:"", pct:""});
+  TR.q.mine = ""; const q = $(`[data-trq="mine"]`); q.value = "";
+  trList("mine"); trResults("mine"); trSave(); trRefresh();
   q.focus();
 }
 function trAddTyped(k){
-  const it = {key:rid(), cardId:null, from:null, name:"", grader:"Raw", grade:"", value:"", pct:""};
+  const it = {key:rid(), cardId:null, look:null, name:"", grader:"Raw", grade:"", value:"", valueFrom:"", pct:""};
   TR[k].items.push(it); trList(k); trSave(); trRefresh();
   $(`[data-tritem="${k}:${it.key}"] [data-trf="name"]`)?.focus();
+}
+/* A card from the card database for the dealer's side: added straight away, its prices following. */
+function trAddLooked(hit){
+  if(!hit) return;
+  const look = {...window.BinderTrade.lookFrom(hit, null), printings:null};
+  const it = {key:rid(), cardId:null, look, name:[look.name, look.number].filter(Boolean).join(" "), grader:"Raw", grade:"", value:"", valueFrom:"", pct:""};
+  TR.dealer.items.push(it);
+  TR.q.dealer = ""; const q = $(`[data-trq="dealer"]`); q.value = ""; trSearch();
+  trList("dealer"); trSave(); trRefresh();
+  q.focus();
+}
+/* Today's prices for a looked-up card (src/application/catalog/show-any-card.ts), each printing's and its graded ones. */
+async function trLookLoad(it){
+  const L = it.look; if(!L || it.lookState?.busy) return;
+  it.lookState = {busy:true, error:""}; trRefresh();
+  try{
+    if(!trLookups()) throw new Error("Card lookups aren't available here.");
+    const card = await window.ledgerApi.call("GET", "api/lookup/cards/" + encodeURIComponent(L.id));
+    const got = window.BinderTrade.lookFrom({id:L.id, name:L.name, set:L.set, number:L.number, thumb:L.thumb}, card);
+    L.printings = got.printings; L.pi = got.pi; L.number = L.number || got.number;
+    if(!L.thumb && typeof card?.image==="string") L.thumb = card.image;
+    it.lookState = null;
+    if(!it.value.trim() || it.valueFrom) trLookPrice(it, false);
+  }catch(err){
+    it.lookState = {busy:false, error:err.message || "The card database didn't answer."};
+  }
+  if(!TR || !TR.dealer.items.includes(it)) return;
+  // its row again with the printings; the inputs keep what's typed (the same item)
+  const el = $(`[data-tritem="dealer:${it.key}"]`), had = el?.contains(document.activeElement) ? document.activeElement.dataset.trf : null;
+  if(el){ const i = TR.dealer.items.indexOf(it); el.outerHTML = trItemHTML("dealer", it, i); if(had) $(`[data-tritem="dealer:${it.key}"] [data-trf="${had}"]`)?.focus(); }
+  trSave(); trRefresh();
+}
+/* A looked-up card's value as its printing, grader and grade, when there's a price for it. */
+function trLookPrice(it, refresh=true){
+  if(!it.look?.printings) return;
+  const lv = window.BinderTrade.lookValue(it.look, it.grader, it.grade);
+  if(lv.value!=null){
+    it.value = lv.value.toFixed(2); it.valueFrom = lv.from;
+    const inp = $(`[data-tritem="dealer:${it.key}"] [data-trf="value"]`); if(inp) inp.value = it.value;
+  } else it.valueFrom = "";
+  if(refresh){ trSave(); trRefresh(); }
 }
 /* Each card's trade value and notes, each side's heading, and the breakdown. */
 function trRefresh(){
@@ -1022,14 +1110,20 @@ function trRefresh(){
       const v = BT.amount(it.value), p = BT.percent(it.pct) ?? sidePct;
       el.querySelector("[data-trv]").innerHTML = v==null ? `<span class="warn-text">No value</span>` : p===100 ? esc(money(v)) : `${esc(BT.pctText(p))}% → <b>${esc(money(BT.cardTrade(v, p)))}</b>`;
       el.dataset.state = v==null ? "novalue" : "";
-      const notes = [], c = trCard(it.cardId), src = trCard(it.from);
-      if(c){ const now = valueOf(c); if(now!=null && v!=null && Math.abs(now - v) >= 0.005) notes.push(`Its value in your ledger: ${money(now)}.`); else if(now==null) notes.push("No price in your ledger: put in its value."); }
-      if(src){
-        notes.push(`Started from your ${src.placeholder ? "placeholder" : "card"}: ${[metaLine(src), src.variant, BT.gradeLabel(src.grader, src.grade)].filter(Boolean).join(" · ")}.`);
-        const regrade = BT.regradeNote(src, it); if(regrade) notes.push(`<span class="warn-text">${esc(regrade)}</span>`);
+      const notes = [], c = trCard(it.cardId), L = it.look;
+      if(c){ const now = valueOf(c); if(now!=null && v!=null && Math.abs(now - v) >= 0.005) notes.push(esc(`Its value in your ledger: ${money(now)}.`)); else if(now==null) notes.push(esc("No price in your ledger: put in its value.")); }
+      if(L){
+        if(it.lookState?.busy) notes.push(esc("Getting today's prices…"));
+        else if(it.lookState?.error) notes.push(`<span class="warn-text">${esc(`Couldn't get its prices: ${it.lookState.error}`)}</span> <button class="btn sm" type="button" data-trretry>Try again</button>`);
+        else if(L.printings){
+          const lv = BT.lookValue(L, it.grader, it.grade);
+          if(it.valueFrom) notes.push(esc(`Value: ${it.valueFrom}.`));
+          else if(lv.value!=null) notes.push(esc(`${lv.from[0].toUpperCase()}${lv.from.slice(1)}: ${money(lv.value)}.`));
+          else notes.push(`<span class="warn-text">${esc(`${lv.why}: put in its value.`)}</span>`);
+        }
       }
       const noGrade = c ? null : BT.missingGradeNote(it); if(noGrade) notes.push(`<span class="warn-text">${esc(noGrade)}</span>`);
-      const h = notes.map(n => n.startsWith("<span") ? n : esc(n)).join(" "), ne = el.querySelector("[data-trnote]");
+      const h = notes.join(" "), ne = el.querySelector("[data-trnote]");
       if(ne.dataset.h!==h){ ne.innerHTML = h; ne.dataset.h = h; }
     });
     const s = r[k], head = $(`[data-trside="${k}"] [data-trhead]`);
