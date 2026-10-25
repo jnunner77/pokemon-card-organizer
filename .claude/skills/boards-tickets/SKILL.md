@@ -24,13 +24,25 @@ python3 $B show 110                       # the item and its tasks
 python3 $B brief 110                      # description, acceptance criteria and tasks as text
 ```
 
-## 1. Before any work: create the ticket
+## 1. Before any change: create the ticket
+
+The planner's read-only plan (`model-roles` step 1) comes first, since it writes the spec; the
+ticket is created from it before the implementer starts or any file is edited.
 
 - **PBI** (`"Product Backlog Item"`) for new or changed behaviour; **Bug** for something broken.
   Several unrelated asks get one ticket each.
 - The spec comes from the planner's plan (`model-roles` skill). Write it in the scratchpad, not
   the repo. `boards.py create` assigns the PBI/Bug to Justin Nunner and the tasks to Claude, puts
   all of them in the current sprint, priority 2.
+- `create` makes the PBI/Bug first, then each task. If a task fails, it says which item was
+  created and which tasks may be missing: check with `boards.py show <id>`, then add those tasks
+  in Boards by hand (or delete the item) instead of running `create` again, which would make a
+  second PBI/Bug. If the first request fails (no answer in time, a dropped connection, a reply
+  cut short), it says so: look in the backlog for an item with that title before running
+  `create` again, since the server may have made it anyway.
+- whoami and create need the server to say who the token acts as, which Boards does only with
+  sign-in on (as on the team's live server). Against a server with sign-in off (a local or demo
+  one) they stop and say so: file tickets on the live server.
 
 ```json
 {
