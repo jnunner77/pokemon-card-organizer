@@ -17,7 +17,7 @@
       .concat(places.map(p => `<option value="${esc(p)}"${p === v ? " selected" : ""}>${esc(p)}</option>`))
       .concat(`<option value="${CUSTOM}"${custom ? " selected" : ""}>Custom…</option>`);
     return `<span class="wherepick"><select id="${esc(id)}" data-where>${opts.join("")}</select>`
-      + `<input id="${esc(id)}_custom" class="wherecustom" value="${custom ? esc(v) : ""}" placeholder="${esc(placeholder || "Type where")}" aria-label="Custom place" maxlength="80" autocomplete="off" autocapitalize="words"${custom ? "" : " hidden"}></span>`;
+      + `<input id="${esc(id)}_custom" value="${custom ? esc(v) : ""}" placeholder="${esc(placeholder || "Type where")}" aria-label="Custom place" autocomplete="off" autocapitalize="words"${custom ? "" : " hidden"}></span>`;
   }
 
   /* What to save: the chosen place, or the typed one when Custom… is chosen. */
