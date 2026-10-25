@@ -10,7 +10,7 @@ The session you're in (whatever model it runs on) coordinates; three agents do t
 | Role | Agent | Model | Does |
 | --- | --- | --- | --- |
 | Plan | `planner` (`.claude/agents/planner.md`) | Opus | The plan and the ticket's spec; answers every architecture and implementation question |
-| Build | `implementer` (`.claude/agents/implementer.md`) | Sonnet, Opus from round 6 | Writes the code, runs the checks, commits; fixes review findings |
+| Build | `implementer` (`.claude/agents/implementer.md`) | Sonnet; Opus for review rounds 5-7 | Writes the code, runs the checks, commits; fixes review findings |
 | Review | `code-reviewer` (`.claude/agents/code-reviewer.md`) | Haiku | Reviews each push against the ticket (`review-loop` skill) |
 
 The session itself doesn't plan or write the change, even when it runs on Opus or the change is one
@@ -20,8 +20,8 @@ talks to the user. Agents can't spawn agents, so every hand-off goes through the
 ```
 request ─▶ planner (Opus) ─▶ ticket ─▶ implementer (Sonnet) ─▶ push ─▶ code-reviewer (Haiku)
               ▲                            │  ▲                              │
-              └──────── questions ─────────┘  └── findings, rounds 1-5 ──────┤
-                                                  (Opus, rounds 6-8)         │
+              └──────── questions ─────────┘  └── findings of rounds 1-4 ────┤
+                                                  (Opus: rounds 5-7)         │
                                 PASS ─▶ pull request    after 8: ticket + pull request
 ```
 
@@ -66,22 +66,32 @@ Spawn `implementer` with `model: "sonnet"`. Prompt: checkout and branch, the out
   decision to the implementer.
 - `STATUS: DONE`: check `git status` is clean and the commits end with the AB# ids, then push
   (`git push -u origin <branch>`).
-- **Outside the ticket** items get their own Boards ticket (`boards-tickets`); tell the user the AB#.
+- **Outside the ticket** items get their own Boards ticket (`boards-tickets`); tell the user the
+  AB#.
 
 ## 4. Review (Haiku), and who fixes it
 
 Follow the `review-loop` skill: it spawns `code-reviewer` with `model: "haiku"` after each push.
-Each review is a round. When a round asks for changes:
+Each review is a round: round 1 reviews the first push, and each fix is pushed and reviewed as the
+next round. Sonnet's work gets five reviews; if none passes, Opus gets three more:
 
-- **Rounds 1-5**: send the findings to the implementer on Sonnet (`model: "sonnet"`). It fixes the
-  real ones, gives evidence for the wrong ones, and sends design questions or disputed findings
-  back as `STATUS: QUESTIONS`, which go to the planner as in step 3. A finding the reviewer repeats
-  after a rebuttal goes to the planner too: it decides whether the rebuttal stands.
-- **Rounds 6-8** (round 5 didn't pass): Opus takes over the fixes. Spawn a new `implementer` with
+| Review that asks for changes | Who fixes its findings | Reviewed again in |
+| --- | --- | --- |
+| Rounds 1-4 | Implementer on Sonnet | Rounds 2-5 |
+| Rounds 5-7 | Implementer on Opus | Rounds 6-8 |
+| Round 8 | Nobody: its findings go to a ticket | — |
+
+- **Sonnet's fixes** (findings of rounds 1-4): send them to the implementer on Sonnet
+  (`model: "sonnet"`). It fixes the real ones, gives evidence for the wrong ones, and sends design
+  questions or disputed findings back as `STATUS: QUESTIONS`, which go to the planner as in step 3.
+  A finding the reviewer repeats after a rebuttal goes to the planner too: it decides whether the
+  rebuttal stands.
+- **Opus's fixes** (round 5 didn't pass, so findings of rounds 5-7): spawn a new `implementer` with
   `model: "opus"`, giving it the plan, every round's findings and what was done about each.
-- **Round 8 doesn't pass**: stop fixing. Create a ticket for what's still open with `boards-tickets`
-  (a Bug for defects, a PBI otherwise; its description lists each finding, with the reviewer's
-  reasoning and why it wasn't fixed), then open the pull request anyway (`review-loop` step 4),
+  Questions still go to the planner.
+- **Round 8 doesn't pass**: its findings aren't fixed. Create a ticket for them with
+  `boards-tickets` (a Bug for defects, a PBI otherwise; its description lists each finding with the
+  reviewer's reasoning), then open the pull request anyway (`review-loop` step 4),
   naming that ticket in its **Code review** section. Tell the user the pull request and the ticket.
 
 Push after every fix, then review again, as `review-loop` says.

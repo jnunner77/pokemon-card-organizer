@@ -30,8 +30,9 @@ every Agent call; it doesn't plan or write the change itself.
   runs the checks, commits, and fixes review findings. It sends questions to the planner, not the
   user.
 - **Haiku reviews**: the `code-reviewer` agent, through the `review-loop` skill.
-- If the fifth review still doesn't pass, Opus takes over the fixes for three more rounds. If the
-  eighth doesn't pass, the open findings get their own ticket and the pull request is opened anyway.
+- If the fifth review still doesn't pass, Opus takes over the fixes for three more rounds (it fixes
+  the findings of reviews 5-7). If the eighth review doesn't pass, its findings get their own
+  ticket and the pull request is opened anyway.
 
 ## Workflow
 
@@ -47,7 +48,7 @@ every Agent call; it doesn't plan or write the change itself.
   skill (`.claude/skills/review-loop/`). It spawns the `code-reviewer` agent
   (`.claude/agents/code-reviewer.md`, on the cheapest model, Haiku) with the diff and the ticket's
   description, acceptance criteria and tasks; the implementer fixes its findings, and the branch is
-  pushed and reviewed again until it passes with no findings (or eight rounds go by, as above), and
+  pushed and reviewed again until it passes with no findings (or the eighth fails, as above), and
   only then is the pull request opened. Don't ask GitHub Copilot to review pull requests: the
   owner turned that off.
 - Browser-only logic that's worth testing lives in small plain scripts in `public/` (like

@@ -68,9 +68,10 @@ after its front matter), then the template above. Tell it to stay read-only.
 
 ## 3. Act on the verdict
 
-Who acts on it is set by the `model-roles` skill: the `implementer` agent on Sonnet fixes rounds
-1-5, the `implementer` on Opus fixes rounds 6-8, and the `planner` (Opus) decides every question a
-finding raises. The session relays; it doesn't fix findings itself.
+Who acts on it is set by the `model-roles` skill: the `implementer` agent on Sonnet fixes the
+findings of rounds 1-4, the `implementer` on Opus those of rounds 5-7 (reviewed in rounds 6-8), and
+the `planner` (Opus) decides every question a finding raises. The session relays; it doesn't fix
+findings itself.
 
 - **`VERDICT: PASS`** (no findings): go to step 4.
 - **`VERDICT: CHANGES REQUESTED`**: send the findings to the implementer for this round. It checks
@@ -94,33 +95,34 @@ not a continued one), so every round reads the branch as it is now.
 - A fix that would widen the change beyond its ticket: its own ticket, as above.
 - A decision only the user can make (what they want, not how to build it): ask the user, with the
   findings and the planner's recommendation.
-- Round 5 doesn't pass: the Opus implementer takes over for rounds 6-8.
-- Round 8 doesn't pass: stop fixing, create a ticket for the findings still open (a Bug for
-  defects, a PBI otherwise, listing each finding and why it wasn't fixed) and open the pull request
+- Round 5 doesn't pass: the Opus implementer fixes the findings of rounds 5-7.
+- Round 8 doesn't pass: its findings aren't fixed. Create a ticket for them (a Bug for defects, a
+  PBI otherwise, listing each finding and the reviewer's reasoning) and open the pull request
   anyway (step 4).
 
 ## 4. Open the pull request
 
-Only after a pass, or after round 8 with the open findings ticketed (step 3). Follow `boards-tickets` for the title (`… (AB#<pbi>)`) and description (starts
-with `AB#<pbi>` and its tasks, ends with the session attribution). Add a **Code review** section to
+Only after a pass, or once round 8 has failed and its findings have a ticket (step 3). Follow
+`boards-tickets` for the title (`… (AB#<pbi>)`) and description (starts with `AB#<pbi>` and its
+tasks, ends with the session attribution). Add a **Code review** section to
 the description: how many rounds it took and the last verdict, e.g.
 `Reviewed by the code-reviewer agent: PASS on round 2 (round 1: 2 findings, both fixed in abc1234).`
-After round 8 without a pass, say so and name the ticket:
-`Reviewed by the code-reviewer agent: not passed after 8 rounds (Opus fixed rounds 6-8); the 2 open findings are AB#<id>.`
+After round 8 without a pass, say so and name the ticket, e.g. `Reviewed by the code-reviewer
+agent: not passed after 8 rounds (Opus fixed the findings of rounds 5-7); round 8's 2 findings are
+AB#<id>.`
 Then link the pull request on the ticket and comment, as `boards-tickets` step 3 says.
 
 ## 5. Review comments on the pull request
 
 If someone (or a bot that's already set up on the repository) leaves review comments, treat them
 like the reviewer's findings in step 3: the implementer checks each against the code and fixes the
-real ones and put the
-fix through steps 2–3 (it's a later push, below); answer the wrong ones on their thread with the
-reason; give out-of-scope ones their own Boards ticket, mention it to the user and name the AB# on
-the thread. Don't request a Copilot review.
+real ones, and the fix goes through steps 2–3 (it's a later push, below); answer the wrong ones on
+their thread with the reason; give out-of-scope ones their own Boards ticket, mention it to the user
+and name the AB# on the thread. Don't request a Copilot review.
 
 ## Later pushes
 
 Every later push to the branch (review comments, CI fixes, a merge of `main`) goes through steps 2–3
-again, counting its own rounds from 1: review it before or right after pushing, and fix and re-review until it passes before you
-report the pull request ready or ask for its review. Note the new round in the pull request's
-**Code review** section.
+again, counting its own rounds from 1: review it before or right after pushing, and fix and re-
+review until it passes before you report the pull request ready or ask for its review. Note the new
+round in the pull request's **Code review** section.
