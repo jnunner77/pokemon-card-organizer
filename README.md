@@ -501,7 +501,7 @@ only works it out: nothing in the ledger changes.
    - **The dealer's cards:** type part of any card's name, set or number under *Dealer gives* (the
      same card database as *Find a card → Any card*, so it doesn't have to be in your ledger) and pick
      it. Its value is today's price for its printing (pick another printing, like a reverse holo or a
-     1st Edition, and the value follows). Set *Graded by* and the grade (PSA 10) and the value becomes
+     1st Edition, and the value follows). Pick the grader and type the grade (PSA, 10) and the value becomes
      PriceCharting's price for that grade, or the nearest grade it has (it says which); when there's
      no graded price, it says so and you put in the value. A value you type in yourself stays until
      you change the grade or printing again. *+ Type in a card* takes a card by hand: name, grader,

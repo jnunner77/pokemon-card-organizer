@@ -1030,7 +1030,7 @@ function tradeModal(){
     const ra = t.closest("[data-trretry]"); if(ra){ const it = trItemOf(ra); if(it){ it.lookState = null; void trLookLoad(it); } return; }
     const ad = t.closest("[data-tradd]"); if(ad) return trAddTyped(ad.dataset.tradd);
     const dl = t.closest("[data-trdel]"); if(dl){ const [k, key] = dl.dataset.trdel.split(":"); TR[k].items = TR[k].items.filter(x => x.key!==key); trList(k); trResults(k); trSave(); trRefresh(); return; }
-    const ev = t.closest("[data-treven]"); if(ev){ const k = ev.dataset.treven, r = window.BinderTrade.evaluate(TR); TR[k].cash = (Math.round(((window.BinderTrade.amount(TR[k].cash) ?? 0) + r.even.cash)*100)/100).toFixed(2); $(`#tr_cash_${k}`).value = TR[k].cash; trSave(); trRefresh(); return; }
+    const ev = t.closest("[data-treven]"); if(ev){ const k = ev.dataset.treven, r = window.BinderTrade.evaluate(TR); TR[k].cash = window.BinderTrade.addCash(TR[k].cash, r.even.cash); $(`#tr_cash_${k}`).value = TR[k].cash; trSave(); trRefresh(); return; }
     if(t.closest("#tr_clear")){ if(!trAny() || confirm("Start over? This trade is cleared.")){ TR = trBlank(); TRS = {...TRS, q:"", hits:[], busy:false, error:""}; TRS.seq++; trSave(); TR_SIDES.forEach(k => { $(`#tr_cash_${k}`).value = ""; $(`#tr_pct_${k}`).value = "100"; $(`[data-trq="${k}"]`).value = ""; trList(k); trResults(k); }); trRefresh(); } return; }
   });
   card.addEventListener("keydown", e => {

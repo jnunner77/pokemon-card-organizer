@@ -30,18 +30,19 @@ type Trade = {
   gradePrice: (grades: { label: string; cad: number }[], grader: string, grade: string) => { label: string; cad: number; exact: boolean } | null;
   lookFrom: (hit: unknown, card: unknown) => Look;
   lookValue: (look: Look, grader: string, grade: string) => { value: number; from: string } | { value: null; why: string };
+  addCash: (cash: string, add: number) => string;
   followLook: (it: { value: string; valueFrom: string }, lv: { value: number; from: string } | { value: null; why: string }) => { value: string; valueFrom: string };
   missingGradeNote: (it: Grade) => string | null;
   restore: (saved: unknown, ownedIds: Set<string> | null, graders: string[]) => Record<'dealer' | 'mine', SavedSide>;
 };
 type Grade = { grader?: string; grade?: string };
-type Printing = { label: string; variant: string; cad: number | null; grades: { label: string; cad: number }[] };
+type Printing = { label: string; cad: number | null; grades: { label: string; cad: number }[] };
 type Look = { id: string; name: string; set: string; number: string; thumb: string; printings: Printing[] | null; pi: number };
 type SavedItem = { cardId: string | null; look: Look | null; name: string; grader: string; grade: string; value: string; valueFrom: string; pct: string };
 type SavedSide = { pct: string; cash: string; items: SavedItem[] };
 const sandbox = { window: {} as { BinderTrade: Trade } };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public/trade.js'), 'utf8'), sandbox);
-const { amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, restore } = sandbox.window.BinderTrade;
+const { amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, addCash, restore } = sandbox.window.BinderTrade;
 
 describe('reading what was typed', () => {
   it('reads amounts with or without a dollar sign and commas', () => {
@@ -98,6 +99,13 @@ describe('a trade with a dealer', () => {
     expect(r.myRate).toBe(80);
     // the $300 card costs me $250 of cards + $100 = $350: 116.7%
     expect(r.theirRate).toBeCloseTo(116.67, 2);
+  });
+
+  it('adds the cash that evens it to a side\'s cash, to the cent', () => {
+    expect(addCash('40', 12.5)).toBe('52.50');
+    expect(addCash('', 0.1)).toBe('0.10');
+    expect(addCash('$1,000.10', 0.2)).toBe('1000.30');
+    expect(addCash('forty', 10)).toBe('10.00');
   });
 
   it('says how much cash evens the trade, and who adds it', () => {
@@ -208,7 +216,7 @@ describe('the trade kept in the browser', () => {
   });
 
   it("links only my side's cards to cards of mine, and only the dealer's to looked-up cards", () => {
-    const look = { id: 'swsh7-215', name: 'Umbreon VMAX', set: 'Evolving Skies', number: '215/203', thumb: 't.png', printings: [{ label: 'regular', variant: '', cad: 590.5, grades: [{ label: 'PSA 10', cad: 2400 }] }], pi: 0 };
+    const look = { id: 'swsh7-215', name: 'Umbreon VMAX', set: 'Evolving Skies', number: '215/203', thumb: 't.png', printings: [{ label: 'regular', cad: 590.5, grades: [{ label: 'PSA 10', cad: 2400 }] }], pi: 0 };
     const t = restore({ dealer: { items: [{ cardId: 'a', look, value: '2400.00', valueFrom: "PriceCharting's PSA 10 price" }] }, mine: { items: [{ cardId: 'a', look }] } }, null, GRADERS);
     expect(t.dealer.items[0]).toMatchObject({ cardId: null, look, valueFrom: "PriceCharting's PSA 10 price" });
     expect(t.mine.items[0]).toMatchObject({ cardId: 'a', look: null });
@@ -218,7 +226,7 @@ describe('the trade kept in the browser', () => {
     const r = (look: unknown) => restore({ dealer: { items: [{ look }] } }, null, GRADERS).dealer.items[0].look;
     expect(r({ id: 'x', name: 'Mew', printings: null })).toMatchObject({ id: 'x', name: 'Mew', printings: null, pi: 0 });
     expect(r({ id: 'x', printings: [{ label: 'regular', cad: 'abc', grades: [{ label: 'PSA 10', cad: 5 }, { label: 'bad' }] }], pi: 4 }))
-      .toEqual({ id: 'x', name: '', set: '', number: '', thumb: '', printings: [{ label: 'regular', variant: '', cad: null, grades: [{ label: 'PSA 10', cad: 5 }] }], pi: 0 });
+      .toEqual({ id: 'x', name: '', set: '', number: '', thumb: '', printings: [{ label: 'regular', cad: null, grades: [{ label: 'PSA 10', cad: 5 }] }], pi: 0 });
     for (const bad of [null, 'x', {}, { id: '' }, { id: 7 }]) expect(r(bad)).toBeNull();
   });
 
@@ -301,8 +309,8 @@ describe('a card looked up in the card database', () => {
     expect(lookFrom(hit, card)).toEqual({
       id: 'swsh7-215', name: 'Umbreon VMAX', set: 'Evolving Skies', number: '215/203', thumb: 't.png', pi: 1,
       printings: [
-        { label: 'regular', variant: '', cad: null, grades: [] },
-        { label: 'holo', variant: 'Holo', cad: 590.5, grades: [{ label: 'PSA 10', cad: 2400 }, { label: 'Grade 9', cad: 690 }] },
+        { label: 'regular', cad: null, grades: [] },
+        { label: 'holo', cad: 590.5, grades: [{ label: 'PSA 10', cad: 2400 }, { label: 'Grade 9', cad: 690 }] },
       ],
     });
     expect(lookFrom({ id: 'p', name: 'Pikachu', set: 'Promos', number: 'SWSH050' }, null)).toMatchObject({ number: 'SWSH050', printings: [], pi: 0 });

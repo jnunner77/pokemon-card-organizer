@@ -168,14 +168,14 @@
 
   /**
    * A card looked up in the card database, as the trade keeps it: from the search hit ({id, name,
-   * set, number, total, thumb}) and the card's prices ({printings:[{label, variant, price:{cad},
+   * set, number, total, thumb}) and the card's prices ({printings:[{label, price:{cad},
    * pricecharting:{grades:[{label, cad}]}}]}). Each printing keeps its price and graded prices in
    * CAD; the one shown first is the first with a price (the regular card comes first).
    */
   function lookFrom(hit, card) {
     const h = hit || {}, num = h.total && /^\d+$/.test(String(h.number)) ? `${h.number}/${h.total}` : String(h.number ?? "");
     const printings = (Array.isArray(card?.printings) ? card.printings : []).map(p => ({
-      label: String(p?.label ?? ""), variant: String(p?.variant ?? ""),
+      label: String(p?.label ?? ""),
       cad: typeof p?.price?.cad === "number" ? p.price.cad : null,
       grades: (Array.isArray(p?.pricecharting?.grades) ? p.pricecharting.grades : []).filter(g => g && typeof g.cad === "number").map(g => ({ label: String(g.label ?? ""), cad: g.cad })),
     }));
@@ -208,6 +208,9 @@
     return it.valueFrom ? { value: "", valueFrom: "" } : { value: it.value, valueFrom: "" };
   }
 
+  /* Cash with an amount added (the cash that evens the trade): "40" + 12.5 → "52.50"; unreadable or blank cash counts as $0. */
+  const addCash = (cash, add) => dollars(cents(amount(cash) ?? 0) + cents(add)).toFixed(2);
+
   /* A typed-in card with a grader but no grade yet. */
   function missingGradeNote(it) {
     const by = String(it?.grader ?? "").trim();
@@ -220,7 +223,7 @@
     if (!l || typeof l !== "object" || typeof l.id !== "string" || !l.id) return null;
     const str = v => typeof v === "string" ? v : "";
     const printings = Array.isArray(l.printings) ? l.printings.filter(p => p && typeof p === "object").map(p => ({
-      label: str(p.label), variant: str(p.variant), cad: typeof p.cad === "number" ? p.cad : null,
+      label: str(p.label), cad: typeof p.cad === "number" ? p.cad : null,
       grades: (Array.isArray(p.grades) ? p.grades : []).filter(g => g && typeof g.cad === "number").map(g => ({ label: str(g.label), cad: g.cad })),
     })) : null;
     const pi = Number.isInteger(l.pi) && printings && l.pi >= 0 && l.pi < printings.length ? l.pi : 0;
@@ -255,5 +258,5 @@
     return out;
   }
 
-  root.BinderTrade = { amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, restore };
+  root.BinderTrade = { amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, addCash, restore };
 })(typeof window !== "undefined" ? window : globalThis);
