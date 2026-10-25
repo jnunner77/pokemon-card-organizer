@@ -13,7 +13,7 @@
   /* "12.50", "$1,200", " 7 " → 12.5, 1200, 7; "", "abc", "-3" → null */
   function amount(s) {
     if (typeof s === "number") return Number.isFinite(s) && s >= 0 ? s : null;
-    const t = String(s ?? "").replace(/[$,\s]/g, "").replace(/^CA/i, "");
+    const t = String(s ?? "").replace(/[$,\s]/g, "").replace(/^CA?/i, "");
     if (!/^\d*\.?\d+$|^\d+\.$/.test(t)) return null;
     const n = Number(t);
     return Number.isFinite(n) && n >= 0 ? n : null;

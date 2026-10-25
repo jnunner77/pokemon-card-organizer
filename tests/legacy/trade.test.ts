@@ -45,6 +45,7 @@ describe('reading what was typed', () => {
     expect(amount(' 7 ')).toBe(7);
     expect(amount('.5')).toBe(0.5);
     expect(amount('CA$40')).toBe(40);
+    expect(amount('C$25')).toBe(25);
     expect(amount(25)).toBe(25);
   });
 
