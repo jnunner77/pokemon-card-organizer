@@ -1,4 +1,4 @@
-import { isBlank, norm, ownNumber, setLabel, setSize } from '../catalog/names.ts';
+import { isBlank, norm, setLabel, setSize } from '../catalog/names.ts';
 import type { Fields } from '../ledger/document.ts';
 
 // When two cards are "the same card": the same printing, so a binder pocket may hold both. Their
@@ -7,6 +7,13 @@ import type { Fields } from '../ledger/document.ts';
 // 051/162 are the same number, a blank set matches any set and a blank language counts as English.
 // public/stack.js (BinderStack.same) mirrors this rule for the page: keep the two in step, and
 // keep tests/domain/cards/identity.test.ts and tests/legacy/stack.test.ts on the same cases.
+
+/** The card's own number as a printing's identity: no case, spaces or punctuation, no leading zeros ("051/162", "TG-05", "SWSH050" → "51", "tg5", "swsh50"). */
+const numberKey = (v: unknown): string =>
+  (String(v ?? '').split('/')[0] ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .replace(/(^|[a-z])0+(?=\d)/g, '$1');
 
 const text = (f: Fields, key: string): string => (typeof f[key] === 'string' ? f[key] : '');
 
@@ -23,7 +30,7 @@ function sameSet(a: Fields, b: Fields): boolean {
 /** Whether two cards (their fields) are copies of the same printing. */
 export function sameCard(a: Fields, b: Fields): boolean {
   if (norm(a['name']) !== norm(b['name'])) return false;
-  if (ownNumber(a['number']) !== ownNumber(b['number'])) return false;
+  if (numberKey(a['number']) !== numberKey(b['number'])) return false;
   const sizeA = setSize(a['number']);
   const sizeB = setSize(b['number']);
   if (sizeA !== null && sizeB !== null && sizeA !== sizeB) return false;

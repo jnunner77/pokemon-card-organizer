@@ -20,6 +20,8 @@ const SAME: [string, F, F][] = [
   ['case and punctuation of the name', base, { ...base, name: 'PIKACHU!' }],
   ['accents in the name', { ...base, name: 'Pokémon Center Lady' }, { ...base, name: 'pokemon center lady' }],
   ['51 and 051/162', { ...base, number: '51' }, { ...base, number: '051/162' }],
+  ['punctuation in a number with a letter prefix', { ...base, number: 'TG-05' }, { ...base, number: 'tg05/TG30' }],
+  ['zeros after a letter prefix', { ...base, number: 'SWSH050' }, { ...base, number: 'SWSH50' }],
   ['a blank set and a set', base, { ...base, set: '', setCode: '' }],
   ['a missing set and a set', base, { name: 'Pikachu', number: '58/102', language: 'English' }],
   ['set labels with and without Pokémon', { ...base, setCode: '', set: 'Pokémon Base Set' }, { ...base, setCode: '', set: 'base set' }],
@@ -32,6 +34,8 @@ const SAME: [string, F, F][] = [
 const DIFFERENT: [string, F, F][] = [
   ['name', base, { ...base, name: 'Raichu' }],
   ['number', base, { ...base, number: '59/102' }],
+  ['letter prefix of a number', { ...base, number: 'TG05' }, { ...base, number: 'GG05' }],
+  ['number with zeros inside', { ...base, number: '105' }, { ...base, number: '15' }],
   ['set size', { ...base, number: '51/162' }, { ...base, number: '51/165' }],
   ['set label', { ...base, setCode: '', set: 'Base Set' }, { ...base, setCode: '', set: 'Jungle' }],
   ['set codes', { ...base, setCode: 'BS' }, { ...base, setCode: 'JU' }],
@@ -85,6 +89,11 @@ describe('a pocket’s copies', () => {
     expect(mixed(cards)).toBe(true);
     expect(mixed([cards[0]!, cards[1]!])).toBe(false);
     expect(fits([cards[1]!], cards[2]!)).toBe(false);
+  });
+
+  it('keeps the copies of another card in a mixed pocket together', () => {
+    const cards = [p('a'), p('r1', { name: 'Raichu', createdAt: '2026-02-01T00:00:00Z' }), p('r2', { name: 'Raichu', createdAt: '2026-03-01T00:00:00Z' }), p('e', { name: 'Eevee', createdAt: '2026-04-01T00:00:00Z' })];
+    expect(units(cards).map(ids)).toEqual([['a'], ['r1', 'r2'], ['e']]);
   });
 
   it('keeps the same pocket number in two binders apart', () => {

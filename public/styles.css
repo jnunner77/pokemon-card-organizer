@@ -1120,3 +1120,6 @@ html.tblopen,html.tblopen body{overflow:hidden}
   .copyrow{grid-template-columns:1fr auto}
   .copyrow .cr-chips{grid-column:1/-1;justify-content:flex-start}
 }
+/* a pocket holding different cards says so in words (not only in the badge's tooltip) */
+.pocket .mixedtag{position:absolute;left:0;right:0;bottom:0;z-index:2;background:var(--bad,#c0392b);color:#fff;font-size:10px;font-weight:700;line-height:1.2;text-align:center;padding:3px 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pocket.mixed .cap{padding-bottom:22px}

@@ -11,6 +11,8 @@ const SAME: [string, Record<string, unknown>, Record<string, unknown>][] = [
   ['case and punctuation of the name', base, { ...base, name: 'PIKACHU!' }],
   ['accents in the name', { ...base, name: 'Pokémon Center Lady' }, { ...base, name: 'pokemon center lady' }],
   ['51 and 051/162', { ...base, number: '51' }, { ...base, number: '051/162' }],
+  ['punctuation in a number with a letter prefix', { ...base, number: 'TG-05' }, { ...base, number: 'tg05/TG30' }],
+  ['zeros after a letter prefix', { ...base, number: 'SWSH050' }, { ...base, number: 'SWSH50' }],
   ['a blank set and a set', base, { ...base, set: '', setCode: '' }],
   ['a missing set and a set', base, { name: 'Pikachu', number: '58/102', language: 'English' }],
   ['set labels with and without Pokémon', { ...base, setCode: '', set: 'Pokémon Base Set' }, { ...base, setCode: '', set: 'base set' }],
@@ -23,6 +25,8 @@ const SAME: [string, Record<string, unknown>, Record<string, unknown>][] = [
 const DIFFERENT: [string, Record<string, unknown>, Record<string, unknown>][] = [
   ['name', base, { ...base, name: 'Raichu' }],
   ['number', base, { ...base, number: '59/102' }],
+  ['letter prefix of a number', { ...base, number: 'TG05' }, { ...base, number: 'GG05' }],
+  ['number with zeros inside', { ...base, number: '105' }, { ...base, number: '15' }],
   ['set size', { ...base, number: '51/162' }, { ...base, number: '51/165' }],
   ['set label', { ...base, setCode: '', set: 'Base Set' }, { ...base, setCode: '', set: 'Jungle' }],
   ['set codes', { ...base, setCode: 'BS' }, { ...base, setCode: 'JU' }],

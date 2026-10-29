@@ -11,11 +11,9 @@
 
   /* "Pokémon", "N's", "V Star" → "pokemon", "ns", "vstar" */
   const norm = (s) => String(s == null ? "" : s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]/g, "");
-  /* "051" → "51", "51/162" → "51", "SWSH298" → "swsh298" */
-  const ownNumber = (s) => {
-    const n = (String(s == null ? "" : s).split("/")[0] || "").replace(/\s+/g, "").toLowerCase();
-    return /^\d+$/.test(n) ? String(Number(n)) : n;
-  };
+  /* The card's own number as a printing's identity: no case, spaces or punctuation, no leading zeros
+     ("051/162", "TG-05", "SWSH050" → "51", "tg5", "swsh50"). */
+  const ownNumber = (s) => (String(s == null ? "" : s).split("/")[0] || "").toLowerCase().replace(/[^a-z0-9]/g, "").replace(/(^|[a-z])0+(?=\d)/g, "$1");
   /* "51/162" → 162 */
   const setSize = (s) => {
     const m = /\/\s*(\d+)\s*$/.exec(String(s == null ? "" : s));
@@ -68,13 +66,15 @@
     }
     const out = alone.slice();
     for (const list of pockets.values()) {
-      const sorted = list.slice().sort(order), lead = sorted[0];
-      // a card joins the lead's unit only when it is the same card as every card already in it
-      // (the rule isn't transitive: a blank set matches two sets that don't match each other)
-      const mine = [lead];
-      for (const c of sorted) if (c !== lead && mine.every((x) => same(x, c))) mine.push(c);
-      out.push(mine);
-      for (const c of sorted) if (!mine.includes(c)) out.push([c]);
+      // the top copy leads a unit with the cards that are the same card as every card already in it (the rule
+      // isn't transitive); what is left forms units the same way, so copies of another card stay together
+      let rest = list.slice().sort(order);
+      while (rest.length) {
+        const mine = [];
+        for (const c of rest) if (mine.every((x) => same(x, c))) mine.push(c);
+        out.push(mine);
+        rest = rest.filter((c) => !mine.includes(c));
+      }
     }
     return out.sort((a, b) => at.get(a[0].id) - at.get(b[0].id));
   }
