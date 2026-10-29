@@ -693,6 +693,8 @@ counts pockets (with the number of cards after it when they differ).
   together, and Sort never stacks or unstacks cards. A different card can't land in an occupied pocket:
   from a stack, choose an empty pocket, or use *Swap with…* to swap the whole pocket. Moving a lone card
   onto a different card swaps them, as before.
+- **Undoing a sale or a trade** puts a copy back in its pocket when the pocket is empty or holds the
+  same card; when a different card has taken it, it goes in the binder's next empty pocket, as before.
 - **Editing a copy's name, set, number, variant or language** so it's no longer the same card as the
   others asks whether to change every copy in the pocket or move this one to the next empty pocket.
 - **Different cards** in one pocket (older data, or a Table edit) show a red **≠N** badge, and the

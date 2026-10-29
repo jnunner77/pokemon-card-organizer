@@ -1888,11 +1888,16 @@ async function saveCard(how){
   try{
     if(S.sel==="__new"){
       const loc = {binderId:c.binderId||null, page:c.binderId?c.page:null, slot:c.binderId?c.slot:null};
-      if(loc.binderId && loc.page && !fitsIn(loc.binderId, loc.page, loc.slot, data)){ const f = firstFree(loc.binderId); loc.page=f.page; loc.slot=f.slot; }
+      // A pocket holding a different card isn't used: the card goes in the next empty one, and the toast says so.
+      let relocated = null;
+      if(loc.binderId && loc.page && !fitsIn(loc.binderId, loc.page, loc.slot, data)){
+        relocated = {slot:loc.slot, there:cardAt(loc.binderId, loc.page, loc.slot)};
+        const f = firstFree(loc.binderId); loc.page=f.page; loc.slot=f.slot;
+      }
       const id = rid(), draftKey = S.draft?.key, sentPhoto = c.imageId||null, sentPh = !!$("#f_placeholder")?.checked;
       const ok = await guard(()=> S.db.collection("cards").doc(id).set({...data, ...loc, placeholder:sentPh, imageId:c.imageId||null, prices:[], createdAt:nowISO(), updatedAt:nowISO()}));
       if(ok){
-        toast(`Added ${data.name}. Looking up its price and picture…`);
+        toast(relocated ? `Added ${data.name} in ${locText(loc)}: Pocket ${relocated.slot} holds ${relocated.there?.name||"another card"} (a pocket only holds copies of one card). Looking up its price and picture…` : `Added ${data.name}. Looking up its price and picture…`);
         // A photo still uploading for this draft goes onto the added card when it's done (setPhoto).
         if(draftKey) (S.added ||= {})[draftKey] = id;
         if(S.sel!=="__new" || S.draft?.key!==draftKey) return; // the person moved on (to another card, or a new one) meanwhile
@@ -1926,9 +1931,14 @@ async function saveCard(how){
     let patch = data, note = "Saved";
     if(left.split && how==="all"){
       const fields = Object.fromEntries(IDENTITY_KEYS.map(k=>[k, data[k]]));
-      const done = await Promise.all(left.others.map(o => updateCard(o.id, fields)));
-      const changed = done.filter(Boolean).length;
-      if(changed < left.others.length){ toast(`${changed} of ${left.others.length} other copies were changed, so nothing else was saved. Try again.`); return; }
+      let changed = 0;
+      for(const o of left.others) if(await updateCard(o.id, fields)) changed++;
+      if(changed < left.others.length){
+        // This card isn't saved and the form stays as typed: Save again finishes it (the copies already changed then match).
+        render();
+        toast(changed ? `${changed} of ${left.others.length} other copies were changed; this one wasn't saved yet. Press Save again to finish.` : "None of the other copies could be changed, and this one wasn't saved. Try again.");
+        return;
+      }
       note = `Saved. All ${changed+1} copies changed`;
     } else if(left.split){
       const f = firstFree(c.binderId); patch = {...data, page:f.page, slot:f.slot};
