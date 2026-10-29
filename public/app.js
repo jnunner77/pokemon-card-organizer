@@ -1365,7 +1365,15 @@ async function trRecord(items){
 /* Undo a recorded trade (the server puts everything back, src/domain/ledger/trade.ts undoTrade). */
 async function undoTrade(id, ask){
   if(ask && !confirm("Undo this trade? Your cards go back where they were, the cards you got are taken out of your ledger, and placeholders they filled are placeholders again.")) return;
-  try{ await S.db.undoTrade(id); toast("Trade undone: your cards are back"); }
+  // where each traded card was before the trade, to say when one couldn't go back there
+  const was = S.cards.filter(c => c.sale?.trade?.id===id && c.sale.from?.binderId).map(c => ({id:c.id, from:c.sale.from}));
+  try{
+    await S.db.undoTrade(id);
+    const away = was.map(w => ({w, c:S.cards.find(x=>x.id===w.id)})).filter(({w, c}) => c && binderById(w.from.binderId) && !isCase(binderById(w.from.binderId)) && (c.binderId!==w.from.binderId || c.page!==w.from.page || c.slot!==w.from.slot));
+    toast(away.length
+      ? `Trade undone. ${away.map(({w, c}) => { const there = stackAt(w.from.binderId, w.from.page, w.from.slot)[0]; return `${c.name||"A card"} is in ${locText(c)}: Pocket ${w.from.slot} holds ${there?.name||"another card"} (a pocket only holds copies of one card)`; }).join(". ")}.`
+      : "Trade undone: your cards are back");
+  }
   catch(e){ writeErr(e); }
   render();
 }

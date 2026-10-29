@@ -60,6 +60,14 @@ describe('sorting a binder', () => {
     assert.deepEqual(cards.map((c) => c.place.slot), [2, 2, 1]);
   });
 
+  it('refuses a pocket whose cards match the first but not each other (a blank set matches any set)', () => {
+    const b = binder('b1', { pockets: 4 });
+    const pika = (id: string, over: Record<string, unknown>) => card(id, { name: 'Pikachu', number: '58/102', setCode: '', page: 1, slot: 1, ...over });
+    const cards = [pika('blank', { set: '' }), pika('base', { set: 'Base Set' }), pika('jungle', { set: 'Jungle' })];
+    assert.deepEqual(arrangeBinder(b, cards, moves(['blank', 1, 2], ['base', 1, 2], ['jungle', 1, 2]), { saveLayout: false, at: AT }), { ok: false, error: { code: 'POCKET_SHARED' } });
+    assert.equal(cards.every((c) => c.place.slot === 1), true);
+  });
+
   it('refuses two different cards in one pocket, or a pocket past the page', () => {
     const { b, cards } = setUp();
     assert.deepEqual(arrangeBinder(b, cards, moves(['z', 1, 1], ['x', 1, 1], ['y', 1, 3]), { saveLayout: false, at: AT }), { ok: false, error: { code: 'POCKET_SHARED' } });

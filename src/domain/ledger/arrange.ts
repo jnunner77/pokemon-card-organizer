@@ -46,8 +46,8 @@ export function arrangeBinder(binder: Binder, cardsInBinder: readonly Card[], mo
     byPocket.set(key, [...(byPocket.get(key) ?? []), card]);
   }
   for (const group of byPocket.values()) {
-    const [first, ...rest] = group;
-    if (first && rest.some((c) => !sameCard(first.fields, c.fields))) return err({ code: 'POCKET_SHARED' });
+    // Every pair must be the same card: a blank set matches two different sets that don't match each other.
+    if (group.some((a, i) => group.slice(i + 1).some((b) => !sameCard(a.fields, b.fields)))) return err({ code: 'POCKET_SHARED' });
   }
   const pockets = binder.pocketsPerPage;
   if (moves.some((m) => m.slot > pockets)) return err({ code: 'POCKET_PAST_PAGE', pockets });

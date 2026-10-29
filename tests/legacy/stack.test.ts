@@ -78,6 +78,15 @@ describe('a pocket’s copies', () => {
     expect(units(cards).map(ids)).toEqual([['x'], ['loose'], ['y', 'z'], ['w']]);
   });
 
+  it('splits a pocket whose cards match the lead but not each other (a blank set matches any set)', () => {
+    const q = (id: string, set: string, at: string) => p(id, { setCode: '', set, createdAt: at });
+    const cards = [q('blank', '', '2026-01-01T00:00:00Z'), q('base', 'Base Set', '2026-02-01T00:00:00Z'), q('jungle', 'Jungle', '2026-03-01T00:00:00Z')];
+    expect(units(cards).map(ids)).toEqual([['blank', 'base'], ['jungle']]);
+    expect(mixed(cards)).toBe(true);
+    expect(mixed([cards[0]!, cards[1]!])).toBe(false);
+    expect(fits([cards[1]!], cards[2]!)).toBe(false);
+  });
+
   it('keeps the same pocket number in two binders apart', () => {
     const cards = [p('a'), p('b', { binderId: 'b2' })];
     expect(units(cards).map(ids)).toEqual([['a'], ['b']]);

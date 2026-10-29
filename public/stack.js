@@ -69,7 +69,10 @@
     const out = alone.slice();
     for (const list of pockets.values()) {
       const sorted = list.slice().sort(order), lead = sorted[0];
-      const mine = sorted.filter((c) => c === lead || same(lead, c));
+      // a card joins the lead's unit only when it is the same card as every card already in it
+      // (the rule isn't transitive: a blank set matches two sets that don't match each other)
+      const mine = [lead];
+      for (const c of sorted) if (c !== lead && mine.every((x) => same(x, c))) mine.push(c);
       out.push(mine);
       for (const c of sorted) if (!mine.includes(c)) out.push([c]);
     }
@@ -80,7 +83,7 @@
   const fits = (list, card) => list.every((x) => x.id === card.id || same(x, card));
 
   /* Whether a pocket's cards aren't all copies of one card. */
-  const mixed = (list) => list.some((x) => !same(list[0], x));
+  const mixed = (list) => list.some((x, i) => list.slice(i + 1).some((y) => !same(x, y)));
 
   root.BinderStack = { same, order, units, fits, mixed };
 })(typeof window !== "undefined" ? window : globalThis);
