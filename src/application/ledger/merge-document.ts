@@ -1,5 +1,6 @@
 import type { InvalidDocument } from '#domain/ledger/check-document.ts';
 import type { Collection } from '#domain/ledger/document.ts';
+import type { PocketHoldsAnotherCard } from '#domain/ledger/pockets.ts';
 import { err, ok, type Result } from '#shared/result.ts';
 import { commit } from './commit.ts';
 import type { LedgerDeps } from './deps.ts';
@@ -13,7 +14,7 @@ export interface MergeDocumentInput {
   readonly patch: unknown;
 }
 
-export type MergeDocumentError = AddressError | InvalidDocument | { readonly code: 'DOCUMENT_NOT_FOUND'; readonly collection: Collection; readonly id: string };
+export type MergeDocumentError = AddressError | InvalidDocument | PocketHoldsAnotherCard | { readonly code: 'DOCUMENT_NOT_FOUND'; readonly collection: Collection; readonly id: string };
 
 /** Change some fields of a binder, card or setting. */
 export class MergeDocument {

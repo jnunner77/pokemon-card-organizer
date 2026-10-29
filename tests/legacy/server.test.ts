@@ -118,9 +118,10 @@ describe('sorting a binder', () => {
   const setUp = () => {
     store.set('binders', 'b1', { name: 'Trainers', pockets: 4, order: 1 });
     store.set('binders', 'b2', { name: 'Other', pockets: 9, order: 2 });
+    // Three different cards: a pocket only holds copies of one card.
     store.set('cards', 'x', card({ page: 1, slot: 1 }));
-    store.set('cards', 'y', card({ page: 1, slot: 3 }));
-    store.set('cards', 'z', card({ page: 2, slot: 1 }));
+    store.set('cards', 'y', card({ name: 'Snorlax', number: '131/128', page: 1, slot: 3 }));
+    store.set('cards', 'z', card({ name: 'Pikachu', number: '58/102', page: 2, slot: 1 }));
     store.set('cards', 'elsewhere', card({ binderId: 'b2', page: 1, slot: 1 }));
   };
   const place = (id: string) => ({ page: store.get('cards', id)!.page, slot: store.get('cards', id)!.slot });
@@ -154,6 +155,16 @@ describe('sorting a binder', () => {
     await tryMoves([{ id: 'x', page: 0, slot: 1 }, { id: 'y', page: 1, slot: 2 }, { id: 'z', page: 1, slot: 3 }]).expect(400);
     await request(app).post('/api/binders/nope/arrange').send({ moves: [] }).expect(404);
     expect(['x', 'y', 'z'].map(place)).toEqual(before);
+  });
+
+  it('lets copies of one card share a pocket, and refuses a different card in it', async () => {
+    setUp();
+    store.set('cards', 'x2', card({ page: 1, slot: 1, condition: 'LP' }));
+    const tryMoves = (moves: unknown[]) => request(app).post('/api/binders/b1/arrange').send({ moves });
+    await tryMoves([{ id: 'x', page: 1, slot: 2 }, { id: 'x2', page: 1, slot: 2 }, { id: 'y', page: 1, slot: 1 }, { id: 'z', page: 1, slot: 3 }]).expect(200);
+    expect(['x', 'x2', 'y', 'z'].map(place)).toEqual([{ page: 1, slot: 2 }, { page: 1, slot: 2 }, { page: 1, slot: 1 }, { page: 1, slot: 3 }]);
+    await tryMoves([{ id: 'x', page: 1, slot: 1 }, { id: 'x2', page: 1, slot: 1 }, { id: 'y', page: 1, slot: 1 }, { id: 'z', page: 1, slot: 3 }]).expect(400);
+    expect(['x', 'x2', 'y', 'z'].map(place)).toEqual([{ page: 1, slot: 2 }, { page: 1, slot: 2 }, { page: 1, slot: 1 }, { page: 1, slot: 3 }]);
   });
 
   it("keeps the binder's own layout when asked, and only once the moves are saved", async () => {
@@ -201,8 +212,8 @@ describe('moving cards to another binder', () => {
     store.set('binders', 'b1', { name: 'Trainers', pockets: 4, order: 1 });
     store.set('binders', 'b2', { name: 'Other', pockets: 9, order: 2 });
     store.set('cards', 'x', card({ page: 1, slot: 1 }));
-    store.set('cards', 'y', card({ page: 1, slot: 2 }));
-    store.set('cards', 'z', card({ binderId: 'b2', page: 1, slot: 1 }));
+    store.set('cards', 'y', card({ name: 'Snorlax', number: '131/128', page: 1, slot: 2 }));
+    store.set('cards', 'z', card({ name: 'Pikachu', number: '58/102', binderId: 'b2', page: 1, slot: 1 }));
   };
   const at = (id: string) => { const c = store.get('cards', id)!; return { binderId: c.binderId, page: c.page, slot: c.slot }; };
   const place = (moves: unknown[]) => request(app).post('/api/cards/place').send({ moves });
@@ -229,6 +240,23 @@ describe('moving cards to another binder', () => {
     await place([{ id: 'x', binderId: 'b2', page: 1, slot: 5 }, { id: 'x', binderId: 'b2', page: 1, slot: 6 }]).expect(400);
     await place([]).expect(400);
     expect([at('x'), at('y'), at('z')]).toEqual([{ binderId: 'b1', page: 1, slot: 1 }, { binderId: 'b1', page: 1, slot: 2 }, { binderId: 'b2', page: 1, slot: 1 }]);
+  });
+
+  it('joins a pocket holding the same card, and refuses a pocket holding a different one', async () => {
+    setUp();
+    store.set('cards', 'x2', card({ page: 1, slot: 3, condition: 'LP' }));
+    await place([{ id: 'x', binderId: 'b1', page: 1, slot: 3 }]).expect(200);
+    expect([at('x'), at('x2')]).toEqual([{ binderId: 'b1', page: 1, slot: 3 }, { binderId: 'b1', page: 1, slot: 3 }]);
+    const r = await place([{ id: 'x2', binderId: 'b1', page: 1, slot: 2 }]).expect(409); // y is there
+    expect(r.body.error).toContain('Snorlax is in that pocket');
+    expect(at('x2')).toEqual({ binderId: 'b1', page: 1, slot: 3 });
+    // The documents API answers the same: a new card, or a card with a new place.
+    await request(app).put('/api/docs/cards/new').send(card({ page: 1, slot: 2 })).expect(409);
+    expect(store.get('cards', 'new')).toBeUndefined();
+    await request(app).put('/api/docs/cards/new').send(card({ page: 1, slot: 3 })).expect(200);
+    await request(app).patch('/api/docs/cards/new').send({ slot: 2 }).expect(409);
+    await request(app).patch('/api/docs/cards/new').send({ name: 'Lapras ex' }).expect(200); // not moving: never refused
+    expect(at('new')).toEqual({ binderId: 'b1', page: 1, slot: 3 });
   });
 
   it('puts cards in a display case with no page or pocket, and back into a binder', async () => {

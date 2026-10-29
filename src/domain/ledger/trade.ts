@@ -2,6 +2,7 @@ import { err, ok, type Result } from '#shared/result.ts';
 import type { Binder } from '../binders/binder.ts';
 import { Card, type CardId, type CardPlace } from '../cards/card.ts';
 import type { PriceEntry, PriceEntryError } from '../cards/price-entries.ts';
+import { sameCard } from '../cards/identity.ts';
 import { onWatchlist } from '../cards/watch.ts';
 import type { InvalidDocument } from './check-document.ts';
 import { type Fields, isRecord } from './document.ts';
@@ -62,16 +63,17 @@ const pocketKey = (binderId: string, page: number, slot: number) => `${binderId}
 
 /** The pockets cards are in, and each binder's last page with a card on it. */
 class Pockets {
-  readonly #taken = new Set<string>();
+  readonly #taken = new Map<string, Card[]>();
   readonly #lastPage = new Map<string, number>();
 
   constructor(cards: readonly Card[]) {
-    for (const c of cards) this.take(c.place);
+    for (const c of cards) this.take(c.place, c);
   }
 
-  take(p: CardPlace): void {
+  take(p: CardPlace, card?: Card): void {
     if (p.binderId === null || p.page === null || p.slot === null) return;
-    this.#taken.add(pocketKey(p.binderId, p.page, p.slot));
+    const key = pocketKey(p.binderId, p.page, p.slot);
+    this.#taken.set(key, card ? [...(this.#taken.get(key) ?? []), card] : (this.#taken.get(key) ?? []));
     this.#lastPage.set(p.binderId, Math.max(this.#lastPage.get(p.binderId) ?? 0, p.page));
   }
 
@@ -79,8 +81,13 @@ class Pockets {
     return !this.#taken.has(pocketKey(binderId, page, slot));
   }
 
+  /** Whether the pocket is empty or holds only copies of this card. */
+  holdsOnly(card: Card, binderId: string, page: number, slot: number): boolean {
+    return (this.#taken.get(pocketKey(binderId, page, slot)) ?? []).every((c) => sameCard(c.fields, card.fields));
+  }
+
   /** The binder's first empty pocket (a case has none: no page or pocket), taken. */
-  next(binder: Binder): CardPlace {
+  next(binder: Binder, card?: Card): CardPlace {
     const id = String(binder.id);
     if (binder.isCase) return { binderId: id, page: null, slot: null };
     const last = this.#lastPage.get(id) ?? 0;
@@ -88,13 +95,13 @@ class Pockets {
       for (let slot = 1; slot <= binder.pocketsPerPage; slot++) {
         if (this.free(id, page, slot)) {
           const place = { binderId: id, page, slot };
-          this.take(place);
+          this.take(place, card);
           return place;
         }
       }
     }
     const place = { binderId: id, page: last + 1, slot: 1 };
-    this.take(place);
+    this.take(place, card);
     return place;
   }
 }
@@ -163,7 +170,7 @@ export function recordTrade(t: TradeRecord, cards: readonly Card[], binders: rea
 }
 
 /**
- * Undo a recorded trade: my traded cards come back to the pockets they left (or the next free one
+ * Undo a recorded trade: my traded cards come back to the pockets they left, beside their copies (or the next free one
  * in that binder, or no binder when it's gone), the cards added by it are deleted, and the
  * placeholders it filled hold their pockets again, as they were.
  */
@@ -200,10 +207,10 @@ export function undoTrade(tradeId: string, cards: readonly Card[], binders: read
     let place: CardPlace = { binderId: null, page: null, slot: null };
     if (binder) {
       const { page, slot } = from;
-      if (!binder.isCase && binder.fits(page, slot) && typeof page === 'number' && typeof slot === 'number' && pockets.free(String(binder.id), page, slot)) {
+      if (!binder.isCase && binder.fits(page, slot) && typeof page === 'number' && typeof slot === 'number' && pockets.holdsOnly(card, String(binder.id), page, slot)) {
         place = { binderId: String(binder.id), page, slot };
-        pockets.take(place);
-      } else place = pockets.next(binder);
+        pockets.take(place, card);
+      } else place = pockets.next(binder, card);
     }
     const priceId = typeof sale['priceId'] === 'string' ? [sale['priceId']] : [];
     const r = card.changePriceEntries({ remove: priceId, fields: { ...place, status: 'binder', sale: null, updatedAt: stamp } }, at);
