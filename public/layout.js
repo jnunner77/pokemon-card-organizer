@@ -10,33 +10,45 @@
   const fits = (n, p) => !!p && p.page >= 1 && p.slot >= 1 && p.slot <= n && Number.isInteger(p.page) && Number.isInteger(p.slot);
 
   /* pockets: the binder's pockets per page. cards: the cards in it now ({id, page, slot}).
-     layout: the saved layout ({places: [{id, page, slot}]}). Each card with a saved place goes
-     back to it; cards added since (or whose place no longer fits the page) follow the last saved
-     card in their current order. Cards removed since are skipped.
-     Returns {moves: [{id, page, slot}] for every card, moved: how many change place, added: how
-     many weren't in the layout}. */
-  function restore(pockets, cards, layout) {
-    const n = pockets, here = new Set(cards.map((c) => c.id));
+     layout: the saved layout ({places: [{id, page, slot}]}). units: the cards that move together
+     (arrays of ids: a pocket's copies of one card); without them each card is its own unit.
+     Each unit goes back to the saved place of its first card found in the layout (the first unit
+     to claim a place keeps it); units without one (added since, or whose place no longer fits the
+     page or went to another unit) follow the last saved place in their current order. Cards
+     removed since are skipped.
+     Returns {moves: [{id, page, slot}] for every card, moved: how many cards change place, added:
+     how many cards weren't in the layout}. */
+  function restore(pockets, cards, layout, units) {
+    const n = pockets, here = new Map(cards.map((c) => [c.id, c]));
+    const groups = [], of = new Map();
+    for (const u of units || []) {
+      const ids = u.filter((id) => here.has(id) && !of.has(id));
+      if (!ids.length) continue;
+      groups.push(ids);
+      for (const id of ids) of.set(id, ids);
+    }
+    for (const c of cards) if (!of.has(c.id)) { const ids = [c.id]; groups.push(ids); of.set(c.id, ids); }
     const saved = new Map(), taken = new Set();
     for (const p of (layout && layout.places) || []) {
-      if (!here.has(p.id) || saved.has(p.id) || !fits(n, p) || taken.has(index(n, p))) continue;
-      saved.set(p.id, p);
+      const g = of.get(p.id);
+      if (!g || saved.has(g) || !fits(n, p) || taken.has(index(n, p))) continue;
+      saved.set(g, p);
       taken.add(index(n, p));
     }
-    const byPlace = (a, b) => (fits(n, a) ? index(n, a) : Number.MAX_SAFE_INTEGER) - (fits(n, b) ? index(n, b) : Number.MAX_SAFE_INTEGER);
-    const rest = cards.filter((c) => !saved.has(c.id)).sort(byPlace);
+    const at = (g) => here.get(g[0]);
+    const byPlace = (a, b) => (fits(n, at(a)) ? index(n, at(a)) : Number.MAX_SAFE_INTEGER) - (fits(n, at(b)) ? index(n, at(b)) : Number.MAX_SAFE_INTEGER);
+    const rest = groups.filter((g) => !saved.has(g)).sort(byPlace);
     let next = taken.size ? Math.max(...taken) + 1 : 0;
     const placed = new Map();
-    for (const c of rest) placed.set(c.id, spot(n, next++));
-    const moves = cards.map((c) => ({ id: c.id, ...(saved.has(c.id) ? { page: saved.get(c.id).page, slot: saved.get(c.id).slot } : placed.get(c.id)) }));
-    const cur = new Map(cards.map((c) => [c.id, c]));
-    const moved = moves.filter((m) => cur.get(m.id).page !== m.page || cur.get(m.id).slot !== m.slot).length;
-    return { moves, moved, added: rest.length };
+    for (const g of rest) placed.set(g, spot(n, next++));
+    const moves = cards.map((c) => { const g = of.get(c.id), p = saved.get(g) || placed.get(g); return { id: c.id, page: p.page, slot: p.slot }; });
+    const moved = moves.filter((m) => here.get(m.id).page !== m.page || here.get(m.id).slot !== m.slot).length;
+    return { moves, moved, added: rest.reduce((sum, g) => sum + g.length, 0) };
   }
 
   /* Whether the binder is in its saved layout now (nothing would move putting it back). */
-  function current(pockets, cards, layout) {
-    return !!layout && restore(pockets, cards, layout).moved === 0;
+  function current(pockets, cards, layout, units) {
+    return !!layout && restore(pockets, cards, layout, units).moved === 0;
   }
 
   /* The page to show after the binder's pockets per page change from `from` to `to`: the one that

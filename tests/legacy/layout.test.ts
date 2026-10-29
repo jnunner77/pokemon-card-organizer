@@ -7,8 +7,8 @@ import { describe, expect, it } from 'vitest';
 type Spot = { page: number; slot: number };
 type Card = { id: string; page?: number | null; slot?: number | null };
 type Layout = { places: Card[] } | null | undefined;
-type Restore = (pockets: number, cards: Card[], layout: Layout) => { moves: ({ id: string } & Spot)[]; moved: number; added: number };
-const sandbox = { window: {} as { BinderLayout: { restore: Restore; current: (pockets: number, cards: Card[], layout: Layout) => boolean; pageAfterResize: (page: number, from: number, to: number) => number; pageAfterSave: (page: number, from: number | null, to: number | null) => number | null; widthOf: (pockets: number, cards: Card[], layout: Layout) => number; pageInView: (page: number, lastPage: number, held?: number) => number } } };
+type Restore = (pockets: number, cards: Card[], layout: Layout, units?: string[][]) => { moves: ({ id: string } & Spot)[]; moved: number; added: number };
+const sandbox = { window: {} as { BinderLayout: { restore: Restore; current: (pockets: number, cards: Card[], layout: Layout, units?: string[][]) => boolean; pageAfterResize: (page: number, from: number, to: number) => number; pageAfterSave: (page: number, from: number | null, to: number | null) => number | null; widthOf: (pockets: number, cards: Card[], layout: Layout) => number; pageInView: (page: number, lastPage: number, held?: number) => number } } };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public/layout.js'), 'utf8'), sandbox);
 const { restore, current, pageAfterResize, pageAfterSave, widthOf, pageInView } = sandbox.window.BinderLayout;
 const c = (id: string, page: number | null, slot: number | null) => ({ id, page, slot });
@@ -42,6 +42,42 @@ describe("putting a binder back in its own layout", () => {
     const r = restore(4, [c('a', 1, 1), c('b', 1, 2)], { places: [c('a', 1, 1), c('b', 1, 1), c('a', 2, 2)] });
     expect(r.moves).toEqual([c('a', 1, 1), c('b', 1, 2)]);
     expect(restore(4, [c('a', 1, 2)], null).moves).toEqual([c('a', 1, 1)]);
+  });
+});
+
+describe('putting a binder with stacked pockets back in its layout', () => {
+  const layout = { places: [c('a1', 1, 1), c('a2', 1, 1), c('b', 1, 3), c('c', 2, 3)] };
+  // Sorted: the a copies (one pocket) first, then c, then b.
+  const sorted = [c('c', 1, 2), c('a1', 1, 1), c('a2', 1, 1), c('b', 1, 3)];
+  const units = [['a1', 'a2'], ['c'], ['b']];
+
+  it('sends the copies of a pocket back together', () => {
+    expect(restore(4, sorted, layout, units)).toEqual({ moves: [c('c', 2, 3), c('a1', 1, 1), c('a2', 1, 1), c('b', 1, 3)], moved: 1, added: 0 });
+    expect(current(4, [c('a1', 1, 1), c('a2', 1, 1), c('b', 1, 3), c('c', 2, 3)], layout, units)).toBe(true);
+    expect(current(4, sorted, layout, units)).toBe(false);
+  });
+
+  it('treats each card as its own unit without units', () => {
+    expect(restore(4, sorted, layout).moves).toEqual(restore(4, sorted, layout, [['c'], ['a1'], ['a2'], ['b']]).moves);
+  });
+
+  it('puts a copy stacked since the layout was saved with its stack, leaving its old pocket empty', () => {
+    const saved = { places: [c('a1', 1, 1), c('a2', 1, 2), c('b', 1, 3)] };
+    const now = [c('a1', 2, 1), c('a2', 2, 1), c('b', 2, 2)];
+    expect(restore(4, now, saved, [['a1', 'a2'], ['b']])).toEqual({ moves: [c('a1', 1, 1), c('a2', 1, 1), c('b', 1, 3)], moved: 3, added: 0 });
+  });
+
+  it('gives a place saved for two units to the first, and the other follows the last saved place', () => {
+    const shared = { places: [c('a', 1, 1), c('b', 1, 1), c('c', 1, 2)] };
+    const r = restore(4, [c('a', 2, 1), c('b', 2, 2), c('c', 2, 3)], shared, [['a'], ['b'], ['c']]);
+    expect(r.moves).toEqual([c('a', 1, 1), c('b', 1, 3), c('c', 1, 2)]);
+    expect(r.added).toBe(1);
+  });
+
+  it('counts the cards of the units added since', () => {
+    const r = restore(4, [...sorted, c('n1', 2, 1), c('n2', 2, 1)], layout, [...units, ['n1', 'n2']]);
+    expect(r.added).toBe(2);
+    expect(r.moves.slice(-2)).toEqual([c('n1', 2, 4), c('n2', 2, 4)]);
   });
 });
 

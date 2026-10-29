@@ -6,8 +6,9 @@ import { describe, expect, it } from 'vitest';
 // public/move.js is a plain browser script; load it the way the page does.
 type Spot = { page: number; slot: number };
 type Card = { id: string; page?: number | null; slot?: number | null };
-type Plan = (pockets: number | null, cards: Card[], ids: string[], at: Spot | null) => { moves: ({ id: string } & (Spot | { page: null; slot: null }))[]; shifted: number };
-const sandbox = { window: {} as { BinderMove: { plan: Plan; end: (pockets: number | null, cards: Card[], ids: string[]) => Spot | null; target: (ids: string[], current: string | null, last: string | null) => string | null } } };
+type Unit = string | string[];
+type Plan = (pockets: number | null, cards: Card[], ids: Unit[], at: Spot | null, o?: { joins?: (unit: string[], occupants: string[]) => boolean }) => { moves: ({ id: string } & (Spot | { page: null; slot: null }))[]; shifted: number };
+const sandbox = { window: {} as { BinderMove: { plan: Plan; end: (pockets: number | null, cards: Card[], ids: Unit[]) => Spot | null; target: (ids: string[], current: string | null, last: string | null) => string | null } } };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public/move.js'), 'utf8'), sandbox);
 const { plan, end, target } = sandbox.window.BinderMove;
 const c = (id: string, page: number, slot: number) => ({ id, page, slot });
@@ -46,6 +47,38 @@ describe('moving cards to a binder', () => {
     expect(end(4, binder, ['f'])).toEqual({ page: 2, slot: 2 });
     // a moves in front of c: b stays, c and d shift, and a's old pocket stays empty.
     expect(plan(4, binder, ['a'], { page: 1, slot: 3 }).moves).toEqual([{ id: 'a', page: 1, slot: 3 }, { id: 'c', page: 1, slot: 4 }, { id: 'd', page: 2, slot: 1 }, { id: 'e', page: 2, slot: 2 }]);
+  });
+
+  it('moves a pocket’s copies as one unit, and shifts the cards in the way along whole', () => {
+    // a1 and a2 are copies in pocket 1; b1 and b2 are copies in pocket 2; c is alone in 3.
+    const stacks = [c('a1', 1, 1), c('a2', 1, 1), c('b1', 1, 2), c('b2', 1, 2), c('c', 1, 3)];
+    expect(plan(4, stacks, [['x1', 'x2']], { page: 1, slot: 2 })).toEqual({
+      moves: [{ id: 'x1', page: 1, slot: 2 }, { id: 'x2', page: 1, slot: 2 }, { id: 'b1', page: 1, slot: 3 }, { id: 'b2', page: 1, slot: 3 }, { id: 'c', page: 1, slot: 4 }],
+      shifted: 3,
+    });
+    // Units after the first take the following pockets; moving copies leave their pocket empty.
+    expect(plan(4, stacks, [['a1', 'a2'], 'c'], null).moves).toEqual([{ id: 'a1', page: 1, slot: 3 }, { id: 'a2', page: 1, slot: 3 }, { id: 'c', page: 1, slot: 4 }]);
+    expect(end(4, stacks, [['b1', 'b2']])).toEqual({ page: 1, slot: 4 });
+  });
+
+  it('joins the copies in the pocket it lands on when they are the same card, and shifts nothing', () => {
+    const stacks = [c('a1', 1, 1), c('a2', 1, 1), c('b', 1, 2)];
+    const joins = (unit: string[], occ: string[]) => occ.every((id) => id.startsWith('a')) && unit.every((id) => id.startsWith('a'));
+    expect(plan(4, stacks, [['a3']], { page: 1, slot: 1 }, { joins })).toEqual({ moves: [{ id: 'a3', page: 1, slot: 1 }], shifted: 0 });
+    // The next unit starts from the following pocket, and shifts what is there.
+    expect(plan(4, stacks, [['a3'], 'z'], { page: 1, slot: 1 }, { joins })).toEqual({
+      moves: [{ id: 'a3', page: 1, slot: 1 }, { id: 'z', page: 1, slot: 2 }, { id: 'b', page: 1, slot: 3 }],
+      shifted: 1,
+    });
+  });
+
+  it('shifts a different card at the pocket it lands on, even when asked about joining', () => {
+    const stacks = [c('a1', 1, 1), c('a2', 1, 1), c('b', 1, 2)];
+    const joins = () => false;
+    expect(plan(4, stacks, ['x'], { page: 1, slot: 1 }, { joins })).toEqual({
+      moves: [{ id: 'x', page: 1, slot: 1 }, { id: 'a1', page: 1, slot: 2 }, { id: 'a2', page: 1, slot: 2 }, { id: 'b', page: 1, slot: 3 }],
+      shifted: 3,
+    });
   });
 
   it("ignores cards with no pocket or in a pocket past the page's size", () => {
