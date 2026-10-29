@@ -657,12 +657,55 @@ back, and cards not placed yet follow. *Save* stores it all at once.
 
 **Quick swap:** *Swap with…* in a card's drawer (under Location), then tap another card or an
 empty pocket, on any page or in any binder, and they trade places straight away, with *Undo*.
-With exactly two cards selected (press and hold), *Swap* does the same. *Escape* or *Cancel* stops.
+With exactly two cards or pockets selected (press and hold), *Swap* does the same. A pocket with
+several copies swaps as a whole (see [Several copies in one pocket](#several-copies-in-one-pocket)).
+*Escape* or *Cancel* stops.
 
 **Move to another binder:** press and hold a card (or select several), then *Move*. Pick the
 binder (it starts on the one you're in); the cards go **at the end**, after its last card, or **in a pocket you choose**, where any
 card in the way shifts along to the next empty pocket (only as far as it has to). The pockets they
 leave stay empty, so nothing else in the old binder moves. Everything moves at once, with *Undo*.
+A selected pocket's copies move together, and cards landing on a pocket that holds copies of the
+same card go in with them instead of shifting them.
+
+## Several copies in one pocket
+
+A real binder pocket often holds more than one copy of the same card. A pocket here can too: each
+copy stays its own card (its own condition, grade, owner, status, prices, sale and placeholder
+switch), and a pocket still refuses a *different* card. Totals, Pricing, Selling, the List view, the
+Table, CSV export and backups count every copy, with no change to the data. *N of M pockets filled*
+counts pockets (with the number of cards after it when they differ).
+
+- **The same card** means the same printing: the same name, number, set, variant and language.
+  Case, accents and punctuation don't matter, 51 and 051/162 are the same number, a blank set matches
+  any set, and a blank language counts as English. Condition, grade, owner, status and price may
+  differ between copies.
+- **Adding copies:** *Add a copy here* in a card's details (under *Location*), or *Duplicate* and
+  choose *In the same pocket* (the other choice, *In the next empty pockets*, is how Duplicate always
+  worked, and the dialog remembers your last choice). Moving a card into a pocket that holds the same
+  card, from its details or from *Move*, puts it with the copies there.
+- **What you see:** the top copy (a held card before a sold one, a real card before a placeholder, then
+  the oldest) with a **×N** badge and a stacked edge. Tap it to open the top copy; its details list
+  **every copy in the pocket** (condition or grade, owner, status, value), and tapping a copy opens it.
+  Selecting a pocket (press and hold) selects all its copies.
+- **Moving:** moving one copy out of a pocket leaves the others where they are. *Swap with…*, *Move* of
+  a selected pocket, *Sort*, *Arrange*, *Type to place* and *My binder layout* move a pocket's copies
+  together, and Sort never stacks or unstacks cards. A different card can't land in an occupied pocket:
+  from a stack, choose an empty pocket, or use *Swap with…* to swap the whole pocket. Moving a lone card
+  onto a different card swaps them, as before.
+- **Editing a copy's name, set, number, variant or language** so it's no longer the same card as the
+  others asks whether to change every copy in the pocket or move this one to the next empty pocket.
+- **Different cards** in one pocket (older data, or a Table edit) show a red **≠N** badge, and the
+  pocket's details say which copy to move out. Nothing moves or deletes them by itself, and *Arrange*
+  lists the extra cards at the end so saving separates them.
+- **CSV import:** rows for the same card with the same page and pocket go in that pocket together,
+  and an export of a stacked pocket imports back the same way. If the pocket already has the same
+  card, a row is added as another copy (under *Replace what's there*, row by row it overwrites the
+  copies, with extra rows added as copies); a different card follows *If a pocket already has a
+  different card*.
+- **API:** the server enforces it too. Saving a card (PUT or PATCH) into a pocket that holds a
+  different card, moving cards (`POST /api/cards/place`), a sale's undo and a sort that would put
+  different cards in one pocket answer 409 (400 for a sort) and change nothing.
 
 ## Display cases
 
@@ -693,7 +736,8 @@ pocket 1 with no gaps, so you can rearrange the real binder to match:
   details* fill any still missing.
 - **Price**, highest or lowest first, by each card's current value.
 
-A preview shows the new order page by page before anything moves. Cards with no release date
+A preview shows the new order page by page before anything moves (a pocket with several copies is
+one row, with ×N, and its copies stay together). Cards with no release date
 or price go at the end in their current order. All the moves are saved together, and *Undo* in
 the message afterwards puts every card back.
 
@@ -738,9 +782,9 @@ when you've rearranged the binder and want to keep the new layout instead.
   and slice it into one photo per pocket. Flip through pictures full screen.
 - **Duplicate** a card (in its details) or several (press and hold to select): choose how many
   copies, 1 to 50 in all (fewer of each when several are selected). Each copy goes in the next
-  empty pocket after its card, with the same details, photo and market prices; what you paid,
-  listings and sales stay with the original. One copy opens it; several leave the original open
-  and say where they went.
+  empty pocket after its card, or *In the same pocket*, with the same details, photo and market
+  prices; what you paid, listings and sales stay with the original. One copy opens it; several
+  leave the original open and say where they went.
 - **Quick status**, to list cards for sale fast: press and hold a card's status badge (*Listed*,
   *Grading*… on a pocket, or the status in the List view) and tap its new status, or press and hold
   a card, select more, and tap *Status*. It saves straight away, with *Undo*. *Sold* opens Quick
@@ -755,7 +799,8 @@ when you've rearranged the binder and want to keep the new layout instead.
 - **Where** a price came from, a card sold or was bought (*Add a price*, Quick sell, Bulk buy) is a
   dropdown of the usual places (eBay, Card show, PriceCharting…); *Custom…* shows a field to type
   any other place.
-- **CSV import and export**, with a template, per-row checks and a "rows to fix" file.
+- **CSV import and export**, with a template, per-row checks and a "rows to fix" file. Rows for
+  the same card in one pocket go in together as copies.
 - **Full backups** with photos: *Settings → Download full backup* / *Restore from backup*.
   The server also keeps the ledger as it was at the start of each of the last 14 days.
 - **Live updates** between every open tab and device.
@@ -964,7 +1009,8 @@ in `src/` is its own TypeScript project that may only import the layers inside i
   rules for what a document may hold (`ledger/check-document.ts`, kept loose so fields the rules
   don't know are never dropped), changing a card's price entries one by one against its list as it
   is now (`cards/price-entries.ts`, with `public/priceops.js` working out what the page changed),
-  sorting a binder (`ledger/arrange.ts`), moving cards (`ledger/place.ts`) and recording or
+  sorting a binder (`ledger/arrange.ts`), moving cards (`ledger/place.ts`), when two cards are the
+  same card (`cards/identity.ts`) and so may share a pocket (`ledger/pockets.ts`), and recording or
   undoing a trade with a dealer (`ledger/trade.ts`); photos (`photos/`:
   a picture's type from its bytes, ids, the trash that keeps a deleted photo while any copy of the
   ledger refers to it) and backups (`backups/`: retention, the copies' names and kinds, the full
@@ -1042,7 +1088,7 @@ applies the rate limits.
   `guest.html`/`guest.js` (the guest page).
 - `public/`: the page. `app.js` is the ledger UI; `search.js` matches cards for Find (tested in
   `tests/legacy/search.test.ts`); `watch.js` is the price watches and the Watchlist; `portfolio.js` and `selling.js` work out the Pricing and Selling views'
-  numbers; `back.js` makes Back close a card's details and the Pricing and Selling views (tested in `tests/legacy/back.test.ts`); `runtime.js` connects it to the server.
+  numbers; `back.js` makes Back close a card's details and the Pricing and Selling views (tested in `tests/legacy/back.test.ts`); `stack.js` is the page's copy of the same-card rule and groups a pocket's copies (tested in `tests/legacy/stack.test.ts`), and `importpockets.js` works out which pocket each CSV row goes in; `runtime.js` connects it to the server.
 
 Tests: `tests/<layer>/` holds the node:test tests for `src/` (the domain without fakes, use cases
 with the in-memory adapters); `tests/legacy/` holds the vitest suites from before the layers,

@@ -1093,3 +1093,30 @@ html.tblopen,html.tblopen body{overflow:hidden}
   .watchtbl .wcell .chip{display:inline-block;margin-top:2px}
 }
 @media (max-width:420px){.watchform{grid-template-columns:1fr}}
+
+/* several copies of one card in a pocket (public/stack.js): a ×N badge and a stacked edge */
+.pocket .stackn{position:absolute;top:5px;left:22px;z-index:1;font-family:var(--f-mono);font-size:10.5px;font-weight:700;background:rgba(5,8,11,.78);color:#fff;border-radius:4px;padding:1px 5px}
+.picking .pocket .stackn{left:31px}
+.pocket.stack{box-shadow:3px 3px 0 -1px var(--pocket),3px 3px 0 0 var(--pocket-line)}
+.pocket.mixed .stackn{background:var(--bad,#c0392b)}
+.dupwhere{margin:10px 0 0}
+.stackfoot{flex-wrap:wrap}
+/* the copies in a pocket, in the card's details */
+.copies{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.copyrow{display:grid;grid-template-columns:1fr auto auto;gap:4px 10px;align-items:center;width:100%;min-height:44px;padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit;text-align:left;cursor:pointer}
+.copyrow:hover{border-color:var(--ink-3)}
+.copyrow.here{border-color:var(--ink);background:var(--surface-2)}
+.copyrow.odd{border-color:var(--bad)}
+.copyrow .cr-main{min-width:0;overflow-wrap:anywhere}
+.copyrow .cr-owner{color:var(--ink-3);font-size:12px;font-weight:400}
+.copyrow .cr-chips{display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end}
+.copyrow .cr-val{font-size:12.5px;white-space:nowrap}
+.copyrow .cr-odd{grid-column:1/-1;color:var(--bad);font-size:12px;font-weight:600}
+.chip.here{background:var(--ink);color:var(--surface)}
+@media (max-width:640px){
+  /* a narrow pocket: under its number, so a long price can't cover it */
+  .pocket .stackn{font-size:10px;padding:0 4px;top:22px;left:5px}
+  .picking .pocket .stackn{top:30px;left:5px}
+  .copyrow{grid-template-columns:1fr auto}
+  .copyrow .cr-chips{grid-column:1/-1;justify-content:flex-start}
+}

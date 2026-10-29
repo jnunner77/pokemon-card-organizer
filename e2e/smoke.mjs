@@ -169,6 +169,22 @@ try {
   if ((await other.locator('#f_notes').inputValue()) !== 'Centering 60/40') fail('notes from the table');
   await other.keyboard.press('Escape');
 
+  // Several copies in one pocket: add a Pikachu to pocket 2, then another copy of it in the same pocket.
+  await page.locator('[data-empty="2"]').click();
+  await page.locator('#f_name').fill('Pikachu');
+  await page.locator('#f_number').fill('58/102');
+  await page.locator('#btnSave').click();
+  await page.getByText('Added Pikachu').waitFor();
+  await page.locator('#btnCopyHere').click();
+  if (!(await page.locator('input[name=dupwhere][value=here]').isChecked())) fail('Add a copy here should choose the same pocket');
+  await page.getByRole('button', { name: 'Make 1 copy' }).click();
+  await page.locator('.pocket .stackn', { hasText: '×2' }).waitFor();
+  await page.locator('.copies li').nth(1).waitFor();
+  if ((await page.locator('.copies li').count()) !== 2) fail('the copies list should have 2 rows');
+  await page.locator('.copies [data-copy]:not(.here)').click(); // tapping a copy opens it
+  await page.locator('.copies .copyrow.here').waitFor();
+  await page.keyboard.press('Escape');
+
   // Phone layout: no sideways scrolling, and press-and-hold selection has buttons.
   const phone = await browser.newContext({ viewport: { width: 375, height: 740 }, hasTouch: true, isMobile: true });
   const p = await phone.newPage();
@@ -177,6 +193,20 @@ try {
   await p.locator('[data-card]').first().waitFor();
   const overflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   if (overflow > 1) fail(`phone layout scrolls sideways by ${overflow}px`);
+  // The ×2 badge fits on the pocket, tapping it opens the copies list, and nothing scrolls sideways.
+  const badge = p.locator('.pocket .stackn', { hasText: '×2' });
+  await badge.waitFor();
+  const stackOverlap = await p.evaluate(() => {
+    const b = document.querySelector('.pocket .stackn')?.getBoundingClientRect();
+    const pr = document.querySelector('.pocket .stackn')?.parentElement?.querySelector('.price')?.getBoundingClientRect();
+    return b && pr ? b.right > pr.left && b.left < pr.right && b.bottom > pr.top && b.top < pr.bottom : false;
+  });
+  if (stackOverlap) fail('the ×2 badge overlaps the price');
+  await badge.tap();
+  await p.locator('.copies li').nth(1).waitFor();
+  const copiesOverflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  if (copiesOverflow > 1) fail(`phone copies list scrolls sideways by ${copiesOverflow}px`);
+  await p.keyboard.press('Escape');
   await p.locator('#btnTable').click();
   await p.locator('#tblBody select[data-tk="owner"]').first().waitFor();
   const tblOverflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
