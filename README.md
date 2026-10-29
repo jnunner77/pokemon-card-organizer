@@ -688,6 +688,8 @@ counts pockets (with the number of cards after it when they differ).
   the oldest) with a **×N** badge and a stacked edge. Tap it to open the top copy; its details list
   **every copy in the pocket** (condition or grade, owner, status, value), and tapping a copy opens it.
   Selecting a pocket (press and hold) selects all its copies.
+- **Status:** press and hold a stacked pocket's status badge to change the top copy's status. To change
+  every copy's, press and hold the pocket's picture (it selects all its copies), then *Status*.
 - **Moving:** moving one copy out of a pocket leaves the others where they are. *Swap with…*, *Move* of
   a selected pocket, *Sort*, *Arrange*, *Type to place* and *My binder layout* move a pocket's copies
   together, and Sort never stacks or unstacks cards. A different card can't land in an occupied pocket:

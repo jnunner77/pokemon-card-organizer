@@ -3493,7 +3493,7 @@ document.addEventListener("pointerdown", e => {
   clearTimeout(hold?.t);
   hold = {x:e.clientX, y:e.clientY, t:setTimeout(()=>{
     hold=null; suppressClick=true; const ids=idsOf(cd);
-    if(!S.pick && badge && cd.contains(badge) && canEdit()) return statusHold(ids);
+    if(!S.pick && badge && cd.contains(badge) && canEdit()) return statusHold([cd.dataset.card]); // the badge shows the top copy's status: only that copy changes
     if(S.pick){ togglePick(ids); renderMain(); } else startPick(ids);
   }, HOLD_MS)};
 });
