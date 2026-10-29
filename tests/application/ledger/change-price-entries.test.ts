@@ -33,4 +33,18 @@ describe('ChangePriceEntries', () => {
     assert.deepEqual(await change.execute({ cardId: 'c1', update: [entry('gone')], fields: { status: 'sold' } }), { ok: false, error: { code: 'PRICE_ENTRY_GONE' } });
     assert.deepEqual(ledger.tables.cards.get('c1'), card({ prices: [entry('a')] }));
   });
+
+  it('refuses fields that put the card in a different card’s pocket, saving nothing', async () => {
+    const { ledger, deps, published } = setUp();
+    ledger.seed('cards', 'c1', card({ slot: 1 }));
+    ledger.seed('cards', 'c2', card({ name: 'Pikachu', number: '58/102', slot: 2 }));
+    ledger.seed('cards', 'c3', card({ slot: 3 }));
+    const change = new ChangePriceEntries(deps);
+    assert.deepEqual(await change.execute({ cardId: 'c1', add: [entry('a')], fields: { slot: 2 } }), { ok: false, error: { code: 'POCKET_HOLDS_ANOTHER_CARD', name: 'Pikachu' } });
+    assert.deepEqual(ledger.tables.cards.get('c1'), card({ slot: 1 }));
+    assert.deepEqual(published, []);
+    // The same card's pocket is fine, and so is a change that keeps the place.
+    assert.equal((await change.execute({ cardId: 'c1', add: [entry('b')], fields: { slot: 3 } })).ok, true);
+    assert.equal((await change.execute({ cardId: 'c2', add: [entry('c')], fields: { status: 'sold' } })).ok, true);
+  });
 });

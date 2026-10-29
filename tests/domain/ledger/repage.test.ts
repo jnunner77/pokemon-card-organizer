@@ -15,6 +15,13 @@ describe('changing a binder’s pockets per page', () => {
     assert.deepEqual(moved.map((c) => c.id), ['c', 'd', 'e']);
   });
 
+  it('keeps copies in a pocket together from 9 pockets to 4', () => {
+    const b = binder('b1', { pockets: 4 });
+    const cards = [card('a', at(1, 5)), card('a2', at(1, 5)), card('b', at(1, 6))];
+    value(repageBinder(b, cards, 9, AT));
+    assert.deepEqual(places(cards), [[2, 1], [2, 1], [2, 2]]);
+  });
+
   it('keeps the order from 4 pockets to 9', () => {
     const b = binder('b1', { pockets: 9 });
     const cards = [card('a', at(1, 1)), card('b', at(2, 1)), card('c', at(3, 2)), card('d', at(4, 4))];

@@ -9,7 +9,7 @@ type Dup = {
   MAX: number;
   most: (cards: number) => number;
   count: (value: unknown, cards: number) => number | null;
-  plan: (sources: Card[], times: number, binder: (id: string) => { pockets: number | null } | null, cardAt: (b: string, p: number, s: number) => unknown, lastPage: (b: string) => number) => Card[];
+  plan: (sources: Card[], times: number, binder: (id: string) => { pockets: number | null } | null, cardAt: (b: string, p: number, s: number) => unknown, lastPage: (b: string) => number, o?: { here?: boolean }) => Card[];
 };
 const sandbox = { window: {} as { BinderDuplicate: Dup } };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public/duplicate.js'), 'utf8'), sandbox);
@@ -46,6 +46,17 @@ describe('duplicating cards several times', () => {
   it('puts copies of a card in a display case in the case, and of a loose card nowhere', () => {
     expect(go(['x'], 3)).toEqual([0, 1, 2].map(() => ({ id: 'x', binderId: 'c1', page: null, slot: null })));
     expect(go(['loose'], 2)).toEqual([0, 1].map(() => ({ id: 'loose', binderId: null, page: null, slot: null })));
+  });
+
+  it('puts every copy in the card’s own pocket when asked to, and leaves cases and loose cards as they are', () => {
+    const here = (ids: string[], times: number) => plan(ids.map((id) => cards.find((c) => c.id === id)!), times, binder, cardAt, lastPage, { here: true });
+    expect(where(here(['b'], 3))).toEqual(['b@1.2', 'b@1.2', 'b@1.2']);
+    expect(where(here(['a', 'e'], 2))).toEqual(['a@1.1', 'a@1.1', 'e@2.1', 'e@2.1']);
+    expect(here(['x'], 2)).toEqual([0, 1].map(() => ({ id: 'x', binderId: 'c1', page: null, slot: null })));
+    expect(here(['loose'], 2)).toEqual([0, 1].map(() => ({ id: 'loose', binderId: null, page: null, slot: null })));
+    // A card in a binder but in no pocket yet still goes to the next empty one.
+    const loosePage = { id: 'n', binderId: 'b1', page: null, slot: null };
+    expect(plan([loosePage], 1, binder, cardAt, lastPage, { here: true }).map((c) => c.page)).toEqual([1]);
   });
 
   it('reads how many copies, up to 50 in all (one of each selected card always allowed)', () => {

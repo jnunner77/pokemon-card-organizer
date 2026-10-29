@@ -44,4 +44,16 @@ describe('ArrangeBinder', () => {
     assert.equal(ledger.tables.binders.get('b1')?.['layout'], undefined);
     assert.deepEqual([published, logged], [[], []]);
   });
+
+  it('lets copies of one card share a pocket, and refuses different cards', async () => {
+    const { ledger, deps } = seeded();
+    ledger.seed('cards', 'x2', card({ page: 1, slot: 1, condition: 'LP' }));
+    ledger.seed('cards', 'p', card({ name: 'Pikachu', number: '58/102', page: 1, slot: 4 }));
+    const arrange = new ArrangeBinder(deps);
+    const all = (...places: [string, number, number][]) => ({ moves: places.map(([cardId, page, slot]) => ({ cardId, page, slot })), saveLayout: false });
+    assert.deepEqual(await arrange.execute({ actor: 'j', binderId: 'b1', arrangement: all(['x', 1, 2], ['x2', 1, 2], ['y', 1, 2], ['p', 1, 1]) }), { ok: true, value: { moved: 4, cards: 4, layoutSaved: null } });
+    assert.deepEqual(['x', 'x2', 'y', 'p'].map((id) => ledger.tables.cards.get(id)?.['slot']), [2, 2, 2, 1]);
+    assert.deepEqual(await arrange.execute({ actor: 'j', binderId: 'b1', arrangement: all(['x', 1, 1], ['x2', 1, 1], ['y', 1, 3], ['p', 1, 1]) }), { ok: false, error: { code: 'POCKET_SHARED' } });
+    assert.deepEqual(['x', 'x2', 'y', 'p'].map((id) => ledger.tables.cards.get(id)?.['slot']), [2, 2, 2, 1]);
+  });
 });

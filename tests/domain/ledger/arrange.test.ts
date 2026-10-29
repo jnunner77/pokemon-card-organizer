@@ -5,7 +5,8 @@ import { AT, binder, card, value } from '../fixtures.ts';
 
 const setUp = () => {
   const b = binder('b1', { pockets: 4 });
-  const cards = [card('x', { page: 1, slot: 1 }), card('y', { page: 1, slot: 3 }), card('z', { page: 2, slot: 1 })];
+  // x is a Lapras; y and z are other cards.
+  const cards = [card('x', { page: 1, slot: 1 }), card('y', { name: 'Pikachu', number: '58/102', page: 1, slot: 3 }), card('z', { name: 'Charizard', number: '4/102', page: 2, slot: 1 })];
   return { b, cards };
 };
 const moves = (...list: [string, number, number][]) => list.map(([cardId, page, slot]) => ({ cardId, page, slot }));
@@ -49,7 +50,25 @@ describe('sorting a binder', () => {
     assert.deepEqual(cards.map((c) => c.place.slot), [1, 3, 1]);
   });
 
-  it('refuses two cards in one pocket, or a pocket past the page', () => {
+  it('lets copies of one card share a pocket, and keeps both places in the saved layout', () => {
+    const b = binder('b1', { pockets: 4 });
+    const cards = [card('x', { page: 1, slot: 1 }), card('x2', { page: 1, slot: 1, condition: 'LP' }), card('y', { name: 'Pikachu', number: '58/102', page: 1, slot: 3 })];
+    const r = value(arrangeBinder(b, cards, moves(['y', 1, 1], ['x', 1, 2], ['x2', 1, 2]), { saveLayout: true, at: AT }));
+    assert.deepEqual(r.moved.map((c) => c.id), ['y', 'x', 'x2']);
+    assert.equal(r.layoutSaved, 3);
+    assert.deepEqual(b.fields['layout'], { savedAt: AT.toISOString(), places: [{ id: 'x', page: 1, slot: 1 }, { id: 'x2', page: 1, slot: 1 }, { id: 'y', page: 1, slot: 3 }] });
+    assert.deepEqual(cards.map((c) => c.place.slot), [2, 2, 1]);
+  });
+
+  it('refuses a pocket whose cards match the first but not each other (a blank set matches any set)', () => {
+    const b = binder('b1', { pockets: 4 });
+    const pika = (id: string, over: Record<string, unknown>) => card(id, { name: 'Pikachu', number: '58/102', setCode: '', page: 1, slot: 1, ...over });
+    const cards = [pika('blank', { set: '' }), pika('base', { set: 'Base Set' }), pika('jungle', { set: 'Jungle' })];
+    assert.deepEqual(arrangeBinder(b, cards, moves(['blank', 1, 2], ['base', 1, 2], ['jungle', 1, 2]), { saveLayout: false, at: AT }), { ok: false, error: { code: 'POCKET_SHARED' } });
+    assert.equal(cards.every((c) => c.place.slot === 1), true);
+  });
+
+  it('refuses two different cards in one pocket, or a pocket past the page', () => {
     const { b, cards } = setUp();
     assert.deepEqual(arrangeBinder(b, cards, moves(['z', 1, 1], ['x', 1, 1], ['y', 1, 3]), { saveLayout: false, at: AT }), { ok: false, error: { code: 'POCKET_SHARED' } });
     assert.deepEqual(arrangeBinder(b, cards, moves(['z', 1, 5], ['x', 1, 1], ['y', 1, 3]), { saveLayout: false, at: AT }), { ok: false, error: { code: 'POCKET_PAST_PAGE', pockets: 4 } });

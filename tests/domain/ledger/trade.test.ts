@@ -109,9 +109,16 @@ describe('undoing a trade', () => {
 
   it('puts my card in the next free pocket when another card took its old one', () => {
     const list = recorded([]);
-    const taken = [...list, card('newcomer', { binderId: 'b1', page: 1, slot: 1 })];
+    const taken = [...list, card('newcomer', { name: 'Eevee', number: '51/162', binderId: 'b1', page: 1, slot: 1 })];
     const { saved } = value(undoTrade('t1', taken, binders, AT));
     assert.deepEqual(byId(saved, 'mine')?.place, { binderId: 'b1', page: 1, slot: 3 });
+  });
+
+  it('puts my card back beside its copies when they are still in the pocket', () => {
+    const list = recorded([]);
+    const stacked = [...list, card('copy', { binderId: 'b1', page: 1, slot: 1, condition: 'LP' })];
+    const { saved } = value(undoTrade('t1', stacked, binders, AT));
+    assert.deepEqual(byId(saved, 'mine')?.place, { binderId: 'b1', page: 1, slot: 1 });
   });
 
   it('undoes nothing once a card I got has been sold or traded on', () => {

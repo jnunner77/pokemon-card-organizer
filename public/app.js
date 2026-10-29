@@ -71,7 +71,11 @@ const cardsIn = id => S.cards.filter(c => c.binderId === id);
 const looseCards = () => S.cards.filter(c => (!c.binderId || !binderById(c.binderId)) && !(c.sale && c.status==="sold") && !W.onWatchlist(c));
 /* a display case (like the one taken to card shows) holds cards with no pages or pockets */
 const isCase = b => b?.kind === "case";
-const cardAt = (bid, page, slot) => !page || !slot || isCase(binderById(bid)) ? undefined : S.cards.find(c => c.binderId===bid && c.page===page && c.slot===slot);
+/* a pocket holds copies of one card (BinderStack): stackAt is all of them, top copy first; cardAt is the top copy */
+const stackAt = (bid, page, slot) => !page || !slot || isCase(binderById(bid)) ? [] : S.cards.filter(c => c.binderId===bid && c.page===page && c.slot===slot).sort(window.BinderStack.order);
+const cardAt = (bid, page, slot) => stackAt(bid, page, slot)[0];
+/* whether the card may be in that pocket: it's empty, or holds only copies of the card */
+const fitsIn = (bid, page, slot, card) => window.BinderStack.fits(stackAt(bid, page, slot), card);
 const pocketsOf = b => POCKETS[b?.pockets] ? b.pockets : 9;
 const maxPage = bid => Math.max(1, ...cardsIn(bid).map(c => c.page||1));
 const locText = c => { const b = binderById(c.binderId); return W.onWatchlist(c) && !b ? "On your watchlist" : !b ? "Not in a binder" : isCase(b) ? b.name : `${b.name} · Page ${c.page} · Pocket ${c.slot}`; };
@@ -104,6 +108,7 @@ function writeErr(e){
   if(code==="quota_exceeded") return toast("The ledger is full. Delete some cards to add more.");
   if(code==="invalid_argument") return toast(`That change wasn't saved${e.message?`: ${e.message}`:"."}`);
   if(code==="forbidden") return toast(e.message || "You have view-only access.");
+  if(code==="conflict") return toast(e.message || "That pocket holds a different card.");
   if(code==="revoked"||code==="not_granted") return toast("Saving isn't available in this view.");
   toast("Couldn't save. Check your connection and try again.");
   console.error(e);
@@ -286,7 +291,7 @@ function pickBar(){
   const n = S.pick.size, allOn = S.shown.length && S.shown.every(id=>S.pick.has(id));
   const right = S.pickConfirm
     ? `<span class="confirm">Delete ${n} card${n===1?"":"s"} and their price history? <button class="btn sm danger solid" type="button" id="pickDelYes">Delete ${n}</button><button class="btn sm" type="button" id="pickDelNo">Keep</button></span>`
-    : `<button class="btn sm" type="button" id="pickAll">${allOn?"Clear all":"Select all"}</button><button class="btn sm" type="button" id="pickCancel">Cancel</button><button class="btn sm primary" type="button" id="pickSell" ${nSellable()?"":"disabled"}>Quick sell${nSellable()?` ${nSellable()}`:""}</button><button class="btn sm" type="button" id="pickStatus" ${n?"":"disabled"} title="Set these cards' status: listed for sale, out for grading, back in the binder…">Status${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickMove" ${n?"":"disabled"} title="Move to another binder, at the end or in a pocket you choose">Move${n?` ${n}`:""}</button>${n===2?`<button class="btn sm" type="button" id="pickSwap" title="The two selected cards trade places">Swap</button>`:""}<button class="btn sm" type="button" id="pickPh" ${n?"":"disabled"} title="${pickAllPh()?"You have these cards now: count them in your totals":"Hold these pockets for cards you don't have yet: not counted in your totals"}">${pickAllPh()?"Owned":"Placeholder"}${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickOwner" ${n?"":"disabled"} title="Set who these cards belong to">Owner${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickWatch" ${n?"":"disabled"} title="Get an email when these cards reach a price to buy or sell at">Watch${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickDup" ${n?"":"disabled"}>Duplicate${n?` ${n}`:""}</button><button class="btn sm danger solid" type="button" id="pickDel" ${n?"":"disabled"}>Delete${n?` ${n}`:""}</button>`;
+    : `<button class="btn sm" type="button" id="pickAll">${allOn?"Clear all":"Select all"}</button><button class="btn sm" type="button" id="pickCancel">Cancel</button><button class="btn sm primary" type="button" id="pickSell" ${nSellable()?"":"disabled"}>Quick sell${nSellable()?` ${nSellable()}`:""}</button><button class="btn sm" type="button" id="pickStatus" ${n?"":"disabled"} title="Set these cards' status: listed for sale, out for grading, back in the binder…">Status${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickMove" ${n?"":"disabled"} title="Move to another binder, at the end or in a pocket you choose">Move${n?` ${n}`:""}</button>${pickUnits().length===2?`<button class="btn sm" type="button" id="pickSwap" title="The two selected cards (or pockets) trade places">Swap</button>`:""}<button class="btn sm" type="button" id="pickPh" ${n?"":"disabled"} title="${pickAllPh()?"You have these cards now: count them in your totals":"Hold these pockets for cards you don't have yet: not counted in your totals"}">${pickAllPh()?"Owned":"Placeholder"}${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickOwner" ${n?"":"disabled"} title="Set who these cards belong to">Owner${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickWatch" ${n?"":"disabled"} title="Get an email when these cards reach a price to buy or sell at">Watch${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickDup" ${n?"":"disabled"}>Duplicate${n?` ${n}`:""}</button><button class="btn sm danger solid" type="button" id="pickDel" ${n?"":"disabled"}>Delete${n?` ${n}`:""}</button>`;
   return `<div class="pickbar" role="toolbar" aria-label="Selection"><span class="cnt">${n} selected</span>${right}</div>`;
 }
 const nSellable = () => S.pick ? [...S.pick].filter(id => { const c = S.cards.find(x=>x.id===id); return c && owned(c); }).length : 0;
@@ -358,12 +363,18 @@ async function undoStatus(ids, was){
   toast(ok===ids.length ? `Undone: ${ok} card${ok===1?" is":"s are"} as ${ok===1?"it was":"they were"}` : `${ok} of ${ids.length} undone. Change the rest back by hand.`);
 }
 /* pressing and holding a card's status badge changes its status straight away */
-function statusHold(id){
-  if(S.sel===id){ if(!discardOk()) return; closeDrawer(); }
+/* the selected cards as units that move together: a pocket's copies of one card are one */
+const pickUnits = () => window.BinderStack.units(S.cards.filter(c => S.pick.has(c.id)));
+function statusHold(ids){
+  if(ids.includes(S.sel)){ if(!discardOk()) return; closeDrawer(); }
   try{ navigator.vibrate?.(15); }catch(_){}
-  statusModal([id]);
+  statusModal(ids);
 }
-function startPick(id){ if(S.sel && !discardOk()) return; S.pick = new Set(id?[id]:[]); S.pickConfirm=false; try{ navigator.vibrate?.(15); }catch(_){} if(S.sel) closeDrawer(); else renderMain(); }
+/* the cards a pocket on the page stands for: all its copies when it holds several */
+const idsOf = el => el.dataset.stack ? el.dataset.stack.split(" ") : [el.dataset.card];
+/* select or deselect cards together: all selected already → remove them, else add them all */
+function togglePick(ids){ if(ids.every(id=>S.pick.has(id))) ids.forEach(id=>S.pick.delete(id)); else ids.forEach(id=>S.pick.add(id)); S.pickConfirm=false; }
+function startPick(ids){ if(S.sel && !discardOk()) return; S.pick = new Set(ids?[].concat(ids):[]); S.pickConfirm=false; try{ navigator.vibrate?.(15); }catch(_){} if(S.sel) closeDrawer(); else renderMain(); }
 function endPick(){ S.pick=null; S.pickConfirm=false; renderMain(); }
 function renderMain(){
   if(S.pick){ for(const id of [...S.pick]) if(!S.cards.some(c=>c.id===id)) S.pick.delete(id); }
@@ -392,12 +403,12 @@ function renderMainInner(){
   S.page = window.BinderLayout.pageInView(S.page, mp, held);
   let cells = ""; S.shown = cardsIn(b.id).filter(c=>c.page===S.page).map(c=>c.id);
   for(let s=1;s<=n;s++){
-    const c = cardAt(b.id, S.page, s);
-    if(!c){ cells += `<button class="pocket empty" type="button" data-empty="${s}" aria-label="Empty pocket ${s}, add a card"><span class="slotno">${s}</span><span class="plus">+</span><span>Add card</span></button>`; continue; }
-    cells += pocketHTML(c, s);
+    const list = stackAt(b.id, S.page, s);
+    if(!list.length){ cells += `<button class="pocket empty" type="button" data-empty="${s}" aria-label="Empty pocket ${s}, add a card"><span class="slotno">${s}</span><span class="plus">+</span><span>Add card</span></button>`; continue; }
+    cells += pocketHTML(list[0], s, list);
   }
   const pageCards = cardsIn(b.id).filter(c=>c.page===S.page);
-  const pst = statsFor(pageCards);
+  const pst = statsFor(pageCards), filled = new Set(pageCards.map(c=>c.slot)).size;
   let chips = ""; for(let p=1;p<=mp;p++) chips += `<button class="pchip" type="button" data-page="${p}" aria-current="${p===S.page}">${p}</button>`;
   chips += `<button class="pchip new" type="button" data-page="${mp+1}" aria-current="${S.page===mp+1}" title="Start a new page">+</button>`;
   m.innerHTML = `<div class="pageview">
@@ -408,20 +419,25 @@ function renderMainInner(){
         <div class="pagechips">${chips}</div>
       </div>
       <div class="pageinfo">
-        <span><b>${pageCards.length}</b> of ${n} pockets filled</span>
+        <span><b>${filled}</b> of ${n} pockets filled${pageCards.length!==filled?` · ${pageCards.length} cards`:""}</span>
         <span>Page value <b>${money(pst.val)}</b></span>
         <span class="hint">${n}-pocket pages. Tap a card to price it or move it. Tap an empty pocket to add one. Tap Photos to flip through every picture full screen. Swipe left or right on the page to flip pages. Press and hold a card to quick sell it, set its status (list it for sale) or move it to another binder, or to select several to sell, list, move, mark as placeholders, duplicate or delete. Press and hold a card's status badge to change just its status.</span>
       </div>
     </aside></div>`;
 }
-/* a card in a binder's pocket (s: its pocket number) or in a display case (no number) */
-function pocketHTML(c, s){
+/* a card in a binder's pocket (s: its pocket number) or in a display case (no number). list: every
+   copy in the pocket, top copy first (c is the top one): with more than one it shows ×N and a stacked edge */
+function pocketHTML(c, s, list = [c]){
   const v = valueOf(c), flag = c.placeholder && held(c) ? `<span class="flag placeholder">Placeholder</span>` : c.status && c.status!=="binder" ? `<span class="flag ${esc(c.status)}">${esc((STATUSES.find(x=>x[0]===c.status)||[,""])[1].replace("Listed for sale","Listed").replace("Out for grading","Grading"))}</span>` : "";
   const vline = c.variant ? `<span class="v">${esc(c.variant)}</span>` : "";
   const inner = shown(c)
     ? `<img src="${imgURL(shown(c))}" alt="${esc(c.name||"Card")}" loading="lazy"><span class="cap"><span class="n">${esc(c.name||"Unnamed card")}</span>${vline}<span class="m">${esc(metaLine(c))}</span></span>`
     : `<span class="face"><span class="n">${esc(c.name||"Unnamed card")}</span>${vline}<span class="m">${esc(metaLine(c)||"No set yet")}</span><span class="np">No photo</span></span>`;
-  return `<button class="pocket${S.sel===c.id?" sel":""}${S.swap?.id===c.id?" swapsrc":""}${held(c)?"":" dim"}${c.placeholder&&held(c)?" ph":""}${S.pick?.has(c.id)?" picked":""}${isFound(c.id)?" found":""}" type="button" data-card="${esc(c.id)}" aria-label="${esc((c.name||"Unnamed card")+(c.placeholder&&held(c)?" (placeholder)":"")+(s?", pocket "+s:"")+(cardChecks(c).length?", needs checking":""))}"${S.pick?` aria-pressed="${S.pick.has(c.id)}"`:""}>${s?`<span class="slotno">${s}</span>`:""}${cardChecks(c).length?`<span class="chkmark" title="${esc(cardChecks(c)[0].title)}" aria-hidden="true">!</span>`:""}<span class="tick" aria-hidden="true">✓</span>${inner}${v!=null?`<span class="price">${esc(money(v).replace(".00",""))}</span>`:""}${flag}${watchMark(c, v)}</button>`;
+  const n = list.length, many = n>1, mix = many && window.BinderStack.mixed(list);
+  const checked = list.find(x=>cardChecks(x).length), watched = list.find(x=>W.status(x, valueOf(x)).length) || c;
+  const ids = list.map(x=>x.id);
+  const badge = !many ? "" : mix ? `<span class="stackn" title="Different cards share this pocket: open it to move one out">≠${n}</span>` : `<span class="stackn">×${n}</span>`;
+  return `<button class="pocket${many?" stack":""}${mix?" mixed":""}${list.some(x=>S.sel===x.id)?" sel":""}${S.swap && list.some(x=>x.id===S.swap.id)?" swapsrc":""}${held(c)?"":" dim"}${c.placeholder&&held(c)?" ph":""}${S.pick && ids.every(id=>S.pick.has(id))?" picked":""}${list.some(x=>isFound(x.id))?" found":""}" type="button" data-card="${esc(c.id)}"${many?` data-stack="${esc(ids.join(" "))}"`:""} aria-label="${esc((c.name||"Unnamed card")+(c.placeholder&&held(c)?" (placeholder)":"")+(s?", pocket "+s:"")+(mix?`, ${n} different cards`:many?`, ${n} copies`:"")+(checked?", needs checking":""))}"${S.pick?` aria-pressed="${ids.every(id=>S.pick.has(id))}"`:""}>${s?`<span class="slotno">${s}</span>`:""}${badge}${mix?`<span class="mixedtag">Different cards</span>`:""}${checked?`<span class="chkmark" title="${esc(cardChecks(checked)[0].title)}" aria-hidden="true">!</span>`:""}<span class="tick" aria-hidden="true">✓</span>${inner}${v!=null?`<span class="price">${esc(money(v).replace(".00",""))}</span>`:""}${flag}${watchMark(watched, valueOf(watched))}</button>`;
 }
 /* a display case: every card in it as one grid, in the order chosen (no pages or pockets) */
 const CASE_SORTS = [["value","Price, high to low"],["name","Name"],["set","Set and number"],["released","Newest first"]];
@@ -768,7 +784,7 @@ async function undoSale(id, quiet){
   const c = S.cards.find(x=>x.id===id); if(!c || !c.sale) return false;
   const f = c.sale.from || {};
   let loc = {binderId:null, page:null, slot:null};
-  if(f.binderId && binderById(f.binderId)){ loc = f.page && f.slot && !cardAt(f.binderId, f.page, f.slot) ? {binderId:f.binderId, page:f.page, slot:f.slot} : {binderId:f.binderId, ...firstFree(f.binderId)}; }
+  if(f.binderId && binderById(f.binderId)){ loc = f.page && f.slot && fitsIn(f.binderId, f.page, f.slot, c) ? {binderId:f.binderId, page:f.page, slot:f.slot} : {binderId:f.binderId, ...firstFree(f.binderId)}; }
   // An older sale may not name its price entry: then only the card comes back.
   if(!(await changePrices(id, {remove:c.sale.priceId ? [c.sale.priceId] : []}, {...loc, status:"binder", sale:null}))) return false;
   if(!quiet) toast(loc.binderId ? `${c.name||"Card"} is back in ${locText(loc)}` : `${c.name||"Card"} is back under Not in a binder`);
@@ -1349,7 +1365,15 @@ async function trRecord(items){
 /* Undo a recorded trade (the server puts everything back, src/domain/ledger/trade.ts undoTrade). */
 async function undoTrade(id, ask){
   if(ask && !confirm("Undo this trade? Your cards go back where they were, the cards you got are taken out of your ledger, and placeholders they filled are placeholders again.")) return;
-  try{ await S.db.undoTrade(id); toast("Trade undone: your cards are back"); }
+  // where each traded card was before the trade, to say when one couldn't go back there
+  const was = S.cards.filter(c => c.sale?.trade?.id===id && c.sale.from?.binderId).map(c => ({id:c.id, from:c.sale.from}));
+  try{
+    await S.db.undoTrade(id);
+    const away = was.map(w => ({w, c:S.cards.find(x=>x.id===w.id)})).filter(({w, c}) => c && binderById(w.from.binderId) && !isCase(binderById(w.from.binderId)) && (c.binderId!==w.from.binderId || c.page!==w.from.page || c.slot!==w.from.slot));
+    toast(away.length
+      ? `Trade undone. ${away.map(({w, c}) => { const there = stackAt(w.from.binderId, w.from.page, w.from.slot)[0]; return `${c.name||"A card"} is in ${locText(c)}: Pocket ${w.from.slot} holds ${there?.name||"another card"} (a pocket only holds copies of one card)`; }).join(". ")}.`
+      : "Trade undone: your cards are back");
+  }
   catch(e){ writeErr(e); }
   render();
 }
@@ -1433,7 +1457,7 @@ function renderDrawer(force){
         </div>
       </form>
       ${isNew || W.onWatchlist(c) ? "" : watchSection(c)}
-      ${isNew?"":moveSection(c)}
+      ${isNew?"":moveSection(c)+copiesSection(c)}
       ${isNew?`<p class="hint">Add the card first, then log prices and move it around.</p>`:autoSection(c)+priceSection(c)}
       <div class="sec"><h3>Look up prices</h3><div class="links">${lookupLinks(c)}</div></div>
     </div>
@@ -1464,6 +1488,7 @@ function refreshParts(c, o={}){
   if(!S.dirty){ const t=$("#dTitle"); if(t) t.textContent = c.name || "Unnamed card"; }
   const psec=$("#priceSec"); if(psec && (o.price || (!S.editPrice && !S.priceTouched))){ psec.outerHTML = priceSection(c); S.priceTouched=false; }
   const msec=$("#moveSec"); if(msec && (o.move || !S.moveTouched)){ msec.outerHTML = moveSection(c); S.moveTouched=false; }
+  const csec=$("#copiesSec"), copies=copiesSection(c); if(csec) csec.outerHTML = copies; else if(copies) $("#moveSec")?.insertAdjacentHTML("afterend", copies);
   const wsec=$("#watchSec"); if(wsec && (o.watch || !S.watchTouched)){ wsec.outerHTML = watchSection(c); S.watchTouched=false; }
   const ai=$("#autoInfo"); if(ai) ai.innerHTML = autoInfo(c);
   const dm=$("#detailsMissing"); if(dm) dm.outerHTML = missingDetails(c);
@@ -1541,8 +1566,27 @@ function moveSection(c){
       <div class="field" data-pocketf ${inCase?"hidden":""}><label for="m_page">Page</label><input id="m_page" class="mono" type="number" min="1" inputmode="numeric" value="${esc(c.page||1)}" ${bid?"":"disabled"}></div>
       <div class="field" data-pocketf ${inCase?"hidden":""}><label for="m_slot">Pocket</label><select id="m_slot" class="mono" ${bid?"":"disabled"}>${Array.from({length:n},(_,i)=>`<option value="${i+1}" ${c.slot===i+1?"selected":""}>${i+1}</option>`).join("")}</select></div>
       <div class="note" id="moveNote"></div>
-      <div class="btns"><button class="btn" type="button" id="btnMove">Move card</button><button class="btn ghost sm" type="button" id="btnFree" ${inCase?"hidden":""}>Next empty pocket</button><button class="btn ghost sm" type="button" id="btnSwap" title="Then tap the card or empty pocket to trade places with">Swap with…</button>${bid?`<button class="btn ghost sm" type="button" id="btnTakeOut">Take out of ${inCase?"case":"binder"}</button>`:""}</div>
+      <div class="btns"><button class="btn" type="button" id="btnMove">Move card</button><button class="btn ghost sm" type="button" id="btnFree" ${inCase?"hidden":""}>Next empty pocket</button><button class="btn ghost sm" type="button" id="btnSwap" title="Then tap the card or empty pocket to trade places with. A pocket's copies swap together.">Swap with…</button>${bid && !inCase && c.page && c.slot?`<button class="btn ghost sm" type="button" id="btnCopyHere" title="Make another copy of this card in this pocket">Add a copy here</button>`:""}${bid?`<button class="btn ghost sm" type="button" id="btnTakeOut">Take out of ${inCase?"case":"binder"}</button>`:""}</div>
     </div></div>`;
+}
+/* a pocket with several copies: each one's condition or grade, owner, status and value; tap one to open it */
+function copiesSection(c){
+  const list = c.binderId && c.page && c.slot ? stackAt(c.binderId, c.page, c.slot) : [];
+  if(list.length < 2 || !list.some(x=>x.id===c.id)) return "";
+  const top = list[0], BS = window.BinderStack;
+  const row = x => {
+    const g = window.BinderTrade.gradeLabel(x.grader, x.grade), v = valueOf(x), st = (STATUSES.find(y=>y[0]===x.status)||[,""])[1];
+    const odd = !BS.same(top, x);
+    return `<li><button type="button" class="copyrow${x.id===c.id?" here":""}${odd?" odd":""}" data-copy="${esc(x.id)}"${x.id===c.id?` aria-current="true"`:""}>
+      <span class="cr-main"><b>${esc(g || x.condition || "No condition")}</b>${x.owner?` <span class="cr-owner">${esc(x.owner)}</span>`:""}</span>
+      <span class="cr-chips">${x.status && x.status!=="binder" ? `<span class="chip ${esc(x.status)}">${esc(st)}</span>` : ""}${x.placeholder?`<span class="chip placeholder">Placeholder</span>`:""}${x.id===c.id?`<span class="chip here">This one</span>`:""}</span>
+      <span class="cr-val mono">${v!=null?esc(money(v)):"—"}</span>
+      ${odd?`<span class="cr-odd">Different card: move it to another pocket</span>`:""}
+    </button></li>`;
+  };
+  return `<div class="sec" id="copiesSec"><h3>In this pocket · ${list.length} ${BS.mixed(list)?"cards":"copies"}</h3>
+    ${BS.mixed(list)?`<p class="hint">Different cards share this pocket. Open a card that doesn't belong and move it to another pocket with Move card or Next empty pocket.</p>`:""}
+    <ul class="copies">${list.map(row).join("")}</ul></div>`;
 }
 function priceRowView(p){
   const t = PTYPES.find(x=>x[0]===p.type) || [p.type,p.type];
@@ -1825,7 +1869,25 @@ function syncSaveButton(){ const b = $("#btnSave"); if(b) b.disabled = window.Bi
 /* One save at a time: a second tap or Enter while one is on its way does nothing (it would add the
    card twice, in the same pocket). The button comes back once it's answered, if there's still
    something to save. */
-async function saveCard(){
+/* The other copies in this card's pocket that stop being the same card as it if `data` is saved (its name,
+   set, number, variant or language changed): the person chooses to change them all or move this one out. */
+function copiesLeft(c, data){
+  if(!c.binderId || !c.page || !c.slot || isCase(binderById(c.binderId))) return {others:[], split:false};
+  const BS = window.BinderStack, merged = {...c, ...data};
+  const others = stackAt(c.binderId, c.page, c.slot).filter(o => o.id!==c.id && BS.same(c, o));
+  return {others, split: others.some(o => !BS.same(merged, o))};
+}
+const IDENTITY_KEYS = ["name","set","setCode","number","variant","language"];
+function identityModal(c, n){
+  $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard narrow" role="dialog" aria-modal="true" aria-labelledby="idTitle">
+    <h2 id="idTitle">Change the other ${n===1?"copy":`${n} copies`} too?</h2>
+    <p class="lead">There ${n===1?"is 1 other copy":`are ${n} other copies`} of ${esc(c.name||"this card")} in this pocket, and a pocket only holds copies of one card.</p>
+    <p class="hint">Change all ${n+1} copies to these details, or keep the others as they are and move this one to the next empty pocket.</p>
+    <div class="mfoot stackfoot"><button class="btn" type="button" data-mclose>Cancel</button><button class="btn" type="button" id="idOne">Only this one</button><button class="btn primary" type="button" id="idAll">Change all ${n+1} copies</button></div>
+  </div></div>`;
+  setTimeout(()=> $("#idAll")?.focus(), 30);
+}
+async function saveCard(how){
   if(S.saving) return;
   const c = selCard(); if(!c) return;
   const data = readForm();
@@ -1834,11 +1896,16 @@ async function saveCard(){
   try{
     if(S.sel==="__new"){
       const loc = {binderId:c.binderId||null, page:c.binderId?c.page:null, slot:c.binderId?c.slot:null};
-      if(loc.binderId && cardAt(loc.binderId, loc.page, loc.slot)){ const f = firstFree(loc.binderId); loc.page=f.page; loc.slot=f.slot; }
+      // A pocket holding a different card isn't used: the card goes in the next empty one, and the toast says so.
+      let relocated = null;
+      if(loc.binderId && loc.page && !fitsIn(loc.binderId, loc.page, loc.slot, data)){
+        relocated = {slot:loc.slot, there:cardAt(loc.binderId, loc.page, loc.slot)};
+        const f = firstFree(loc.binderId); loc.page=f.page; loc.slot=f.slot;
+      }
       const id = rid(), draftKey = S.draft?.key, sentPhoto = c.imageId||null, sentPh = !!$("#f_placeholder")?.checked;
       const ok = await guard(()=> S.db.collection("cards").doc(id).set({...data, ...loc, placeholder:sentPh, imageId:c.imageId||null, prices:[], createdAt:nowISO(), updatedAt:nowISO()}));
       if(ok){
-        toast(`Added ${data.name}. Looking up its price and picture…`);
+        toast(relocated ? `Added ${data.name} in ${locText(loc)}: Pocket ${relocated.slot} holds ${relocated.there?.name||"another card"} (a pocket only holds copies of one card). Looking up its price and picture…` : `Added ${data.name}. Looking up its price and picture…`);
         // A photo still uploading for this draft goes onto the added card when it's done (setPhoto).
         if(draftKey) (S.added ||= {})[draftKey] = id;
         if(S.sel!=="__new" || S.draft?.key!==draftKey) return; // the person moved on (to another card, or a new one) meanwhile
@@ -1867,9 +1934,28 @@ async function saveCard(){
       }
       return;
     }
-    const ok = await guard(()=> S.db.doc("cards/"+c.id).update({...data, updatedAt:nowISO()}));
+    const left = copiesLeft(c, data);
+    if(left.split && how!=="all" && how!=="one"){ identityModal(c, left.others.length); return; }
+    let patch = data, note = "Saved";
+    if(left.split && how==="all"){
+      const fields = Object.fromEntries(IDENTITY_KEYS.map(k=>[k, data[k]]));
+      let changed = 0;
+      for(const o of left.others) if(await updateCard(o.id, fields)) changed++;
+      if(changed < left.others.length){
+        // This card isn't saved and the form stays as typed: Save again finishes it (the copies already changed then match).
+        render();
+        toast(changed ? `${changed} of ${left.others.length} other copies were changed; this one wasn't saved yet. Press Save again to finish.` : "None of the other copies could be changed, and this one wasn't saved. Try again.");
+        return;
+      }
+      note = `Saved. All ${changed+1} copies changed`;
+    } else if(left.split){
+      const f = firstFree(c.binderId); patch = {...data, page:f.page, slot:f.slot};
+      note = `Saved. It's no longer the same card as the others, so it moved to ${locText({binderId:c.binderId, page:f.page, slot:f.slot})}`;
+    }
+    const ok = await guard(()=> S.db.doc("cards/"+c.id).update({...patch, updatedAt:nowISO()}));
     if(ok){
-      toast("Saved");
+      toast(note);
+      if(patch!==data){ render(); }
       // Still on this card: what was sent counts as saved, and anything typed meanwhile stays to be saved.
       const f = S.sel===c.id ? $("#cardForm") : null;
       if(f){ S.dirty = Object.keys(window.BinderFormSync.markSaved(f.elements, data)).length > 0; refreshParts(selCard()); }
@@ -1954,77 +2040,111 @@ async function moveCard(c, bid, page, slot){
     }
     return;
   }
-  const other = cardAt(bid, page, slot);
-  if(other && other.id===c.id) return toast("It's already there.");
-  if(other){
-    const back = c.binderId && binderById(c.binderId) ? {binderId:c.binderId, page:c.page||null, slot:c.slot||null} : {binderId:null,page:null,slot:null};
-    if(!(await updateCard(other.id, back))) return;
-  }
-  if(await updateCard(c.id, {binderId:bid, page, slot, ...(W.onWatchlist(c)?{watchlist:false}:{})})){
-    toast(other ? `Swapped with ${other.name||"the card there"}` : `Moved to ${locText({binderId:bid,page,slot})}`);
-    S.binderId = bid; S.page = page; S.moveTouched=false; persistNav(); render(); refreshParts(selCard(),{move:true});
-  }
+  const plan = singleMove(c, bid, page, slot);
+  if(plan.kind==="here") return toast("It's already there.");
+  if(plan.kind==="refuse") return toast(`Pocket ${slot} holds ${plan.others[0].name||"another card"}. A pocket only holds copies of one card: choose an empty pocket, or use Swap with… to swap the whole pocket.`);
+  if(!(await sendPlaces(plan.moves))) return;
+  if(W.onWatchlist(c)) c.watchlist = false;
+  const n = plan.others.length, there = plan.others[0], name = there?.name || "the card there";
+  toast(plan.kind==="swap" ? `Swapped with ${n>1 ? `${n} copies of ${name}` : name}`
+    : plan.kind==="join" ? `Moved to ${locText({binderId:bid,page,slot})} with the ${n===1 ? "copy" : `${n} copies`} there`
+    : `Moved to ${locText({binderId:bid,page,slot})}`);
+  S.binderId = bid; S.page = page; S.moveTouched=false; persistNav(); render(); refreshParts(selCard(),{move:true});
+}
+/* What moving one card to a binder pocket does: "here" (already there), "empty" (just this card),
+   "join" (the pocket holds copies of it: it goes in with them), "swap" (a different card is there and
+   this card is alone in its pocket: the whole pocket there goes to this card's place), or "refuse"
+   (a different card is there and this card is one of several copies). moves: the places to send. */
+function singleMove(c, bid, page, slot){
+  const mine = {id:c.id, binderId:bid, page, slot};
+  if(c.binderId===bid && c.page===page && c.slot===slot) return {kind:"here", others:[], moves:[]};
+  const others = stackAt(bid, page, slot).filter(x=>x.id!==c.id);
+  if(!others.length) return {kind:"empty", others, moves:[mine]};
+  if(window.BinderStack.fits(others, c)) return {kind:"join", others, moves:[mine]};
+  const own = c.binderId && c.page && c.slot ? stackAt(c.binderId, c.page, c.slot) : [];
+  if(own.length > 1) return {kind:"refuse", others, moves:[]};
+  const back = placeOf(c);
+  return {kind:"swap", others, moves:[mine, ...others.map(o=>({id:o.id, binderId:back.binderId, page:back.page, slot:back.slot}))]};
+}
+/* Saves cards' new places in one request (POST /api/cards/place: all of them or none, and a pocket only
+   takes copies of one card), then shows them. */
+async function sendPlaces(moves){
+  if(!S.db){ toast("Saving isn't available in this view."); return false; }
+  try{ await window.ledgerApi.call("POST", "api/cards/place", {moves}); }
+  catch(err){ writeErr(err); return false; }
+  applyPlaces(moves); return true;
 }
 /* duplicate: same details and photo, market/comp prices carried over; paid, listing and sale entries
-   stay with the original. Several copies at once: each in the next empty pocket (duplicate.js). */
+   stay with the original. Several copies at once: each in the next empty pocket, or in the card's own
+   pocket with its other copies (duplicate.js). */
 function dupData(c, loc){
   // A copy starts with no price alert sent: watchAlerts is the original's record (the server's).
   const {id, createdAt, updatedAt, prices:pr, status, binderId, page, slot, watchAlerts, ...rest} = c;
   const keep = (Array.isArray(pr)?pr:[]).filter(p => p.type==="comp" || p.type==="market").map(p => ({...p, id:rid()}));
   return {...rest, binderId:loc.binderId, page:loc.page, slot:loc.slot, status:"binder", prices:keep, createdAt:nowISO(), updatedAt:nowISO()};
 }
-async function duplicateCards(ids, times = 1){
+async function duplicateCards(ids, times = 1, o = {}){
   if(!S.db){ toast("Saving isn't available in this view."); return []; }
   const src = ids.map(id => S.cards.find(c=>c.id===id)).filter(Boolean)
     .sort((a,b)=> SORTS.loc(a) < SORTS.loc(b) ? -1 : SORTS.loc(a) > SORTS.loc(b) ? 1 : 0);
   const binder = id => { const b = binderById(id); return b ? {pockets: isCase(b) ? null : pocketsOf(b)} : null; };
-  const spots = window.BinderDuplicate.plan(src, times, binder, cardAt, maxPage);
+  const spots = window.BinderDuplicate.plan(src, times, binder, cardAt, maxPage, o);
   const jobs = spots.map(loc => { const c = src.find(x=>x.id===loc.id); return {nid:rid(), data:dupData(c, loc), name:c.name}; });
   const res = await Promise.allSettled(jobs.map(j => S.db.collection("cards").doc(j.nid).set(j.data)));
   const ok = jobs.filter((_,i)=>res[i].status==="fulfilled"), failed = jobs.length-ok.length;
   if(failed){ const err = res.find(r=>r.status==="rejected")?.reason; console.error(err);
-    toast(ok.length ? `Made ${ok.length} cop${ok.length===1?"y":"ies"}. ${failed} couldn't be made.` : (err?.code==="invalid_argument"||err?.code==="not_granted" ? "Nothing was copied. You may only have view access." : err?.code==="quota_exceeded" ? "The ledger is full. Delete some cards to add more." : "Couldn't duplicate. Check your connection and try again.")); }
+    toast(ok.length ? `Made ${ok.length} cop${ok.length===1?"y":"ies"}. ${failed} couldn't be made.` : (err?.code==="conflict" ? err.message : err?.code==="invalid_argument"||err?.code==="not_granted" ? "Nothing was copied. You may only have view access." : err?.code==="quota_exceeded" ? "The ledger is full. Delete some cards to add more." : "Couldn't duplicate. Check your connection and try again.")); }
   return ok;
 }
-/* "How many copies?" before duplicating: 1 unless changed (Enter makes them). */
-function dupModal(ids, done){
+/* "How many copies?" before duplicating: 1 unless changed (Enter makes them). A card in a binder pocket
+   can have its copies go in that pocket or in the next empty ones (here: start on the first). */
+function dupModal(ids, done, here){
   const n = ids.length, most = window.BinderDuplicate.most(n), one = n===1 ? S.cards.find(c=>c.id===ids[0]) : null;
   const what = one ? esc(one.name||"this card") : `${n} cards`;
+  const inPocket = ids.some(id => { const c = S.cards.find(x=>x.id===id); return c && c.page && c.slot && binderById(c.binderId) && !isCase(binderById(c.binderId)); });
+  let where = here ? "here" : store.get("dupWhere","next") === "here" ? "here" : "next";
+  const hint = () => `${inPocket && where==="here" ? `Each copy goes in ${one?"the card's":"its card's"} pocket, with the copies already there.` : `Each copy goes in the next empty pocket after ${one?"the card":"its card"}.`} Same details, photo and market prices. Up to ${most}${n>1?" of each":""}.`;
   $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard narrow" role="dialog" aria-modal="true" aria-labelledby="dupTitle">
-    <h2 id="dupTitle">Duplicate ${what}</h2>
+    <h2 id="dupTitle">${here?"Add a copy of":"Duplicate"} ${what}${here?" here":""}</h2>
     <form id="dupForm" novalidate>
       <div class="field"><label for="dupN">Copies${n>1?" of each":""}</label><input id="dupN" class="mono" type="number" inputmode="numeric" min="1" max="${most}" step="1" value="1" required></div>
-      <p class="hint" id="dupHint">Each copy goes in the next empty pocket after ${one?"the card":"its card"}, with the same details, photo and market prices. Up to ${most}${n>1?" of each":""}.</p>
+      ${inPocket ? `<fieldset class="sortopts dupwhere" id="dupWhere"><legend class="sr-only">Where the copies go</legend>
+        <label><input type="radio" name="dupwhere" value="here" ${where==="here"?"checked":""}>In the same pocket</label>
+        <label><input type="radio" name="dupwhere" value="next" ${where==="next"?"checked":""}>In the next empty pockets</label>
+      </fieldset>` : ""}
+      <p class="hint" id="dupHint">${esc(hint())}</p>
       <div class="mfoot"><button class="btn" type="button" data-mclose>Cancel</button><button class="btn primary" type="submit" id="dupGo">Duplicate</button></div>
     </form>
   </div></div>`;
   const input = $("#dupN"), go = $("#dupGo");
   const label = () => { const k = window.BinderDuplicate.count(input.value, n); go.disabled = !k; go.textContent = k ? `Make ${k*n} cop${k*n===1?"y":"ies"}` : "Duplicate"; };
   input.oninput = label; label(); input.select();
+  for(const r of document.querySelectorAll("#dupWhere input")) r.onchange = () => { where = r.value; $("#dupHint").textContent = hint(); };
   $("#dupForm").onsubmit = async e => {
     e.preventDefault();
     const k = window.BinderDuplicate.count(input.value, n);
     if(!k){ $("#dupHint").innerHTML = `<span class="autoerr">Choose 1 to ${most} copies.</span>`; return input.focus(); }
     go.disabled = true; go.textContent = "Copying…";
-    const ok = await duplicateCards(ids, k);
+    if(inPocket && !here) store.set("dupWhere", where);
+    const ok = await duplicateCards(ids, k, {here: inPocket && where==="here"});
     closeModal();
     done(ok, k);
   };
 }
-function duplicateCard(){
+function duplicateCard(here){
   const c = selCard(); if(!c || S.sel==="__new") return;
   if(unsaved()){ toast("Save or discard your changes first, then duplicate."); return; }
   dupModal([c.id], (ok, k) => {
     if(!ok.length) return;
     const first = ok[0].data, last = ok[ok.length-1].data, inCase = first.binderId && isCase(binderById(first.binderId));
     // "to Binder 1 · Page 1 · Pocket 4", and for several "… Pocket 4 to Pocket 6" (or "to Page 2 · Pocket 1").
-    const span = !first.binderId ? "" : ` to ${locText(first)}${ok.length>1 && !inCase ? ` to ${last.page===first.page ? "" : `Page ${last.page} · `}Pocket ${last.slot}` : ""}`;
+    const span = !first.binderId ? "" : ` to ${locText(first)}${ok.length>1 && !inCase && (last.page!==first.page || last.slot!==first.slot) ? ` to ${last.page===first.page ? "" : `Page ${last.page} · `}Pocket ${last.slot}` : ""}`;
     if(ok.length===k) toast(k===1 ? `Copy of ${c.name||"card"} added${span}` : `${k} copies of ${c.name||"card"} added${span}`);
     // One copy opens it, as before; several leave the original open.
     if(k===1){ S.sel = ok[0].nid; S.draft=null; S.dirty=false; S.editPrice=null; S.confirm=null; }
     if(first.binderId){ S.binderId=first.binderId; if(first.page) S.page=first.page; persistNav(); }
     render(); renderDrawer(true);
-  });
+  }, here);
 }
 function duplicatePicked(){
   const ids = [...(S.pick||[])]; if(!ids.length) return;
@@ -2441,27 +2561,28 @@ async function checkAction(e){
    tapped, on any page or binder, trades places with it straight away. */
 function swapBar(){
   const c = S.cards.find(x=>x.id===S.swap?.id); if(!c){ S.swap = null; return ""; }
-  return `<div class="pickbar swapbar" role="status"><span>Swap <b>${esc(c.name||"Unnamed card")}</b> <span class="hint">(${esc(locShort(c))})</span>: tap the card or empty pocket to trade places with. Other pages and binders work too.</span><button class="btn sm" type="button" id="swapCancel">Cancel</button></div>`;
+  const k = stackOf(c).length;
+  return `<div class="pickbar swapbar" role="status"><span>Swap <b>${esc(c.name||"Unnamed card")}</b>${k>1?` <b>×${k}</b>`:""} <span class="hint">(${esc(locShort(c))})</span>: tap the card or empty pocket to trade places with. Other pages and binders work too.</span><button class="btn sm" type="button" id="swapCancel">Cancel</button></div>`;
 }
-/* a goes to toA, b (if any) to toB; b moves first so a never lands on top of it for long */
-async function swapPlaces(a, toA, b, toB){
-  if(b && !(await updateCard(b.id, toB))) return false;
-  if(!(await updateCard(a.id, toA))){ if(b) await updateCard(b.id, toA); return false; }
-  Object.assign(a, toA); if(b) Object.assign(b, toB);
-  render(); return true;
-}
+/* Swap with…: two whole pockets trade places (every copy in each), or a pocket moves to an empty one.
+   One request moves them all (POST /api/cards/place), and Undo sends the old places back. */
+const stackOf = c => c.binderId && c.page && c.slot && binderById(c.binderId) && !isCase(binderById(c.binderId)) ? stackAt(c.binderId, c.page, c.slot) : [c];
 async function swapWith(target){
   const a = S.cards.find(c=>c.id===S.swap?.id); S.swap = null;
   if(!a) return renderMain();
   if(target.id===a.id){ renderMain(); return toast("That's the same card. Swap with… again to pick another."); }
   const loc = c => ({binderId:c.binderId||null, page:c.page||null, slot:c.slot||null});
   const b = target.id ? S.cards.find(c=>c.id===target.id) : null;
+  const sideA = stackOf(a), sideB = b ? stackOf(b) : [];
+  if(sideB.some(c=>c.id===a.id)){ renderMain(); return toast("Those are in the same pocket. Swap with… again to pick another."); }
   const locA = loc(a), locB = b ? loc(b) : {binderId:target.binderId, page:target.page, slot:target.slot};
-  if(!(await swapPlaces(a, locB, b, locA))) return renderMain();
-  const name = c => c.name || "Unnamed card";
-  toast(b ? `Swapped ${name(a)} and ${name(b)}` : `Moved ${name(a)} to ${locText(locB)}`, {label:"Undo", run:() => void swapPlaces(a, locA, b, locB).then(ok => ok && toast(b ? "Swapped back" : "Moved back"))});
+  const moves = [...sideA.map(c=>({id:c.id, ...locB})), ...sideB.map(c=>({id:c.id, ...locA}))];
+  const before = [...sideA, ...sideB].map(c=>({id:c.id, ...loc(c)}));
+  if(!(await sendPlaces(moves))) return renderMain();
+  render();
+  const name = (c, side) => (c.name || "Unnamed card") + (side.length>1 ? ` ×${side.length}` : "");
+  toast(b ? `Swapped ${name(a, sideA)} and ${name(b, sideB)}` : `Moved ${name(a, sideA)} to ${locText(locB)}`, {label:"Undo", run:() => void undoPlaces(before, b ? "Swapped back" : "Moved back")});
 }
-
 /* ---------- move to binder ----------
    Press and hold, then Move: the selected cards go to a binder, after its last card or from a
    pocket you pick (cards in the way shift along to the next empty pocket). The pockets they
@@ -2474,9 +2595,16 @@ const placeOf = c => {
 };
 /* pockets per page, or null for a display case (move.js puts cards in it with no pocket) */
 const movePockets = b => isCase(b) ? null : pocketsOf(b);
+/* whether a unit of selected cards may go in with the cards in a pocket: they are all copies of its first card */
+const joinsStack = (unitIds, occIds) => {
+  const by = id => S.cards.find(c=>c.id===id), lead = by(unitIds[0]);
+  return !!lead && occIds.every(id => { const o = by(id); return !!o && window.BinderStack.same(lead, o); });
+};
+/* a pocket's selected copies move together as one unit */
+const moveUnits = list => window.BinderStack.units(list).map(u=>u.map(c=>c.id));
 function movePlan(bid, list, at){
-  const b = binderById(bid), ids = list.map(c=>c.id);
-  return window.BinderMove.plan(movePockets(b), cardsIn(bid), ids, at);
+  const b = binderById(bid);
+  return window.BinderMove.plan(movePockets(b), cardsIn(bid), moveUnits(list), at, {joins:joinsStack});
 }
 function moveModal(ids){
   const list = ids.map(id=>S.cards.find(c=>c.id===id)).filter(c=>c && held(c))
@@ -2505,18 +2633,19 @@ function moveModal(ids){
     moveTo.page = Math.min(Math.max(1, moveTo.page|0), mp); moveTo.slot = Math.min(Math.max(1, moveTo.slot|0), n);
     $("#mvSpot").hidden = moveTo.at!=="at";
     $("#mvSpot").innerHTML = `<div class="field"><label for="mv_page">Page</label><select id="mv_page" class="mono">${Array.from({length:mp},(_,i)=>`<option value="${i+1}" ${moveTo.page===i+1?"selected":""}>${i+1}</option>`).join("")}</select></div>
-      <div class="field"><label for="mv_slot">Pocket</label><select id="mv_slot" class="mono">${Array.from({length:n},(_,i)=>{ const c = cardAt(b.id, moveTo.page, i+1); return `<option value="${i+1}" ${moveTo.slot===i+1?"selected":""}>${i+1}${c?` · ${esc(c.name||"Unnamed card")}`:" · empty"}</option>`; }).join("")}</select></div>`;
+      <div class="field"><label for="mv_slot">Pocket</label><select id="mv_slot" class="mono">${Array.from({length:n},(_,i)=>{ const l = stackAt(b.id, moveTo.page, i+1); return `<option value="${i+1}" ${moveTo.slot===i+1?"selected":""}>${i+1}${l.length?` · ${esc(l[0].name||"Unnamed card")}${l.length>1?` ×${l.length}`:""}`:" · empty"}</option>`; }).join("")}</select></div>`;
   };
   const show = () => {
     const b = binderById(moveTo.bid), p = movePlan(b.id, list, at()), first = p.moves[0];
     if(isCase(b)){ $("#mvPrev").innerHTML = `${one?"Goes in":"Go in"} the display case <b>${esc(b.name)}</b>. It has no pages or pockets, so nothing else moves.`; return; }
     const e = window.BinderMove.end(pocketsOf(b), cardsIn(b.id), list.map(c=>c.id));
     $("#mvEnd").textContent = `At the end (Page ${e.page} · #${e.slot})`;
-    const there = moveTo.at==="at" ? cardAt(b.id, first.page, first.slot) : null, k = p.shifted;
-    const shift = !k ? "" : there && !list.includes(there)
+    const mv = new Set(list.map(c=>c.id)), occ = moveTo.at==="at" ? stackAt(b.id, first.page, first.slot).filter(x=>!mv.has(x.id)) : [];
+    const there = occ[0], k = p.shifted, joined = !!there && joinsStack(moveUnits(list)[0], occ.map(x=>x.id));
+    const shift = !k ? "" : there && !joined
       ? ` ${esc(there.name||"The card there")} ${k>1?`and the ${k===2?"card":`${k-1} cards`} after it shift`:"shifts"} along, up to the next empty pocket.`
       : ` ${k} card${k===1?" shifts":"s shift"} along to make room, up to the next empty pocket.`;
-    $("#mvPrev").innerHTML = `${one?"Goes in":"Go in"} <b>${esc(b.name)} · Page ${first.page} · Pocket ${first.slot}</b>${one?"":" onward"}.${shift}`;
+    $("#mvPrev").innerHTML = `${one?"Goes in":"Go in"} <b>${esc(b.name)} · Page ${first.page} · Pocket ${first.slot}</b>${joined?` with the ${occ.length===1?"copy":`${occ.length} copies`} there`:""}${one?"":" onward"}.${shift}`;
   };
   $("#mv_binder").onchange = e => { moveTo.bid = e.target.value; spotFields(); show(); };
   $("#mvAt").onchange = e => { moveTo.at = e.target.value; spotFields(); show(); };
@@ -2537,8 +2666,8 @@ function moveModal(ids){
   setTimeout(()=> $("#mv_binder")?.focus(), 30);
 }
 function applyPlaces(moves){ for(const m of moves){ const c = S.cards.find(x=>x.id===m.id); if(c) Object.assign(c, {binderId:m.binderId, page:m.page, slot:m.slot}); } }
-async function undoPlaces(before){
-  try{ await window.ledgerApi.call("POST", "api/cards/place", {moves:before}); applyPlaces(before); render(); toast("Moved back"); }
+async function undoPlaces(before, said = "Moved back"){
+  try{ await window.ledgerApi.call("POST", "api/cards/place", {moves:before}); applyPlaces(before); render(); toast(said); }
   catch(err){ toast(err?.message || "Couldn't undo the move."); }
 }
 
@@ -2546,22 +2675,32 @@ async function undoPlaces(before){
    Every pocket of a binder in order, page by page, empty pockets too. Drag a card (or an empty
    pocket) by its handle, or move it one place with ↑ ↓, until the list matches the real binder;
    Save puts every card in its new page and pocket at once (POST /api/binders/:id/arrange). */
-let ARR = null; // {bid, n, rows:[cardId|null], orig:[...]}
+let ARR = null; // {bid, n, rows:[cardId|null], orig:[...], with: Map(cardId → the other copies in its pocket), sig}
 function arrangeFromData(b){
-  const n = pocketsOf(b), mp = maxPage(b.id), rows = [];
-  for(let p=1;p<=mp;p++) for(let s=1;s<=n;s++) rows.push(cardAt(b.id,p,s)?.id || null);
-  // cards with no pocket, or in a pocket past the page size, go at the end
-  for(const c of cardsIn(b.id)) if(!rows.includes(c.id)) rows.push(c.id);
+  const n = pocketsOf(b), mp = maxPage(b.id), rows = [], follow = new Map(), extra = [], BS = window.BinderStack;
+  // each row is a pocket, led by its top copy; the other copies of that card ride along (follow)
+  for(let p=1;p<=mp;p++) for(let s=1;s<=n;s++){
+    const list = stackAt(b.id, p, s);
+    if(!list.length){ rows.push(null); continue; }
+    const [main, ...others] = BS.units(list);
+    rows.push(main[0].id); follow.set(main[0].id, main.slice(1).map(c=>c.id));
+    extra.push(...others); // a different card sharing the pocket (older data) gets a pocket of its own at the end
+  }
+  // cards with no pocket, or in a pocket past the page size, go at the end too
+  const placed = new Set([...follow.entries()].flatMap(([id, f]) => [id, ...f]));
+  extra.push(...BS.units(cardsIn(b.id).filter(c => !placed.has(c.id) && !extra.some(u => u.some(x => x.id===c.id)))));
+  for(const u of extra){ rows.push(u[0].id); follow.set(u[0].id, u.slice(1).map(c=>c.id)); }
   while(rows.length % n) rows.push(null);
-  return {bid:b.id, n, rows, orig:rows.slice()};
+  return {bid:b.id, n, rows, orig:rows.slice(), with:follow, sig:[...follow].map(([id, f]) => id+":"+f.join(",")).join("|")};
 }
 const arrDirty = () => !!ARR && ARR.rows.join() !== ARR.orig.join();
-const arrMoved = () => !ARR ? 0 : ARR.rows.filter((id,i) => id && ARR.orig.indexOf(id)!==i).length;
+/* how many cards move: a pocket's copies count together with it */
+const arrMoved = () => !ARR ? 0 : ARR.rows.reduce((t, id, i) => t + (id && ARR.orig.indexOf(id)!==i ? 1 + (ARR.with.get(id)?.length || 0) : 0), 0);
 const arrPlace = (i, n) => ({page:Math.floor(i/n)+1, slot:i%n+1});
 function renderArrange(m, b){
   if(ADRAG) return; // a live update mid-drag waits for the drop
   const fresh = arrangeFromData(b);
-  if(!ARR || ARR.bid!==b.id || ARR.n!==fresh.n || (!arrDirty() && ARR.orig.join()!==fresh.rows.join())) ARR = fresh;
+  if(!ARR || ARR.bid!==b.id || ARR.n!==fresh.n || (!arrDirty() && (ARR.orig.join()!==fresh.rows.join() || ARR.sig!==fresh.sig))) ARR = fresh;
   const viewer = S.me?.user?.role==="viewer";
   m.innerHTML = `<div class="arrview">
     <div class="arrbar">
@@ -2584,7 +2723,7 @@ function renderArrList(focus){
     h += `<li class="arrrow${id?"":" empty"}${moved?" moved":""}${ARR.sel===i?" selected":""}${c?.placeholder?" ph":""}" data-i="${i}" data-arr="${esc(id||"")}">
       <span class="arrpos mono">#${slot}</span>
       ${c ? (shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="" loading="lazy">`:`<span class="thumb"></span>`) : `<span class="thumb emptythumb"></span>`}
-      <span class="arrname">${c ? `<b>${esc(c.name||"Unnamed card")}</b><span class="hint">${esc(metaLine(c))}${c.placeholder?" · placeholder":""}${moved?` · was p${from.page} #${from.slot}`:""}</span>` : `<span class="hint">Empty pocket</span>`}</span>
+      <span class="arrname">${c ? `<b>${esc(c.name||"Unnamed card")}${ARR.with.get(id)?.length ? ` ×${ARR.with.get(id).length+1}` : ""}</b><span class="hint">${esc(metaLine(c))}${c.placeholder?" · placeholder":""}${moved?` · was p${from.page} #${from.slot}`:""}</span>` : `<span class="hint">Empty pocket</span>`}</span>
       <button class="btn sm ghost arrbtn" type="button" data-arrmove="-1" aria-label="Move ${esc(c?.name||"empty pocket")} up" ${i===0?"disabled":""}><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 15 6-6 6 6"/></svg></button>
       <button class="btn sm ghost arrbtn" type="button" data-arrmove="1" aria-label="Move ${esc(c?.name||"empty pocket")} down" ${i===ARR.rows.length-1?"disabled":""}><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
       <span class="arrhandle" aria-hidden="true" title="Drag">⠿</span></li>`;
@@ -2615,7 +2754,7 @@ async function arrSave(){
   const b = binderById(ARR.bid); if(!b) return;
   const save = $("#arrSave"); save.disabled = true;
   const before = cardsIn(b.id).map(c=>({id:c.id, page:c.page, slot:c.slot}));
-  const moves = ARR.rows.map((id,i) => id && {id, ...arrPlace(i, ARR.n)}).filter(Boolean);
+  const moves = ARR.rows.flatMap((id,i) => id ? [id, ...(ARR.with.get(id) || [])].map(x => ({id:x, ...arrPlace(i, ARR.n)})) : []);
   try{
     const r = await window.ledgerApi.call("POST", `api/binders/${encodeURIComponent(b.id)}/arrange`, {moves});
     arrApply(moves); ARR.orig = ARR.rows.slice(); renderArrList();
@@ -2749,22 +2888,32 @@ function binderOrder(list, k){
 }
 const hasLayout = b => Array.isArray(b?.layout?.places) && b.layout.places.length > 0;
 const layoutDate = b => { const d = new Date(b?.layout?.savedAt || ""); return isNaN(d) ? "earlier" : d.toLocaleDateString(undefined, {month:"short", day:"numeric", year:"numeric"}); };
+/* A sort gives each pocket (a card, or the copies sharing a pocket) one pocket in the new order: it never
+   stacks or unstacks cards. rows: one per pocket {c: the top copy, m: its new place, n: its copies}. */
 function sortPlan(b, k){
-  const n = pocketsOf(b), cards = cardsIn(b.id);
+  const n = pocketsOf(b), cards = cardsIn(b.id), units = window.BinderStack.units(cards);
+  const unitOf = new Map(units.map(u=>[u[0].id, u]));
+  const flat = placed => placed.flatMap(({c, m}) => unitOf.get(c.id).map(x=>({id:x.id, page:m.page, slot:m.slot})));
+  let placed, missing, missingCards;
   if(k==="layout"){
-    const r = window.BinderLayout.restore(n, cards, b.layout), at = new Map(cards.map(c=>[c.id, c]));
-    const moves = r.moves.slice().sort((x,y)=> x.page-y.page || x.slot-y.slot);
-    return {n, order:moves.map(m=>at.get(m.id)), moves, moved:r.moved, missing:r.added, pages:moves.length ? moves.at(-1).page : 0};
+    const r = window.BinderLayout.restore(n, cards, b.layout, units.map(u=>u.map(c=>c.id)));
+    const at = new Map(r.moves.map(m=>[m.id, m]));
+    placed = units.map(u=>({c:u[0], m:at.get(u[0].id)})).sort((x,y)=> x.m.page-y.m.page || x.m.slot-y.m.slot);
+    missing = missingCards = r.added;
+  } else {
+    const o = binderOrder(units.map(u=>u[0]), k);
+    placed = o.order.map((c,i)=>({c, m:{page:Math.floor(i/n)+1, slot:i%n+1}}));
+    missing = o.missing;
+    missingCards = placed.slice(placed.length - missing).reduce((t,x)=>t+unitOf.get(x.c.id).length, 0);
   }
-  const {order, missing} = binderOrder(cards, k);
-  const moves = order.map((c,i)=>({id:c.id, page:Math.floor(i/n)+1, slot:i%n+1}));
-  const moved = moves.filter((m,i)=> order[i].page!==m.page || order[i].slot!==m.slot).length;
-  return {n, order, moves, moved, missing, pages:Math.ceil(order.length/n)};
+  const moves = flat(placed), byId = new Map(cards.map(c=>[c.id, c]));
+  const moved = moves.filter(m => byId.get(m.id).page!==m.page || byId.get(m.id).slot!==m.slot).length;
+  return {n, order:placed.map(x=>x.c), rows:placed.map(x=>({c:x.c, m:x.m, n:unitOf.get(x.c.id).length})), moves, moved, missing, missingCards, cards:cards.length, pages:placed.length ? placed.at(-1).m.page : 0};
 }
 let sortK = "old";
 function sortModal(id){
   const b = binderById(id); if(!b) return;
-  const saved = hasLayout(b), atLayout = saved && window.BinderLayout.current(pocketsOf(b), cardsIn(b.id), b.layout);
+  const saved = hasLayout(b), atLayout = saved && window.BinderLayout.current(pocketsOf(b), cardsIn(b.id), b.layout, window.BinderStack.units(cardsIn(b.id)).map(u=>u.map(c=>c.id)));
   // The order the binder is in now, if it's one of the sorts (then it isn't saved as the layout unless asked).
   const sortedAs = BINDER_ORDERS.find(o => { const p = sortPlan(b, o.k); return !p.moved && p.missing < p.order.length; });
   const orders = [...(saved ? [{k:"layout", label:`My binder layout (saved ${layoutDate(b)})`}] : []), ...BINDER_ORDERS];
@@ -2775,7 +2924,7 @@ function sortModal(id){
   let save = autoSave || (!saved && !sortedAs);
   $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard narrow" role="dialog" aria-modal="true" aria-labelledby="sortTitle">
     <h2 id="sortTitle">Sort ${esc(b.name)}</h2>
-    <p class="lead">Moves every card into the order you choose, from page 1, pocket 1 with no gaps, so you can rearrange the binder to match. Your own layout is kept, so <i>My binder layout</i> can put it back any time. Nothing moves until you press Sort; Undo puts every card back.</p>
+    <p class="lead">Moves every card into the order you choose, from page 1, pocket 1 with no gaps, so you can rearrange the binder to match. A pocket's copies stay together. Your own layout is kept, so <i>My binder layout</i> can put it back any time. Nothing moves until you press Sort; Undo puts every card back.</p>
     <fieldset class="sortopts" id="sortOpts"><legend class="sr-only">Order</legend>${orders.map(o=>`<label><input type="radio" name="sortk" value="${o.k}" ${o.k===k?"checked":""}>${esc(o.label)}</label>`).join("")}</fieldset>
     <div id="sortSave"></div>
     <div id="sortPrev"></div>
@@ -2785,16 +2934,15 @@ function sortModal(id){
     const p = sortPlan(b, k), mine = k==="layout", byDate = k==="old" || k==="new";
     const what = byDate ? "release date" : "price";
     let rows = "", page = 0;
-    p.order.slice(0, 400).forEach((c,i) => {
-      const m = p.moves[i];
+    p.rows.slice(0, 400).forEach(({c, m, n}) => {
       if(m.page!==page){ page = m.page; rows += `<li class="pg">Page ${page}</li>`; }
       const key = mine ? (c.page===m.page && c.slot===m.slot ? "stays" : c.page && c.slot ? `from p${c.page} #${c.slot}` : "")
         : byDate ? c.released : valueOf(c)!=null ? money(valueOf(c)) : null;
-      rows += `<li class="${key==null?"none":""}"><span class="k">#${m.slot}</span><span class="nm">${esc(c.name||"Unnamed card")} <span class="hint">${esc(metaLine(c))}</span></span><span class="k">${esc(key ?? "no "+what)}</span></li>`;
+      rows += `<li class="${key==null?"none":""}"><span class="k">#${m.slot}</span><span class="nm">${esc(c.name||"Unnamed card")}${n>1?` <b>×${n}</b>`:""} <span class="hint">${esc(metaLine(c))}</span></span><span class="k">${esc(key ?? "no "+what)}</span></li>`;
     });
     const sum = mine
-      ? (p.moved ? `<b>${p.moved} of ${p.order.length} cards go back</b> to your layout.` : `<b>Already in your layout.</b>`) + (p.missing ? ` ${p.missing} card${p.missing===1?" was":"s were"} added since and go${p.missing===1?"es":""} after the last saved card.` : "")
-      : (p.moved ? `<b>${p.moved} of ${p.order.length} cards move</b>, across ${p.pages} page${p.pages===1?"":"s"}.` : `<b>Already in this order.</b>`) + (p.missing ? ` ${p.missing} card${p.missing===1?" has":"s have"} no ${what} and go${p.missing===1?"es":""} at the end, in their current order.${byDate?" Release dates are filled in overnight, or from Settings → Fill in missing details.":""}` : "");
+      ? (p.moved ? `<b>${p.moved} of ${p.cards} cards go back</b> to your layout.` : `<b>Already in your layout.</b>`) + (p.missingCards ? ` ${p.missingCards} card${p.missingCards===1?" was":"s were"} added since and go${p.missingCards===1?"es":""} after the last saved card.` : "")
+      : (p.moved ? `<b>${p.moved} of ${p.cards} cards move</b>, across ${p.pages} page${p.pages===1?"":"s"}.` : `<b>Already in this order.</b>`) + (p.missingCards ? ` ${p.missingCards} card${p.missingCards===1?" has":"s have"} no ${what} and go${p.missingCards===1?"es":""} at the end, in their current order.${byDate?" Release dates are filled in overnight, or from Settings → Fill in missing details.":""}` : "");
     $("#sortPrev").innerHTML = `<p class="sortsum">${sum}</p><ol class="sortprev" aria-label="New order">${rows}</ol>`;
     $("#sortSave").innerHTML = mine ? "" : !offerSave
       ? `<p class="sortsum hint">Your binder layout is saved, so you can put it back after sorting.</p>`
@@ -3003,7 +3151,7 @@ const norm = s => String(s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ
 const CI_COLS = [
   {k:"binder", h:"Binder", a:["bindername"], d:"Binder or display case name, spelled as on its tab. Leave blank for a card that isn't in a binder. A name that doesn't exist yet creates a new binder."},
   {k:"page", h:"Page", a:["pg","pageno","pagenumber"], d:"Whole number, 1 or more."},
-  {k:"slot", h:"Pocket", a:["slot","pocketno","pocketnumber","position"], d:"Whole number from 1 to the binder's pockets per page. Leave Page and Pocket both blank to use the next empty pocket. If that pocket already has a card, the imported card replaces it (you can change this in the import box)."},
+  {k:"slot", h:"Pocket", a:["slot","pocketno","pocketnumber","position"], d:"Whole number from 1 to the binder's pockets per page. Leave Page and Pocket both blank to use the next empty pocket. Rows for the same card with the same page and pocket go in that pocket together, as copies. If the pocket already has the same card, the row is added as another copy (or overwrites one of them, if you chose Replace); if it has a different card, the imported card replaces it (you can change this in the import box)."},
   {k:"name", h:"Name", a:["cardname","pokemon","card"], req:true, d:"The Pokémon or card name, e.g. Umbreon VMAX."},
   {k:"set", h:"Set", a:["setname","expansion"], d:"Set name, e.g. Evolving Skies."},
   {k:"setCode", h:"Set code", a:["code","setabbr","setid"], d:"Short code, e.g. EVS, SVI, 30C."},
@@ -3095,8 +3243,9 @@ function ciValidate(P, o){
   const bkeyOf = s => s.trim().toLowerCase().replace(/\s+/g," ");
   const exist = new Map(S.binders.map(b=>[bkeyOf(b.name||""), b]));
   const pocketsFor = k => k.startsWith("id:") ? pocketsOf(binderById(k.slice(3))) : res.newBinders.get(k).pockets;
-  const occ = new Map(), occCard = new Map(), occRow = new Map();
-  S.cards.forEach(c=>{ if(c.binderId && binderById(c.binderId) && c.page && c.slot){ const k=`id:${c.binderId}|${c.page}|${c.slot}`; occ.set(k, `${c.name||"a card"} (already in your ledger)`); occCard.set(k, c); } });
+  // the ledger's cards in each pocket, top copy first
+  const existing = new Map();
+  S.cards.slice().sort(window.BinderStack.order).forEach(c=>{ if(c.binderId && binderById(c.binderId) && !isCase(binderById(c.binderId)) && c.page && c.slot){ const k=`id:${c.binderId}|${c.page}|${c.slot}`; existing.set(k, [...(existing.get(k) || []), c]); } });
   // cards the person has (not ones only on the watchlist), for "this adds another copy"
   const have = new Set(ledgerCards().filter(c=>c.name).map(dupKey));
   const MAX = 2000; let count = 0;
@@ -3176,30 +3325,7 @@ function ciValidate(P, o){
   }
   if(count > MAX) res.notices.push(`Only the first ${MAX} card rows were checked. Put the rest in a second file.`);
   if(!res.rows.length){ res.fatal = "The file has headings but no card rows."; return res; }
-  const ok = r => !r.errors.length;
-  for(const r of res.rows){
-    if(!ok(r) || !r.bkey || r.auto || r.inCase) continue;
-    const k = `${r.bkey}|${r.page}|${r.slot}`, who = occ.get(k);
-    if(who && o.taken==="replace"){
-      const prev = occRow.get(k), old = occCard.get(k);
-      if(prev){
-        prev.errors.push(`Replaced by row ${r.line} (${r.data.name}), which uses the same page and pocket later in the file.`);
-        prev.replaced = true; prev.warns = prev.warns.filter(w=>!w.startsWith("Replaces "));
-        if(prev.replaceId){ r.replaceId = prev.replaceId; r.replaceName = prev.replaceName; r.replaceOld = prev.replaceOld; }
-      } else if(old){ r.replaceId = old.id; r.replaceName = old.name || "Unnamed card"; r.replaceOld = old; }
-      if(r.replaceId) r.warns.push(`Replaces ${r.replaceName} in page ${r.page}, pocket ${r.slot}. Its details and price log are overwritten.`);
-      occ.set(k, `row ${r.line} (${r.data.name})`); occRow.set(k, r);
-    } else if(who){
-      if(o.taken==="next"){ r.auto = true; r.warns.push(`Page ${r.page}, pocket ${r.slot} is taken by ${who}, so this card goes in the next empty pocket.`); }
-      else r.errors.push(`Page ${r.page}, pocket ${r.slot} is already taken by ${who}.`);
-    } else { occ.set(k, `row ${r.line} (${r.data.name})`); occRow.set(k, r); }
-  }
-  for(const r of res.rows){
-    if(!ok(r) || !r.bkey || !r.auto || r.inCase) continue;
-    const n = pocketsFor(r.bkey); let p = 1, s = 1;
-    while(occ.has(`${r.bkey}|${p}|${s}`)){ if(++s > n){ s = 1; p++; } }
-    r.page = p; r.slot = s; occ.set(`${r.bkey}|${p}|${s}`, `row ${r.line} (${r.data.name})`);
-  }
+  window.BinderImportPockets.assign(res.rows, existing, {taken:o.taken, pocketsFor}, window.BinderStack.same);
   return res;
 }
 
@@ -3217,7 +3343,7 @@ function csvImportModal(){
     <details class="ci-guide"><summary>What goes in each column</summary><div class="tablewrap"><table><thead><tr><th>Column</th><th>What to put in it</th></tr></thead><tbody>${CI_COLS.map(c=>`<tr><td>${esc(c.h)}${c.req?` <span class="chip err">required</span>`:""}</td><td>${esc(c.d)}</td></tr>`).join("")}</tbody></table></div></details>
     <div class="ci-opts">
       <div class="field"><label for="ci_create">Binders that don't exist yet</label><select id="ci_create"><option value="1">Create them</option><option value="0">Flag as an error</option></select></div>
-      <div class="field"><label for="ci_taken">If a pocket already has a card</label><select id="ci_taken"><option value="replace" selected>Replace that card</option><option value="next">Use the next empty pocket</option><option value="error">Flag as an error</option></select></div>
+      <div class="field"><label for="ci_taken">If a pocket already has a different card</label><select id="ci_taken"><option value="replace" selected>Replace what's there</option><option value="next">Use the next empty pocket</option><option value="error">Flag as an error</option></select></div>
       <div class="field"><label for="ci_pockets">Pockets per page for new binders</label><select id="ci_pockets">${[4,9,12,16].map(p=>`<option value="${p}" ${p===9?"selected":""}>${p}-pocket</option>`).join("")}</select></div>
     </div>
     <div id="ci_res"></div>
@@ -3321,12 +3447,12 @@ async function ciRun(){
     try{ await ciTry(()=> S.db.collection("binders").doc(nid).set({name:nb.name, color:BINDER_COLORS[ci++ % BINDER_COLORS.length], pockets:nb.pockets, order:++order, createdAt:nowISO()})); ids[k] = nid; }
     catch(e){ console.error(e); if(FATAL.has(e?.code)) stop = e; }
   }
-  let done = 0, i = 0, replacedN = 0;
+  let done = 0, i = 0, replacedN = 0, list = rows;
   const fail = (r, e) => { r.failed = true; r.errors.push(ciErrText(e)); };
   const bidOf = r => !r.bkey ? null : r.bkey.startsWith("id:") ? r.bkey.slice(3) : ids[r.bkey];
   async function worker(){
-    while(i < rows.length){
-      const r = rows[i++];
+    while(i < list.length){
+      const r = list[i++];
       if(stop){ fail(r, stop); continue; }
       const bid = bidOf(r);
       if(r.bkey && !bid){ fail(r, {code:"binder"}); continue; }
@@ -3341,7 +3467,9 @@ async function ciRun(){
     }
   }
   prog(`Saving 1 of ${rows.length}…`);
-  await Promise.all([worker(), worker(), worker()]);
+  // Cards that replace one in a pocket are saved first, so the copies added after them find the pocket as it will be
+  list = rows.filter(r=>r.replaceId); await Promise.all([worker(), worker(), worker()]);
+  list = rows.filter(r=>!r.replaceId); i = 0; await Promise.all([worker(), worker(), worker()]);
   CI.busy = false;
   const failed = rows.filter(r=>r.failed).length, first = rows.find(r=>r.saved);
   if(first){ const bid = bidOf(first); if(bid){ S.binderId = bid; S.page = first.page || 1; S.view = "pages"; } else { S.binderId = "__loose"; S.view = "list"; } persistNav(); }
@@ -3364,9 +3492,9 @@ document.addEventListener("pointerdown", e => {
   const badge = e.target.closest(".flag:not(.placeholder),.chip:not(.placeholder)");
   clearTimeout(hold?.t);
   hold = {x:e.clientX, y:e.clientY, t:setTimeout(()=>{
-    hold=null; suppressClick=true; const id=cd.dataset.card;
-    if(!S.pick && badge && cd.contains(badge) && canEdit()) return statusHold(id);
-    if(S.pick){ S.pick.has(id)?S.pick.delete(id):S.pick.add(id); S.pickConfirm=false; renderMain(); } else startPick(id);
+    hold=null; suppressClick=true; const ids=idsOf(cd);
+    if(!S.pick && badge && cd.contains(badge) && canEdit()) return statusHold([cd.dataset.card]); // the badge shows the top copy's status: only that copy changes
+    if(S.pick){ togglePick(ids); renderMain(); } else startPick(ids);
   }, HOLD_MS)};
 });
 const cancelHold = () => { if(hold){ clearTimeout(hold.t); hold=null; } };
@@ -3491,14 +3619,14 @@ document.addEventListener("click", e => {
     if(t.closest("#pickDelYes")) return void deletePicked();
     if(t.closest("#pickDup")) return void duplicatePicked();
     if(t.closest("#pickPh")) return void placeholderPicked();
-    if(t.closest("#pickSwap")){ const [a, b] = [...S.pick]; endPick(); S.swap = {id:a}; return void swapWith({id:b}); }
+    if(t.closest("#pickSwap")){ const [a, b] = pickUnits(); endPick(); S.swap = {id:a[0].id}; return void swapWith({id:b[0].id}); }
     if(t.closest("#pickSell")) return quickSellModal([...S.pick]);
     if(t.closest("#pickMove")) return moveModal([...S.pick]);
     if(t.closest("#pickOwner")) return ownerModal();
     if(t.closest("#pickWatch")) return watchModal([...S.pick]);
     if(t.closest("#pickStatus")) return statusModal([...S.pick]);
     const pcd = t.closest("#main [data-card]");
-    if(pcd){ const id=pcd.dataset.card; S.pick.has(id)?S.pick.delete(id):S.pick.add(id); S.pickConfirm=false; if(!S.pick.size) return endPick(); return renderMain(); }
+    if(pcd){ togglePick(idsOf(pcd)); if(!S.pick.size) return endPick(); return renderMain(); }
     if(t.closest("#main [data-empty],#main [data-caseadd]")) return;
     if(t.closest("[data-binder],#btnAdd,#btnImport")){ S.pick=null; S.pickConfirm=false; }
   }
@@ -3507,6 +3635,7 @@ document.addEventListener("click", e => {
     const sc = t.closest("#main [data-card]"), se = t.closest("#main [data-empty]"), sa = t.closest("#main [data-caseadd]");
     if(sc || se || sa){ e.preventDefault(); return void swapWith(sc ? {id:sc.dataset.card} : sa ? {binderId:curBinder().id, page:null, slot:null} : {binderId:curBinder().id, page:S.page, slot:+se.dataset.empty}); }
   }
+  const cp = t.closest("[data-copy]"); if(cp && cp.dataset.copy!==S.sel){ openCard(cp.dataset.copy); return; }
   if(t.closest("#btnSwap")){ const c = selCard(); if(c){ if(!discardOk()) return; S.swap = {id:c.id}; if(PV.open || SV.open){ closeViews(); render(); } closeDrawer(); renderMain(); } return; }
   const ar = t.closest("#arrList .arrrow"); if(ar && !t.closest("button,.arrhandle")) return arrTap(+ar.dataset.i);
   if(t.closest("#vPages,#vList,#vArrange,[data-binder],#btnAdd,#btnFind,#btnPricing,#btnSelling") && S.view==="arrange" && arrDirty() && !t.closest("#vArrange")){
@@ -3576,6 +3705,9 @@ document.addEventListener("click", e => {
   if(t.closest("#wmSave")) return void watchPicked(false);
   if(t.closest("#wmStop")) return void watchPicked(true);
   if(t.closest("#btnDup")) return void duplicateCard();
+  if(t.closest("#btnCopyHere")) return void duplicateCard(true);
+  if(t.closest("#idAll")){ closeModal(); return void saveCard("all"); }
+  if(t.closest("#idOne")){ closeModal(); return void saveCard("one"); }
   if(t.closest("#btnQuickSell")){ if(unsaved()) return toast("Save or discard your changes first."); return quickSellModal([S.sel]); }
   if(t.closest("#btnAddPrice")) return void addPrice();
   const pe = t.closest("[data-pedit]"); if(pe){ S.editPrice=pe.dataset.pedit; S.confirm=null; refreshParts(selCard(),{price:true}); return; }
@@ -3645,8 +3777,12 @@ function updateMoveNote(){
   const n=$("#moveNote"); if(!n) return; const c=selCard(); const bid=$("#m_binder").value;
   if(!bid){ n.textContent="The card stays in your ledger under “Not in a binder”."; return; }
   if(isCase(binderById(bid))){ n.textContent = c.binderId===bid ? "That's where it is now." : "It goes in the display case (no page or pocket)."; return; }
-  const o = cardAt(bid, Math.max(1,+$("#m_page").value||1), +$("#m_slot").value);
-  n.textContent = o && o.id!==c.id ? `${o.name||"Another card"} is in that pocket. They'll swap places.` : o ? "That's where it is now." : "That pocket is empty.";
+  const slot = +$("#m_slot").value, plan = singleMove(c, bid, Math.max(1,+$("#m_page").value||1), slot), k = plan.others.length, there = plan.others[0]?.name || "Another card";
+  n.textContent = plan.kind==="here" ? "That's where it is now."
+    : plan.kind==="empty" ? "That pocket is empty."
+    : plan.kind==="join" ? `${k===1 ? "A copy" : `${k} copies`} of ${there} ${k===1?"is":"are"} in that pocket. It goes in with ${k===1?"it":"them"}.`
+    : plan.kind==="swap" ? `${k>1 ? `${k} copies of ${there} are` : `${there} is`} in that pocket. They'll swap places.`
+    : `${there} is in that pocket, and this card is one of several copies. Choose an empty pocket, or use Swap with… to swap the whole pocket.`;
 }
 
 /* ---------- find a card ---------- */
@@ -3753,7 +3889,7 @@ function showCard(id){
   S.found = {id:c.id, until:Date.now()+FOUND_MS};
   closeViews(); if(TB.open) closeTable();
   persistNav(); render();
-  const sel = CSS.escape(c.id), el = $(`#main [data-card="${sel}"], #main [data-sale="${sel}"]`);
+  const sel = CSS.escape(c.id), el = $(`#main [data-card="${sel}"], #main [data-stack~="${sel}"], #main [data-sale="${sel}"]`);
   if(el){ el.scrollIntoView({block:"center", behavior: reduceMotion() ? "auto" : "smooth"}); try{ el.focus({preventScroll:true}); }catch(_){} }
   clearTimeout(S._foundT);
   S._foundT = setTimeout(() => { S.found = null; document.querySelectorAll("#main .found").forEach(x=>x.classList.remove("found")); }, FOUND_MS);

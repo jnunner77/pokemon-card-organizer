@@ -17,6 +17,8 @@ import type { Failure } from '../http/respond.ts';
 const notFound = (message: string): Failure => ({ status: 404, code: 'not_found', message });
 const conflict = (message: string): Failure => ({ status: 409, code: 'conflict', message });
 
+const holdsAnother = (name: string | null) => `${name ?? 'Another card'} is in that pocket: a pocket only holds copies of one card.`;
+
 export function documentFailure(e: AddressError | PutDocumentError | MergeDocumentError): Failure {
   switch (e.code) {
     case 'NO_SUCH_COLLECTION':
@@ -29,6 +31,8 @@ export function documentFailure(e: AddressError | PutDocumentError | MergeDocume
       return badRequest(e.message);
     case 'DOCUMENT_NOT_FOUND':
       return notFound(`No ${singular(e.collection)} with id ${e.id}`);
+    case 'POCKET_HOLDS_ANOTHER_CARD':
+      return conflict(holdsAnother(e.name));
     default:
       return assertNever(e);
   }
@@ -44,6 +48,8 @@ export function priceEntriesFailure(e: ChangePriceEntriesError): Failure {
       return notFound('That card no longer exists.');
     case 'PRICE_ENTRY_GONE':
       return conflict('A price entry was changed or removed meanwhile, so nothing was saved. Try again.');
+    case 'POCKET_HOLDS_ANOTHER_CARD':
+      return conflict(holdsAnother(e.name));
     case 'INVALID_DOCUMENT':
       return badRequest(e.message);
     default:
@@ -62,7 +68,7 @@ export function arrangeFailure(e: ArrangeBinderError): Failure {
     case 'BINDER_CHANGED':
       return conflict('The binder changed meanwhile (a card was added, moved or removed), so nothing moved. Try again.');
     case 'POCKET_SHARED':
-      return badRequest('Two cards were given the same pocket.');
+      return badRequest('Two different cards were given the same pocket: a pocket only holds copies of one card.');
     case 'POCKET_PAST_PAGE':
       return badRequest(`This binder's pages have ${e.pockets} pockets.`);
     case 'INVALID_DOCUMENT':
@@ -86,8 +92,8 @@ export function placeFailure(e: PlaceError): Failure {
       return badRequest('Choose a page and pocket in that binder.');
     case 'POCKET_PAST_PAGE':
       return badRequest('That pocket is past the end of the page.');
-    case 'POCKET_TAKEN':
-      return conflict('A pocket was filled meanwhile, so nothing moved. Try again.');
+    case 'POCKET_HOLDS_ANOTHER_CARD':
+      return conflict(`${holdsAnother(e.name)} Nothing moved.`);
     case 'INVALID_DOCUMENT':
       return badRequest(e.message);
     default:

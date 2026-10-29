@@ -15,6 +15,27 @@ describe('PutDocument', () => {
     assert.deepEqual(published, [{ type: 'DocumentSaved', collection: 'cards', id: 'c1', occurredAt: NOW }]);
   });
 
+  it('refuses a new card in a pocket holding a different card, and saves nothing', async () => {
+    const { ledger, deps, published } = setUp();
+    ledger.seed('cards', 'c1', card({ name: 'Charizard', number: '4/102' }));
+    const r = await new PutDocument(deps).execute({ collection: 'cards', id: 'c2', doc: card() });
+    assert.deepEqual(r, { ok: false, error: { code: 'POCKET_HOLDS_ANOTHER_CARD', name: 'Charizard' } });
+    assert.equal(ledger.tables.cards.has('c2'), false);
+    assert.deepEqual(published, []);
+    assert.deepEqual(ledger.runs, [{ committed: false }]);
+  });
+
+  it('puts a copy of the same card in the pocket, and saves a card again without checking its pocket', async () => {
+    const { ledger, deps } = setUp();
+    ledger.seed('cards', 'c1', card({ condition: 'NM' }));
+    const put = new PutDocument(deps);
+    assert.equal((await put.execute({ collection: 'cards', id: 'c2', doc: card({ condition: 'LP', owner: 'Megan' }) })).ok, true);
+    // A different card sitting in a pocket from older data is still saved when its place is unchanged.
+    ledger.seed('cards', 'c3', card({ name: 'Pikachu', number: '58/102' }));
+    assert.equal((await put.execute({ collection: 'cards', id: 'c3', doc: card({ name: 'Pikachu', number: '58/102', notes: 'edited' }) })).ok, true);
+    assert.equal(ledger.tables.cards.get('c3')?.['notes'], 'edited');
+  });
+
   it('replaces a document whole', async () => {
     const { ledger, deps } = setUp();
     ledger.seed('binders', 'b1', { name: 'Old', color: 'red' });
@@ -50,6 +71,27 @@ describe('MergeDocument', () => {
     const r = await new MergeDocument(deps).execute({ collection: 'cards', id: 'c1', patch: { status: 'sold', binderId: null, page: null, slot: null } });
     assert.deepEqual(r, { ok: true, value: { id: 'c1', ...card({ status: 'sold', binderId: null, page: null, slot: null }) } });
     assert.equal(published.length, 1);
+  });
+
+  it('moves a card into a pocket with its copies, and refuses a different card there', async () => {
+    const { ledger, deps } = setUp();
+    ledger.seed('cards', 'a', card({ slot: 1 }));
+    ledger.seed('cards', 'b', card({ slot: 2, condition: 'LP' }));
+    ledger.seed('cards', 'p', card({ name: 'Pikachu', number: '58/102', slot: 3 }));
+    const merge = new MergeDocument(deps);
+    assert.equal((await merge.execute({ collection: 'cards', id: 'a', patch: { slot: 2 } })).ok, true);
+    assert.equal(ledger.tables.cards.get('a')?.['slot'], 2);
+    assert.deepEqual(await merge.execute({ collection: 'cards', id: 'p', patch: { slot: 2 } }), { ok: false, error: { code: 'POCKET_HOLDS_ANOTHER_CARD', name: 'Lapras' } });
+    assert.equal(ledger.tables.cards.get('p')?.['slot'], 3);
+  });
+
+  it('never refuses a change that leaves the place alone, even inside a mixed pocket', async () => {
+    const { ledger, deps } = setUp();
+    ledger.seed('cards', 'a', card());
+    ledger.seed('cards', 'p', card({ name: 'Pikachu', number: '58/102' }));
+    const r = await new MergeDocument(deps).execute({ collection: 'cards', id: 'a', patch: { name: 'Lapras ex' } });
+    assert.equal(r.ok, true);
+    assert.equal(ledger.tables.cards.get('a')?.['name'], 'Lapras ex');
   });
 
   it('refuses a document that is not there', async () => {

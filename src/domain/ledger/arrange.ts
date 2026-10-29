@@ -1,11 +1,13 @@
 import { err, ok, type Result } from '#shared/result.ts';
 import type { Binder, LayoutPlace } from '../binders/binder.ts';
 import type { Card } from '../cards/card.ts';
+import { sameCard } from '../cards/identity.ts';
 import type { InvalidDocument } from './check-document.ts';
 
 // Sorting a binder: the page puts its cards in an order (release date, price) and says where each
 // one goes. It happens all together, and only if it still covers every card in the binder exactly
-// once, so nothing ends up doubled in a pocket or left behind. Undo sends the old places back.
+// once, so nothing is left behind, and only copies of one card share a pocket. Undo sends the old
+// places back.
 
 export interface PocketMove {
   readonly cardId: string;
@@ -34,10 +36,19 @@ export interface Arranged {
 export function arrangeBinder(binder: Binder, cardsInBinder: readonly Card[], moves: readonly PocketMove[], o: { readonly saveLayout: boolean; readonly at: Date }): Result<Arranged, ArrangeError> {
   if (binder.isCase) return err({ code: 'BINDER_IS_CASE' });
   const ids = new Set(moves.map((m) => m.cardId));
-  const places = new Set(moves.map((m) => `${m.page}/${m.slot}`));
   const byId = new Map(cardsInBinder.map((c) => [String(c.id), c]));
   if (ids.size !== moves.length || ids.size !== cardsInBinder.length || cardsInBinder.some((c) => !ids.has(c.id))) return err({ code: 'BINDER_CHANGED' });
-  if (places.size !== ids.size) return err({ code: 'POCKET_SHARED' });
+  const byPocket = new Map<string, Card[]>();
+  for (const m of moves) {
+    const card = byId.get(m.cardId);
+    if (!card) return err({ code: 'BINDER_CHANGED' });
+    const key = `${m.page}/${m.slot}`;
+    byPocket.set(key, [...(byPocket.get(key) ?? []), card]);
+  }
+  for (const group of byPocket.values()) {
+    // Every pair must be the same card: a blank set matches two different sets that don't match each other.
+    if (group.some((a, i) => group.slice(i + 1).some((b) => !sameCard(a.fields, b.fields)))) return err({ code: 'POCKET_SHARED' });
+  }
   const pockets = binder.pocketsPerPage;
   if (moves.some((m) => m.slot > pockets)) return err({ code: 'POCKET_PAST_PAGE', pockets });
 

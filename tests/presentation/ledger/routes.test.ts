@@ -22,7 +22,7 @@ async function setUp(over: Partial<LedgerRouteDeps> = {}) {
     deleteDocument: record(ok(undefined)),
     changePriceEntries: record(ok({ id: 'c1' })),
     arrangeBinder: record(ok({ moved: 1, cards: 2, layoutSaved: null })),
-    placeCards: record(err({ code: 'POCKET_TAKEN' } as const)),
+    placeCards: record(err({ code: 'POCKET_HOLDS_ANOTHER_CARD', name: 'Charizard' } as const)),
     recordTrade: record(ok({ cards: [{ id: 'c1' }], deleted: [] })),
     undoTrade: record(err({ code: 'TRADE_NOT_FOUND' } as const)),
     ...over,
@@ -63,7 +63,19 @@ describe('ledger routes', () => {
     const merged = await fetch(`${base}/docs/cards/c1`, as('editor', json({ name: 'x' }, 'PATCH')));
     assert.deepEqual([merged.status, await merged.json()], [404, { error: 'No card with id c1', code: 'not_found' }]);
     const placed = await fetch(`${base}/cards/place`, as('editor', json({ moves: [{ id: 'c1', binderId: 'b1', page: 1, slot: 1 }] })));
-    assert.deepEqual([placed.status, await placed.json()], [409, { error: 'A pocket was filled meanwhile, so nothing moved. Try again.', code: 'conflict' }]);
+    assert.deepEqual([placed.status, await placed.json()], [409, { error: 'Charizard is in that pocket: a pocket only holds copies of one card. Nothing moved.', code: 'conflict' }]);
+  });
+
+  it('answers 409 when a saved card would share a pocket with a different card', async () => {
+    const holds = err({ code: 'POCKET_HOLDS_ANOTHER_CARD', name: 'Charizard' } as const);
+    const { base } = await setUp({ putDocument: { execute: async () => holds }, mergeDocument: { execute: async () => holds }, changePriceEntries: { execute: async () => holds } });
+    const message = 'Charizard is in that pocket: a pocket only holds copies of one card.';
+    const put = await fetch(`${base}/docs/cards/c1`, as('editor', json({ name: 'Mew' }, 'PUT')));
+    assert.deepEqual([put.status, await put.json()], [409, { error: message, code: 'conflict' }]);
+    const patch = await fetch(`${base}/docs/cards/c1`, as('editor', json({ page: 2 }, 'PATCH')));
+    assert.deepEqual([patch.status, await patch.json()], [409, { error: message, code: 'conflict' }]);
+    const prices = await fetch(`${base}/cards/c1/prices`, as('editor', json({ add: [], fields: { page: 2 } })));
+    assert.deepEqual([prices.status, await prices.json()], [409, { error: message, code: 'conflict' }]);
   });
 
   it('refuses bodies it cannot read', async () => {
