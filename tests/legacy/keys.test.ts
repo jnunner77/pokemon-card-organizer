@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
 
 // public/keys.js is a plain browser script; load it the way the page does.
-type Ev = { key?: string; ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean; altKey?: boolean };
+type Ev = { key?: string; ctrlKey?: boolean; metaKey?: boolean; shiftKey?: boolean; altKey?: boolean; code?: string; repeat?: boolean };
 type Keys = {
   shortcut: (e: Ev) => string | null;
   step: (filled: number[], cols: number, from: number | null, key: string) => number | null;
@@ -13,11 +13,16 @@ type Keys = {
   allowed: (k: string | null, ctx: Record<string, boolean>) => boolean;
   target: (picked: string[] | null, open: string | null) => { ids: string[]; picking: boolean } | null;
   canExtend: (st: Record<string, unknown>) => boolean;
+  digit: (e: Ev) => number | null;
+  holds: (e: Ev) => boolean;
+  pocketPress: (st: Record<string, unknown>) => { slot: number | null; add: boolean; pending: Record<string, unknown> | null };
+  pocketDue: (st: Record<string, unknown>) => number | null;
+  pocketPick: (st: Record<string, unknown>) => { kb: Record<string, unknown>; start: boolean; keep: boolean };
   extend: (st: Record<string, unknown>) => { kb: Record<string, unknown>; start: boolean; slots: number[] } | null;
 };
 const sandbox = { window: {} as { BinderKeys: Keys } };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public/keys.js'), 'utf8'), sandbox);
-const { shortcut, step, range, modLabel, allowed, target, canExtend, extend } = sandbox.window.BinderKeys;
+const { shortcut, step, range, modLabel, allowed, target, canExtend, extend, digit, holds, pocketPress, pocketDue, pocketPick } = sandbox.window.BinderKeys;
 const plain = <T>(v: T): T => JSON.parse(JSON.stringify(v));
 
 describe('which shortcut a key press is', () => {
@@ -147,5 +152,81 @@ describe('extending a selection', () => {
   });
   it('does nothing on an empty page', () => {
     expect(extend({ ...base, filled: [], key: 'ArrowRight' })).toBeNull();
+  });
+});
+
+describe('pocket number keys', () => {
+  it('maps digit keys by physical key to pocket', () => {
+    expect(shortcut({ key: '1', code: 'Digit1' })).toBe('pocket');
+    expect(shortcut({ key: '!', code: 'Digit1', shiftKey: true })).toBe('pocket');
+    expect(shortcut({ key: '7', code: 'Numpad7' })).toBe('pocket');
+  });
+  it('ignores digits with Ctrl, Meta, Alt or auto-repeat', () => {
+    expect(shortcut({ key: '1', code: 'Digit1', ctrlKey: true })).toBeNull();
+    expect(shortcut({ key: '1', code: 'Digit1', metaKey: true })).toBeNull();
+    expect(shortcut({ key: '1', code: 'Digit1', altKey: true })).toBeNull();
+    expect(shortcut({ key: '1', code: 'Digit1', repeat: true })).toBeNull();
+    expect(shortcut({ key: '/', code: 'Digit7', shiftKey: true })).toBe('find');
+    expect(shortcut({ key: 'a', code: 'KeyA' })).toBeNull();
+  });
+  it('reads digits', () => {
+    expect(digit({ code: 'Digit0' })).toBe(0);
+    expect(digit({ code: 'Numpad9' })).toBe(9);
+    expect(digit({ code: 'KeyA' })).toBeNull();
+    expect(digit({})).toBeNull();
+  });
+  it('knows modifier presses', () => {
+    for (const key of ['Shift', 'Control', 'Meta', 'Alt']) expect(holds({ key })).toBe(true);
+    expect(holds({ key: 'a' })).toBe(false);
+    expect(holds({ key: 'ArrowRight' })).toBe(false);
+  });
+  const base = { bid: 'b', page: 1, pending: null };
+  it('acts straight away on 9 pockets, only on filled ones', () => {
+    const f = [1, 4, 9];
+    expect(pocketPress({ ...base, d: 4, n: 9, filled: f }).slot).toBe(4);
+    expect(pocketPress({ ...base, d: 5, n: 9, filled: f })).toEqual({ slot: null, add: false, pending: null });
+    expect(pocketPress({ ...base, d: 0, n: 9, filled: f }).slot).toBeNull();
+    expect(pocketPress({ ...base, d: 7, n: 4, filled: [1, 2, 3, 4] }).slot).toBeNull();
+    expect(pocketPress({ ...base, d: 2, n: 12, filled: [2] }).slot).toBe(2);
+  });
+  it('waits for a second digit on 16 pockets', () => {
+    const filled = [1, 10, 12];
+    const first = pocketPress({ ...base, d: 1, n: 16, filled });
+    expect(first.slot).toBeNull();
+    expect(plain(first.pending)).toEqual({ digits: 1, add: false, bid: 'b', page: 1 });
+    expect(pocketPress({ ...base, d: 2, n: 16, filled, pending: first.pending })).toEqual({ slot: 12, add: false, pending: null });
+    expect(pocketPress({ ...base, d: 3, n: 16, filled, pending: first.pending }).slot).toBeNull();
+    expect(pocketPress({ ...base, d: 7, n: 16, filled, pending: first.pending }).slot).toBeNull();
+    expect(pocketPress({ ...base, d: 0, n: 16, filled, pending: first.pending }).slot).toBe(10);
+  });
+  it('ignores a pending digit from another page or binder', () => {
+    const pending = { digits: 1, add: false, bid: 'b', page: 2 };
+    expect(pocketPress({ ...base, d: 2, n: 16, filled: [12], pending }).pending).toBeNull();
+    expect(pocketPress({ ...base, d: 2, n: 16, filled: [12], pending }).slot).toBeNull();
+    const r = pocketPress({ ...base, d: 1, n: 16, filled: [1], pending: { ...pending, page: 1, bid: 'x' } });
+    expect(r.pending).not.toBeNull();
+  });
+  it('adds when either press had Shift', () => {
+    const filled = [1, 12];
+    const first = pocketPress({ ...base, d: 1, n: 16, filled, add: true });
+    expect(first.pending?.add).toBe(true);
+    expect(pocketPress({ ...base, d: 2, n: 16, filled, pending: first.pending }).add).toBe(true);
+    const plainFirst = pocketPress({ ...base, d: 1, n: 16, filled });
+    expect(pocketPress({ ...base, d: 2, n: 16, filled, add: true, pending: plainFirst.pending }).add).toBe(true);
+    expect(pocketPress({ ...base, d: 4, n: 9, filled: [4], add: true }).add).toBe(true);
+  });
+  it('picks a waiting digit once it is due', () => {
+    const pending = { digits: 1, add: false, bid: 'b', page: 1 };
+    expect(pocketDue({ pending, n: 16, filled: [1], bid: 'b', page: 1 })).toBe(1);
+    expect(pocketDue({ pending, n: 16, filled: [2], bid: 'b', page: 1 })).toBeNull();
+    expect(pocketDue({ pending, n: 16, filled: [1], bid: 'b', page: 2 })).toBeNull();
+    expect(pocketDue({ pending, n: 16, filled: [1], bid: 'c', page: 1 })).toBeNull();
+    expect(pocketDue({ pending: null, n: 16, filled: [1], bid: 'b', page: 1 })).toBeNull();
+  });
+  it('starts, replaces or extends the selection', () => {
+    const a = pocketPick({ slot: 3, add: false, bid: 'b', page: 1, picking: false });
+    expect(a).toEqual({ kb: { bid: 'b', page: 1, anchor: 3, cur: 3 }, start: true, keep: false });
+    expect(pocketPick({ slot: 3, add: true, bid: 'b', page: 1, picking: true })).toMatchObject({ start: false, keep: true });
+    expect(pocketPick({ slot: 3, add: false, bid: 'b', page: 1, picking: true })).toMatchObject({ start: false, keep: false });
   });
 });
