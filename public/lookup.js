@@ -39,5 +39,12 @@
     };
   }
 
-  root.BinderLookup = { cardNo, firstPrinting, draftFields, binderCard };
+  /* The binder Add puts the card in: the one open (by id, among binders), unless Pricing or the Selling view
+     is on top of it, or the open tab is Not in a binder, Sales or Watchlist (ids "__loose", "__sales", "__watch"). Else null. */
+  function addTarget(binders, openId, overlayOpen) {
+    if (overlayOpen || !openId || String(openId).startsWith("__")) return null;
+    return (binders || []).find(b => b.id === openId) || null;
+  }
+
+  root.BinderLookup = { cardNo, firstPrinting, draftFields, binderCard, addTarget };
 })(typeof window !== "undefined" ? window : globalThis);

@@ -4018,9 +4018,9 @@ function lookRender(){
     <p class="hint">In CAD at US$1 = ${money(c.rates.usd)}${c.rates.eur?` and €1 = ${money(c.rates.eur)}`:""}, the rates the last price update used.</p>`;
 }
 /* The binder Add puts the card in: the one open, unless Pricing or the Selling view is on top of it. */
-const lookBinder = () => (PV.open || SV.open) ? null : curBinder();
+const lookBinder = () => window.BinderLookup.addTarget(S.binders, S.binderId, PV.open || SV.open);
 async function lookAdd(){
-  const look = FIND.look, c = look?.card; if(!c || !canEdit() || !S.db) return;
+  const look = FIND.look, c = look?.card; if(!c || !canEdit()) return;
   const p = c.printings[look.pi];
   if(unsaved()) return toast("Save or discard the card you're editing first.");
   const b = lookBinder();

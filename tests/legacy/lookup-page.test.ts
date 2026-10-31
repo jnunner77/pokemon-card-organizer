@@ -8,11 +8,11 @@ interface Card { name: string; set: string; setCode: string | null; number: stri
 interface Printing { variant: string; price: { cad: number } | null }
 const sandbox = {
   window: {} as {
-    BinderLookup: { cardNo: (c: Partial<Card>) => string; firstPrinting: (p: (Printing | null)[] | null) => number; draftFields: (c: Partial<Card>, p?: Printing) => Record<string, string>; binderCard: (c: Partial<Card>, p: Printing | undefined, loc: { binderId: string; page?: number | null; slot?: number | null }, owner: string, at: string) => Record<string, unknown> };
+    BinderLookup: { cardNo: (c: Partial<Card>) => string; firstPrinting: (p: (Printing | null)[] | null) => number; draftFields: (c: Partial<Card>, p?: Printing) => Record<string, string>; addTarget: (binders: { id: string }[], openId: string | null, overlayOpen: boolean) => { id: string } | null; binderCard: (c: Partial<Card>, p: Printing | undefined, loc: { binderId: string; page?: number | null; slot?: number | null }, owner: string, at: string) => Record<string, unknown> };
   },
 };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public/lookup.js'), 'utf8'), sandbox);
-const { cardNo, firstPrinting, draftFields, binderCard } = sandbox.window.BinderLookup;
+const { cardNo, firstPrinting, draftFields, binderCard, addTarget } = sandbox.window.BinderLookup;
 
 const charizard: Card = { name: 'Charizard', set: 'Base Set', setCode: 'BS', number: '4', total: 102, rarity: 'Rare', artist: 'Mitsuhiro Arita' };
 
@@ -64,5 +64,19 @@ describe('a card from the card database, on the page', () => {
 
   it('has no variant when no printing is chosen', () => {
     expect(binderCard(charizard, undefined, { binderId: 'b1', page: 1, slot: 1 }, 'Justin', '').variant).toBe('');
+  });
+});
+
+describe('which binder Add to <binder> puts the card in', () => {
+  const binders = [{ id: 'b1', kind: 'binder' }, { id: 'c1', kind: 'case' }];
+  it('is the binder or display case that is open', () => {
+    expect(addTarget(binders, 'b1', false)).toBe(binders[0]);
+    expect(addTarget(binders, 'c1', false)).toBe(binders[1]);
+  });
+  it('is none when Pricing or the Selling view is on top', () => {
+    expect(addTarget(binders, 'b1', true)).toBeNull();
+  });
+  it('is none for Not in a binder, Sales and Watchlist, or a binder that is gone', () => {
+    for (const id of ['__loose', '__sales', '__watch', 'gone', null]) expect(addTarget(binders, id, false)).toBeNull();
   });
 });
