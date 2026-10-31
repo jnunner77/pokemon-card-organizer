@@ -48,6 +48,15 @@ describe('saving many cards', () => {
     expect(k.c.waits).toEqual([2000]);
   });
 
+  it('keeps waiting while the server keeps saying wait: a rate-limited card is never given up on', async () => {
+    const k = clock();
+    let limited = 8;
+    const r = await B.run(['a'], async () => { if (limited-- > 0) throw problem('rate_limited', { retryAfter: 1 }); }, k);
+    expect(r.saved).toEqual(['a']);
+    expect(r.failed).toEqual([]);
+    expect(k.c.waits.length).toBe(8);
+  });
+
   it('waits a second without a Retry-After, and spaces later requests out', async () => {
     const k = clock();
     const starts: number[] = [];
