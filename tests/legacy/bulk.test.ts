@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 // public/bulk.js is a plain browser script; load it the way the page does.
 type Failure = { id: string; error: (Error & { code?: string }) | null };
 interface BinderBulk {
-  retryJob(job: { ids: string[]; total: number }, result: { saved: string[]; failed: Failure[]; stopped: Error | null }): { job: { ids: string[]; total: number }; left: string[]; error: Error | null; text: string } | null;
+  retryJob(job: { ids: string[]; total: number; savedBefore?: number }, result: { saved: string[]; failed: Failure[]; stopped: Error | null }): { job: { ids: string[]; total: number; savedBefore?: number }; left: string[]; error: Error | null; text: string } | null;
   run(ids: string[], save: (id: string) => Promise<unknown>, opts?: Record<string, unknown>): Promise<{ saved: string[]; failed: Failure[]; stopped: (Error & { code?: string }) | null }>;
   progressText(settled: number, total: number): string;
   partialText(saved: number, total: number, failed: number, error?: { message?: string } | null): string;
@@ -124,9 +124,15 @@ describe('saving many cards', () => {
     expect(B.retryJob(job, { saved: ids(4), failed: [], stopped: null })).toBeNull();
     const a = B.retryJob(job, { saved: ['c1', 'c3'], failed: [{ id: 'c2', error: boom }, { id: 'c4', error: null }], stopped: null });
     expect(a?.left).toEqual(['c2', 'c4']);
-    expect(a?.job).toEqual({ ids: ['c2', 'c4'], total: 4 });
+    expect(a?.job).toEqual({ ids: ['c2', 'c4'], total: 4, savedBefore: 2 });
     expect(a?.error).toBe(boom);
     expect(a?.text).toBe("Saved 2 of 4. 2 didn't save: invalid_argument happened");
+    // a second round counts from every card chosen, not just the ones sent again
+    const b = B.retryJob(a!.job, { saved: ['c2'], failed: [{ id: 'c4', error: boom }], stopped: null });
+    expect(b?.job).toEqual({ ids: ['c4'], total: 4, savedBefore: 3 });
+    expect(b?.text).toBe("Saved 3 of 4. 1 didn't save: invalid_argument happened");
+    const big = B.retryJob({ ids: ids(12), total: 312, savedBefore: 300 }, { saved: ids(10), failed: [{ id: 'c11', error: boom }, { id: 'c12', error: boom }], stopped: null });
+    expect(big?.text).toBe("Saved 310 of 312. 2 didn't save: invalid_argument happened");
     const stop = problem('forbidden');
     expect(B.retryJob(job, { saved: [], failed: [{ id: 'c1', error: boom }], stopped: stop })?.error).toBe(stop);
   });

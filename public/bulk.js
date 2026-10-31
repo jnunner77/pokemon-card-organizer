@@ -62,7 +62,9 @@
   function retryJob(job, result) {
     if (!result.failed.length) return null;
     const left = result.failed.map(f => f.id), error = result.stopped || result.failed[0].error;
-    return { job: { ...job, ids: left }, left, error, text: partialText(result.saved.length, job.ids.length, left.length, error) };
+    /* counts run across the rounds: job.total is every card chosen, savedBefore those saved in earlier rounds */
+    const savedBefore = (job.savedBefore || 0) + result.saved.length, total = job.total ?? job.ids.length;
+    return { job: { ...job, ids: left, savedBefore }, left, error, text: partialText(savedBefore, total, left.length, error) };
   }
 
   const progressText = (settled, total) => `Saving ${settled} of ${total}…`;
