@@ -41,6 +41,15 @@ export const number =
     return ok(v);
   };
 
+/** An amount of money in whole cents: at least 0.01 and at most `max`, with no more than 2 decimals. */
+export const cents =
+  (max: number): Rule =>
+  (v, path) => {
+    const r = number({ min: 0.01, max })(v, path);
+    if (!r.ok) return r;
+    return typeof v === 'number' && Math.round(v * 100) / 100 === v ? ok(v) : problem(path, 'Expected an amount in cents: at most 2 decimals');
+  };
+
 export const integer =
   (min: number, max: number): Rule =>
   (v, path) => {

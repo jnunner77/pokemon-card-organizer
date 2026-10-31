@@ -805,6 +805,14 @@ when you've rearranged the binder and want to keep the new layout instead.
   a card, select more, and tap *Status*. It saves straight away, with *Undo*. *Sold* opens Quick
   sell, so the price is recorded. Placeholders can't be listed, graded, sold or traded, and cards
   sold with Quick sell keep their sale (undo it to change them); it says which were left as they were.
+- **Price for guests**, to sell at your own price: press and hold a card, select more (or *Select
+  all*), tap *Price*, type an amount like `3` or `2.50` and *Save*. Guests then see that price (to the
+  cent) instead of the market value, and sort by it; their page updates live. A blank box or *Use
+  market price* clears it. Guests only see *Listed* cards, so when some selected cards aren't
+  listed, the dialog offers *Also list them for sale* (ticked; placeholders and sold cards stay as
+  they are). A card's details have a *Price for guests* section too. The market price is still
+  tracked: your pockets, totals, watches and Pricing keep using it, and the List view shows the
+  guest price next to the value.
 - **Keyboard shortcuts**, on a computer: Shift+arrow keys select cards on a binder page (they
   extend from the focused pocket, or the open card), a pocket's number picks its cards (on 12- and
   16-pocket pages type both digits, like 1 then 2 for pocket 12) and Shift with a number adds that
@@ -837,7 +845,8 @@ own phone, without an account:
    copy its link).
 2. A guest scans it and gives their **name** and a **phone number or email**, then sees every card
    marked **Listed for sale**: its picture, name, set, number, rarity, variant, language,
-   condition or grade, illustrator, release year and **market value rounded up to the dollar**.
+   condition or grade, illustrator, release year and **market value rounded up to the dollar**, or
+   the price you set for guests (shown to the cent, like $2.50).
    They can search like *Find a card* (name, set, set code or number), sort by price, name or
    set date, and tap a card to flip through them all full screen (swipe, or the arrow keys).
    Their page updates live: a card you list shows up, and one you delist or sell disappears

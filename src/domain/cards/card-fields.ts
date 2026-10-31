@@ -1,4 +1,4 @@
-import { arrayOf, bool, count, documentIdRule, loose, nullish, number, oneOf, optText, integer, someOf, text, type Shape } from '../ledger/rules.ts';
+import { arrayOf, bool, cents, count, documentIdRule, loose, nullish, number, oneOf, optText, integer, someOf, text, type Shape } from '../ledger/rules.ts';
 
 // The fields of a card the ledger knows about, and what each may hold. Anything else on a card is
 // kept as it is (see ledger/document.ts).
@@ -155,6 +155,8 @@ export const CARD_FIELDS: Shape = {
   watch: nullish(watch),
   /** The watches emailed, kept until the value moves back past them (written by the server). */
   watchAlerts: nullish(loose({ buy: nullish(watchAlert), sell: nullish(watchAlert) })),
+  /** The price guests see instead of the market value, in CAD (blank: the market value). */
+  guestPrice: nullish(cents(100_000_000)),
   /** Cards to check: the card's name and number when the person chose to ignore its problem. */
   checksIgnored: optText(300),
   /** Cards to check: the person said the card's disagreeing prices are right, for these matches. */

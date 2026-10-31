@@ -138,6 +138,11 @@ describe('administering guests', () => {
 describe('what guests see', () => {
   const listed = (over: Record<string, unknown>): DocumentView => ({ id: 'c1', status: 'listed', name: 'Charizard ex', owner: 'Justin', notes: 'Bought from Dave', prices: [{ type: 'market', amount: 1000, currency: 'USD', date: '2026-10-01' }], ...over });
 
+  it('shows the price set for guests instead of the market value', async () => {
+    const t = setUpGuests([listed({ guestPrice: 3 })], [{ id: 'main', usdToCad: 1.37 }]);
+    assert.deepEqual((await t.use.listCards.execute()).map((c) => [c.id, c.value]), [['c1', 3]]);
+  });
+
   it('is the cards listed for sale (no placeholders), valued at the ledger\'s rate', async () => {
     const t = setUpGuests([listed({}), listed({ id: 'ph', placeholder: true }), listed({ id: 'kept', status: 'binder' })], [{ id: 'main', usdToCad: 1.37 }]);
     const cards = await t.use.listCards.execute();

@@ -11,7 +11,9 @@
     set(k, v) { try { sessionStorage.setItem("guest." + k, JSON.stringify(v)); } catch (_) {} },
   };
   const dollars = new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD", maximumFractionDigits: 0, minimumFractionDigits: 0 });
-  const money = n => n == null ? "" : dollars.format(n);
+  const cents = new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD", maximumFractionDigits: 2, minimumFractionDigits: 2 });
+  // Whole dollars ($3) for market values rounded up; a price the owner set is shown to the cent ($2.50).
+  const money = n => n == null ? "" : (Number.isInteger(n) ? dollars : cents).format(n);
   let toastT;
   const toast = msg => { const r = $("toastRoot"); r.innerHTML = `<div class="toast" role="status">${esc(msg)}</div>`; clearTimeout(toastT); toastT = setTimeout(() => r.innerHTML = "", 3200); };
   // Errors in this page are reported to the server (logged for the owner) and said here.
