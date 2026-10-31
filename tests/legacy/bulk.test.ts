@@ -88,6 +88,15 @@ describe('saving many cards', () => {
     expect(r.failed.every((f) => f.error?.code === 'forbidden')).toBe(true);
   });
 
+  it('stops when the sign-in ended, sending only the first card and keeping its message', async () => {
+    const called: string[] = [];
+    const r = await B.run(ids(6), async (id) => { called.push(id); throw problem('signin'); }, { ...clock(), concurrency: 1 });
+    expect(called).toEqual(['c1']);
+    expect(r.stopped?.code).toBe('signin');
+    expect(r.failed.map((f) => f.id)).toEqual(ids(6));
+    expect(r.failed.every((f) => f.error?.message === 'signin happened')).toBe(true);
+  });
+
   it('says how far it is and what did not save', () => {
     expect(B.progressText(120, 312)).toBe('Saving 120 of 312…');
     expect(B.partialText(300, 312, 12, { message: 'Couldn\'t reach the server' })).toBe('Saved 300 of 312. 12 didn\'t save: Couldn\'t reach the server');

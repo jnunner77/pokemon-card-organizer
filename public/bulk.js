@@ -5,7 +5,7 @@
   "use strict";
 
   /* these mean no card will save: stop instead of trying them all */
-  const FATAL = new Set(["forbidden", "not_granted", "revoked", "quota_exceeded"]);
+  const FATAL = new Set(["forbidden", "not_granted", "signin", "guest_signin"]);
   const RETRY = new Set(["unavailable", "resource_exhausted"]);
 
   /* Saves every id with save(id) (a promise), `concurrency` at a time.
