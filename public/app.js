@@ -669,9 +669,9 @@ async function guestPriceRun(job){
   const off = (sel, on) => { const el = $(sel); if(el) el.disabled = on; };
   S.gpBusy = true; if(card) card.setAttribute("aria-busy", "true");
   for(const sel of ["#gp_price", "#gp_list", "#gpSave", "#gpClear", "#gpCancel"]) off(sel, true);
-  if(prog){ prog.hidden = false; prog.textContent = B.progressText(0, job.ids.length); }
+  if(prog){ prog.hidden = false; prog.textContent = B.progressText(job.savedBefore || 0, job.total); }
   const res = await B.run(job.ids, id => S.db.doc("cards/"+id).update({guestPrice: job.r.guestPrice, ...(job.change.includes(id) ? {status:"listed"} : {}), updatedAt: nowISO()}),
-    { onProgress: (n, t) => { const p = $("#gpProg"); if(p) p.textContent = B.progressText(n, t); } });
+    { onProgress: (n, t) => { const p = $("#gpProg"); if(p) p.textContent = B.progressText((job.savedBefore || 0) + n, job.total); } });
   S.gpBusy = false; $("#modalRoot .mcard")?.removeAttribute("aria-busy");
   const again = B.retryJob(job, res);
   if(!again){
