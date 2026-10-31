@@ -3994,7 +3994,7 @@ function lookRender(){
   }
   const p = c.printings[L.pi] || c.printings[0];
   const lb = lookBinder();
-  const addBtn = lb ? `<button type="button" class="btn primary sm look-add" data-find="add" title="${esc(`Adds it to the next empty pocket of ${lb.name}`)}"${L.adding?" disabled":""}>+ Add to ${esc(lb.name)}</button>` : `<button type="button" class="btn primary sm" data-find="add">+ Add to a binder</button>`;
+  const addBtn = lb ? `<button type="button" class="btn primary sm look-add" data-find="add" title="${esc(isCase(lb) ? `Adds it to ${lb.name}` : `Adds it to the next empty pocket of ${lb.name}`)}"${L.adding?" disabled":""}>+ Add to ${esc(lb.name)}</button>` : `<button type="button" class="btn primary sm" data-find="add">+ Add to a binder</button>`;
   const srcs = x => [x.tcgplayer && `TCGplayer ${money(x.tcgplayer.usd,"USD")}`, x.cardmarket && `Cardmarket ${eur(x.cardmarket.eur)}`, x.pricecharting && x.pricecharting.usd!=null && `PriceCharting ${money(x.pricecharting.usd,"USD")}`].filter(Boolean).join(" · ") || "No prices";
   const meta = [c.set, c.setCode, cardNo(c)].filter(Boolean).join(" · ");
   const about = [c.rarity, c.artist && `Illus. ${c.artist}`, c.released && `Released ${dLabel(c.released)}`].filter(Boolean).join(" · ");
