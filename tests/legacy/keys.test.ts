@@ -169,6 +169,10 @@ describe('pocket number keys', () => {
     expect(shortcut({ key: '/', code: 'Digit7', shiftKey: true })).toBe('find');
     expect(shortcut({ key: 'a', code: 'KeyA' })).toBeNull();
   });
+  it('leaves a numpad key that reports an arrow (NumLock off) to Shift+arrow', () => {
+    expect(shortcut({ key: 'ArrowDown', code: 'Numpad2', shiftKey: true })).toBe('extend');
+    expect(digit({ key: 'ArrowDown', code: 'Numpad2' })).toBeNull();
+  });
   it('reads digits', () => {
     expect(digit({ code: 'Digit0' })).toBe(0);
     expect(digit({ code: 'Numpad9' })).toBe(9);
@@ -177,6 +181,7 @@ describe('pocket number keys', () => {
   });
   it('knows modifier presses', () => {
     for (const key of ['Shift', 'Control', 'Meta', 'Alt']) expect(holds({ key })).toBe(true);
+    for (const key of ['AltGraph', 'CapsLock', 'NumLock', 'OS']) expect(holds({ key })).toBe(false);
     expect(holds({ key: 'a' })).toBe(false);
     expect(holds({ key: 'ArrowRight' })).toBe(false);
   });

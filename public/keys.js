@@ -12,7 +12,7 @@
 
   /* The digit 0-9 a key press is, by physical key (Shift+1 types "!" but is still 1), or null */
   const digit = (e) => {
-    if (!e || e.ctrlKey || e.metaKey || e.altKey || e.repeat || typeof e.code !== "string") return null;
+    if (!e || e.ctrlKey || e.metaKey || e.altKey || e.repeat || typeof e.code !== "string" || ARROWS.includes(e.key)) return null;
     const m = /^(?:Digit|Numpad)([0-9])$/.exec(e.code);
     return m ? +m[1] : null;
   };
@@ -29,7 +29,7 @@
   };
 
   /* Whether a key press is only a modifier going down (it doesn't cancel a waiting digit) */
-  const MODIFIERS = ["Shift", "Control", "Alt", "AltGraph", "Meta", "OS", "CapsLock", "NumLock"];
+  const MODIFIERS = ["Shift", "Control", "Alt", "Meta"];
   const holds = (e) => !!e && MODIFIERS.includes(e.key);
 
   /* One digit press. st: d (0-9), add (Shift held), n (pockets on the page), filled (filled pocket
