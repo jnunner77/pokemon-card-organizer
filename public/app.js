@@ -1598,7 +1598,6 @@ async function saveGuestPrice(clear){
   const c = selCard(); if(!c || S.sel==="__new") return;
   const r = clear ? {guestPrice:null} : window.BinderGuestPrice.fromInput($("#g_price")?.value);
   if(r.error){ toast(r.error); return; }
-  if(S.gpSaving) return;
   S.gpSaving = true; for(const sel of ["#btnGpSave", "#btnGpClear"]) { const el = $(sel); if(el) el.disabled = true; }
   try{
     if(await updateCard(c.id, {guestPrice:r.guestPrice})){ S.gpTouched = false; refreshParts(selCard(), {gp:true}); toast(r.guestPrice!=null ? `Guests see it at ${money(r.guestPrice)}` : "Guests see its market value"); }
