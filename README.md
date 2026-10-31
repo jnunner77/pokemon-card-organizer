@@ -777,7 +777,8 @@ when you've rearranged the binder and want to keep the new layout instead.
 - **Look up any card** (*Find a card* → **Any card**, or *Look up … in any card* under your own
   matches): any Pokémon card, yours or not, from the TCGdex card database, by its name with its set
   or number to narrow it ("charizard base set 4", "pikachu 58/102", "SWSH050"). Choose one to see
-  its picture, set, number, rarity and illustrator, and what it's worth today in CAD, worked out as
+  its picture, set, number, rarity and illustrator at once, with **Add** and **Watch price** ready;
+  what it's worth today in CAD fills in a moment later (a printing chosen meanwhile stays), worked out as
   the daily update would price it (see *How a card's daily price is worked out*), for each of its
   printings (regular, reverse holo, patterns, stamps, 1st Edition…), with TCGplayer's, Cardmarket's
   and PriceCharting's prices, PriceCharting's graded prices, and links to its products. Nothing is
