@@ -1,23 +1,62 @@
 /* Keyboard shortcuts on a binder page, as pure functions so they can be tested: which shortcut a key
-   press is (Ctrl/⌘+D duplicate, O owner, S status, K or "/" find, Shift+arrows extend a selection),
+   press is (Ctrl/⌘+D duplicate, O owner, S status, K or "/" find, Shift+arrows extend a selection, a pocket's number picks it),
    which filled pocket an arrow key moves to, and how the modifier key is written for this computer.
-   Ctrl+F is left to the browser. A plain script: the page uses window.BinderKeys, and the tests load it
+   Ctrl+F and Ctrl+number are left to the browser. A plain script: the page uses window.BinderKeys, and the tests load it
    the same way. */
 (function (root) {
   "use strict";
 
   const ARROWS = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"];
+  const PAUSE = 500; // ms a digit waits for a second one on a 12- or 16-pocket page
   const MOD = { d: "duplicate", o: "owner", s: "status", k: "find" };
 
-  /* The shortcut a key press stands for: "duplicate", "owner", "status", "find", "extend", or null */
+  /* The digit 0-9 a key press is, by physical key (Shift+1 types "!" but is still 1), or null */
+  const digit = (e) => {
+    if (!e || e.ctrlKey || e.metaKey || e.altKey || e.repeat || typeof e.code !== "string" || ARROWS.includes(e.key)) return null;
+    const m = /^(?:Digit|Numpad)([0-9])$/.exec(e.code);
+    return m ? +m[1] : null;
+  };
+
+  /* The shortcut a key press stands for: "duplicate", "owner", "status", "find", "pocket", "extend", or null */
   const shortcut = (e) => {
     if (!e || typeof e.key !== "string" || e.altKey) return null;
     const mod = !!(e.ctrlKey || e.metaKey), k = e.key.toLowerCase();
     if (mod) return !e.shiftKey && Object.prototype.hasOwnProperty.call(MOD, k) ? MOD[k] : null;
     if (e.key === "/") return "find";
+    if (digit(e) != null) return "pocket";
     if (e.shiftKey && ARROWS.includes(e.key)) return "extend";
     return null;
   };
+
+  /* Whether a key press is only a modifier going down (it doesn't cancel a waiting digit) */
+  const MODIFIERS = ["Shift", "Control", "Alt", "Meta"];
+  const holds = (e) => !!e && MODIFIERS.includes(e.key);
+
+  /* One digit press. st: d (0-9), add (Shift held), n (pockets on the page), filled (filled pocket
+     numbers), bid, page, pending ({digits, add, bid, page} from an earlier press, or null). Returns
+     { slot, add, pending }: the pocket to pick (null: none), whether to add it, and the digit now
+     waiting for a second one (null: none). A digit waits only if it could start a two-digit pocket */
+  const pocketPress = (st) => {
+    const p = st.pending && st.pending.bid === st.bid && st.pending.page === st.page ? st.pending : null;
+    if (p) {
+      const s = p.digits * 10 + st.d;
+      return { slot: s <= st.n && st.filled.includes(s) ? s : null, add: !!(p.add || st.add), pending: null };
+    }
+    if (st.d < 1 || st.d > st.n) return { slot: null, add: false, pending: null };
+    if (st.d * 10 <= st.n) return { slot: null, add: !!st.add, pending: { digits: st.d, add: !!st.add, bid: st.bid, page: st.page } };
+    return { slot: st.filled.includes(st.d) ? st.d : null, add: !!st.add, pending: null };
+  };
+
+  /* The pocket a waiting digit picks once nobody pressed a second one, or null (empty, or the binder
+     or page changed). st: pending, n, filled, bid, page */
+  const pocketDue = (st) => {
+    const p = st.pending;
+    return p && p.bid === st.bid && p.page === st.page && p.digits <= st.n && st.filled.includes(p.digits) ? p.digits : null;
+  };
+
+  /* What picking pocket `slot` does to the selection. st: slot, add, bid, page, picking. Returns { kb,
+     start, keep }: the new keyboard range, whether to start a selection, whether to keep the current one */
+  const pocketPick = (st) => ({ kb: { bid: st.bid, page: st.page, anchor: st.slot, cur: st.slot }, start: !st.picking, keep: !!st.add && !!st.picking });
 
   /* The filled pocket an arrow key moves to from pocket `from` (null: none yet), or null when there is
      none. filled: the page's filled pocket numbers, ascending; cols: pockets per row. Up and Down go to
@@ -79,5 +118,5 @@
     return { kb, start, slots: range(st.filled, kb.anchor, kb.cur) };
   };
 
-  root.BinderKeys = { shortcut, step, range, modLabel, allowed, target, canExtend, extend };
+  root.BinderKeys = { shortcut, step, range, modLabel, allowed, target, canExtend, extend, PAUSE, digit, holds, pocketPress, pocketDue, pocketPick };
 })(typeof window !== "undefined" ? window : globalThis);

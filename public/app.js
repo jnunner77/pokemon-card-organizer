@@ -421,12 +421,12 @@ function renderMainInner(){
       <div class="pageinfo">
         <span><b>${filled}</b> of ${n} pockets filled${pageCards.length!==filled?` · ${pageCards.length} cards`:""}</span>
         <span>Page value <b>${money(pst.val)}</b></span>
-        <span class="hint">${n}-pocket pages. Tap a card to price it or move it. Tap an empty pocket to add one. Tap Photos to flip through every picture full screen. Swipe left or right on the page to flip pages. Press and hold a card to quick sell it, set its status (list it for sale) or move it to another binder, or to select several to sell, list, move, mark as placeholders, duplicate or delete. Press and hold a card's status badge to change just its status.${keyHint()}</span>
+        <span class="hint">${n}-pocket pages. Tap a card to price it or move it. Tap an empty pocket to add one. Tap Photos to flip through every picture full screen. Swipe left or right on the page to flip pages. Press and hold a card to quick sell it, set its status (list it for sale) or move it to another binder, or to select several to sell, list, move, mark as placeholders, duplicate or delete. Press and hold a card's status badge to change just its status.${keyHint(n)}</span>
       </div>
     </aside></div>`;
 }
 /* the keyboard shortcuts, mentioned only where there is a mouse and keyboard (see public/keys.js) */
-const keyHint = () => { if(!(window.matchMedia && matchMedia("(hover: hover) and (pointer: fine)").matches)) return ""; const m = window.BinderKeys.modLabel(navigator.platform||""); return ` With a keyboard: Shift+arrow keys select cards, ${m}D duplicates, ${m}O sets the owner, ${m}S the status, and / or ${m}K finds any card.`; };
+const keyHint = n => { if(!(window.matchMedia && matchMedia("(hover: hover) and (pointer: fine)").matches)) return ""; const m = window.BinderKeys.modLabel(navigator.platform||""); return ` With a keyboard: Shift+arrow keys select cards, a pocket's number (1–${n}) picks it and Shift+number adds it, ${m}D duplicates, ${m}O sets the owner, ${m}S the status, and / or ${m}K finds any card.`; };
 /* a card in a binder's pocket (s: its pocket number) or in a display case (no number). list: every
    copy in the pocket, top copy first (c is the top one): with more than one it shows ×N and a stacked edge */
 function pocketHTML(c, s, list = [c]){
@@ -3771,15 +3771,57 @@ document.addEventListener("submit", e => {
   if(e.target.id==="pickForm"){ e.preventDefault(); S.pickQ = $("#pickQ").value; const c = selCard(); if(c) pickSearch(c); }
 });
 document.addEventListener("toggle", e => { if(e.target.id==="autoLog") S.autoLogOpen = e.target.open; }, true);
+const keyCtx = el => ({lightbox:LB.open, modal:!!$("#modalRoot").innerHTML, typing:isTyping(el), table:TB.open, pricing:PV.open, selling:SV.open});
+document.addEventListener("pointerdown", () => pocketCancel(), true);
+window.addEventListener("blur", () => pocketCancel());
 document.addEventListener("keydown", e => {
+  if(PK.pending && !window.BinderKeys.holds(e) && (FIND.open || window.BinderKeys.shortcut(e) !== "pocket")) pocketCancel();
   if(FIND.open) return findKey(e);
   const k = window.BinderKeys.shortcut(e);
-  if(window.BinderKeys.allowed(k, {lightbox:LB.open, modal:!!$("#modalRoot").innerHTML, typing:isTyping(e.target), table:TB.open, pricing:PV.open, selling:SV.open}) && keyShortcut(k, e)) return;
+  if(window.BinderKeys.allowed(k, keyCtx(e.target)) && keyShortcut(k, e)) return;
   if(LB.open){ if(e.key==="Escape"){ e.preventDefault(); closeViewer(); } else if(e.key==="ArrowLeft"||e.key==="ArrowRight"){ e.preventDefault(); lbGo(LB.i+(e.key==="ArrowLeft"?-1:1)); } else if(e.key==="Home"||e.key==="End"){ e.preventDefault(); lbGo(e.key==="Home"?0:LB.list.length-1); } return; }
   if(e.key==="Escape"){ if($("#modalRoot").innerHTML){ if($("#bb_card")){ if(!BB?.busy && bbDiscardOk()) bbClose(); } else if(!CI?.busy || !$("#ci_card")) closeModal(); } else if(S.sel){ if(discardOk()) closeDrawer(); } else if(TB.open){ if(TB.pop) tbPopClose(true); else if(TB.colsOpen || TB.sortOpen){ TB.colsOpen = TB.sortOpen = false; tbPanes(); } else closeTable(); } else if(S.pick) endPick(); else if(S.swap){ S.swap = null; renderMain(); } else if(PV.open) closePricing(); else if(SV.open) closeSelling(); } });
+/* a number key picks that pocket (two digits within PAUSE ms on 12- and 16-pocket pages); PK is the digit waiting for a second one */
+const PK = {pending:null, timer:0};
+function pocketCancel(){ clearTimeout(PK.timer); PK.timer = 0; PK.pending = null; }
+/* the binder page the number keys work on, or null when they may not (el: where focus is) */
+function pocketAt(el){
+  const K = window.BinderKeys;
+  if(FIND.open || !K.allowed("pocket", keyCtx(el))) return null;
+  const b = curBinder();
+  if(!K.canExtend({view:S.view, hasBinder:!!b, isCase:isCase(b), special:isSpecial(S.binderId), swap:!!S.swap, mode:S.mode})) return null;
+  const n = pocketsOf(b), filled = []; for(let s=1;s<=n;s++) if(stackAt(b.id, S.page, s).length) filled.push(s);
+  return {b, n, filled};
+}
+function pocketKey(e){
+  const at = pocketAt(e.target);
+  if(!at){ pocketCancel(); return false; }
+  const r = window.BinderKeys.pocketPress({d:window.BinderKeys.digit(e), add:e.shiftKey, n:at.n, filled:at.filled, bid:at.b.id, page:S.page, pending:PK.pending});
+  pocketCancel();
+  if(r.pending){ e.preventDefault(); PK.pending = r.pending; PK.timer = setTimeout(pocketTimeout, window.BinderKeys.PAUSE); return true; }
+  if(r.slot==null) return false;
+  e.preventDefault(); pocketGo(at.b, r.slot, r.add); return true;
+}
+function pocketTimeout(){
+  const p = PK.pending; PK.timer = 0; PK.pending = null;
+  const at = p && pocketAt(document.activeElement);
+  if(!at) return;
+  const s = window.BinderKeys.pocketDue({pending:p, n:at.n, filled:at.filled, bid:at.b.id, page:S.page});
+  if(s != null) pocketGo(at.b, s, p.add);
+}
+function pocketGo(b, slot, add){
+  const plan = window.BinderKeys.pocketPick({slot, add, bid:b.id, page:S.page, picking:!!S.pick});
+  const base = plan.keep ? [...S.pick] : [];
+  if(plan.start){ startPick([]); if(!S.pick) return; }
+  S.kb = {...plan.kb, base};
+  S.pick = new Set([...base, ...stackAt(b.id, S.page, slot).map(c => c.id)]);
+  S.pickConfirm = false; renderMain();
+  $(`#main .pocket[data-slot="${slot}"]`)?.focus();
+}
 /* a keyboard shortcut (public/keys.js) on the cards in view; true when it did something, so the key is used up */
 function keyShortcut(k, e){
   if(k==="find"){ e.preventDefault(); openFind("any"); return true; }
+  if(k==="pocket") return pocketKey(e);
   const K = window.BinderKeys;
   if(k!=="extend"){
     const t = K.target(S.pick?.size ? [...S.pick] : null, S.sel && S.sel!=="__new" && selCard() ? S.sel : null);
