@@ -291,7 +291,7 @@ function pickBar(){
   const n = S.pick.size, allOn = S.shown.length && S.shown.every(id=>S.pick.has(id));
   const right = S.pickConfirm
     ? `<span class="confirm">Delete ${n} card${n===1?"":"s"} and their price history? <button class="btn sm danger solid" type="button" id="pickDelYes">Delete ${n}</button><button class="btn sm" type="button" id="pickDelNo">Keep</button></span>`
-    : `<button class="btn sm" type="button" id="pickAll">${allOn?"Clear all":"Select all"}</button><button class="btn sm" type="button" id="pickCancel">Cancel</button><button class="btn sm primary" type="button" id="pickSell" ${nSellable()?"":"disabled"}>Quick sell${nSellable()?` ${nSellable()}`:""}</button><button class="btn sm" type="button" id="pickStatus" ${n?"":"disabled"} title="Set these cards' status: listed for sale, out for grading, back in the binder…">Status${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickMove" ${n?"":"disabled"} title="Move to another binder, at the end or in a pocket you choose">Move${n?` ${n}`:""}</button>${pickUnits().length===2?`<button class="btn sm" type="button" id="pickSwap" title="The two selected cards (or pockets) trade places">Swap</button>`:""}<button class="btn sm" type="button" id="pickPh" ${n?"":"disabled"} title="${pickAllPh()?"You have these cards now: count them in your totals":"Hold these pockets for cards you don't have yet: not counted in your totals"}">${pickAllPh()?"Owned":"Placeholder"}${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickOwner" ${n?"":"disabled"} title="Set who these cards belong to">Owner${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickWatch" ${n?"":"disabled"} title="Get an email when these cards reach a price to buy or sell at">Watch${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickDup" ${n?"":"disabled"}>Duplicate${n?` ${n}`:""}</button><button class="btn sm danger solid" type="button" id="pickDel" ${n?"":"disabled"}>Delete${n?` ${n}`:""}</button>`;
+    : `<button class="btn sm" type="button" id="pickAll">${allOn?"Clear all":"Select all"}</button><button class="btn sm" type="button" id="pickCancel">Cancel</button><button class="btn sm primary" type="button" id="pickSell" ${nSellable()?"":"disabled"}>Quick sell${nSellable()?` ${nSellable()}`:""}</button><button class="btn sm" type="button" id="pickStatus" ${n?"":"disabled"} title="Set these cards' status: listed for sale, out for grading, back in the binder…">Status${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickPrice" ${n?"":"disabled"} title="Set the price guests see for these cards (the market price is still tracked)">Price${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickMove" ${n?"":"disabled"} title="Move to another binder, at the end or in a pocket you choose">Move${n?` ${n}`:""}</button>${pickUnits().length===2?`<button class="btn sm" type="button" id="pickSwap" title="The two selected cards (or pockets) trade places">Swap</button>`:""}<button class="btn sm" type="button" id="pickPh" ${n?"":"disabled"} title="${pickAllPh()?"You have these cards now: count them in your totals":"Hold these pockets for cards you don't have yet: not counted in your totals"}">${pickAllPh()?"Owned":"Placeholder"}${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickOwner" ${n?"":"disabled"} title="Set who these cards belong to">Owner${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickWatch" ${n?"":"disabled"} title="Get an email when these cards reach a price to buy or sell at">Watch${n?` ${n}`:""}</button><button class="btn sm" type="button" id="pickDup" ${n?"":"disabled"}>Duplicate${n?` ${n}`:""}</button><button class="btn sm danger solid" type="button" id="pickDel" ${n?"":"disabled"}>Delete${n?` ${n}`:""}</button>`;
   return `<div class="pickbar" role="toolbar" aria-label="Selection"><span class="cnt">${n} selected</span>${right}</div>`;
 }
 const nSellable = () => S.pick ? [...S.pick].filter(id => { const c = S.cards.find(x=>x.id===id); return c && owned(c); }).length : 0;
@@ -421,7 +421,7 @@ function renderMainInner(){
       <div class="pageinfo">
         <span><b>${filled}</b> of ${n} pockets filled${pageCards.length!==filled?` · ${pageCards.length} cards`:""}</span>
         <span>Page value <b>${money(pst.val)}</b></span>
-        <span class="hint">${n}-pocket pages. Tap a card to price it or move it. Tap an empty pocket to add one. Tap Photos to flip through every picture full screen. Swipe left or right on the page to flip pages. Press and hold a card to quick sell it, set its status (list it for sale) or move it to another binder, or to select several to sell, list, move, mark as placeholders, duplicate or delete. Press and hold a card's status badge to change just its status.${keyHint(n)}</span>
+        <span class="hint">${n}-pocket pages. Tap a card to price it or move it. Tap an empty pocket to add one. Tap Photos to flip through every picture full screen. Swipe left or right on the page to flip pages. Press and hold a card to quick sell it, set its status (list it for sale) or move it to another binder, or to select several to sell, list, price for guests, move, mark as placeholders, duplicate or delete. Press and hold a card's status badge to change just its status.${keyHint(n)}</span>
       </div>
     </aside></div>`;
 }
@@ -440,7 +440,7 @@ function pocketHTML(c, s, list = [c]){
   const checked = list.find(x=>cardChecks(x).length), watched = list.find(x=>W.status(x, valueOf(x)).length) || c;
   const ids = list.map(x=>x.id);
   const badge = !many ? "" : mix ? `<span class="stackn" title="Different cards share this pocket: open it to move one out">≠${n}</span>` : `<span class="stackn">×${n}</span>`;
-  return `<button class="pocket${many?" stack":""}${mix?" mixed":""}${od?" owned":""}${list.some(x=>S.sel===x.id)?" sel":""}${S.swap && list.some(x=>x.id===S.swap.id)?" swapsrc":""}${held(c)?"":" dim"}${c.placeholder&&held(c)?" ph":""}${S.pick && ids.every(id=>S.pick.has(id))?" picked":""}${list.some(x=>isFound(x.id))?" found":""}" type="button" data-card="${esc(c.id)}"${s?` data-slot="${s}"`:""}${many?` data-stack="${esc(ids.join(" "))}"`:""} aria-label="${esc((c.name||"Unnamed card")+(c.placeholder&&held(c)?" (placeholder)":"")+(ol?", "+ol:"")+(s?", pocket "+s:"")+(mix?`, ${n} different cards`:many?`, ${n} copies`:"")+(checked?", needs checking":""))}"${S.pick?` aria-pressed="${ids.every(id=>S.pick.has(id))}"`:""}>${s?`<span class="slotno">${s}</span>`:""}${badge}${mix?`<span class="mixedtag">Different cards</span>`:""}${checked?`<span class="chkmark" title="${esc(cardChecks(checked)[0].title)}" aria-hidden="true">!</span>`:""}<span class="tick" aria-hidden="true">✓</span>${inner}${v!=null?`<span class="price">${esc(money(v).replace(".00",""))}</span>`:""}${flag}${od?`<span class="odot ${od}" title="${esc(window.BinderOwner.dotTitle(c.owner))}" aria-hidden="true"></span>`:""}${watchMark(watched, valueOf(watched))}</button>`;
+  return `<button class="pocket${many?" stack":""}${mix?" mixed":""}${od?" owned":""}${list.some(x=>S.sel===x.id)?" sel":""}${S.swap && list.some(x=>x.id===S.swap.id)?" swapsrc":""}${held(c)?"":" dim"}${c.placeholder&&held(c)?" ph":""}${S.pick && ids.every(id=>S.pick.has(id))?" picked":""}${list.some(x=>isFound(x.id))?" found":""}" type="button" data-card="${esc(c.id)}"${s?` data-slot="${s}"`:""}${many?` data-stack="${esc(ids.join(" "))}"`:""} aria-label="${esc((c.name||"Unnamed card")+(c.placeholder&&held(c)?" (placeholder)":"")+(ol?", "+ol:"")+(window.BinderGuestPrice.priceOf(c)!=null?", guests see "+money(window.BinderGuestPrice.priceOf(c)):"")+(s?", pocket "+s:"")+(mix?`, ${n} different cards`:many?`, ${n} copies`:"")+(checked?", needs checking":""))}"${S.pick?` aria-pressed="${ids.every(id=>S.pick.has(id))}"`:""}>${s?`<span class="slotno">${s}</span>`:""}${badge}${mix?`<span class="mixedtag">Different cards</span>`:""}${checked?`<span class="chkmark" title="${esc(cardChecks(checked)[0].title)}" aria-hidden="true">!</span>`:""}<span class="tick" aria-hidden="true">✓</span>${inner}${v!=null?`<span class="price">${esc(money(v).replace(".00",""))}</span>`:""}${flag}${od?`<span class="odot ${od}" title="${esc(window.BinderOwner.dotTitle(c.owner))}" aria-hidden="true"></span>`:""}${watchMark(watched, valueOf(watched))}</button>`;
 }
 /* a display case: every card in it as one grid, in the order chosen (no pages or pockets) */
 const CASE_SORTS = [["value","Price, high to low"],["name","Name"],["set","Set and number"],["released","Newest first"]];
@@ -492,7 +492,7 @@ function renderList(m){
       <td class="mono">${esc(c.released||"—")}</td>
       <td class="mono">${esc(locShort(c))}</td>
       <td><span class="chip ${esc(c.status||"")}">${esc(st?st[1]:"In binder")}</span>${c.placeholder&&held(c)?` <span class="chip placeholder">Placeholder</span>`:""}${W.isWatched(c)?` <span class="chip watching${W.status(c, valueOf(c)).some(x=>x.reached)?" hit":""}">Watching</span>`:""}</td>
-      <td class="r mono">${money(valueOf(c))}</td>
+      <td class="r mono">${money(valueOf(c))}${window.BinderGuestPrice.priceOf(c)!=null?` <span class="hint gpnote">guests ${money(window.BinderGuestPrice.priceOf(c))}</span>`:""}</td>
       <td class="r mono">${money(paidOf(c))}</td></tr>`;
   }).join("");
   m.innerHTML = `<div class="listbar">
@@ -631,6 +631,36 @@ function renderWatchlist(m){
   }).join("");
   m.innerHTML = `<div class="listbar"><span class="hint">${list.length} card${list.length===1?"":"s"}${hits?` · <b>${hits} reached</b>`:""} · You get an email when a card reaches your price (buy and sell alerts come separately) once an administrator sets alerts up under Administration → Alerts.${S.pick?"":" Tap a card to change its watch, or press and hold to watch several."}</span></div>
     <div class="tablewrap"><table class="watchtbl"><thead><tr>${S.pick?"<th></th>":""}<th class="hide-sm"></th><th>Card</th><th class="hide-sm">Where</th><th class="r">Value</th><th><span class="hide-sm">Buy at or below</span><span class="show-sm">Buy ≤</span></th><th><span class="hide-sm">Sell at or above</span><span class="show-sm">Sell ≥</span></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+/* Price for guests: one price on every selected card (guestprice.js); guests see it instead of the market value, and only see listed cards */
+function guestPriceModal(ids){
+  if(!S.db) return toast("Saving isn't available in this view.");
+  const GP = window.BinderGuestPrice, l = ids.map(id => S.cards.find(c => c.id===id)).filter(Boolean); if(!l.length) return;
+  const one = l.length===1 ? l[0] : null, v = one ? valueOf(one) : null;
+  const plan = window.BinderStatus.plan(l, "listed"), cant = l.length - plan.change.length - plan.same;
+  S.gp = l.map(c => c.id);
+  $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard narrow" role="dialog" aria-modal="true" aria-labelledby="gpTitle">
+    <h2 id="gpTitle">Price for guests: ${one ? esc(one.name||"this card") : `${l.length} cards`}</h2>
+    <p class="lead">Guests see this price instead of the market value. The market price is still tracked${v!=null?` (market now ${money(v)})`:""}.</p>
+    <div class="form"><div class="field"><label for="gp_price">Price for guests (CAD)</label><input id="gp_price" class="mono" inputmode="decimal" autocomplete="off" value="${esc(GP.sameText(l))}" placeholder="e.g. 3.00"></div></div>
+    ${plan.change.length ? `<label style="display:flex;gap:8px;align-items:center;margin:10px 0"><input type="checkbox" id="gp_list" checked> Also list them for sale (guests only see listed cards): ${plan.change.length}</label>` : ""}
+    ${cant ? `<p class="hint">${cant} can't be listed (placeholders or sold).</p>` : ""}
+    <p class="hint">A blank box shows guests the market value, rounded up to the dollar.</p>
+    <div class="formfoot"><span>${l.some(c => GP.priceOf(c)!=null) ? `<button class="btn sm ghost" type="button" id="gpClear">Use market price</button>` : ""}</span><span style="display:flex;gap:8px"><button class="btn sm" type="button" data-mclose>Cancel</button><button class="btn sm primary" type="button" id="gpSave">Save</button></span></div>
+  </div></div>`;
+  $("#gp_price").addEventListener("keydown", e => { if(e.key==="Enter"){ e.preventDefault(); void guestPricePicked(false); } });
+  setTimeout(() => $("#gp_price")?.focus(), 30);
+}
+async function guestPricePicked(clear){
+  const GP = window.BinderGuestPrice, ids = S.gp || []; if(!ids.length) return closeModal();
+  const r = clear ? {guestPrice:null} : GP.fromInput($("#gp_price")?.value);
+  if(r.error) return toast(r.error);
+  const cards = ids.map(id => S.cards.find(c => c.id===id)).filter(Boolean);
+  const listIt = !clear && r.guestPrice!=null && !!$("#gp_list")?.checked, change = listIt ? window.BinderStatus.plan(cards, "listed").change : [];
+  const res = await Promise.allSettled(ids.map(id => S.db.doc("cards/"+id).update({guestPrice:r.guestPrice, ...(change.includes(id) ? {status:"listed"} : {}), updatedAt:nowISO()})));
+  const ok = res.filter(x => x.status==="fulfilled").length;
+  S.gp = null; closeModal(); if(S.pick) endPick();
+  toast(ok===ids.length ? GP.words(ok, r.guestPrice) + (change.length ? ` · ${change.length} listed for sale` : "") : `${ok} of ${ids.length} saved. Try the rest again.`);
 }
 /* Watch: the same buy and sell prices for every selected card (the touch screen way to watch several) */
 function watchModal(ids){
@@ -1414,7 +1444,7 @@ function renderDrawer(force){
   BACK_CARD.sync(!!c);
   if(!c){ root.innerHTML=""; root.dataset.showing=""; return; }
   if(!force && root.dataset.showing===S.sel && $("#cardForm")){ if(S.sel!=="__new") refreshParts(c); return; }
-  S.priceTouched=false; S.moveTouched=false; S.watchTouched=false; root.dataset.showing=S.sel; resetLookup();
+  S.priceTouched=false; S.moveTouched=false; S.watchTouched=false; S.gpTouched=false; root.dataset.showing=S.sel; resetLookup();
   const isNew = S.sel==="__new";
   const sets = [...new Set(S.cards.map(x=>x.set).filter(Boolean))].sort();
   const codes = [...new Set(S.cards.map(x=>x.setCode).filter(Boolean))].sort();
@@ -1459,6 +1489,7 @@ function renderDrawer(force){
           ${isNew?"":`<span style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">${held(c)?`<button class="btn sm primary" type="button" id="btnQuickSell" ${c.placeholder?"hidden":""}>Quick sell</button>`:""}<button class="btn sm" type="button" id="btnDup" title="Make copies of this card">Duplicate</button><span id="delZone">${delZone()}</span></span>`}
         </div>
       </form>
+      ${isNew || W.onWatchlist(c) ? "" : guestPriceSection(c)}
       ${isNew || W.onWatchlist(c) ? "" : watchSection(c)}
       ${isNew?"":moveSection(c)+copiesSection(c)}
       ${isNew?`<p class="hint">Add the card first, then log prices and move it around.</p>`:autoSection(c)+priceSection(c)}
@@ -1492,6 +1523,7 @@ function refreshParts(c, o={}){
   const psec=$("#priceSec"); if(psec && (o.price || (!S.editPrice && !S.priceTouched))){ psec.outerHTML = priceSection(c); S.priceTouched=false; }
   const msec=$("#moveSec"); if(msec && (o.move || !S.moveTouched)){ msec.outerHTML = moveSection(c); S.moveTouched=false; }
   const csec=$("#copiesSec"), copies=copiesSection(c); if(csec) csec.outerHTML = copies; else if(copies) $("#moveSec")?.insertAdjacentHTML("afterend", copies);
+  const gsec=$("#gpSec"); if(gsec && (o.gp || !S.gpTouched)){ gsec.outerHTML = guestPriceSection(c); S.gpTouched=false; }
   const wsec=$("#watchSec"); if(wsec && (o.watch || !S.watchTouched)){ wsec.outerHTML = watchSection(c); S.watchTouched=false; }
   const ai=$("#autoInfo"); if(ai) ai.innerHTML = autoInfo(c);
   const dm=$("#detailsMissing"); if(dm) dm.outerHTML = missingDetails(c);
@@ -1524,6 +1556,23 @@ function renderPriceSummary(c){
   const google = v == null && c.name && window.BinderGoogle.missing(c).price ? ` <a class="glink" href="${esc(window.BinderGoogle.priceUrl(c))}" target="_blank" rel="noopener">Search Google for its price</a>` : "";
   box.innerHTML = `<span class="stat"><span class="k">Current value</span></span><span class="big">${money(v)}</span><span class="sub">${esc(basis)}${google}</span>
     <dl class="kv"><dt>Paid</dt><dd>${money(pd)}</dd>${sd!=null?`<dt>Sold for</dt><dd>${money(sd)}</dd>`:""}${gain!=null?`<dt>${si?`Profit ${BASIS_LABEL[si.basis]}`:"Unrealized"}</dt><dd class="${gain>=0?"pos":"neg"}">${gain>=0?"+":""}${money(gain)}</dd>`:""}<dt>Entries</dt><dd>${prices(c).length}</dd></dl>`;
+}
+/* Price for guests, in a card's details: what guests see instead of the market value */
+function guestPriceSection(c){
+  const GP = window.BinderGuestPrice, p = GP.priceOf(c), v = valueOf(c), listed = (c.status||"binder")==="listed" && !c.placeholder;
+  return `<div class="sec" id="gpSec"><h3>Price for guests</h3>
+    <p class="hint">Guests see this instead of the market value${v!=null?` (now ${money(v)})`:""}. Blank: the market value, rounded up to the dollar.${listed?"":" They only see it while the card is Listed for sale."}</p>
+    <div class="watchform">
+      <div class="field"><label for="g_price">Price for guests (CAD)</label><input id="g_price" class="mono" inputmode="decimal" autocomplete="off" placeholder="e.g. 3.00" value="${p!=null?esc(p.toFixed(2)):""}"></div>
+      <div class="btns"><button class="btn sm primary" type="button" id="btnGpSave">Save price</button>${p!=null ? `<button class="btn sm ghost" type="button" id="btnGpClear">Use market price</button>` : ""}</div>
+    </div>
+  </div>`;
+}
+async function saveGuestPrice(clear){
+  const c = selCard(); if(!c || S.sel==="__new") return;
+  const r = clear ? {guestPrice:null} : window.BinderGuestPrice.fromInput($("#g_price")?.value);
+  if(r.error){ toast(r.error); return; }
+  if(await updateCard(c.id, {guestPrice:r.guestPrice})){ S.gpTouched = false; refreshParts(selCard(), {gp:true}); toast(r.guestPrice!=null ? `Guests see it at ${money(r.guestPrice)}` : "Guests see its market value"); }
 }
 /* Watch price, in a card's details: buy at or below (another copy, or a card not owned yet), sell at or above (a card the person has) */
 function watchSection(c){
@@ -3628,6 +3677,7 @@ document.addEventListener("click", e => {
     if(t.closest("#pickOwner")) return ownerModal();
     if(t.closest("#pickWatch")) return watchModal([...S.pick]);
     if(t.closest("#pickStatus")) return statusModal([...S.pick]);
+    if(t.closest("#pickPrice")) return guestPriceModal([...S.pick]);
     const pcd = t.closest("#main [data-card]");
     if(pcd){ togglePick(idsOf(pcd)); if(!S.pick.size) return endPick(); return renderMain(); }
     if(t.closest("#main [data-empty],#main [data-caseadd]")) return;
@@ -3705,6 +3755,10 @@ document.addEventListener("click", e => {
   if(t.closest("#btnWatchSave")) return void saveWatch();
   if(t.closest("#btnWatchStop")) return void saveWatch(true);
   if(t.closest("#btnGotIt")) return void gotWatched();
+  if(t.closest("#gpSave")) return void guestPricePicked(false);
+  if(t.closest("#gpClear")) return void guestPricePicked(true);
+  if(t.closest("#btnGpSave")) return void saveGuestPrice();
+  if(t.closest("#btnGpClear")) return void saveGuestPrice(true);
   if(t.closest("#wmSave")) return void watchPicked(false);
   if(t.closest("#wmStop")) return void watchPicked(true);
   if(t.closest("#btnDup")) return void duplicateCard();
@@ -3742,6 +3796,7 @@ document.addEventListener("input", e => {
   if(e.target.closest("#priceSec")) S.priceTouched=true;
   if(e.target.closest("#moveSec")){ S.moveTouched=true; updateMoveNote(); }
   if(e.target.closest("#watchSec")) S.watchTouched=true;
+  if(e.target.closest("#gpSec")) S.gpTouched=true;
 });
 /* the drawer's Placeholder switch on a saved card: saves at once, without touching the form */
 async function switchPlaceholder(box){
