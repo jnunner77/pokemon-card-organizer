@@ -25,7 +25,7 @@ const S = {
   q:"", scope: store.get("scope","binder"), sort: store.get("sort",{k:"loc",d:1}),
   filt: {...window.BinderFilter.EMPTY, ...store.get("filt",{})}, filtOpen: store.get("filtOpen",false),
   sel:null, draft:null, dirty:false, editPrice:null, confirm:null,
-  pick:null, pickConfirm:false, shown:[], found:null,
+  pick:null, pickConfirm:false, kb:null, shown:[], found:null,
   caseSort: store.get("caseSort","value")
 };
 
@@ -307,8 +307,8 @@ async function placeholderPicked(){
   endPick();
 }
 /* set the owner of every selected card at once */
-function ownerModal(){
-  const l = pickedCards(); if(!l.length) return;
+function ownerModal(ids = [...(S.pick||[])]){
+  const l = ids.map(id=>S.cards.find(c=>c.id===id)).filter(Boolean); if(!l.length) return;
   $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard narrow" role="dialog" aria-modal="true" aria-labelledby="ownTitle">
     <h2 id="ownTitle">Owner of ${l.length} card${l.length===1?"":"s"}</h2>
     <p class="lead">Who ${l.length===1?"does this card":"do these cards"} belong to?</p>
@@ -323,7 +323,7 @@ function ownerModal(){
     const ok = res.filter(r=>r.status==="fulfilled").length, who = owner || "not set";
     closeModal();
     toast(ok===todo.length ? `${l.length} card${l.length===1?"":"s"}: owner ${who}` : `${ok} of ${todo.length} saved. Try the rest again.`);
-    endPick();
+    if(S.pick) endPick();
   };
 }
 /* set the status of one card (press and hold its status) or of every selected card; which ones
@@ -373,9 +373,9 @@ function statusHold(ids){
 /* the cards a pocket on the page stands for: all its copies when it holds several */
 const idsOf = el => el.dataset.stack ? el.dataset.stack.split(" ") : [el.dataset.card];
 /* select or deselect cards together: all selected already → remove them, else add them all */
-function togglePick(ids){ if(ids.every(id=>S.pick.has(id))) ids.forEach(id=>S.pick.delete(id)); else ids.forEach(id=>S.pick.add(id)); S.pickConfirm=false; }
-function startPick(ids){ if(S.sel && !discardOk()) return; S.pick = new Set(ids?[].concat(ids):[]); S.pickConfirm=false; try{ navigator.vibrate?.(15); }catch(_){} if(S.sel) closeDrawer(); else renderMain(); }
-function endPick(){ S.pick=null; S.pickConfirm=false; renderMain(); }
+function togglePick(ids){ if(ids.every(id=>S.pick.has(id))) ids.forEach(id=>S.pick.delete(id)); else ids.forEach(id=>S.pick.add(id)); S.pickConfirm=false; S.kb=null; }
+function startPick(ids){ if(S.sel && !discardOk()) return; S.pick = new Set(ids?[].concat(ids):[]); S.pickConfirm=false; S.kb=null; try{ navigator.vibrate?.(15); }catch(_){} if(S.sel) closeDrawer(); else renderMain(); }
+function endPick(){ S.pick=null; S.pickConfirm=false; S.kb=null; renderMain(); }
 function renderMain(){
   if(S.pick){ for(const id of [...S.pick]) if(!S.cards.some(c=>c.id===id)) S.pick.delete(id); }
   const a = document.activeElement, keepId = a && a.id && a.closest("#main") && /^(INPUT|SELECT)$/.test(a.tagName) ? a.id : null;
@@ -421,10 +421,12 @@ function renderMainInner(){
       <div class="pageinfo">
         <span><b>${filled}</b> of ${n} pockets filled${pageCards.length!==filled?` · ${pageCards.length} cards`:""}</span>
         <span>Page value <b>${money(pst.val)}</b></span>
-        <span class="hint">${n}-pocket pages. Tap a card to price it or move it. Tap an empty pocket to add one. Tap Photos to flip through every picture full screen. Swipe left or right on the page to flip pages. Press and hold a card to quick sell it, set its status (list it for sale) or move it to another binder, or to select several to sell, list, move, mark as placeholders, duplicate or delete. Press and hold a card's status badge to change just its status.</span>
+        <span class="hint">${n}-pocket pages. Tap a card to price it or move it. Tap an empty pocket to add one. Tap Photos to flip through every picture full screen. Swipe left or right on the page to flip pages. Press and hold a card to quick sell it, set its status (list it for sale) or move it to another binder, or to select several to sell, list, move, mark as placeholders, duplicate or delete. Press and hold a card's status badge to change just its status.${keyHint()}</span>
       </div>
     </aside></div>`;
 }
+/* the keyboard shortcuts, mentioned only where there is a mouse and keyboard (see public/keys.js) */
+const keyHint = () => { if(!(window.matchMedia && matchMedia("(hover: hover) and (pointer: fine)").matches)) return ""; const m = window.BinderKeys.modLabel(navigator.platform||""); return ` With a keyboard: Shift+arrow keys select cards, ${m}D duplicates, ${m}O sets the owner, ${m}S the status, and / or ${m}K finds any card.`; };
 /* a card in a binder's pocket (s: its pocket number) or in a display case (no number). list: every
    copy in the pocket, top copy first (c is the top one): with more than one it shows ×N and a stacked edge */
 function pocketHTML(c, s, list = [c]){
@@ -438,7 +440,7 @@ function pocketHTML(c, s, list = [c]){
   const checked = list.find(x=>cardChecks(x).length), watched = list.find(x=>W.status(x, valueOf(x)).length) || c;
   const ids = list.map(x=>x.id);
   const badge = !many ? "" : mix ? `<span class="stackn" title="Different cards share this pocket: open it to move one out">≠${n}</span>` : `<span class="stackn">×${n}</span>`;
-  return `<button class="pocket${many?" stack":""}${mix?" mixed":""}${od?" owned":""}${list.some(x=>S.sel===x.id)?" sel":""}${S.swap && list.some(x=>x.id===S.swap.id)?" swapsrc":""}${held(c)?"":" dim"}${c.placeholder&&held(c)?" ph":""}${S.pick && ids.every(id=>S.pick.has(id))?" picked":""}${list.some(x=>isFound(x.id))?" found":""}" type="button" data-card="${esc(c.id)}"${many?` data-stack="${esc(ids.join(" "))}"`:""} aria-label="${esc((c.name||"Unnamed card")+(c.placeholder&&held(c)?" (placeholder)":"")+(ol?", "+ol:"")+(s?", pocket "+s:"")+(mix?`, ${n} different cards`:many?`, ${n} copies`:"")+(checked?", needs checking":""))}"${S.pick?` aria-pressed="${ids.every(id=>S.pick.has(id))}"`:""}>${s?`<span class="slotno">${s}</span>`:""}${badge}${mix?`<span class="mixedtag">Different cards</span>`:""}${checked?`<span class="chkmark" title="${esc(cardChecks(checked)[0].title)}" aria-hidden="true">!</span>`:""}<span class="tick" aria-hidden="true">✓</span>${inner}${v!=null?`<span class="price">${esc(money(v).replace(".00",""))}</span>`:""}${flag}${od?`<span class="odot ${od}" title="${esc(window.BinderOwner.dotTitle(c.owner))}" aria-hidden="true"></span>`:""}${watchMark(watched, valueOf(watched))}</button>`;
+  return `<button class="pocket${many?" stack":""}${mix?" mixed":""}${od?" owned":""}${list.some(x=>S.sel===x.id)?" sel":""}${S.swap && list.some(x=>x.id===S.swap.id)?" swapsrc":""}${held(c)?"":" dim"}${c.placeholder&&held(c)?" ph":""}${S.pick && ids.every(id=>S.pick.has(id))?" picked":""}${list.some(x=>isFound(x.id))?" found":""}" type="button" data-card="${esc(c.id)}"${s?` data-slot="${s}"`:""}${many?` data-stack="${esc(ids.join(" "))}"`:""} aria-label="${esc((c.name||"Unnamed card")+(c.placeholder&&held(c)?" (placeholder)":"")+(ol?", "+ol:"")+(s?", pocket "+s:"")+(mix?`, ${n} different cards`:many?`, ${n} copies`:"")+(checked?", needs checking":""))}"${S.pick?` aria-pressed="${ids.every(id=>S.pick.has(id))}"`:""}>${s?`<span class="slotno">${s}</span>`:""}${badge}${mix?`<span class="mixedtag">Different cards</span>`:""}${checked?`<span class="chkmark" title="${esc(cardChecks(checked)[0].title)}" aria-hidden="true">!</span>`:""}<span class="tick" aria-hidden="true">✓</span>${inner}${v!=null?`<span class="price">${esc(money(v).replace(".00",""))}</span>`:""}${flag}${od?`<span class="odot ${od}" title="${esc(window.BinderOwner.dotTitle(c.owner))}" aria-hidden="true"></span>`:""}${watchMark(watched, valueOf(watched))}</button>`;
 }
 /* a display case: every card in it as one grid, in the order chosen (no pages or pockets) */
 const CASE_SORTS = [["value","Price, high to low"],["name","Name"],["set","Set and number"],["released","Newest first"]];
@@ -3771,9 +3773,47 @@ document.addEventListener("submit", e => {
 document.addEventListener("toggle", e => { if(e.target.id==="autoLog") S.autoLogOpen = e.target.open; }, true);
 document.addEventListener("keydown", e => {
   if(FIND.open) return findKey(e);
-  if(!LB.open && !$("#modalRoot").innerHTML && !isTyping(e.target) && !e.altKey && ((e.key==="/" && !e.ctrlKey && !e.metaKey) || ((e.key==="k" || e.key==="K") && (e.ctrlKey || e.metaKey)))){ e.preventDefault(); return openFind(); }
+  const k = window.BinderKeys.shortcut(e);
+  if(k && !LB.open && !$("#modalRoot").innerHTML && !isTyping(e.target) && (k==="find" || !(TB.open || PV.open || SV.open)) && keyShortcut(k, e)) return;
   if(LB.open){ if(e.key==="Escape"){ e.preventDefault(); closeViewer(); } else if(e.key==="ArrowLeft"||e.key==="ArrowRight"){ e.preventDefault(); lbGo(LB.i+(e.key==="ArrowLeft"?-1:1)); } else if(e.key==="Home"||e.key==="End"){ e.preventDefault(); lbGo(e.key==="Home"?0:LB.list.length-1); } return; }
   if(e.key==="Escape"){ if($("#modalRoot").innerHTML){ if($("#bb_card")){ if(!BB?.busy && bbDiscardOk()) bbClose(); } else if(!CI?.busy || !$("#ci_card")) closeModal(); } else if(S.sel){ if(discardOk()) closeDrawer(); } else if(TB.open){ if(TB.pop) tbPopClose(true); else if(TB.colsOpen || TB.sortOpen){ TB.colsOpen = TB.sortOpen = false; tbPanes(); } else closeTable(); } else if(S.pick) endPick(); else if(S.swap){ S.swap = null; renderMain(); } else if(PV.open) closePricing(); else if(SV.open) closeSelling(); } });
+/* a keyboard shortcut (public/keys.js) on the cards in view; true when it did something, so the key is used up */
+function keyShortcut(k, e){
+  if(k==="find"){ e.preventDefault(); openFind("any"); return true; }
+  if(k!=="extend"){
+    const ids = S.pick?.size ? [...S.pick] : (S.sel && S.sel!=="__new" && selCard()) ? [S.sel] : null;
+    if(!ids) return false;
+    e.preventDefault();
+    if(k==="duplicate"){ if(S.pick) duplicatePicked(); else duplicateCard(); }
+    else if(k==="status"){ if(S.pick) statusModal(ids); else if(canEdit()) statusHold(ids); else toast("You have view-only access."); }
+    else if(k==="owner"){ if(!S.pick){ if(!discardOk()) return true; closeDrawer(); } ownerModal(ids); }
+    return true;
+  }
+  const b = curBinder();
+  if(S.view!=="pages" || !b || isCase(b) || isSpecial(S.binderId) || S.swap || S.mode!=="ready") return false;
+  const n = pocketsOf(b), cols = POCKETS[n].cols, K = window.BinderKeys;
+  const filled = []; for(let s=1;s<=n;s++) if(stackAt(b.id, S.page, s).length) filled.push(s);
+  if(!filled.length) return false;
+  e.preventDefault();
+  if(S.kb && S.pick && S.kb.bid===b.id && S.kb.page===S.page){
+    const next = K.step(filled, cols, S.kb.cur, e.key);
+    if(next==null) return true;
+    S.kb.cur = next;
+  } else {
+    const focused = document.activeElement?.closest?.("#main .pocket[data-slot]");
+    const selC = S.sel && S.sel!=="__new" ? selCard() : null;
+    const anchor = focused ? +focused.dataset.slot : selC && selC.binderId===b.id && selC.page===S.page && filled.includes(selC.slot) ? selC.slot : K.step(filled, cols, null, e.key);
+    if(anchor==null) return true;
+    let base = [];
+    if(S.pick) base = [...S.pick];
+    else { startPick([]); if(!S.pick) return true; }
+    S.kb = {bid:b.id, page:S.page, anchor, cur:anchor, base};
+  }
+  S.pick = new Set([...S.kb.base, ...K.range(filled, S.kb.anchor, S.kb.cur).flatMap(s => stackAt(b.id, S.page, s).map(c => c.id))]);
+  S.pickConfirm = false; renderMain();
+  $(`#main .pocket[data-slot="${S.kb.cur}"]`)?.focus();
+  return true;
+}
 function updateMoveNote(){
   const n=$("#moveNote"); if(!n) return; const c=selCard(); const bid=$("#m_binder").value;
   if(!bid){ n.textContent="The card stays in your ledger under “Not in a binder”."; return; }
@@ -3787,7 +3827,7 @@ function updateMoveNote(){
 }
 
 /* ---------- find a card ---------- */
-/* Find (button or "/"): type a Pokémon name, set, set code or number; each match can be shown where
+/* Find (button, "/" or Ctrl+K, the last two on Any card): type a Pokémon name, set, set code or number; each match can be shown where
    it sits (binder page, Not in a binder, or Sales) or opened full screen. Matching is in search.js. */
 /* mode "mine": your cards (search.js); "any": any card, from the card database (Any card, below) */
 const FIND = {open:false, q:"", res:[], i:0, back:null, mode:"mine", any:{q:null, busy:false, error:"", more:false, seq:0, t:0}, look:null};
@@ -3801,8 +3841,9 @@ function whereIs(c){
   if(saleInfo(c) && !looseCards().some(x=>x.id===c.id)) return {kind:"sales", label:"Sold", act:"Show in sales"};
   return {kind:"loose", label:"Not in a binder", act:"Show in list"};
 }
-function openFind(){
+function openFind(mode){
   if(FIND.open){ $("#findQ")?.focus(); return; }
+  if(mode && mode!==FIND.mode){ FIND.mode = mode; FIND.look = null; FIND.i = 0; FIND.res = []; FIND.any.q = null; }
   FIND.open = true; FIND.back = document.activeElement;
   $("#findRoot").innerHTML = `<div class="find" data-find="backdrop">
     <div class="find-card" role="dialog" aria-modal="true" aria-label="Find a card">
