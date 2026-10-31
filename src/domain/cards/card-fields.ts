@@ -108,7 +108,7 @@ const trade = loose({
 /** Price watches the person set, in CAD (cards/watch.ts). */
 const watch = loose({
   /** Email when the card's value is at or below this. */
-  buy: nullish(cents(100_000_000)),
+  buy: nullish(number({ above: 0, max: 100_000_000 })),
   /** Email when the card's value is at or above this (only for a card the person has). */
   sell: nullish(number({ above: 0, max: 100_000_000 })),
 });
@@ -156,7 +156,7 @@ export const CARD_FIELDS: Shape = {
   /** The watches emailed, kept until the value moves back past them (written by the server). */
   watchAlerts: nullish(loose({ buy: nullish(watchAlert), sell: nullish(watchAlert) })),
   /** The price guests see instead of the market value, in CAD (blank: the market value). */
-  guestPrice: nullish(number({ above: 0, max: 100_000_000 })),
+  guestPrice: nullish(cents(100_000_000)),
   /** Cards to check: the card's name and number when the person chose to ignore its problem. */
   checksIgnored: optText(300),
   /** Cards to check: the person said the card's disagreeing prices are right, for these matches. */
