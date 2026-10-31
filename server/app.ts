@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express, { type NextFunction, type Request, type Response } from 'express';
-import { requireRole } from '#application/access.ts';
+import { exemptFromRateLimits, requireRole } from '#application/access.ts';
 import type { TokenVault } from '#application/admin/ports.ts';
 import type { IdentifyCaller } from '#application/accounts/identify-caller.ts';
 import type { Identity } from '#application/accounts/identity.ts';
@@ -108,16 +108,22 @@ export function createExpressApp(o: AppOptions) {
       next();
     });
   }
-  if (security) app.use(security.firewall);
-
-  // Who is calling: a session cookie, an API token, or (without accounts) the local owner.
+  // Who is calling: a session cookie, an API token, or (without accounts) the local owner. Identified
+  // before the firewall so signed-in administrators aren't rate limited or blocked.
   const credentials = (req: Request) => ({ sessionToken: readCookie(req, SESSION_COOKIE), bearer: /^Bearer\s+(\S+)$/i.exec(req.get('authorization') ?? '')?.[1] });
   app.use(async (req, res, next) => {
     const { identity, badToken } = await people.identifyCaller.execute(credentials(req));
-    if (badToken) return void res.status(401).json({ error: 'Invalid or expired API token', code: 'token' });
     res.locals.caller = identity ?? undefined;
     // The rate limits count by the person's id.
     res.locals.user = identity ?? undefined;
+    res.locals.unlimited = exemptFromRateLimits(identity);
+    res.locals.badToken = badToken;
+    next();
+  });
+  if (security) app.use(security.firewall);
+  // A bad API token is refused after the firewall, so it still counts against its address.
+  app.use((_req, res, next) => {
+    if (res.locals.badToken === true) return void res.status(401).json({ error: 'Invalid or expired API token', code: 'token' });
     next();
   });
 

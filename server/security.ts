@@ -4,7 +4,8 @@ import type { ServerLog as Logger } from '#application/logging.ts';
 // Protection for running on the open internet (adapted from Boards): rate limits per client
 // address and per signed-in person, temporary blocks for abusive clients that grow
 // exponentially for repeat offenders, a cap on open live-update connections, and a list of
-// trusted addresses that are never limited. Everything is in memory and resets on restart.
+// trusted addresses that are never limited. Administrators signed in with a session are never
+// limited or blocked either (res.locals.unlimited). Everything is in memory and resets on restart.
 
 export class HttpError extends Error {
   readonly status: number;
@@ -30,13 +31,13 @@ export interface SecurityOptions {
   ip: Limit;
   /** API requests from someone not signed in, per address. */
   anonymous: Limit;
-  /** API requests per signed-in person (or API token). */
+  /** API requests per signed-in person other than administrators (or API token). */
   user: Limit;
-  /** Changes (POST/PUT/PATCH/DELETE) per signed-in person. */
+  /** Changes (POST/PUT/PATCH/DELETE) per signed-in person other than administrators. */
   mutations: Limit;
   /** Sign-in attempts per address. */
   signIn: Limit;
-  /** Expensive operations (backups, restores, price runs, price-site searches) per person. */
+  /** Expensive operations (backups, restores, price runs, price-site searches) per person other than administrators. */
   heavy: Limit;
   /** Every request (cards, pictures, pages) per signed-in guest, instead of the per-address limit. */
   guest: Limit;
@@ -314,7 +315,8 @@ export class Security {
   /** First middleware: refuse blocked addresses, apply the per-address limit, and watch for abuse. */
   firewall = (req: Request, res: Response, next: NextFunction) => {
     const ip = req.ip ?? req.socket.remoteAddress ?? 'unknown';
-    if (this.isBanned(ip)) {
+    const unlimited = this.unlimited(res);
+    if (!unlimited && this.isBanned(ip)) {
       this.stats.refused++;
       res.setHeader('Connection', 'close');
       return void res.status(403).json({ error: 'Access from your network is temporarily blocked.', code: 'blocked' });
@@ -323,17 +325,25 @@ export class Security {
     if (p === '/api/health') return next();
     // A signed-in guest has their own limit, so guests sharing a venue's address don't use up each other's.
     const guest = res.locals.guest as { id: string } | undefined;
-    if (guest) this.check('guest', `guest:${guest.id}`, ip);
-    else this.check('ip', ip, ip);
+    if (!unlimited) {
+      if (guest) this.check('guest', `guest:${guest.id}`, ip);
+      else this.check('ip', ip, ip);
+    }
     res.on('finish', () => {
       if (res.statusCode === 401 && SIGN_IN_PATHS.has(p)) this.count(this.authFailures, ip, this.options.ban.authFailures, 'too many failed sign-ins');
-      else if (res.statusCode === 404 && p.startsWith('/api/')) this.count(this.notFounds, ip, this.options.ban.notFound, 'probing for API paths');
+      else if (!unlimited && res.statusCode === 404 && p.startsWith('/api/')) this.count(this.notFounds, ip, this.options.ban.notFound, 'probing for API paths');
     });
     next();
   };
 
+  /** Signed-in administrators (set by the caller middleware) are never limited or blocked. */
+  private unlimited(res: Response): boolean {
+    return res.locals.unlimited === true;
+  }
+
   /** Per-person (or anonymous) API limits, after sign-in has identified the caller. */
   apiLimits = (req: Request, res: Response, next: NextFunction) => {
+    if (this.unlimited(res)) return next();
     const ip = req.ip ?? 'unknown';
     const who = res.locals.user as { id: string } | undefined;
     // Guests were limited by the firewall already; their sign-in has its own, looser, per-address limit.
@@ -353,6 +363,7 @@ export class Security {
   };
 
   heavy = (req: Request, res: Response, next: NextFunction) => {
+    if (this.unlimited(res)) return next();
     const who = res.locals.user as { id: string } | undefined;
     this.check('heavy', who ? who.id : `ip:${req.ip}`, req.ip ?? 'unknown', 'backup, restore and price operations');
     next();
@@ -368,7 +379,7 @@ export class Security {
     const who = guestId ? `guest:${guestId}` : ((res.locals.user as { id: string } | undefined)?.id ?? `ip:${ip}`);
     const o = this.options;
     const perIp = !guestId && (this.streams.get(`ip:${ip}`) ?? 0) >= o.streamsPerIp;
-    if (!this.trusted(ip) && (this.streamsOpen >= o.streamsTotal || (this.streams.get(who) ?? 0) >= o.streamsPerUser || perIp)) {
+    if (!this.trusted(ip) && !this.unlimited(res) && (this.streamsOpen >= o.streamsTotal || (this.streams.get(who) ?? 0) >= o.streamsPerUser || perIp)) {
       throw new HttpError(429, 'Too many open live-update connections. Close some tabs and reload.', 'rate_limited', 30);
     }
     const keys = who === `ip:${ip}` || guestId ? [who] : [who, `ip:${ip}`];

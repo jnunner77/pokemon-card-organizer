@@ -13,7 +13,8 @@ import { redact } from '../../src/domain/admin/log.ts';
 import { PriceCharting } from '../../server/pricing/pricecharting.ts';
 import { type Fetcher, retryPolicy } from '../../server/pricing/sources.ts';
 import { PriceUpdater } from '../../server/pricing/updater.ts';
-import { Security } from '../../server/security.ts';
+import type { Request, Response } from 'express';
+import { HttpError, Security } from '../../server/security.ts';
 import { DETAILS_VERSION } from '../../src/domain/cards/attention.ts';
 import { cardsNeedingAttention } from '../../src/domain/cards/attention.ts';
 import { Store } from '../../src/infrastructure/json-store/store.ts';
@@ -255,6 +256,70 @@ describe('rate limits and blocks', () => {
     expect(Date.parse(second.until) - clock).toBe(120_000); // doubled
     expect(sec.unban(second.ip)).toBe(true);
     await request(app).get('/api/health').expect(200);
+  });
+
+  const strict = (extra: Partial<ConstructorParameters<typeof Security>[0]> = {}) =>
+    new Security({ ban: { violations: 2, authFailures: 20, notFound: 3, windowMs: 600_000, durationMs: 60_000, maxDurationMs: 3_600_000 }, ...extra }, log, () => clock);
+
+  it('never limits or blocks a signed-in administrator', async () => {
+    const sec = strict({ ip: { burst: 20, perMinute: 1 }, user: { burst: 6, perMinute: 1 }, mutations: { burst: 3, perMinute: 1 }, heavy: { burst: 1, perMinute: 1 } });
+    const app = makeApp({ security: sec });
+    const admin = await signIn(app, 'admin', 'start password 1');
+    await addUser(admin, 'brock', 'editor');
+    const editor = await signIn(app, 'brock', 'a good password');
+    for (let i = 0; i < 30; i++) await admin.put(`/api/docs/cards/c${i}`).send(card).expect(200);
+    for (let i = 0; i < 30; i++) await admin.delete(`/api/docs/cards/c${i}`).expect(204);
+    for (let i = 0; i < 3; i++) await admin.get('/api/backup').expect(200);
+    for (let i = 0; i < 5; i++) await admin.get('/api/nope').expect(404);
+    expect(sec.listBans()).toEqual([]);
+
+    let n = 0;
+    while ((await editor.put('/api/docs/cards/e1').send(card)).status !== 429) expect(++n).toBeLessThan(10);
+    await editor.put('/api/docs/cards/e1').send(card).expect(429); // second violation: blocked
+    await editor.get('/api/data').expect(403);
+    await request(app).get('/login.html').expect(403);
+    await admin.get('/api/data').expect(200);
+    await admin.get('/api/admin/security').expect(200);
+  });
+
+  it('keeps limiting sign-in for administrators', async () => {
+    const sec = strict({ signIn: { burst: 2, perMinute: 1 } });
+    const app = makeApp({ security: sec });
+    const admin = await signIn(app, 'admin', 'start password 1');
+    await admin.post('/api/auth/login').send({ username: 'admin', password: 'start password 1' }).expect(200); // second attempt, counting the first sign-in
+    const limited = await admin.post('/api/auth/login').send({ username: 'admin', password: 'start password 1' }).expect(429);
+    expect(Number(limited.headers['retry-after'])).toBeGreaterThan(0);
+  });
+
+  it('still limits API tokens and forged tokens', async () => {
+    const sec = strict({ mutations: { burst: 2, perMinute: 1 } });
+    const app = makeApp({ security: sec });
+    const admin = await signIn(app, 'admin', 'start password 1');
+    const me = (await admin.get('/api/admin/users')).body.users[0];
+    const write = (await admin.post('/api/admin/tokens').send({ name: 'writer', userId: me.id, scope: 'write' }).expect(201)).body;
+    const bearer = { Authorization: `Bearer ${write.token}` };
+    await request(app).put('/api/docs/cards/t1').set(bearer).send(card).expect(200);
+    await request(app).put('/api/docs/cards/t2').set(bearer).send(card).expect(200);
+    await request(app).put('/api/docs/cards/t3').set(bearer).send(card).expect(429);
+    const sec2 = strict({ ip: { burst: 2, perMinute: 1 } });
+    const app2 = makeApp({ security: sec2 });
+    const forged = { Authorization: 'Bearer binder_forged' };
+    await request(app2).get('/api/data').set(forged).expect(401);
+    await request(app2).get('/api/data').set(forged).expect(401);
+    await request(app2).get('/api/data').set(forged).expect(429);
+  });
+
+  it("doesn't cap an administrator's live-update connections", () => {
+    const sec = strict({ streamsPerUser: 1, streamsPerIp: 1, streamsTotal: 1 });
+    const req = { ip: '1.2.3.4' } as unknown as Request;
+    const res = (unlimited: boolean) => ({ locals: { user: { id: 'a' }, unlimited } }) as unknown as Response;
+    const releases = [1, 2, 3].map(() => sec.openStream(req, res(true)));
+    releases.forEach((r) => r());
+    expect(sec.summary().streamsOpen).toBe(0);
+    const first = sec.openStream(req, res(false));
+    expect(() => sec.openStream(req, res(false))).toThrow(HttpError);
+    first();
+    expect(sec.summary().streamsOpen).toBe(0);
   });
 
   it('blocks an address that keeps failing to sign in', async () => {

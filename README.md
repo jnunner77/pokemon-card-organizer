@@ -921,6 +921,9 @@ the problems banner:
   connections are capped. `SECURITY_ALLOWLIST` exempts trusted addresses. Signed-in guests have
   limits each (requests and live-update connections) instead of their address's, and guest
   sign-in a looser one per address, so a venue's shared Wi-Fi isn't blocked.
+  Administrators signed in on the website are never rate limited or blocked, even from a blocked
+  address, so big jobs (deleting hundreds of cards, backups) aren't interrupted; their sign-in
+  attempts are limited like everyone's, and API tokens keep their limits.
 - **Requests:** changes from other websites are refused; bodies are size-limited; uploads are
   checked by their bytes; slow requests are dropped (header and request timeouts).
 - **Browser:** strict Content Security Policy, HSTS over HTTPS, no framing, nosniff,
@@ -1077,7 +1080,7 @@ in `src/` is its own TypeScript project that may only import the layers inside i
 Everything else still runs on the Express code in `server/`, which hands those routes to the layered
 code, and moves into the layers one slice at a time. Express still runs the request pipeline: it
 asks `IdentifyCaller` and `IdentifyGuest` who is calling, decides which pages need signing in, and
-applies the rate limits.
+applies the rate limits (not to signed-in administrators).
 
 - `server/pricing/`: `pricecharting.ts` (PriceCharting's API, price guide download and graded prices), `tcgcsv.ts` (finding a card in TCGplayer's own catalog), `catalog.ts`
   (TCGdex: TCGplayer and Cardmarket prices, pictures), `sources.ts` (the price sites' answers,
