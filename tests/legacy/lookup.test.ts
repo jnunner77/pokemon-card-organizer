@@ -81,7 +81,7 @@ class CardLookup {
   private readonly showing: ShowAnyCard;
 
   constructor(o: { details: CardDetails; updater?: PriceUpdater }) {
-    this.searching = new SearchAnyCard({ database: o.details });
+    this.searching = new SearchAnyCard({ database: o.details, tcgplayer: null, clock: { now: () => new Date() } });
     this.showing = new ShowAnyCard({ database: o.details, anyCardPricing: new TodaysPrices(o.updater) });
   }
 
@@ -252,6 +252,25 @@ describe("one card's prices", () => {
     expect(card.printings[0].tcgplayer).toMatchObject({ usd: 928.32 });
   });
 
+  it("asks PriceCharting while TCGplayer's catalog is still looking", async () => {
+    let open: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    const { updater, lookupProducts } = fakeUpdater({
+      tcgcsv: async (_card, product) => {
+        await gate;
+        return product === '106999' ? { productId: '106999', usd: 12000, name: 'Charizard', number: '4/102', set: 'Base Set', url: '', rarity: null, released: null } : null;
+      },
+    });
+    const pending = new CardLookup({ details: new CardDetails({ fetcher: tcgdex() }), updater }).card('base1-4');
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(lookupProducts).toHaveBeenCalledTimes(1);
+    open();
+    const card = await pending;
+    expect(card.printings[1]).toMatchObject({ variant: '1st Edition Shadowless Holo', tcgplayer: { usd: 12000, url: 'https://www.tcgplayer.com/product/106999' }, pricecharting: { id: '631' } });
+  });
+
   it("says when TCGplayer's catalog didn't answer, and still prices the card from the other sources", async () => {
     const { updater } = fakeUpdater({ tcgcsv: async () => Promise.reject(new Error('tcgcsv.com answered 503')) });
     const card = await new CardLookup({ details: new CardDetails({ fetcher: tcgdex() }), updater }).card('base1-4');
@@ -302,7 +321,7 @@ describe('the lookup API', () => {
   const app = (details?: CardDetails, updater?: PriceUpdater) => createApp({ store, assets: new Assets(dir), publicDir: path.join(__dirname, '../../public'), cardDatabase: details, updater });
 
   it('searches and shows a card without changing the ledger', async () => {
-    const { updater } = fakeUpdater();
+    const { updater, lookupProducts } = fakeUpdater();
     const a = app(new CardDetails({ fetcher: tcgdex() }), updater);
     const before = JSON.stringify(store.all());
     const s = await request(a).get('/api/lookup/search').query({ q: 'charizard 4/102' }).expect(200);
@@ -310,7 +329,13 @@ describe('the lookup API', () => {
     const c = await request(a).get('/api/lookup/cards/base1-4').expect(200);
     expect(c.body).toMatchObject({ name: 'Charizard', printings: [{ variant: 'Holo' }, {}, {}, {}] });
     expect(JSON.stringify(store.all())).toBe(before);
+    const d = await request(a).get('/api/lookup/cards/base1-4/details').expect(200);
+    expect(d.body).toMatchObject({ name: 'Charizard', printings: [{ variant: 'Holo' }, {}, {}, {}] });
+    expect(d.body.rates).toBeUndefined();
+    expect(d.body.notes).toBeUndefined();
+    expect(lookupProducts).toHaveBeenCalledTimes(1);
     await request(a).get('/api/lookup/search').query({ q: ' ' }).expect(400);
+    await request(a).get('/api/lookup/cards/no-such-card/details').expect(404);
     await request(a).get('/api/lookup/cards/no-such-card').expect(404);
     await request(a).get('/api/lookup/cards/bad%20id').expect(404);
   });
@@ -318,6 +343,7 @@ describe('the lookup API', () => {
   it('answers 503 when lookups are turned off, and 502 when TCGdex is down', async () => {
     await request(app()).get('/api/lookup/search').query({ q: 'pikachu' }).expect(503);
     await request(app()).get('/api/lookup/cards/base1-4').expect(503);
+    await request(app()).get('/api/lookup/cards/base1-4/details').expect(503);
     const r = await request(app(new CardDetails({ fetcher: down }))).get('/api/lookup/search').query({ q: 'pikachu' }).expect(502);
     expect(r.body.error).toMatch(/Couldn't reach api\.tcgdex\.net/);
   });

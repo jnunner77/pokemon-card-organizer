@@ -3910,8 +3910,8 @@ function findKey(e){
 
 /* ---------- any card ---------- */
 /* Find a card → Any card: any card from the card database (TCGdex), found by name, set and number on
-   the server (src/application/catalog/search-any-card.ts); choosing one shows its picture and today's prices for each printing, worked
-   out as the daily update would. Nothing is saved until Add: with a binder open, Add to <binder> puts the card in its next empty pocket;
+   the server (src/application/catalog/search-any-card.ts); choosing one shows its picture and details at once (/details), and today's prices for each printing,
+   worked out as the daily update would, fill in a moment later. Nothing is saved until Add: with a binder open, Add to <binder> puts the card in its next empty pocket;
    otherwise Add to a binder opens the new card form filled in. */
 function findMode(mode){
   if(mode===FIND.mode && !FIND.look) return;
@@ -3964,20 +3964,46 @@ function anyRender(){
 async function lookOpen(k){
   const hit = FIND.res[k]; if(!hit) return;
   FIND.i = k;
-  const look = FIND.look = {id:hit.id, hit, card:null, error:"", pi:0};
+  const look = FIND.look = {id:hit.id, hit, card:null, priced:false, picked:false, pi:0, error:"", priceError:""};
   findRender(); $("#findLook [data-find=back]")?.focus();
+  // The prices are worked out meanwhile; the details come first.
+  void lookPrices(look);
   try{
-    const card = await window.ledgerApi.call("GET", "api/lookup/cards/" + encodeURIComponent(hit.id));
+    const d = await window.ledgerApi.call("GET", "api/lookup/cards/" + encodeURIComponent(hit.id) + "/details");
+    if(FIND.look===look && !look.card) look.card = d;
+  }catch(err){
+    if(FIND.look===look) look.error = err.message || "The card database didn't answer.";
+  }
+  lookRefresh(look);
+}
+async function lookPrices(look){
+  look.priceError = "";
+  try{
+    // The whole card with its prices (src/application/catalog/show-any-card.ts); it replaces the details when it arrives.
+    const card = await window.ledgerApi.call("GET", "api/lookup/cards/" + encodeURIComponent(look.id));
     if(FIND.look!==look) return;
-    look.card = card;
-    look.pi = window.BinderLookup.firstPrinting(card.printings);
+    look.card = card; look.priced = true;
+    look.pi = window.BinderLookup.printingAfterPrices(card.printings, look.pi, look.picked);
   }catch(err){
     if(FIND.look!==look) return;
-    look.error = err.message || "The card database didn't answer.";
+    look.priceError = err.message || "The card database didn't answer.";
   }
-  const back = document.activeElement?.dataset?.find==="back";
+  lookRefresh(look);
+}
+function lookRefresh(look){
+  if(FIND.look!==look) return;
+  const ae = document.activeElement, back = ae?.dataset?.find==="back", keep = ae?.dataset?.find==="watch" || ae?.dataset?.find==="watchsave" || ae?.dataset?.find==="watchcancel" ? ae.dataset.find : "";
+  // A Watch threshold being typed survives an answer arriving: its text, focus and caret.
+  const buy = ae?.id==="lw_buy" ? {v:ae.value, s:ae.selectionStart, e:ae.selectionEnd} : null;
+  const typed = !buy && $("#lw_buy") ? $("#lw_buy").value : "";
   findRender();
   if(back) $("#findLook [data-find=back]")?.focus();
+  if(keep) $(`#findLook [data-find=${keep}]`)?.focus();
+  const inp = $("#lw_buy");
+  if(inp && (buy || typed)){
+    inp.value = buy ? buy.v : typed;
+    if(buy){ inp.focus(); try{ inp.setSelectionRange(buy.s, buy.e); }catch{} }
+  }
 }
 function lookBack(){
   FIND.look = null; findRender();
@@ -3987,9 +4013,11 @@ const eur = n => n==null || isNaN(n) ? "—" : "€" + Number(n).toFixed(2);
 function lookRender(){
   const L = FIND.look, box = $("#findLook"), c = L.card, h = L.hit;
   const head = `<div class="look-top"><button type="button" class="btn ghost sm" data-find="back">← ${esc(FIND.res.length>1 ? "All results" : "Back")}</button><span class="hint">Nothing here is added to your ledger.</span></div>`;
+  const priced = L.priced;
   if(!c){
+    const fail = !!L.error; // the details failed: say so now, without waiting for the prices
     box.innerHTML = head + `<div class="look-main"><div class="look-pic">${h.thumb?`<img src="${esc(h.thumb)}" alt="">`:""}</div><div class="look-info"><h3>${esc(h.name)}</h3><p class="mono">${esc(`${h.set} · ${cardNo(h)}`)}</p>
-      <p class="hint${L.error?" err":""}" role="status">${esc(L.error || "Getting today's prices…")}</p>${L.error?`<button type="button" class="btn sm" data-find="look" data-fi="${FIND.i}">Try again</button>`:""}</div></div>`;
+      <p class="hint${fail?" err":""}" role="status">${esc(fail ? L.error : "Getting the card…")}</p>${fail?`<button type="button" class="btn sm" data-find="look" data-fi="${FIND.i}">Try again</button>`:""}</div></div>`;
     return;
   }
   const p = c.printings[L.pi] || c.printings[0];
@@ -4005,17 +4033,18 @@ function lookRender(){
         <h3>${esc(c.name)}</h3>
         <p class="mono">${esc(meta)}</p>
         ${about?`<p class="hint">${esc(about)}</p>`:""}
-        <div class="look-price"><span class="hint">Worth today${c.printings.length>1?` · ${esc(p.label)}`:""}</span><b>${p?.price ? money(p.price.cad) : "No price"}</b>${p?.price?`<span class="hint">${esc(p.price.summary)}</span>`:""}</div>
+        ${priced ? `<div class="look-price"><span class="hint">Worth today${c.printings.length>1?` · ${esc(p.label)}`:""}</span><b>${p?.price ? money(p.price.cad) : "No price"}</b>${p?.price?`<span class="hint">${esc(p.price.summary)}</span>`:""}</div>`
+          : `<div class="look-price">${L.priceError ? `<span class="hint err" role="status">${esc(`Couldn't get today's prices: ${L.priceError}`)}</span><button type="button" class="btn sm" data-find="lookprices">Try again</button>` : `<span class="hint" role="status">Getting today's prices…</span>`}</div>`}
         ${p?.leftOut?`<p class="hint">TCGplayer's and Cardmarket's prices aren't counted: ${esc(p.leftOut)}.</p>`:""}
         <div class="look-acts">${canEdit()?`${addBtn}<button type="button" class="btn sm" data-find="watch" aria-expanded="${!!L.watch}">Watch price</button>`:""}<span class="look-links">${links}</span></div>
         ${L.watch && canEdit() ? `<div class="look-watch"><label for="lw_buy">Email me when it's at or below (CAD)</label><span class="look-watchrow"><input id="lw_buy" class="mono" inputmode="decimal" autocomplete="off" placeholder="${p?.price ? `now ${esc(money(p.price.cad))}` : "e.g. 5.00"}"><button type="button" class="btn sm primary" data-find="watchsave">Watch</button><button type="button" class="btn sm ghost" data-find="watchcancel">Cancel</button></span><span class="hint">${c.printings.length>1?`The ${esc(p.label)} printing goes`:"It goes"} on your Watchlist, not in a binder, and gets a price every day.</span></div>` : ""}
       </div>
     </div>
-    ${c.printings.length>1?`<h4 class="look-h">Printings</h4><div class="look-prs" role="group" aria-label="Printings">${c.printings.map((x,i)=>`<button type="button" class="look-pr" data-find="pr" data-pi="${i}" aria-pressed="${i===L.pi}"><span class="lab">${esc(x.label[0].toUpperCase()+x.label.slice(1))}</span><b>${x.price?money(x.price.cad):"—"}</b><span class="src">${esc(srcs(x))}</span></button>`).join("")}</div>`
-      : `<p class="hint look-src">${esc(srcs(p||{}))}</p>`}
-    ${p?.pricecharting?.grades?.length?`<h4 class="look-h">Graded (PriceCharting)</h4><div class="look-grades">${p.pricecharting.grades.map(g=>`<span><span class="hint">${esc(g.label)}</span> <b>${money(g.cad)}</b></span>`).join("")}</div>`:""}
-    ${c.notes.map(t=>`<p class="hint">${esc(t)}</p>`).join("")}
-    <p class="hint">In CAD at US$1 = ${money(c.rates.usd)}${c.rates.eur?` and €1 = ${money(c.rates.eur)}`:""}, the rates the last price update used.</p>`;
+    ${c.printings.length>1?`<h4 class="look-h">Printings</h4><div class="look-prs" role="group" aria-label="Printings">${c.printings.map((x,i)=>`<button type="button" class="look-pr" data-find="pr" data-pi="${i}" aria-pressed="${i===L.pi}"><span class="lab">${esc(x.label[0].toUpperCase()+x.label.slice(1))}</span><b>${priced ? (x.price?money(x.price.cad):"—") : "…"}</b>${priced ? `<span class="src">${esc(srcs(x))}</span>` : ""}</button>`).join("")}</div>`
+      : priced ? `<p class="hint look-src">${esc(srcs(p||{}))}</p>` : ""}
+    ${priced && p?.pricecharting?.grades?.length?`<h4 class="look-h">Graded (PriceCharting)</h4><div class="look-grades">${p.pricecharting.grades.map(g=>`<span><span class="hint">${esc(g.label)}</span> <b>${money(g.cad)}</b></span>`).join("")}</div>`:""}
+    ${(c.notes || []).map(t=>`<p class="hint">${esc(t)}</p>`).join("")}
+    ${priced && c.rates ? `<p class="hint">In CAD at US$1 = ${money(c.rates.usd)}${c.rates.eur?` and €1 = ${money(c.rates.eur)}`:""}, the rates the last price update used.</p>` : ""}`;
 }
 /* The binder Add puts the card in: the one open, unless Pricing or the Selling view is on top of it. */
 const lookBinder = () => window.BinderLookup.addTarget(S.binders, S.binderId, PV.open || SV.open);
@@ -4051,7 +4080,8 @@ $("#findRoot").addEventListener("click", e => {
   if(k==="mode") return findMode(a.dataset.mode);
   if(k==="look") return lookOpen(+a.dataset.fi);
   if(k==="back") return lookBack();
-  if(k==="pr"){ if(FIND.look){ FIND.look.pi = +a.dataset.pi; findRender(); $(`#findLook [data-pi="${a.dataset.pi}"]`)?.focus(); } return; }
+  if(k==="lookprices"){ if(FIND.look && !FIND.look.priced){ FIND.look.priceError = ""; void lookPrices(FIND.look); findRender(); } return; }
+  if(k==="pr"){ if(FIND.look){ FIND.look.pi = +a.dataset.pi; FIND.look.picked = true; findRender(); $(`#findLook [data-pi="${a.dataset.pi}"]`)?.focus(); } return; }
   if(k==="add") return lookAdd();
   if(k==="watch" || k==="watchcancel"){ if(FIND.look){ FIND.look.watch = k==="watch" && !FIND.look.watch; findRender(); if(FIND.look.watch) $("#lw_buy")?.focus(); else $("#findLook [data-find=watch]")?.focus(); } return; }
   if(k==="watchsave") return void lookWatch();

@@ -8,11 +8,11 @@ interface Card { name: string; set: string; setCode: string | null; number: stri
 interface Printing { variant: string; price: { cad: number } | null }
 const sandbox = {
   window: {} as {
-    BinderLookup: { cardNo: (c: Partial<Card>) => string; firstPrinting: (p: (Printing | null)[] | null) => number; draftFields: (c: Partial<Card>, p?: Printing) => Record<string, string>; addTarget: (binders: { id: string }[], openId: string | null, overlayOpen: boolean) => { id: string } | null; binderCard: (c: Partial<Card>, p: Printing | undefined, loc: { binderId: string; page?: number | null; slot?: number | null }, owner: string, at: string) => Record<string, unknown> };
+    BinderLookup: { cardNo: (c: Partial<Card>) => string; firstPrinting: (p: (Printing | null)[] | null) => number; printingAfterPrices: (p: (Printing | null)[] | null, pi: number, picked: boolean) => number; draftFields: (c: Partial<Card>, p?: Printing) => Record<string, string>; addTarget: (binders: { id: string }[], openId: string | null, overlayOpen: boolean) => { id: string } | null; binderCard: (c: Partial<Card>, p: Printing | undefined, loc: { binderId: string; page?: number | null; slot?: number | null }, owner: string, at: string) => Record<string, unknown> };
   },
 };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public/lookup.js'), 'utf8'), sandbox);
-const { cardNo, firstPrinting, draftFields, binderCard, addTarget } = sandbox.window.BinderLookup;
+const { cardNo, firstPrinting, printingAfterPrices, draftFields, binderCard, addTarget } = sandbox.window.BinderLookup;
 
 const charizard: Card = { name: 'Charizard', set: 'Base Set', setCode: 'BS', number: '4', total: 102, rarity: 'Rare', artist: 'Mitsuhiro Arita' };
 
@@ -31,6 +31,17 @@ describe('a card from the card database, on the page', () => {
     expect(firstPrinting([p(null), p(null)])).toBe(0);
     expect(firstPrinting([])).toBe(0);
     expect(firstPrinting(null)).toBe(0);
+  });
+
+  it('keeps a printing picked before prices arrived, and otherwise shows the first priced one', () => {
+    const p = (cad: number | null): Printing => ({ variant: '', price: cad == null ? null : { cad } });
+    const list = [p(null), p(null), p(9)];
+    expect(printingAfterPrices(list, 1, true)).toBe(1);
+    expect(printingAfterPrices(list, 1, false)).toBe(2);
+    expect(printingAfterPrices(list, 5, true)).toBe(2);
+    expect(printingAfterPrices(list, -1, true)).toBe(2);
+    expect(printingAfterPrices([p(null), p(null)], 0, false)).toBe(0);
+    expect(printingAfterPrices(null, 0, false)).toBe(0);
   });
 
   it('fills in a new card as the printing chosen', () => {

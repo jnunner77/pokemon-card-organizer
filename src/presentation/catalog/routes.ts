@@ -8,6 +8,7 @@ import type { LookUpCard } from '#application/catalog/look-up-card.ts';
 import type { PreviewMasterSet } from '#application/catalog/preview-master-set.ts';
 import type { SearchAnyCard } from '#application/catalog/search-any-card.ts';
 import type { ShowAnyCard } from '#application/catalog/show-any-card.ts';
+import type { ShowAnyCardDetails } from '#application/catalog/show-any-card-details.ts';
 import { isCardDatabaseId } from '#domain/catalog/tcgdex.ts';
 import { isDocumentId } from '#domain/ledger/ids.ts';
 import { readJsonBody } from '../http/body.ts';
@@ -26,6 +27,7 @@ export interface CatalogUseCases {
   readonly fillEveryCard: Pick<FillEveryCard, 'execute'>;
   readonly searchAnyCard: Pick<SearchAnyCard, 'execute'>;
   readonly showAnyCard: Pick<ShowAnyCard, 'execute'>;
+  readonly showAnyCardDetails: Pick<ShowAnyCardDetails, 'execute'>;
   readonly listMasterSetSets: Pick<ListMasterSetSets, 'execute'>;
   readonly previewMasterSet: Pick<PreviewMasterSet, 'execute'>;
   readonly createMasterSet: Pick<CreateMasterSet, 'execute'>;
@@ -124,6 +126,15 @@ export function catalogRoutes(deps: CatalogRouteDeps): Router {
         if (!isCardDatabaseId(id)) return sendFailure(res, NOT_IN_DATABASE);
         if (!catalog) return sendFailure(res, ANY_CARD_OFF);
         const r = await catalog.showAnyCard.execute({ id });
+        if (r.ok) sendJson(res, 200, r.value);
+        else sendFailure(res, anyCardFailure(r.error));
+      })
+      .add('GET', '/lookup/cards/:id/details', async (req, res, p) => {
+        if (!allowed(req, res, 'viewer')) return;
+        const id = p['id'] ?? '';
+        if (!isCardDatabaseId(id)) return sendFailure(res, NOT_IN_DATABASE);
+        if (!catalog) return sendFailure(res, ANY_CARD_OFF);
+        const r = await catalog.showAnyCardDetails.execute({ id });
         if (r.ok) sendJson(res, 200, r.value);
         else sendFailure(res, anyCardFailure(r.error));
       })

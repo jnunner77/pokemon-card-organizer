@@ -1,7 +1,7 @@
 // Today's prices for any card, in the ledger or not (Find a card → Any card), worked out the way
 // the daily update would price it (updater.ts): TCGplayer's own catalog for a printing the card
-// database has no TCGplayer price for, PriceCharting's product for each printing, and the price
-// method's blend. Nothing is saved. The card itself comes from the card database
+// database has no TCGplayer price for, PriceCharting's product for each printing (asked alongside
+// TCGplayer's catalog, not after it), and the price method's blend. Nothing is saved. The card itself comes from the card database
 // (src/application/catalog/show-any-card.ts); this stays with the price update until its slice
 // moves into the layers.
 
@@ -33,6 +33,14 @@ export class TodaysPrices implements AnyCardPricing {
     const method = this.updater?.priceMethod() ?? blend().settings(null);
     const base = o.printings.map((p) => ({ ...p }));
 
+    // PriceCharting is asked while TCGplayer's catalog is looking; its answer is awaited below.
+    const pcAsked = this.updater
+      ? this.updater.lookupProducts(searchQuery({ name: td.name, number: td.localId })).then(
+          (found): { products: PcProduct[]; failed: false } => ({ products: found, failed: false }),
+          (err): { products: PcProduct[]; failed: true; reason: string } => ({ products: [], failed: true, reason: err instanceof Error ? err.message : String(err) }),
+        )
+      : null;
+
     // As the daily update does: TCGplayer's own catalog for a printing the card databases have no TCGplayer price for.
     if (this.updater) {
       const updater = this.updater;
@@ -56,13 +64,11 @@ export class TodaysPrices implements AnyCardPricing {
 
     let products: PcProduct[] = [];
     let asked = !!this.updater;
-    if (this.updater) {
-      try {
-        products = await this.updater.lookupProducts(searchQuery({ name: td.name, number: td.localId }));
-      } catch (err) {
-        asked = false;
-        notes.push(`No PriceCharting prices: ${err instanceof Error ? err.message : String(err)}`);
-      }
+    if (pcAsked) {
+      const result = await pcAsked;
+      products = result.products;
+      asked = !result.failed;
+      if (result.failed) notes.push(`No PriceCharting prices: ${result.reason}`);
     }
 
     const printings = base.map((p): { printing: LookupPrinting; product: string | null } => {

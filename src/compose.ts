@@ -61,6 +61,7 @@ import type { CardDatabase, CardPricing, JobLog, TcgplayerCatalog } from '#appli
 import { PreviewMasterSet } from '#application/catalog/preview-master-set.ts';
 import { SearchAnyCard } from '#application/catalog/search-any-card.ts';
 import { ShowAnyCard } from '#application/catalog/show-any-card.ts';
+import { ShowAnyCardDetails } from '#application/catalog/show-any-card-details.ts';
 import { WatchNewCards } from '#application/catalog/watch-new-cards.ts';
 import { BackupHealth } from '#application/backups/backup-health.ts';
 import { DeleteCopy } from '#application/backups/delete-copy.ts';
@@ -414,6 +415,7 @@ export function createCardLookups(o: CreateCardLookupsOptions) {
     watchNewCards,
     searchAnyCard: new SearchAnyCard(deps),
     showAnyCard: new ShowAnyCard(deps),
+    showAnyCardDetails: new ShowAnyCardDetails(deps),
     listMasterSetSets: new ListMasterSetSets(deps),
     previewMasterSet: new PreviewMasterSet(deps),
     createMasterSet: new CreateMasterSet(deps),

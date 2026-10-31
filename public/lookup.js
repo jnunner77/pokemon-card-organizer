@@ -1,5 +1,5 @@
 /* Find a card → Any card: a card from the card database (src/application/catalog/show-any-card.ts)
-   as the page shows it and adds it. Its number as printed ("4/102"), which printing to show first,
+   as the page shows it and adds it. Its number as printed ("4/102"), which printing to show first (and which once prices arrive),
    and the new card's fields for Add to a binder (and, from inside a binder, the whole card for its next empty pocket).
    A plain script: the page uses window.BinderLookup, and the tests load it the same way. */
 (function (root) {
@@ -12,6 +12,11 @@
   function firstPrinting(printings) {
     const i = (printings || []).findIndex(p => p && p.price);
     return i < 0 ? 0 : i;
+  }
+
+  /* The printing to show once prices arrive: the one picked meanwhile, if it's still there; else the first priced. */
+  function printingAfterPrices(printings, pi, picked) {
+    return picked && Number.isInteger(pi) && pi >= 0 && pi < (printings || []).length ? pi : firstPrinting(printings);
   }
 
   /* The new card's fields for Add to a binder: the card, as the printing chosen. */
@@ -46,5 +51,5 @@
     return (binders || []).find(b => b.id === openId) || null;
   }
 
-  root.BinderLookup = { cardNo, firstPrinting, draftFields, binderCard, addTarget };
+  root.BinderLookup = { cardNo, firstPrinting, printingAfterPrices, draftFields, binderCard, addTarget };
 })(typeof window !== "undefined" ? window : globalThis);

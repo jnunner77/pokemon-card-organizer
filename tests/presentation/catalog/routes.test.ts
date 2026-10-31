@@ -17,6 +17,7 @@ async function setUp(over: Partial<CatalogUseCases> = {}, off = false) {
     fillEveryCard: record({ started: true, cards: 3 }),
     searchAnyCard: record(ok({ hits: [], more: false })),
     showAnyCard: record(ok({ id: 'base1-4' })),
+    showAnyCardDetails: record(ok({ id: 'base1-4' })),
     listMasterSetSets: record(ok({ sets: [] })),
     previewMasterSet: record(ok({ title: 'Celebrations' })),
     createMasterSet: record(ok({ binderId: 'b1', cards: 48, pages: 6 })),
@@ -59,11 +60,12 @@ describe('card lookup routes', () => {
   });
 
   it("answer 502 in the card database's words when it doesn't answer", async () => {
-    const { base } = await setUp({ lookUpCard: { execute: async () => err(DOWN) }, searchAnyCard: { execute: async () => err(DOWN) }, showAnyCard: { execute: async () => err(DOWN) } });
+    const { base } = await setUp({ lookUpCard: { execute: async () => err(DOWN) }, searchAnyCard: { execute: async () => err(DOWN) }, showAnyCard: { execute: async () => err(DOWN) }, showAnyCardDetails: { execute: async () => err(DOWN) } });
     const failed = [502, { error: DOWN.message, code: 'upstream_error' }];
     assert.deepEqual(await answer(await fetch(`${base}/cards/lookup?name=Pikachu&number=51`, as('editor'))), failed);
     assert.deepEqual(await answer(await fetch(`${base}/lookup/search?q=pikachu`, as('viewer'))), failed);
     assert.deepEqual(await answer(await fetch(`${base}/lookup/cards/base1-4`, as('viewer'))), failed);
+    assert.deepEqual(await answer(await fetch(`${base}/lookup/cards/base1-4/details`, as('viewer'))), failed);
   });
 
   it('take the card a person chose, by its TCGdex id', async () => {
@@ -106,6 +108,25 @@ describe('card lookup routes', () => {
     const missing = [404, { error: 'No such card in the card database.', code: 'not_found' }];
     assert.deepEqual(await answer(await fetch(`${base}/lookup/cards/no-such-card`, as('viewer'))), missing);
     assert.deepEqual(await answer(await fetch(`${base}/lookup/cards/bad%20id`, as('viewer'))), missing);
+  });
+});
+
+describe("a card's details before its prices", () => {
+  it('are for viewers, and ask only for the card', async () => {
+    const { base, asked } = await setUp();
+    assert.deepEqual(await answer(await fetch(`${base}/lookup/cards/base1-4/details`)), [401, { error: 'Please sign in', code: 'signin' }]);
+    assert.deepEqual(asked, []);
+    assert.deepEqual(await answer(await fetch(`${base}/lookup/cards/base1-4/details`, as('viewer'))), [200, { id: 'base1-4' }]);
+    assert.deepEqual(asked, [{ id: 'base1-4' }]);
+  });
+
+  it('say when there is no such card, or the id cannot be one', async () => {
+    const { base } = await setUp({ showAnyCardDetails: { execute: async () => err({ code: 'NO_SUCH_CARD' }) } });
+    const missing = [404, { error: 'No such card in the card database.', code: 'not_found' }];
+    assert.deepEqual(await answer(await fetch(`${base}/lookup/cards/no-such-card/details`, as('viewer'))), missing);
+    const bad = await setUp();
+    assert.deepEqual(await answer(await fetch(`${bad.base}/lookup/cards/bad%20id/details`, as('viewer'))), missing);
+    assert.deepEqual(bad.asked, []);
   });
 });
 
@@ -170,6 +191,7 @@ describe('with card lookups turned off', () => {
     assert.deepEqual(await answer(await fetch(`${base}/master-sets`, as('editor', json({ set: '151', owner: '', name: 'x', pockets: 9 })))), off);
     assert.deepEqual(await answer(await fetch(`${base}/lookup/search?q=pikachu`, as('viewer'))), anyOff);
     assert.deepEqual(await answer(await fetch(`${base}/lookup/cards/base1-4`, as('viewer'))), anyOff);
+    assert.deepEqual(await answer(await fetch(`${base}/lookup/cards/base1-4/details`, as('viewer'))), anyOff);
     // What's wrong with the request first.
     assert.equal((await fetch(`${base}/lookup/search?q=`, as('viewer'))).status, 400);
     assert.equal((await fetch(`${base}/lookup/cards/bad%20id`, as('viewer'))).status, 404);
