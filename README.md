@@ -339,6 +339,10 @@ starting owner for cards added to it (with *+ Add card*, an empty pocket, or pho
 changing it doesn't change the cards already in it. It's saved with *Save changes*, copied by *Duplicate*, and has its own
 *Owner* column in CSV import and export.
 
+On binder pages and in display cases, a dot in the bottom-right corner of each card shows its owner: red for
+Justin, green for Maiya, half red and half blank for Both, and none for Megan or when no owner is set. A pocket
+with several copies shows the top copy's dot. Hovering the dot names the owner.
+
 ## Filters
 
 *Filters* in the List view narrows the cards shown (in this binder, or *All cards*): by **owner**
