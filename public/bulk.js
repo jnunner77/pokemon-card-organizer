@@ -23,8 +23,11 @@
     async function one(id) {
       /* a rate-limited answer means wait and go on: it doesn't count against the tries */
       for (let attempt = 0; ; ) {
-        const wait = Math.max(0, startAt - now());
-        if (wait) await sleep(wait);
+        /* once saving is known to be impossible, no card sends another request */
+        if (stopped) return done(id, stopped);
+        for (let w; (w = startAt - now()) > 0; ) await sleep(w);
+        if (stopped) return done(id, stopped);
+        /* the slot is taken with nothing awaited since the check, so two cards never share one */
         startAt = Math.max(now(), startAt) + gapMs;
         try { await save(id); return done(id); }
         catch (e) {
@@ -53,9 +56,18 @@
     return { saved, failed, stopped };
   }
 
+  /* What the dialog needs after a run that left cards unsaved: the job for trying just those again,
+     the cards left, the reason to show (why the run stopped, else the first card's) and the words;
+     null when every card saved. */
+  function retryJob(job, result) {
+    if (!result.failed.length) return null;
+    const left = result.failed.map(f => f.id), error = result.stopped || result.failed[0].error;
+    return { job: { ...job, ids: left }, left, error, text: partialText(result.saved.length, job.ids.length, left.length, error) };
+  }
+
   const progressText = (settled, total) => `Saving ${settled} of ${total}…`;
   const partialText = (saved, total, failed, error) =>
     `Saved ${saved} of ${total}. ${failed} didn't save${error && error.message ? `: ${error.message}` : "."}`;
 
-  root.BinderBulk = { run, progressText, partialText };
+  root.BinderBulk = { run, retryJob, progressText, partialText };
 })(typeof window !== "undefined" ? window : globalThis);

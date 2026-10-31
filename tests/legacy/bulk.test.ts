@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 // public/bulk.js is a plain browser script; load it the way the page does.
 type Failure = { id: string; error: (Error & { code?: string }) | null };
 interface BinderBulk {
+  retryJob(job: { ids: string[]; total: number }, result: { saved: string[]; failed: Failure[]; stopped: Error | null }): { job: { ids: string[]; total: number }; left: string[]; error: Error | null; text: string } | null;
   run(ids: string[], save: (id: string) => Promise<unknown>, opts?: Record<string, unknown>): Promise<{ saved: string[]; failed: Failure[]; stopped: (Error & { code?: string }) | null }>;
   progressText(settled: number, total: number): string;
   partialText(saved: number, total: number, failed: number, error?: { message?: string } | null): string;
@@ -91,5 +92,42 @@ describe('saving many cards', () => {
     expect(B.progressText(120, 312)).toBe('Saving 120 of 312…');
     expect(B.partialText(300, 312, 12, { message: 'Couldn\'t reach the server' })).toBe('Saved 300 of 312. 12 didn\'t save: Couldn\'t reach the server');
     expect(B.partialText(300, 312, 12, null)).toBe('Saved 300 of 312. 12 didn\'t save.');
+  });
+
+  it('keeps starts apart by the spacing even when several cards wait on the same slot', async () => {
+    const k = clock();
+    const starts: number[] = [];
+    let limited = 2;
+    const r = await B.run(ids(6), async () => { starts.push(k.c.t); if (limited-- > 0) throw problem('rate_limited', { retryAfter: 1 }); }, { ...k, concurrency: 2 });
+    expect(r.saved).toEqual(ids(6));
+    const after = starts.slice(2).sort((a, b) => a - b);
+    for (let i = 1; i < after.length; i++) expect(after[i] - after[i - 1]).toBeGreaterThanOrEqual(260);
+  });
+
+  it('sends nothing more from a card that was waiting when another hit a fatal error', async () => {
+    const k = clock();
+    const called: string[] = [];
+    const r = await B.run(['a', 'b'], async (id) => {
+      called.push(id);
+      if (id === 'a') throw problem('rate_limited', { retryAfter: 5 });
+      throw problem('forbidden');
+    }, { ...k, concurrency: 2 });
+    expect(called).toEqual(['a', 'b']);
+    expect(r.stopped?.code).toBe('forbidden');
+    expect(r.saved).toEqual([]);
+    expect(r.failed.map((f) => [f.id, f.error?.code])).toEqual([['a', 'forbidden'], ['b', 'forbidden']]);
+  });
+
+  it('builds the retry from what was left, and says why', () => {
+    const job = { ids: ids(4), total: 4 };
+    const boom = problem('invalid_argument');
+    expect(B.retryJob(job, { saved: ids(4), failed: [], stopped: null })).toBeNull();
+    const a = B.retryJob(job, { saved: ['c1', 'c3'], failed: [{ id: 'c2', error: boom }, { id: 'c4', error: null }], stopped: null });
+    expect(a?.left).toEqual(['c2', 'c4']);
+    expect(a?.job).toEqual({ ids: ['c2', 'c4'], total: 4 });
+    expect(a?.error).toBe(boom);
+    expect(a?.text).toBe("Saved 2 of 4. 2 didn't save: invalid_argument happened");
+    const stop = problem('forbidden');
+    expect(B.retryJob(job, { saved: [], failed: [{ id: 'c1', error: boom }], stopped: stop })?.error).toBe(stop);
   });
 });
