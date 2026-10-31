@@ -282,6 +282,12 @@ describe('rate limits and blocks', () => {
     await admin.get('/api/admin/security').expect(200);
   });
 
+  it('still limits callers when sign-in is off (everyone is the local owner)', async () => {
+    const app = createApp({ store, assets, log, config, publicDir: path.join(__dirname, '../../public'), now: () => new Date(clock), security: strict({ ip: { burst: 3, perMinute: 1 } }) });
+    for (let i = 0; i < 3; i++) await request(app).get('/login.html').expect(200);
+    await request(app).get('/login.html').expect(429);
+  });
+
   it('keeps limiting sign-in for administrators', async () => {
     const sec = strict({ signIn: { burst: 2, perMinute: 1 } });
     const app = makeApp({ security: sec });

@@ -921,7 +921,7 @@ the problems banner:
   connections are capped. `SECURITY_ALLOWLIST` exempts trusted addresses. Signed-in guests have
   limits each (requests and live-update connections) instead of their address's, and guest
   sign-in a looser one per address, so a venue's shared Wi-Fi isn't blocked.
-  Administrators signed in on the website are never rate limited or blocked, even from a blocked
+  Administrators signed in on the website (not with sign-in turned off) are never rate limited or blocked, even from a blocked
   address, so big jobs (deleting hundreds of cards, backups) aren't interrupted; their sign-in
   attempts are limited like everyone's, and API tokens keep their limits.
 - **Requests:** changes from other websites are refused; bodies are size-limited; uploads are

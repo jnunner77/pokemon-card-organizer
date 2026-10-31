@@ -1,3 +1,4 @@
+import { LOCAL_OWNER } from './accounts/identity.ts';
 import { atLeast, type Role } from '#domain/accounts/role.ts';
 import { err, ok, type Result } from '#shared/result.ts';
 
@@ -21,7 +22,11 @@ export function requireRole(caller: Caller | null, needs: Role): Result<Caller, 
   return atLeast(caller.role, needs) ? ok(caller) : err({ code: 'NOT_ALLOWED', needs });
 }
 
-/** Administrators signed in with a session are never rate limited or blocked (sign-in attempts still are); API tokens never act as administrators. */
-export function exemptFromRateLimits(caller: (Caller & { readonly via: 'session' | 'token' }) | null): boolean {
-  return caller !== null && caller.via === 'session' && atLeast(caller.role, 'admin');
+/**
+ * Administrators signed in with a session are never rate limited or blocked (sign-in attempts
+ * still are); API tokens never act as administrators. With sign-in off (AUTH=off) everyone is the
+ * local owner, who is nobody signed in, so that server keeps its limits.
+ */
+export function exemptFromRateLimits(caller: (Caller & { readonly id?: string; readonly via: 'session' | 'token' }) | null): boolean {
+  return caller !== null && caller.id !== LOCAL_OWNER.id && caller.via === 'session' && atLeast(caller.role, 'admin');
 }

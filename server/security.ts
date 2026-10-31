@@ -384,7 +384,7 @@ export class Security {
     }
     // An administrator's connections are not counted anywhere, so they never use up other people's allowance.
     if (this.unlimited(res)) return () => {};
-    const keys = who ===`ip:${ip}` || guestId ? [who] : [who, `ip:${ip}`];
+    const keys = who === `ip:${ip}` || guestId ? [who] : [who, `ip:${ip}`];
     for (const k of keys) this.streams.set(k, (this.streams.get(k) ?? 0) + 1);
     this.streamsOpen++;
     let done = false;
