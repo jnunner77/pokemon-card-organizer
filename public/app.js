@@ -2175,7 +2175,7 @@ async function deletePicked(){
     for(const c of gone) if(okIds.includes(c.id) && c.officialImageId){ try{ await delAsset(c.officialImageId); }catch(e){} }
   }
   if(failed){ const err = res.find(r=>r.status==="rejected")?.reason; console.error(err);
-    S.pick = new Set(ids.filter(id=>!okIds.includes(id))); S.pickConfirm=false; renderMain();
+    S.pick = new Set(ids.filter(id=>!okIds.includes(id))); S.pickConfirm=false; S.kb=null; renderMain();
     toast(okIds.length ? `Deleted ${okIds.length}. ${failed} couldn't be deleted.` : (err?.code==="invalid_argument"||err?.code==="not_granted" ? "Those cards weren't deleted. You may only have view access." : "Couldn't delete. Check your connection and try again."));
     return; }
   toast(`Deleted ${okIds.length} card${okIds.length===1?"":"s"}`); endPick();
@@ -3616,7 +3616,7 @@ document.addEventListener("click", e => {
   if(suppressClick){ suppressClick=false; if(t.closest("[data-card]")){ e.preventDefault(); return; } }
   if(S.pick){
     if(t.closest("#pickCancel")) return endPick();
-    if(t.closest("#pickAll")){ const allOn = S.shown.every(id=>S.pick.has(id)); S.shown.forEach(id=> allOn?S.pick.delete(id):S.pick.add(id)); S.pickConfirm=false; return renderMain(); }
+    if(t.closest("#pickAll")){ const allOn = S.shown.every(id=>S.pick.has(id)); S.shown.forEach(id=> allOn?S.pick.delete(id):S.pick.add(id)); S.pickConfirm=false; S.kb=null; return renderMain(); }
     if(t.closest("#pickDel")){ S.pickConfirm=true; return renderMain(); }
     if(t.closest("#pickDelNo")){ S.pickConfirm=false; return renderMain(); }
     if(t.closest("#pickDelYes")) return void deletePicked();
