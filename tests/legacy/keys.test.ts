@@ -10,10 +10,14 @@ type Keys = {
   step: (filled: number[], cols: number, from: number | null, key: string) => number | null;
   range: (filled: number[], a: number, b: number) => number[];
   modLabel: (platform: string) => string;
+  allowed: (k: string | null, ctx: Record<string, boolean>) => boolean;
+  target: (picked: string[] | null, open: string | null) => { ids: string[]; picking: boolean } | null;
+  canExtend: (st: Record<string, unknown>) => boolean;
+  extend: (st: Record<string, unknown>) => { kb: Record<string, unknown>; start: boolean; slots: number[] } | null;
 };
 const sandbox = { window: {} as { BinderKeys: Keys } };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public/keys.js'), 'utf8'), sandbox);
-const { shortcut, step, range, modLabel } = sandbox.window.BinderKeys;
+const { shortcut, step, range, modLabel, allowed, target, canExtend, extend } = sandbox.window.BinderKeys;
 const plain = <T>(v: T): T => JSON.parse(JSON.stringify(v));
 
 describe('which shortcut a key press is', () => {
@@ -76,5 +80,72 @@ describe('the modifier key label', () => {
     expect(modLabel('iPhone')).toBe('⌘');
     expect(modLabel('Win32')).toBe('Ctrl+');
     expect(modLabel('')).toBe('Ctrl+');
+  });
+});
+
+describe('up and down across rows', () => {
+  it('goes to the nearest filled pocket in the next row, even to the left', () => {
+    expect(step([1, 2, 3, 4], 3, 2, 'ArrowDown')).toBe(4);
+    expect(step([1, 2, 3, 4], 3, 4, 'ArrowUp')).toBe(1);
+    expect(step([1, 2, 6], 3, 6, 'ArrowUp')).toBe(2);
+    expect(step([1, 3, 4, 6], 3, 2, 'ArrowDown')).toBe(4);
+  });
+  it('skips a row with nothing filled', () => {
+    expect(step([2, 8], 3, 2, 'ArrowDown')).toBe(8);
+    expect(step([2, 8], 3, 8, 'ArrowUp')).toBe(2);
+  });
+});
+
+describe('when a shortcut may act', () => {
+  const none = { lightbox: false, modal: false, typing: false, table: false, pricing: false, selling: false };
+  it('is blocked by a dialog, the viewer or typing', () => {
+    expect(allowed('duplicate', none)).toBe(true);
+    for (const k of ['lightbox', 'modal', 'typing']) expect(allowed('find', { ...none, [k]: true })).toBe(false);
+    expect(allowed(null, none)).toBe(false);
+  });
+  it('keeps only Find in the table, pricing and selling views', () => {
+    for (const v of ['table', 'pricing', 'selling']) {
+      expect(allowed('find', { ...none, [v]: true })).toBe(true);
+      expect(allowed('owner', { ...none, [v]: true })).toBe(false);
+      expect(allowed('extend', { ...none, [v]: true })).toBe(false);
+    }
+  });
+  it('picks the selected cards before the open one', () => {
+    expect(plain(target(['a', 'b'], 'c'))).toEqual({ ids: ['a', 'b'], picking: true });
+    expect(plain(target(null, 'c'))).toEqual({ ids: ['c'], picking: false });
+    expect(target(null, null)).toBeNull();
+  });
+  it('selects only on a binder page', () => {
+    const ok = { view: 'pages', hasBinder: true, isCase: false, special: false, swap: false, mode: 'ready' };
+    expect(canExtend(ok)).toBe(true);
+    for (const o of [{ view: 'list' }, { hasBinder: false }, { isCase: true }, { special: true }, { swap: true }, { mode: 'loading' }]) expect(canExtend({ ...ok, ...o })).toBe(false);
+  });
+});
+
+describe('extending a selection', () => {
+  const base = { filled: [1, 2, 4, 5, 9], cols: 3, bid: 'b', page: 1, kb: null, picking: false, focused: null, open: null };
+  it('starts at the focused pocket, then the open card, then the first or last', () => {
+    expect(plain(extend({ ...base, key: 'ArrowRight', focused: 2 }))).toEqual({ kb: { bid: 'b', page: 1, anchor: 2, cur: 2 }, start: true, slots: [2] });
+    expect(extend({ ...base, key: 'ArrowRight', open: 4 })?.kb.anchor).toBe(4);
+    expect(extend({ ...base, key: 'ArrowRight' })?.kb.anchor).toBe(1);
+    expect(extend({ ...base, key: 'ArrowLeft' })?.kb.anchor).toBe(9);
+  });
+  it('does not start a selection when one is under way', () => {
+    expect(extend({ ...base, key: 'ArrowRight', focused: 2, picking: true })?.start).toBe(false);
+  });
+  it('grows from the anchor and shrinks back', () => {
+    const kb = { bid: 'b', page: 1, anchor: 2, cur: 2 };
+    const grown = extend({ ...base, key: 'ArrowDown', kb, picking: true });
+    expect(plain(grown)).toEqual({ kb: { bid: 'b', page: 1, anchor: 2, cur: 5 }, start: false, slots: [2, 4, 5] });
+    expect(extend({ ...base, key: 'ArrowUp', kb: grown?.kb, picking: true })?.slots).toEqual([2]);
+  });
+  it('stays put at the edge, and starts over on another page or after the selection ended', () => {
+    const kb = { bid: 'b', page: 1, anchor: 2, cur: 9 };
+    expect(extend({ ...base, key: 'ArrowRight', kb, picking: true })?.kb.cur).toBe(9);
+    expect(extend({ ...base, key: 'ArrowRight', kb, picking: true, page: 2, focused: 4 })?.kb.anchor).toBe(4);
+    expect(extend({ ...base, key: 'ArrowRight', kb, picking: false, focused: 4 })?.start).toBe(true);
+  });
+  it('does nothing on an empty page', () => {
+    expect(extend({ ...base, filled: [], key: 'ArrowRight' })).toBeNull();
   });
 });

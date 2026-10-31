@@ -3774,42 +3774,37 @@ document.addEventListener("toggle", e => { if(e.target.id==="autoLog") S.autoLog
 document.addEventListener("keydown", e => {
   if(FIND.open) return findKey(e);
   const k = window.BinderKeys.shortcut(e);
-  if(k && !LB.open && !$("#modalRoot").innerHTML && !isTyping(e.target) && (k==="find" || !(TB.open || PV.open || SV.open)) && keyShortcut(k, e)) return;
+  if(window.BinderKeys.allowed(k, {lightbox:LB.open, modal:!!$("#modalRoot").innerHTML, typing:isTyping(e.target), table:TB.open, pricing:PV.open, selling:SV.open}) && keyShortcut(k, e)) return;
   if(LB.open){ if(e.key==="Escape"){ e.preventDefault(); closeViewer(); } else if(e.key==="ArrowLeft"||e.key==="ArrowRight"){ e.preventDefault(); lbGo(LB.i+(e.key==="ArrowLeft"?-1:1)); } else if(e.key==="Home"||e.key==="End"){ e.preventDefault(); lbGo(e.key==="Home"?0:LB.list.length-1); } return; }
   if(e.key==="Escape"){ if($("#modalRoot").innerHTML){ if($("#bb_card")){ if(!BB?.busy && bbDiscardOk()) bbClose(); } else if(!CI?.busy || !$("#ci_card")) closeModal(); } else if(S.sel){ if(discardOk()) closeDrawer(); } else if(TB.open){ if(TB.pop) tbPopClose(true); else if(TB.colsOpen || TB.sortOpen){ TB.colsOpen = TB.sortOpen = false; tbPanes(); } else closeTable(); } else if(S.pick) endPick(); else if(S.swap){ S.swap = null; renderMain(); } else if(PV.open) closePricing(); else if(SV.open) closeSelling(); } });
 /* a keyboard shortcut (public/keys.js) on the cards in view; true when it did something, so the key is used up */
 function keyShortcut(k, e){
   if(k==="find"){ e.preventDefault(); openFind("any"); return true; }
+  const K = window.BinderKeys;
   if(k!=="extend"){
-    const ids = S.pick?.size ? [...S.pick] : (S.sel && S.sel!=="__new" && selCard()) ? [S.sel] : null;
-    if(!ids) return false;
+    const t = K.target(S.pick?.size ? [...S.pick] : null, S.sel && S.sel!=="__new" && selCard() ? S.sel : null);
+    if(!t) return false;
+    const ids = t.ids;
     e.preventDefault();
-    if(k==="duplicate"){ if(S.pick) duplicatePicked(); else duplicateCard(); }
-    else if(k==="status"){ if(S.pick) statusModal(ids); else if(canEdit()) statusHold(ids); else toast("You have view-only access."); }
-    else if(k==="owner"){ if(!S.pick){ if(!discardOk()) return true; closeDrawer(); } ownerModal(ids); }
+    if(k==="duplicate"){ if(t.picking) duplicatePicked(); else duplicateCard(); }
+    else if(k==="status"){ if(t.picking) statusModal(ids); else if(canEdit()) statusHold(ids); else toast("You have view-only access."); }
+    else if(k==="owner"){ if(!t.picking){ if(!discardOk()) return true; closeDrawer(); } ownerModal(ids); }
     return true;
   }
   const b = curBinder();
-  if(S.view!=="pages" || !b || isCase(b) || isSpecial(S.binderId) || S.swap || S.mode!=="ready") return false;
-  const n = pocketsOf(b), cols = POCKETS[n].cols, K = window.BinderKeys;
+  if(!K.canExtend({view:S.view, hasBinder:!!b, isCase:isCase(b), special:isSpecial(S.binderId), swap:!!S.swap, mode:S.mode})) return false;
+  const n = pocketsOf(b), cols = POCKETS[n].cols;
   const filled = []; for(let s=1;s<=n;s++) if(stackAt(b.id, S.page, s).length) filled.push(s);
+  const focused = document.activeElement?.closest?.("#main .pocket[data-slot]"), selC = S.sel && S.sel!=="__new" ? selCard() : null;
+  const plan = K.extend({key:e.key, filled, cols, bid:b.id, page:S.page, kb:S.kb, picking:!!S.pick, focused:focused ? +focused.dataset.slot : null,
+    open:selC && selC.binderId===b.id && selC.page===S.page && filled.includes(selC.slot) ? selC.slot : null});
   if(!filled.length) return false;
   e.preventDefault();
-  if(S.kb && S.pick && S.kb.bid===b.id && S.kb.page===S.page){
-    const next = K.step(filled, cols, S.kb.cur, e.key);
-    if(next==null) return true;
-    S.kb.cur = next;
-  } else {
-    const focused = document.activeElement?.closest?.("#main .pocket[data-slot]");
-    const selC = S.sel && S.sel!=="__new" ? selCard() : null;
-    const anchor = focused ? +focused.dataset.slot : selC && selC.binderId===b.id && selC.page===S.page && filled.includes(selC.slot) ? selC.slot : K.step(filled, cols, null, e.key);
-    if(anchor==null) return true;
-    let base = [];
-    if(S.pick) base = [...S.pick];
-    else { startPick([]); if(!S.pick) return true; }
-    S.kb = {bid:b.id, page:S.page, anchor, cur:anchor, base};
-  }
-  S.pick = new Set([...S.kb.base, ...K.range(filled, S.kb.anchor, S.kb.cur).flatMap(s => stackAt(b.id, S.page, s).map(c => c.id))]);
+  if(!plan) return true;
+  const more = !!(S.kb && S.pick && S.kb.bid===b.id && S.kb.page===S.page), base = more ? S.kb.base : S.pick ? [...S.pick] : [];
+  if(plan.start){ startPick([]); if(!S.pick) return true; }
+  S.kb = {...plan.kb, base};
+  S.pick = new Set([...S.kb.base, ...plan.slots.flatMap(s => stackAt(b.id, S.page, s).map(c => c.id))]);
   S.pickConfirm = false; renderMain();
   $(`#main .pocket[data-slot="${S.kb.cur}"]`)?.focus();
   return true;
