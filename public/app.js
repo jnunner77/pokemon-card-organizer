@@ -638,7 +638,7 @@ function guestPriceModal(ids){
   const GP = window.BinderGuestPrice, l = ids.map(id => S.cards.find(c => c.id===id)).filter(Boolean); if(!l.length) return;
   const one = l.length===1 ? l[0] : null, v = one ? valueOf(one) : null;
   const plan = window.BinderStatus.plan(l, "listed"), cant = l.length - plan.change.length - plan.same;
-  S.gp = l.map(c => c.id);
+  S.gp = l.map(c => c.id); S.gpBusy = false; S.gpJob = null;
   $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard narrow" role="dialog" aria-modal="true" aria-labelledby="gpTitle">
     <h2 id="gpTitle">Price for guests: ${one ? esc(one.name||"this card") : `${l.length} cards`}</h2>
     <p class="lead">Guests see this price instead of the market value. The market price is still tracked${v!=null?` (market now ${money(v)})`:""}.</p>
@@ -646,21 +646,46 @@ function guestPriceModal(ids){
     ${plan.change.length ? `<label style="display:flex;gap:8px;align-items:center;margin:10px 0"><input type="checkbox" id="gp_list" checked> Also list them for sale (guests only see listed cards): ${plan.change.length}</label>` : ""}
     ${cant ? `<p class="hint">${cant} can't be listed (placeholders or sold).</p>` : ""}
     <p class="hint">A blank box shows guests the market value, rounded up to the dollar.</p>
-    <div class="formfoot"><span>${l.some(c => GP.priceOf(c)!=null) ? `<button class="btn sm ghost" type="button" id="gpClear">Use market price</button>` : ""}</span><span style="display:flex;gap:8px"><button class="btn sm" type="button" data-mclose>Cancel</button><button class="btn sm primary" type="button" id="gpSave">Save</button></span></div>
+    <p class="hint" id="gpProg" role="status" aria-live="polite" hidden></p>
+    <div class="formfoot"><span>${l.some(c => GP.priceOf(c)!=null) ? `<button class="btn sm ghost" type="button" id="gpClear">Use market price</button>` : ""}</span><span style="display:flex;gap:8px"><button class="btn sm" type="button" id="gpCancel" data-mclose>Cancel</button><button class="btn sm primary" type="button" id="gpSave">Save</button></span></div>
   </div></div>`;
   $("#gp_price").addEventListener("keydown", e => { if(e.key==="Enter"){ e.preventDefault(); void guestPricePicked(false); } });
   setTimeout(() => $("#gp_price")?.focus(), 30);
 }
 async function guestPricePicked(clear){
+  if(S.gpBusy) return;
+  if(S.gpJob) return void guestPriceRun(S.gpJob);
   const GP = window.BinderGuestPrice, ids = S.gp || []; if(!ids.length) return closeModal();
   const r = clear ? {guestPrice:null} : GP.fromInput($("#gp_price")?.value);
   if(r.error) return toast(r.error);
   const cards = ids.map(id => S.cards.find(c => c.id===id)).filter(Boolean);
   const listIt = !clear && r.guestPrice!=null && !!$("#gp_list")?.checked, change = listIt ? window.BinderStatus.plan(cards, "listed").change : [];
-  const res = await Promise.allSettled(ids.map(id => S.db.doc("cards/"+id).update({guestPrice:r.guestPrice, ...(change.includes(id) ? {status:"listed"} : {}), updatedAt:nowISO()})));
-  const ok = res.filter(x => x.status==="fulfilled").length;
-  S.gp = null; closeModal(); if(S.pick) endPick();
-  toast(ok===ids.length ? GP.words(ok, r.guestPrice) + (change.length ? ` · ${change.length} listed for sale` : "") : `${ok} of ${ids.length} saved. Try the rest again.`);
+  return void guestPriceRun({ids, r, change, total: ids.length});
+}
+/* Saves the job's cards a few at a time with a counter; the dialog can't be saved again or closed meanwhile,
+   closes by itself when all are saved, and otherwise stays to try the unsaved ones again */
+async function guestPriceRun(job){
+  const GP = window.BinderGuestPrice, B = window.BinderBulk, card = $("#modalRoot .mcard"), prog = $("#gpProg");
+  const off = (sel, on) => { const el = $(sel); if(el) el.disabled = on; };
+  S.gpBusy = true; if(card) card.setAttribute("aria-busy", "true");
+  for(const sel of ["#gp_price", "#gp_list", "#gpSave", "#gpClear", "#gpCancel"]) off(sel, true);
+  if(prog){ prog.hidden = false; prog.textContent = B.progressText(0, job.ids.length); }
+  const res = await B.run(job.ids, id => S.db.doc("cards/"+id).update({guestPrice: job.r.guestPrice, ...(job.change.includes(id) ? {status:"listed"} : {}), updatedAt: nowISO()}),
+    { onProgress: (n, t) => { const p = $("#gpProg"); if(p) p.textContent = B.progressText(n, t); } });
+  S.gpBusy = false; $("#modalRoot .mcard")?.removeAttribute("aria-busy");
+  if(!res.failed.length){
+    S.gp = S.gpJob = null; closeModal(); if(S.pick) endPick();
+    toast(GP.words(job.total, job.r.guestPrice) + (job.change.length ? ` · ${job.change.length} listed for sale` : ""));
+    return;
+  }
+  const left = res.failed.map(f => f.id), err = res.stopped || res.failed[0].error;
+  console.error(err);
+  S.gp = left; S.gpJob = {...job, ids: left};
+  if(S.pick){ S.pick = new Set(left); renderMain(); }
+  const p = $("#gpProg"); if(p){ p.hidden = false; p.textContent = B.partialText(res.saved.length, job.ids.length, left.length, err); }
+  const save = $("#gpSave"); if(save){ save.textContent = `Try the ${left.length} again`; save.disabled = false; }
+  $("#gpClear")?.setAttribute("hidden", "");
+  const cancel = $("#gpCancel"); if(cancel){ cancel.textContent = "Close"; cancel.disabled = false; }
 }
 /* Watch: the same buy and sell prices for every selected card (the touch screen way to watch several) */
 function watchModal(ids){
@@ -1569,10 +1594,17 @@ function guestPriceSection(c){
   </div>`;
 }
 async function saveGuestPrice(clear){
+  if(S.gpSaving) return;
   const c = selCard(); if(!c || S.sel==="__new") return;
   const r = clear ? {guestPrice:null} : window.BinderGuestPrice.fromInput($("#g_price")?.value);
   if(r.error){ toast(r.error); return; }
-  if(await updateCard(c.id, {guestPrice:r.guestPrice})){ S.gpTouched = false; refreshParts(selCard(), {gp:true}); toast(r.guestPrice!=null ? `Guests see it at ${money(r.guestPrice)}` : "Guests see its market value"); }
+  if(S.gpSaving) return;
+  S.gpSaving = true; for(const sel of ["#btnGpSave", "#btnGpClear"]) { const el = $(sel); if(el) el.disabled = true; }
+  try{
+    if(await updateCard(c.id, {guestPrice:r.guestPrice})){ S.gpTouched = false; refreshParts(selCard(), {gp:true}); toast(r.guestPrice!=null ? `Guests see it at ${money(r.guestPrice)}` : "Guests see its market value"); }
+  } finally {
+    S.gpSaving = false; for(const sel of ["#btnGpSave", "#btnGpClear"]) { const el = $(sel); if(el) el.disabled = false; }
+  }
 }
 /* Watch price, in a card's details: buy at or below (another copy, or a card not owned yet), sell at or above (a card the person has) */
 function watchSection(c){
@@ -3068,6 +3100,8 @@ function settingsModal(){
   };
 }
 function closeModal(){ $("#modalRoot").innerHTML=""; }
+/* a dialog that is saving (a counter running) can't be closed until it's done */
+const modalBusy = () => !!document.querySelector("#modalRoot [aria-busy='true']");
 
 /* ---------- page-photo import ---------- */
 function solve(A,b){ const n=b.length; A=A.map((r,i)=>[...r,b[i]]);
@@ -3746,7 +3780,7 @@ document.addEventListener("click", e => {
   const sr = t.closest("[data-sale]"); if(sr){ return openCard(sr.dataset.sale); }
   const cd = t.closest("[data-card]"); if(cd && !t.closest(".drawer")){ return openCard(cd.dataset.card); }
   if(t.closest("[data-close]")){ if(discardOk()) closeDrawer(); return; }
-  if(t.matches("[data-mclose]") || t.closest("button[data-mclose]")) return closeModal();
+  if(t.matches("[data-mclose]") || t.closest("button[data-mclose]")){ if(!modalBusy()) closeModal(); return; }
   // drawer actions
   if(t.closest("#bigImg img, #bigImg [data-lbopen]")) return openViewer(S.sel);
   if(t.closest("#btnDel")){ S.confirm="delete"; $("#delZone").innerHTML=delZone(); return; }
@@ -3835,7 +3869,7 @@ document.addEventListener("keydown", e => {
   const k = window.BinderKeys.shortcut(e);
   if(window.BinderKeys.allowed(k, keyCtx(e.target)) && keyShortcut(k, e)) return;
   if(LB.open){ if(e.key==="Escape"){ e.preventDefault(); closeViewer(); } else if(e.key==="ArrowLeft"||e.key==="ArrowRight"){ e.preventDefault(); lbGo(LB.i+(e.key==="ArrowLeft"?-1:1)); } else if(e.key==="Home"||e.key==="End"){ e.preventDefault(); lbGo(e.key==="Home"?0:LB.list.length-1); } return; }
-  if(e.key==="Escape"){ if($("#modalRoot").innerHTML){ if($("#bb_card")){ if(!BB?.busy && bbDiscardOk()) bbClose(); } else if(!CI?.busy || !$("#ci_card")) closeModal(); } else if(S.sel){ if(discardOk()) closeDrawer(); } else if(TB.open){ if(TB.pop) tbPopClose(true); else if(TB.colsOpen || TB.sortOpen){ TB.colsOpen = TB.sortOpen = false; tbPanes(); } else closeTable(); } else if(S.pick) endPick(); else if(S.swap){ S.swap = null; renderMain(); } else if(PV.open) closePricing(); else if(SV.open) closeSelling(); } });
+  if(e.key==="Escape"){ if($("#modalRoot").innerHTML){ if($("#bb_card")){ if(!BB?.busy && bbDiscardOk()) bbClose(); } else if((!CI?.busy || !$("#ci_card")) && !modalBusy()) closeModal(); } else if(S.sel){ if(discardOk()) closeDrawer(); } else if(TB.open){ if(TB.pop) tbPopClose(true); else if(TB.colsOpen || TB.sortOpen){ TB.colsOpen = TB.sortOpen = false; tbPanes(); } else closeTable(); } else if(S.pick) endPick(); else if(S.swap){ S.swap = null; renderMain(); } else if(PV.open) closePricing(); else if(SV.open) closeSelling(); } });
 /* a number key picks that pocket (two digits within PAUSE ms on 12- and 16-pocket pages); PK is the digit waiting for a second one */
 const PK = {pending:null, timer:0};
 function pocketCancel(){ clearTimeout(PK.timer); PK.timer = 0; PK.pending = null; }
