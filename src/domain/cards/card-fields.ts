@@ -1,4 +1,4 @@
-import { arrayOf, bool, count, documentIdRule, loose, nullish, number, oneOf, optText, integer, someOf, text, type Shape } from '../ledger/rules.ts';
+import { arrayOf, bool, cents, count, documentIdRule, loose, nullish, number, oneOf, optText, integer, someOf, text, type Shape } from '../ledger/rules.ts';
 
 // The fields of a card the ledger knows about, and what each may hold. Anything else on a card is
 // kept as it is (see ledger/document.ts).
@@ -108,7 +108,7 @@ const trade = loose({
 /** Price watches the person set, in CAD (cards/watch.ts). */
 const watch = loose({
   /** Email when the card's value is at or below this. */
-  buy: nullish(number({ above: 0, max: 100_000_000 })),
+  buy: nullish(cents(100_000_000)),
   /** Email when the card's value is at or above this (only for a card the person has). */
   sell: nullish(number({ above: 0, max: 100_000_000 })),
 });

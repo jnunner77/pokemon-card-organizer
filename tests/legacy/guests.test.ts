@@ -164,6 +164,7 @@ describe('guest viewing', () => {
     await admin.patch('/api/docs/cards/listed1').send({ guestPrice: 3 }).expect(200);
     expect(await valueOf()).toBe(3);
     await admin.patch('/api/docs/cards/listed1').send({ guestPrice: 0 }).expect(400);
+    await admin.patch('/api/docs/cards/listed1').send({ guestPrice: 2.555 }).expect(400);
     expect(await valueOf()).toBe(3);
     await admin.patch('/api/docs/cards/listed1').send({ guestPrice: null }).expect(200);
     expect(await valueOf()).toBe(21);

@@ -845,8 +845,8 @@ own phone, without an account:
    copy its link).
 2. A guest scans it and gives their **name** and a **phone number or email**, then sees every card
    marked **Listed for sale**: its picture, name, set, number, rarity, variant, language,
-   condition or grade, illustrator, release year and **market value rounded up to the dollar**, or the price you set for guests (shown to the cent,
-   like $2.50).
+   condition or grade, illustrator, release year and **market value rounded up to the dollar**, or
+   the price you set for guests (shown to the cent, like $2.50).
    They can search like *Find a card* (name, set, set code or number), sort by price, name or
    set date, and tap a card to flip through them all full screen (swipe, or the arrow keys).
    Their page updates live: a card you list shows up, and one you delist or sell disappears

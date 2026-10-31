@@ -40,7 +40,8 @@ describe('checking a card', () => {
   it('checks the price for guests', () => {
     value(checkDocument('cards', cardFields({ guestPrice: 3 })));
     value(checkDocument('cards', cardFields({ guestPrice: null })));
-    for (const bad of [0, -1, '3', 100_000_001]) assert.match(problem(checkDocument('cards', cardFields({ guestPrice: bad }))), /^guestPrice: /);
+    value(checkDocument('cards', cardFields({ guestPrice: 2.5 })));
+    for (const bad of [0, -1, '3', 100_000_001, 2.555, 0.001]) assert.match(problem(checkDocument('cards', cardFields({ guestPrice: bad }))), /^guestPrice: /);
   });
 
   it('checks price entries', () => {

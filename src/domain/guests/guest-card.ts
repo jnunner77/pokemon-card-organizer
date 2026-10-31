@@ -1,7 +1,8 @@
 import { cardValue } from '../cards/value.ts';
 
-// What guests see of a card listed for sale: its details, market value (rounded up to the dollar)
-// (or the price the owner set for guests) and picture; never what was paid, sales, notes, owner, binder location or price logs.
+// What guests see of a card listed for sale: its details, its price (the one the owner set for
+// guests, else its market value rounded up to the dollar) and picture; never what was paid, sales,
+// notes, owner, binder location or price logs.
 
 /** A card as the ledger keeps it. */
 export type CardRecord = Readonly<Record<string, unknown>> & { readonly id: string };
@@ -15,7 +16,8 @@ const GUEST_DETAILS = ['name', 'set', 'setCode', 'number', 'rarity', 'variant', 
 type Detail = (typeof GUEST_DETAILS)[number];
 
 export type GuestCard = { readonly id: string } & { readonly [K in Detail]: string | null } & {
-  /** The price the owner set for guests, to the cent, else the market value in CAD rounded up to the dollar. */
+  /** The price the owner set for guests, to the cent, else the market value in CAD rounded up
+   *  to the dollar. */
   readonly value: number | null;
   /** The picture's address, or null without one. Changes when the picture does. */
   readonly image: string | null;

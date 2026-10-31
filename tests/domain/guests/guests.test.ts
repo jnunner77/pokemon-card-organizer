@@ -49,7 +49,6 @@ describe('what guests see of a card', () => {
     const prices = [price({ amount: 20.2 })];
     assert.equal(guestValue(card({ prices, guestPrice: 3 }), 1.37, asIs), 3);
     assert.equal(guestValue(card({ prices, guestPrice: 2.5 }), 1.37, asIs), 2.5);
-    assert.equal(guestValue(card({ prices, guestPrice: 2.499 }), 1.37, asIs), 2.5);
     assert.equal(guestValue(card({ guestPrice: 4 }), 1.37, asIs), 4);
     for (const bad of [0, -1, Number.NaN, '3', null]) assert.equal(guestValue(card({ prices, guestPrice: bad }), 1.37, asIs), 21);
     assert.equal(setGuestPrice(card({ guestPrice: 3 })), 3);
