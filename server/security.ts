@@ -382,7 +382,9 @@ export class Security {
     if (!this.trusted(ip) && !this.unlimited(res) && (this.streamsOpen >= o.streamsTotal || (this.streams.get(who) ?? 0) >= o.streamsPerUser || perIp)) {
       throw new HttpError(429, 'Too many open live-update connections. Close some tabs and reload.', 'rate_limited', 30);
     }
-    const keys = who === `ip:${ip}` || guestId ? [who] : [who, `ip:${ip}`];
+    // An administrator's connections are not counted anywhere, so they never use up other people's allowance.
+    if (this.unlimited(res)) return () => {};
+    const keys = who ===`ip:${ip}` || guestId ? [who] : [who, `ip:${ip}`];
     for (const k of keys) this.streams.set(k, (this.streams.get(k) ?? 0) + 1);
     this.streamsOpen++;
     let done = false;

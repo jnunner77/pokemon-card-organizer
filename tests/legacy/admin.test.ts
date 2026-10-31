@@ -322,6 +322,19 @@ describe('rate limits and blocks', () => {
     expect(sec.summary().streamsOpen).toBe(0);
   });
 
+  it("doesn't let an administrator's open streams use up others' allowance", () => {
+    const sec = strict({ streamsPerUser: 1, streamsPerIp: 1, streamsTotal: 1 });
+    const req = { ip: '1.2.3.4' } as unknown as Request;
+    const as = (id: string, unlimited: boolean) => ({ locals: { user: { id }, unlimited } }) as unknown as Response;
+    const admin = [1, 2, 3].map(() => sec.openStream(req, as('a', true)));
+    expect(sec.summary().streamsOpen).toBe(0);
+    const other = sec.openStream(req, as('b', false));
+    expect(sec.summary().streamsOpen).toBe(1);
+    other();
+    admin.forEach((r) => r());
+    expect(sec.summary().streamsOpen).toBe(0);
+  });
+
   it('blocks an address that keeps failing to sign in', async () => {
     const sec = new Security({ signIn: { burst: 100, perMinute: 100 }, ban: { violations: 60, authFailures: 3, notFound: 120, windowMs: 600_000, durationMs: 60_000, maxDurationMs: 3_600_000 } }, log, () => clock);
     const app = makeApp({ security: sec });
