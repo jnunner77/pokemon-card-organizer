@@ -10,8 +10,9 @@
 
   /* "3", "$2.50", "4,50" → 3 or 2.5 or 4.5; blank → null; anything else → NaN. */
   function parse(s) {
-    const t = String(s ?? "").trim().replace(/\s/g, "").replace(/^\$/, "").replace(",", ".");
-    if (!t) return null;
+    const raw = String(s ?? "").trim().replace(/\s/g, "");
+    if (!raw) return null;
+    const t = raw.replace(/^\$/, "").replace(",", ".");
     if (!/^\d+(\.\d{1,2})?$/.test(t) && !/^\.\d{1,2}$/.test(t)) return NaN;
     const n = Number(t);
     return n >= 0.01 && n <= MAX ? n : NaN;

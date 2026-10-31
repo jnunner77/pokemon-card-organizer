@@ -23,6 +23,8 @@ describe('the price for guests in the page', () => {
     expect(G.fromInput('4,50')).toEqual({ guestPrice: 4.5 });
     expect(G.fromInput('  ')).toEqual({ guestPrice: null });
     for (const bad of ['abc', '0', '-2', '1.234']) expect(G.fromInput(bad).error).toMatch(/amount, like 3 or 2\.50/);
+    expect(G.fromInput('$').error).toMatch(/amount, like 3 or 2\.50/);
+    expect(G.parse('$')).toBeNaN();
     expect(G.parse('')).toBeNull();
     expect(G.parse('x')).toBeNaN();
   });
