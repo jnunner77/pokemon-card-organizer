@@ -3992,9 +3992,18 @@ async function lookPrices(look){
 }
 function lookRefresh(look){
   if(FIND.look!==look) return;
-  const back = document.activeElement?.dataset?.find==="back";
+  const ae = document.activeElement, back = ae?.dataset?.find==="back", keep = ae?.dataset?.find==="watch" || ae?.dataset?.find==="watchsave" || ae?.dataset?.find==="watchcancel" ? ae.dataset.find : "";
+  // A Watch threshold being typed survives an answer arriving: its text, focus and caret.
+  const buy = ae?.id==="lw_buy" ? {v:ae.value, s:ae.selectionStart, e:ae.selectionEnd} : null;
+  const typed = !buy && $("#lw_buy") ? $("#lw_buy").value : "";
   findRender();
   if(back) $("#findLook [data-find=back]")?.focus();
+  if(keep) $(`#findLook [data-find=${keep}]`)?.focus();
+  const inp = $("#lw_buy");
+  if(inp && (buy || typed)){
+    inp.value = buy ? buy.v : typed;
+    if(buy){ inp.focus(); try{ inp.setSelectionRange(buy.s, buy.e); }catch{} }
+  }
 }
 function lookBack(){
   FIND.look = null; findRender();
