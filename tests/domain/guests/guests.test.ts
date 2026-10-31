@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { nameKey, parseContact, readContactText, readGuestName } from '#domain/guests/contact.ts';
-import { guestCard, guestValue, shownImage, type CardRecord } from '#domain/guests/guest-card.ts';
+import { guestCard, guestValue, setGuestPrice, shownImage, type CardRecord } from '#domain/guests/guest-card.ts';
 import { admitGuest, clearLog, closeOpenVisits, endVisit, type GuestBook, type GuestSession, type GuestVisit, logVisit, MAX_GUEST_LOG } from '#domain/guests/visits.ts';
 
 const NOW = new Date('2026-10-05T18:00:00.000Z');
@@ -43,6 +43,18 @@ describe('what guests see of a card', () => {
     assert.equal(guestValue(card({ prices: [price({ amount: 10, currency: 'USD' })] }), 1.37, asIs), 14);
     assert.equal(guestValue(card({ prices: [price({ type: 'paid' })] }), 1.37, asIs), null);
     assert.equal(guestValue(card({}), 1.37, asIs), null);
+  });
+
+  it('is the price the person set for guests, to the cent, when there is one', () => {
+    const prices = [price({ amount: 20.2 })];
+    assert.equal(guestValue(card({ prices, guestPrice: 3 }), 1.37, asIs), 3);
+    assert.equal(guestValue(card({ prices, guestPrice: 2.5 }), 1.37, asIs), 2.5);
+    assert.equal(guestValue(card({ prices, guestPrice: 2.499 }), 1.37, asIs), 2.5);
+    assert.equal(guestValue(card({ guestPrice: 4 }), 1.37, asIs), 4);
+    for (const bad of [0, -1, Number.NaN, '3', null]) assert.equal(guestValue(card({ prices, guestPrice: bad }), 1.37, asIs), 21);
+    assert.equal(setGuestPrice(card({ guestPrice: 3 })), 3);
+    assert.equal(setGuestPrice(card({})), null);
+    assert.ok(!Object.keys(guestCard(card({ guestPrice: 3 }), 1.37, asIs, () => 'v')).includes('guestPrice'));
   });
 
   it('is only its details, value and picture', () => {

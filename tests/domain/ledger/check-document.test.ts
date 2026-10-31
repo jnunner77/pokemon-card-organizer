@@ -37,6 +37,12 @@ describe('checking a card', () => {
     assert.equal(problem(checkDocument('cards', cardFields({ imagePref: 'drawing' }))), 'imagePref: Expected one of "official", "photo"');
   });
 
+  it('checks the price for guests', () => {
+    value(checkDocument('cards', cardFields({ guestPrice: 3 })));
+    value(checkDocument('cards', cardFields({ guestPrice: null })));
+    for (const bad of [0, -1, '3', 100_000_001]) assert.match(problem(checkDocument('cards', cardFields({ guestPrice: bad }))), /^guestPrice: /);
+  });
+
   it('checks price entries', () => {
     assert.equal(problem(checkDocument('cards', cardFields({ prices: [{ type: 'market', amount: -1, currency: 'CAD' }] }))), 'prices.0.amount: Too small: at least 0');
     assert.equal(problem(checkDocument('cards', cardFields({ prices: [{ amount: 1, currency: 'CAD' }] }))), 'prices.0.type: Required');

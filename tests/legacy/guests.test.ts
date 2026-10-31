@@ -152,6 +152,23 @@ describe('guest viewing', () => {
     await agent.get('/api/guest/cards').expect(401);
   });
 
+  it('shows the price set for guests to the cent, and the market value once it is cleared', async () => {
+    seed();
+    const app = makeApp();
+    const admin = await signInAdmin(app);
+    await admin.put('/api/admin/guests').send({ enabled: true }).expect(200);
+    const { agent } = await guest(app, 'Ash', 'ash@pallet.town');
+    const valueOf = async () => (await agent.get('/api/guest/cards').expect(200)).body.cards.find((c: { id: string }) => c.id === 'listed1').value;
+    await admin.patch('/api/docs/cards/listed1').send({ guestPrice: 2.5 }).expect(200);
+    expect(await valueOf()).toBe(2.5);
+    await admin.patch('/api/docs/cards/listed1').send({ guestPrice: 3 }).expect(200);
+    expect(await valueOf()).toBe(3);
+    await admin.patch('/api/docs/cards/listed1').send({ guestPrice: 0 }).expect(400);
+    expect(await valueOf()).toBe(3);
+    await admin.patch('/api/docs/cards/listed1').send({ guestPrice: null }).expect(200);
+    expect(await valueOf()).toBe(21);
+  });
+
   it('lets several guests in at once, each with their own name and contact', async () => {
     const app = makeApp();
     await guests.setViewing.execute({ actor: 'test', enabled: true });

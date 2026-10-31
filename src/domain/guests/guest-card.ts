@@ -1,7 +1,7 @@
 import { cardValue } from '../cards/value.ts';
 
 // What guests see of a card listed for sale: its details, market value (rounded up to the dollar)
-// and picture; never what was paid, sales, notes, owner, binder location or price logs.
+// (or the price the owner set for guests) and picture; never what was paid, sales, notes, owner, binder location or price logs.
 
 /** A card as the ledger keeps it. */
 export type CardRecord = Readonly<Record<string, unknown>> & { readonly id: string };
@@ -15,7 +15,7 @@ const GUEST_DETAILS = ['name', 'set', 'setCode', 'number', 'rarity', 'variant', 
 type Detail = (typeof GUEST_DETAILS)[number];
 
 export type GuestCard = { readonly id: string } & { readonly [K in Detail]: string | null } & {
-  /** Market value in CAD, rounded up to the dollar. */
+  /** The price the owner set for guests, to the cent, else the market value in CAD rounded up to the dollar. */
   readonly value: number | null;
   /** The picture's address, or null without one. Changes when the picture does. */
   readonly image: string | null;
@@ -32,8 +32,16 @@ export function shownImage(card: CardRecord): string | null {
   return official && (card['imagePref'] !== 'photo' || !photo) ? official : photo;
 }
 
-/** A card's market value in CAD as the page works it out (latest market price or sold comp, condition-adjusted), rounded up to the dollar. */
+/** The price the owner set for guests in CAD, to the cent; null when none is set. */
+export function setGuestPrice(card: CardRecord): number | null {
+  const v = card['guestPrice'];
+  return typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : null;
+}
+
+/** What guests see as a card's price: the price set for guests, else its market value in CAD as the page works it out (latest market price or sold comp, condition-adjusted), rounded up to the dollar. */
 export function guestValue(card: CardRecord, usdToCad: number, adjust: ConditionAdjust): number | null {
+  const set = setGuestPrice(card);
+  if (set !== null) return set;
   const cad = cardValue(card, usdToCad, adjust);
   if (cad === null) return null;
   // To the cent first, so 21.000000001 stays $21.
