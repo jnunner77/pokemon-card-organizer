@@ -4006,9 +4006,9 @@ function lookRender(){
   const head = `<div class="look-top"><button type="button" class="btn ghost sm" data-find="back">← ${esc(FIND.res.length>1 ? "All results" : "Back")}</button><span class="hint">Nothing here is added to your ledger.</span></div>`;
   const priced = L.priced;
   if(!c){
-    const fail = !!(L.error && L.priceError);
+    const fail = !!L.error; // the details failed: say so now, without waiting for the prices
     box.innerHTML = head + `<div class="look-main"><div class="look-pic">${h.thumb?`<img src="${esc(h.thumb)}" alt="">`:""}</div><div class="look-info"><h3>${esc(h.name)}</h3><p class="mono">${esc(`${h.set} · ${cardNo(h)}`)}</p>
-      <p class="hint${fail?" err":""}" role="status">${esc(fail ? (L.error || L.priceError) : "Getting the card…")}</p>${fail?`<button type="button" class="btn sm" data-find="look" data-fi="${FIND.i}">Try again</button>`:""}</div></div>`;
+      <p class="hint${fail?" err":""}" role="status">${esc(fail ? L.error : "Getting the card…")}</p>${fail?`<button type="button" class="btn sm" data-find="look" data-fi="${FIND.i}">Try again</button>`:""}</div></div>`;
     return;
   }
   const p = c.printings[L.pi] || c.printings[0];
