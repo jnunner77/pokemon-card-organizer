@@ -781,11 +781,12 @@ when you've rearranged the binder and want to keep the new layout instead.
   the daily update would price it (see *How a card's daily price is worked out*), for each of its
   printings (regular, reverse holo, patterns, stamps, 1st Edition…), with TCGplayer's, Cardmarket's
   and PriceCharting's prices, PriceCharting's graded prices, and links to its products. Nothing is
-  added to the ledger; with a binder open, **Add to <binder>** puts it, in the printing
-  chosen, in that binder's next empty pocket (a display case just takes it) and shows it there, with
-  *Edit* in the message to change its condition and the rest; outside a binder, **Add to a binder**
-  opens a new card filled in with it. Each card looked at is one PriceCharting call; once the day's calls pass three quarters of
-  its budget, lookups leave PriceCharting out (and say so), keeping the rest for the daily update.
+  added to the ledger; with a binder open, **Add to `<binder>`** puts it, in the printing chosen,
+  in that binder's next empty pocket (a display case just takes it) and shows it there, with
+  *Edit* in the message to change its condition and the rest; outside a binder, **Add to a
+  binder** opens a new card filled in with it. Each card looked at is one PriceCharting call;
+  once the day's calls pass three quarters of its budget, lookups leave PriceCharting out (and
+  say so), keeping the rest for the daily update.
   When TCGplayer's own catalog (tcgcsv.com) doesn't answer, the card says which printings have no
   TCGplayer price because of it. Turned off with `CARD_LOOKUPS=off`.
 - **Your photos**: choose, take, browse, paste or drop one; or photograph a whole binder page
