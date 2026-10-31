@@ -812,7 +812,9 @@ when you've rearranged the binder and want to keep the new layout instead.
   listed, the dialog offers *Also list them for sale* (ticked; placeholders and sold cards stay as
   they are). A card's details have a *Price for guests* section too. The market price is still
   tracked: your pockets, totals, watches and Pricing keep using it, and the List view shows the
-  guest price next to the value.
+  guest price next to the value. While it saves, the dialog counts the cards saved and can't be
+  saved again or closed. It closes by itself when all are done; if some didn't save, those stay
+  selected and *Try the N again* sends just them.
 - **Keyboard shortcuts**, on a computer: Shift+arrow keys select cards on a binder page (they
   extend from the focused pocket, or the open card), a pocket's number picks its cards (on 12- and
   16-pocket pages type both digits, like 1 then 2 for pocket 12) and Shift with a number adds that
