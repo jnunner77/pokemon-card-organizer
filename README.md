@@ -806,10 +806,13 @@ when you've rearranged the binder and want to keep the new layout instead.
   sell, so the price is recorded. Placeholders can't be listed, graded, sold or traded, and cards
   sold with Quick sell keep their sale (undo it to change them); it says which were left as they were.
 - **Keyboard shortcuts**, on a computer: Shift+arrow keys select cards on a binder page (they
-  extend from the focused pocket, or the open card), Ctrl+D (⌘D) duplicates the selected cards or
+  extend from the focused pocket, or the open card), a pocket's number picks its cards (on 12- and
+  16-pocket pages type both digits, like 1 then 2 for pocket 12) and Shift with a number adds that
+  pocket to the selection, Ctrl+D (⌘D) duplicates the selected cards or
   the open one, Ctrl+O (⌘O) sets the owner, Ctrl+S (⌘S) the status, and `/` or Ctrl+K (⌘K) finds
-  any card. Ctrl+F stays the browser's own find. Shortcuts are ignored while you're typing in a
-  field or a dialog is open, and every action also has its button, so touch screens lose nothing.
+  any card. Ctrl+F and Ctrl+number stay the browser's own find and tab switching. Shortcuts are
+  ignored while you're typing in a field or a dialog is open (number keys also do nothing in the
+  table, pricing or selling views, or in the display case), and every action also has its button, so touch screens lose nothing.
 - **Quick sell** one or many cards (press and hold to select), with profit against what you
   paid (or the market price). A **Sales** tab totals it, and a sale can be undone.
   Several cards sold together for one price (3 cards for $18) are a **bundle**: choose *One price
