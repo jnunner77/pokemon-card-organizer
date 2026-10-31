@@ -148,6 +148,7 @@ describe('master set routes', () => {
     const good = { set: 'Celebrations', owner: 'Megan', name: 'Set', pockets: 9 };
     for (const body of [{ ...good, pockets: 10 }, { ...good, set: ' ' }, { ...good, name: 'x'.repeat(41) }, { ...good, owner: 'x'.repeat(21) }, { ...good, color: null }, { ...good, extras: 'yes' }, { pokemon: "Farfetch'd", owner: 'Megan', name: 'Set', pockets: 9 }, [good]])
       assert.deepEqual(await answer(await fetch(`${base}/master-sets`, as('editor', json(body)))), refused, JSON.stringify(body));
+    assert.equal(asked.length, 1);
   });
 
   it("map a master set's errors to statuses and words", async () => {
