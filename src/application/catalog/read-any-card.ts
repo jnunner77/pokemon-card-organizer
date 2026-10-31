@@ -37,7 +37,7 @@ export interface AnyCardDetails {
  * the same path). Throws whatever the card's request throws; callers catch.
  */
 export async function readAnyCard(db: CardDatabase, id: string): Promise<AnyCardRead> {
-  const setsAsked = db.sets().catch(() => [] as readonly TcgdexSetBrief[]);
+  const setsAsked = db.sets().catch((): readonly TcgdexSetBrief[] => []);
   const td = await db.card(id);
   const [info, sets] = await Promise.all([db.set(td.set.id).catch(() => null), setsAsked]);
   // A reprint sub-set's card (30th Classic Collection) is PriceCharting's under the set it belongs to (30th Celebration).
