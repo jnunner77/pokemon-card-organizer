@@ -3911,7 +3911,8 @@ function findKey(e){
 /* ---------- any card ---------- */
 /* Find a card → Any card: any card from the card database (TCGdex), found by name, set and number on
    the server (src/application/catalog/search-any-card.ts); choosing one shows its picture and today's prices for each printing, worked
-   out as the daily update would. Nothing is saved; Add to a binder opens the new card form filled in. */
+   out as the daily update would. Nothing is saved until Add: with a binder open, Add to <binder> puts the card in its next empty pocket;
+   otherwise Add to a binder opens the new card form filled in. */
 function findMode(mode){
   if(mode===FIND.mode && !FIND.look) return;
   FIND.mode = mode; FIND.look = null; FIND.i = 0; FIND.res = [];
@@ -3992,6 +3993,8 @@ function lookRender(){
     return;
   }
   const p = c.printings[L.pi] || c.printings[0];
+  const lb = lookBinder();
+  const addBtn = lb ? `<button type="button" class="btn primary sm look-add" data-find="add" title="${esc(`Adds it to the next empty pocket of ${lb.name}`)}"${L.adding?" disabled":""}>+ Add to ${esc(lb.name)}</button>` : `<button type="button" class="btn primary sm" data-find="add">+ Add to a binder</button>`;
   const srcs = x => [x.tcgplayer && `TCGplayer ${money(x.tcgplayer.usd,"USD")}`, x.cardmarket && `Cardmarket ${eur(x.cardmarket.eur)}`, x.pricecharting && x.pricecharting.usd!=null && `PriceCharting ${money(x.pricecharting.usd,"USD")}`].filter(Boolean).join(" · ") || "No prices";
   const meta = [c.set, c.setCode, cardNo(c)].filter(Boolean).join(" · ");
   const about = [c.rarity, c.artist && `Illus. ${c.artist}`, c.released && `Released ${dLabel(c.released)}`].filter(Boolean).join(" · ");
@@ -4004,7 +4007,7 @@ function lookRender(){
         ${about?`<p class="hint">${esc(about)}</p>`:""}
         <div class="look-price"><span class="hint">Worth today${c.printings.length>1?` · ${esc(p.label)}`:""}</span><b>${p?.price ? money(p.price.cad) : "No price"}</b>${p?.price?`<span class="hint">${esc(p.price.summary)}</span>`:""}</div>
         ${p?.leftOut?`<p class="hint">TCGplayer's and Cardmarket's prices aren't counted: ${esc(p.leftOut)}.</p>`:""}
-        <div class="look-acts">${canEdit()?`<button type="button" class="btn primary sm" data-find="add">+ Add to a binder</button><button type="button" class="btn sm" data-find="watch" aria-expanded="${!!L.watch}">Watch price</button>`:""}<span class="look-links">${links}</span></div>
+        <div class="look-acts">${canEdit()?`${addBtn}<button type="button" class="btn sm" data-find="watch" aria-expanded="${!!L.watch}">Watch price</button>`:""}<span class="look-links">${links}</span></div>
         ${L.watch && canEdit() ? `<div class="look-watch"><label for="lw_buy">Email me when it's at or below (CAD)</label><span class="look-watchrow"><input id="lw_buy" class="mono" inputmode="decimal" autocomplete="off" placeholder="${p?.price ? `now ${esc(money(p.price.cad))}` : "e.g. 5.00"}"><button type="button" class="btn sm primary" data-find="watchsave">Watch</button><button type="button" class="btn sm ghost" data-find="watchcancel">Cancel</button></span><span class="hint">${c.printings.length>1?`The ${esc(p.label)} printing goes`:"It goes"} on your Watchlist, not in a binder, and gets a price every day.</span></div>` : ""}
       </div>
     </div>
@@ -4014,15 +4017,29 @@ function lookRender(){
     ${c.notes.map(t=>`<p class="hint">${esc(t)}</p>`).join("")}
     <p class="hint">In CAD at US$1 = ${money(c.rates.usd)}${c.rates.eur?` and €1 = ${money(c.rates.eur)}`:""}, the rates the last price update used.</p>`;
 }
-function lookAdd(){
-  const c = FIND.look?.card; if(!c || !canEdit()) return;
-  const p = c.printings[FIND.look.pi];
+/* The binder Add puts the card in: the one open, unless Pricing or the Selling view is on top of it. */
+const lookBinder = () => (PV.open || SV.open) ? null : curBinder();
+async function lookAdd(){
+  const look = FIND.look, c = look?.card; if(!c || !canEdit() || !S.db) return;
+  const p = c.printings[look.pi];
   if(unsaved()) return toast("Save or discard the card you're editing first.");
+  const b = lookBinder();
+  if(!b){
+    closeFind(false);
+    openNew();
+    if(S.sel!=="__new" || !S.draft) return;
+    S.draft = {...S.draft, ...window.BinderLookup.draftFields(c, p)};
+    renderDrawer(true);
+    return;
+  }
+  if(look.adding) return;
+  look.adding = true; findRender();
+  const spot = firstFree(b.id) || {page:null, slot:null}, id = rid();
+  const ok = await guard(() => S.db.collection("cards").doc(id).set(window.BinderLookup.binderCard(c, p, {binderId:b.id, page:spot.page, slot:spot.slot}, newCardOwner(b.id), nowISO())));
+  if(!ok){ look.adding = false; if(FIND.look===look) findRender(); return; }
   closeFind(false);
-  openNew();
-  if(S.sel!=="__new" || !S.draft) return;
-  S.draft = {...S.draft, ...window.BinderLookup.draftFields(c, p)};
-  renderDrawer(true);
+  showCard(id);
+  toast(`Added ${c.name} to ${locText(S.cards.find(x=>x.id===id) || {binderId:b.id, page:spot.page, slot:spot.slot})}. Looking up its price and picture…`, {label:"Edit", run:() => openCard(id)});
 }
 $("#findRoot").addEventListener("click", e => {
   e.stopPropagation();

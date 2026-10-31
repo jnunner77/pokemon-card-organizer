@@ -766,6 +766,7 @@ tbody tr.sel{background:var(--accent-soft)}
 .look-price{display:flex;flex-direction:column;gap:2px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;margin-top:4px}
 .look-price b{font-size:24px;font-variant-numeric:tabular-nums}
 .look-acts{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:4px}
+.look-add{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .look-links{display:flex;gap:12px;font-size:13px}
 .look-h{margin:16px 0 6px;font-size:13px;color:var(--ink-2)}
 .look-prs{display:flex;flex-direction:column;gap:6px}
