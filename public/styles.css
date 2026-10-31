@@ -1070,6 +1070,13 @@ html.tblopen,html.tblopen body{overflow:hidden}
 .tab .count.hit{color:var(--good);font-weight:700}
 .pocket .wmark{position:absolute;bottom:5px;left:5px;z-index:1;width:18px;height:18px;border-radius:50%;background:rgba(5,8,11,.72);color:#fff;font-size:11px;line-height:18px;text-align:center}
 .pocket .wmark.hit{background:var(--good);color:#fff}
+.pocket .odot{position:absolute;right:6px;bottom:6px;z-index:1;width:14px;height:14px;box-sizing:border-box;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px rgba(5,8,11,.6);pointer-events:none}
+.pocket .odot.red{background:#E5484D}
+.pocket .odot.green{background:#30A46C}
+.pocket .odot.half{background:linear-gradient(90deg,#E5484D 50%,transparent 50%)}
+.pocket.owned .cap{padding-right:24px}
+.pocket.mixed .odot{bottom:24px}
+@media (max-width:480px){.pocket .odot{width:12px;height:12px;right:4px;bottom:4px;border-width:1.5px}.pocket.owned .cap{padding-right:18px}}
 .chip.watching{background:var(--info-soft);color:var(--info)}
 .chip.watching.hit,.chip.wreach.buy,.chip.wstate.buy.hit{background:var(--good-soft);color:var(--good)}
 .chip.wreach.sell,.chip.wstate.sell.hit{background:var(--warn-soft);color:var(--warn)}
