@@ -1005,6 +1005,16 @@ describe('prices and pictures from the card databases', () => {
     expect((store.get('cards', 'tg2')!.prices as { where: string }[])[0].where).toBe('Cardmarket');
   });
 
+  it("doesn't download TCGplayer's set just to picture a card whose regular TCGplayer product TCGdex names", async () => {
+    const tcgcsvFile = (f: string) => () => new Response(fs.readFileSync(path.join(__dirname, '../fixtures', 'tcgcsv', f), 'utf8'), { headers: { 'Content-Type': 'application/json' } });
+    const net = dbNet({ 'tcgcsv.com/tcgplayer/3/groups': tcgcsvFile('groups.json') });
+    const u = new PriceUpdater({ store, assets, fetcher: net.fetcher, now: () => now, delayMs: 0, timeZone: 'America/Vancouver', catalog: new Catalog({ fetcher: net.fetcher }), tcgcsv: new TcgCsv({ fetcher: net.fetcher, now: () => now, gapMs: 0 }), pricecharting: pcApi(net, null) });
+    store.set('cards', 'fresh', lapras({ variant: '', released: '2023-09-22' }));
+    expect(await u.updateCard('fresh')).toBe('updated');
+    expect(store.get('cards', 'fresh')!.pricing).toMatchObject({ imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/516694_in_1000x1000.jpg' });
+    expect(net.calls.filter((c) => c.includes('tcgcsv.com'))).toEqual([]);
+  });
+
   it("carries on without the databases when they don't answer", async () => {
     store.set('cards', 'c1', lapras({ pricing: { source: 'pricecharting', id: LAPRAS_30TH, linkedBy: 'auto', pair: { source: 'tcgplayer', id: null, checkedAt: '2026-10-09T00:00:00Z' } } }));
     const net = dbNet({ 'api.tcgdex.net/v2/en/cards/sv03.5-131': () => new Response('down', { status: 500 }) });

@@ -7,7 +7,7 @@ import { createApp } from '../../src/compose.ts';
 import { PhotoFiles as Assets } from '../../src/infrastructure/photos/photo-files.ts';
 import { SearchAnyCard } from '../../src/application/catalog/search-any-card.ts';
 import { ShowAnyCard } from '../../src/application/catalog/show-any-card.ts';
-import { variantText } from '../../src/domain/catalog/any-card.ts';
+import { printingsOf, variantText } from '../../src/domain/catalog/any-card.ts';
 import { TcgdexCardDatabase as CardDetails } from '../../src/infrastructure/catalog/tcgdex.ts';
 import { TodaysPrices } from '../../server/pricing/any-card.ts';
 import { type TcgdexCard, chooseVariant } from '../../server/pricing/catalog.ts';
@@ -81,7 +81,7 @@ class CardLookup {
   private readonly showing: ShowAnyCard;
 
   constructor(o: { details: CardDetails; updater?: PriceUpdater }) {
-    this.searching = new SearchAnyCard({ database: o.details, tcgplayer: null, clock: { now: () => new Date() } });
+    this.searching = new SearchAnyCard({ database: o.details, tcgplayer: null, clock: { now: () => new Date() }, anyCardPricing: new TodaysPrices(o.updater) });
     this.showing = new ShowAnyCard({ database: o.details, anyCardPricing: new TodaysPrices(o.updater) });
   }
 
@@ -167,7 +167,8 @@ describe('searching for any card', () => {
     const before = calls.length;
     await lookup.search('charizard');
     await lookup.search('charizard');
-    expect(calls.length - before).toBe(1);
+    // (The top result is also fetched ahead in the background, which isn't a search.)
+    expect(calls.slice(before).filter((c) => c.startsWith('/cards?')).length).toBe(1);
   });
 });
 
@@ -250,6 +251,19 @@ describe("one card's prices", () => {
     expect(lookupTcgplayer).toHaveBeenCalledWith(expect.objectContaining({ name: 'Charizard', number: '4/102', set: 'Base Set', setCode: 'BS', variant: '1st Edition Shadowless Holo' }), '106999');
     expect(card.printings[1]).toMatchObject({ variant: '1st Edition Shadowless Holo', tcgplayer: { usd: 12000, url: 'https://www.tcgplayer.com/product/106999' } });
     expect(card.printings[0].tcgplayer).toMatchObject({ usd: 928.32 });
+  });
+
+  it("warms what pricing a card will need from TCGplayer's catalog, one printing at a time and never PriceCharting", async () => {
+    const td = await new CardDetails({ fetcher: tcgdex() }).card('base1-4');
+    const o = { card: td, setCode: 'BS', total: 102, parentSet: null, printings: printingsOf(td) };
+    const { updater, lookupTcgplayer, lookupProducts } = fakeUpdater();
+    await new TodaysPrices(updater).warm(o);
+    expect(lookupTcgplayer).toHaveBeenCalledTimes(3);
+    expect(lookupTcgplayer).toHaveBeenCalledWith(expect.objectContaining({ name: 'Charizard', number: '4/102', set: 'Base Set', setCode: 'BS', variant: '1st Edition Shadowless Holo' }), '106999');
+    expect(lookupProducts).not.toHaveBeenCalled();
+    const down = fakeUpdater({ tcgcsv: async () => Promise.reject(new Error('tcgcsv.com answered 503')) });
+    await expect(new TodaysPrices(down.updater).warm(o)).resolves.toBeUndefined();
+    await expect(new TodaysPrices(undefined).warm(o)).resolves.toBeUndefined();
   });
 
   it("asks PriceCharting while TCGplayer's catalog is still looking", async () => {

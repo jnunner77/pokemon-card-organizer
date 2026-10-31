@@ -6,7 +6,7 @@ import { type Fetcher, get, SourceError } from '../http/get.ts';
 // products and prices as JSON, no key), refreshed every day around 20:00 UTC. Pokémon is category
 // 3; each set is a "group" with its products (cards and sealed products) and their prices by
 // printing ("Normal", "Holofoil", "Reverse Holofoil"…). Only the sets asked for are downloaded,
-// each at most once a day, a quarter second apart, and after failing three times in a row it
+// each at most once a day, one at a time and a quarter second apart, and after failing three times in a row it
 // isn't asked again until reset().
 
 const TCGCSV = 'https://tcgcsv.com/tcgplayer/3';
@@ -28,6 +28,7 @@ export class TcgCsvClient implements TcgplayerCatalog {
   #groups: Promise<readonly TcgGroup[]> | null = null;
   readonly #sets = new Map<number, Promise<TcgGroupContents>>();
   #last = 0;
+  #queue: Promise<unknown> = Promise.resolve();
   #streak = 0;
   /** Downloads since the server started, for the logs and tests. */
   downloads = 0;
@@ -74,7 +75,14 @@ export class TcgCsvClient implements TcgplayerCatalog {
     }
   }
 
-  async #json<T>(path: string): Promise<readonly T[]> {
+  /** Downloads wait their turn: one at a time, so the gap between them holds however many are asked for at once. */
+  #json<T>(path: string): Promise<readonly T[]> {
+    const turn = this.#queue.then(() => this.#download<T>(path));
+    this.#queue = turn.catch(() => undefined);
+    return turn;
+  }
+
+  async #download<T>(path: string): Promise<readonly T[]> {
     if (this.#streak >= TcgCsvClient.breakerAfter) throw new SourceError("Skipped: tcgcsv.com kept failing, so it isn't asked again until the next price update.");
     const wait = this.#last + this.#gapMs - Date.now();
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));

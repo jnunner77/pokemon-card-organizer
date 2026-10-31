@@ -1198,7 +1198,9 @@ export class PriceUpdater {
     const own = l?.source === 'tcgplayer' && l.id ? l.id : l?.pair?.source === 'tcgplayer' && l.pair.id && !l.pair.off ? l.pair.id : null;
     const scope = this.run?.scope ?? 'all';
     const needPrice = scope !== 'pictures' && !tcgOff && !cat?.tcgplayer;
-    const needPicture = scope !== 'prices' && !card.officialImageId;
+    // TCGdex naming the regular printing's TCGplayer product pictures it (pictureUrls), so
+    // TCGplayer's catalog isn't asked just for that.
+    const needPicture = scope !== 'prices' && !card.officialImageId && !(cat?.tcgplayerProduct && !cat.special);
     const needDetails = scope === 'all' && (blank(card.rarity) || blank(card.released));
     if (!needPrice && !needPicture && !needDetails) return null;
     const d = card.details as DetailsStatus | null | undefined;

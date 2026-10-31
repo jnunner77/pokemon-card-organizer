@@ -178,6 +178,16 @@ export class MemoryCardPricing implements CardPricing {
 /** Any card priced in memory: each printing as the card database gives it, at fixed rates. */
 export class MemoryAnyCardPricing implements AnyCardPricing {
   readonly asked: AnyCardToPrice[] = [];
+  readonly warmed: AnyCardToPrice[] = [];
+  warmFails = false;
+  /** warm() waits for this. */
+  hold: Promise<void> = Promise.resolve();
+
+  async warm(card: AnyCardToPrice): Promise<void> {
+    this.warmed.push(card);
+    await this.hold;
+    if (this.warmFails) throw new SourceUnavailable('TCGplayer did not answer');
+  }
 
   async price(card: AnyCardToPrice): Promise<AnyCardPrices> {
     this.asked.push(card);

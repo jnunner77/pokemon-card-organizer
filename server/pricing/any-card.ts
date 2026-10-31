@@ -12,9 +12,21 @@ import { tcgplayerUrl } from '#domain/catalog/tcgplayer.ts';
 import { blend } from '../blend.ts';
 import { catalogMismatch, chooseMatch, searchQuery } from './match.ts';
 import type { PcProduct } from './pricecharting.ts';
+import type { TcgCsvCard } from './tcgcsv.ts';
 import type { PriceUpdater } from './updater.ts';
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** The card as TCGplayer's catalog is asked about it. */
+const tcgcsvCard = (o: AnyCardToPrice, p: { variant: string }): TcgCsvCard => ({
+  name: o.card.name,
+  set: o.card.set.name,
+  setCode: o.setCode,
+  number: numberWithTotal(o.card.localId, o.total),
+  variant: p.variant,
+  rarity: mapRarity(o.card.rarity),
+  tcgdexSet: o.card.set.name,
+});
 
 /** Prices any card with the daily update's sources and method; without one, from the card database alone. */
 export class TodaysPrices implements AnyCardPricing {
@@ -22,6 +34,20 @@ export class TodaysPrices implements AnyCardPricing {
 
   constructor(updater?: PriceUpdater) {
     this.updater = updater;
+  }
+
+  /** Asks TCGplayer's catalog about each printing it would be asked about, one at a time; whatever it answers is kept by the catalog for price(). */
+  async warm(o: AnyCardToPrice): Promise<void> {
+    const updater = this.updater;
+    if (!updater) return;
+    for (const p of o.printings) {
+      if (p.tcgplayer) continue;
+      try {
+        await updater.lookupTcgplayer(tcgcsvCard(o, p), p.product);
+      } catch {
+        // Warming only; price() asks again and reports it.
+      }
+    }
   }
 
   async price(o: AnyCardToPrice): Promise<AnyCardPrices> {
@@ -49,7 +75,7 @@ export class TodaysPrices implements AnyCardPricing {
         base.map(async (p) => {
           if (p.tcgplayer) return;
           try {
-            const q = await updater.lookupTcgplayer({ name: td.name, set: td.set.name, setCode, number: numberWithTotal(td.localId, total), variant: p.variant, rarity: mapRarity(td.rarity), tcgdexSet: td.set.name }, p.product);
+            const q = await updater.lookupTcgplayer(tcgcsvCard(o, p), p.product);
             if (q?.usd != null) p.tcgplayer = { usd: q.usd, productId: q.productId };
           } catch (err) {
             failed.push({ label: p.label, reason: err instanceof Error ? err.message : String(err) });

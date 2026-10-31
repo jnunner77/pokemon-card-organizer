@@ -386,7 +386,7 @@ export function createCardLookups(o: CreateCardLookupsOptions) {
     database: o.database,
     tcgplayer: o.tcgcsv ?? null,
     pricing: cardPricing(updater),
-    anyCardPricing: { price: (card) => new TodaysPrices(updater()).price(card) },
+    anyCardPricing: { price: (card) => new TodaysPrices(updater()).price(card), warm: (card) => new TodaysPrices(updater()).warm(card) },
     cards: new JsonCardRepository(unitOfWork),
     binders: new JsonBinderRepository(unitOfWork),
     settings: new JsonSettingRepository(unitOfWork),

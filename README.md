@@ -144,8 +144,9 @@ No site's pages are read: every price comes from an API.
   Poké Ball card gets TCGplayer's *Eevee (Poke Ball Pattern)*, never the regular card's price, and
   a regular common never its reverse holo's. When it isn't certain (two products fit), it's left
   alone. That product becomes the card's TCGplayer match. Only the sets the cards need are
-  downloaded, each at most once a day, a quarter second apart; after failing three times in a row
-  it isn't asked again until the next update.
+  downloaded, each at most once a day, one at a time and a quarter second apart; after failing
+  three times in a row it isn't asked again until the next update. A new card whose regular
+  TCGplayer product TCGdex names isn't looked for there just for its picture.
 - **TCGdex** is a free public API with no key. When tcgcsv.com is busy and asks for more than a
   few seconds' wait, it's left for that card until the next update rather than holding it up.
 - **pokemontcg.io is no longer used** (since October 2026): it failed about one request in three
@@ -787,7 +788,9 @@ when you've rearranged the binder and want to keep the new layout instead.
   *Edit* in the message to change its condition and the rest; outside a binder, **Add to a
   binder** opens a new card filled in with it. Each card looked at is one PriceCharting call;
   once the day's calls pass three quarters of its budget, lookups leave PriceCharting out (and
-  say so), keeping the rest for the daily update.
+  say so), keeping the rest for the daily update. While the results show, the top one's card (and,
+  for a printing TCGdex has no TCGplayer price for, its TCGplayer set) is fetched ahead, never
+  PriceCharting, so choosing it is quicker.
   When TCGplayer's own catalog (tcgcsv.com) doesn't answer, the card says which printings have no
   TCGplayer price because of it. Turned off with `CARD_LOOKUPS=off`.
 - **Your photos**: choose, take, browse, paste or drop one; or photograph a whole binder page
