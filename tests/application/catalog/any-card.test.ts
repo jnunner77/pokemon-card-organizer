@@ -4,6 +4,7 @@ import path from 'node:path';
 import { describe, it } from 'node:test';
 import { SearchAnyCard } from '#application/catalog/search-any-card.ts';
 import { ShowAnyCard } from '#application/catalog/show-any-card.ts';
+import { ShowAnyCardDetails } from '#application/catalog/show-any-card-details.ts';
 import type { TcgdexCard } from '#domain/catalog/tcgdex.ts';
 import { matches, setUp } from './fixtures.ts';
 
@@ -111,6 +112,40 @@ describe('searching for any card', () => {
   });
 });
 
+describe('searching for any card warms the TCGplayer set list', () => {
+  const warm = () => setUp({ answers: tcgdex, tcgplayer: { groups: [], contents: new Map() } });
+  const lists = (t: ReturnType<typeof warm>) => t.tcgplayer?.lists;
+
+  it('asks for it once when a search finds cards, and again only after ten minutes', async () => {
+    const t = warm();
+    const searching = new SearchAnyCard(t.deps);
+    const found = async () => assert.ok((await searching.execute({ query: 'charizard' })).ok);
+    await found();
+    assert.equal(lists(t), 1);
+    await found();
+    assert.equal(lists(t), 1);
+    t.clock.at = new Date(t.clock.at.getTime() + 11 * 60_000);
+    await found();
+    assert.equal(lists(t), 2);
+  });
+
+  it("doesn't ask when a search finds nothing", async () => {
+    const t = warm();
+    assert.deepEqual((await search('charizard jungle', t)).hits, []);
+    assert.equal(lists(t), 0);
+  });
+
+  it('still answers when TCGplayer does not', async () => {
+    const t = warm();
+    if (t.tcgplayer) t.tcgplayer.down = true;
+    assert.ok((await search('charizard', t)).hits.length > 0);
+  });
+
+  it('still answers on a server without TCGplayer', async () => {
+    assert.ok((await search('charizard')).hits.length > 0);
+  });
+});
+
 describe("one card's details and printings", () => {
   const show = async (id: string, t = setUp({ answers: tcgdex })) => new ShowAnyCard(t.deps).execute({ id });
 
@@ -130,6 +165,12 @@ describe("one card's details and printings", () => {
     );
     // Asked to price with its set code and size; it's in no sub-set.
     matches(t.anyCardPricing.asked[0], { setCode: 'BS', total: 102, parentSet: null });
+  });
+
+  it('asks TCGdex for the set list while the card is on its way', async () => {
+    const t = setUp({ answers: tcgdex });
+    await show('base1-4', t);
+    assert.deepEqual(t.database.asked, ['/sets', '/cards/base1-4', '/sets/base1']);
   });
 
   it("names the set a reprint sub-set's card belongs to", async () => {
@@ -153,5 +194,42 @@ describe("one card's details and printings", () => {
     const t = setUp({ answers: tcgdex });
     t.database.down = true;
     assert.deepEqual(await show('base1-4', t), { ok: false, error: { code: 'CARD_DATABASE_UNAVAILABLE', message: "Couldn't reach api.tcgdex.net: getaddrinfo ENOTFOUND api.tcgdex.net" } });
+  });
+});
+
+describe("one card's details, before its prices", () => {
+  const details = async (id: string, t = setUp({ answers: tcgdex })) => new ShowAnyCardDetails(t.deps).execute({ id });
+
+  it('gives the same details and printings as the full answer, without prices', async () => {
+    const t = setUp({ answers: tcgdex });
+    const r = await details('base1-4', t);
+    assert.ok(r.ok);
+    matches(r.value, { id: 'base1-4', name: 'Charizard', number: '4', total: 102, set: 'Base Set', setCode: 'BS', rarity: 'Rare', artist: 'Mitsuhiro Arita', released: '1999-01-09', image: 'https://assets.tcgdex.net/en/base/base1/4/high.webp' });
+    const full = await new ShowAnyCard(setUp({ answers: tcgdex }).deps).execute({ id: 'base1-4' });
+    assert.ok(full.ok);
+    assert.deepEqual(
+      r.value.printings,
+      full.value.printings.map((p) => ({ label: p.label, variant: p.variant })),
+    );
+    assert.equal('rates' in r.value, false);
+    assert.equal('notes' in r.value, false);
+    assert.deepEqual(t.anyCardPricing.asked, []);
+  });
+
+  it('pictures a card without a picture of its own by its TCGplayer product', async () => {
+    const r = await details('plain-1');
+    assert.ok(r.ok);
+    assert.equal(r.value.image, 'https://tcgplayer-cdn.tcgplayer.com/product/77_in_1000x1000.jpg');
+  });
+
+  it('answers no such card for a card the card database does not have, or an id it cannot have', async () => {
+    assert.deepEqual(await details('no-such-card'), { ok: false, error: { code: 'NO_SUCH_CARD' } });
+    assert.deepEqual(await details('bad id'), { ok: false, error: { code: 'NO_SUCH_CARD' } });
+  });
+
+  it("says when the card database didn't answer", async () => {
+    const t = setUp({ answers: tcgdex });
+    t.database.down = true;
+    assert.deepEqual(await details('base1-4', t), { ok: false, error: { code: 'CARD_DATABASE_UNAVAILABLE', message: "Couldn't reach api.tcgdex.net: getaddrinfo ENOTFOUND api.tcgdex.net" } });
   });
 });

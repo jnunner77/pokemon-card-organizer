@@ -74,6 +74,8 @@ export class MemoryTcgplayerCatalog implements TcgplayerCatalog {
   down = false;
   /** How many times it was told to ask again. */
   resets = 0;
+  /** How many times the list of sets was asked for. */
+  lists = 0;
 
   constructor(groups: readonly TcgGroup[], contents: ReadonlyMap<number, TcgGroupContents>) {
     this.#groups = groups;
@@ -85,6 +87,7 @@ export class MemoryTcgplayerCatalog implements TcgplayerCatalog {
   }
 
   async groupList(): Promise<readonly TcgGroup[]> {
+    this.lists++;
     if (this.down) throw new SourceUnavailable('tcgcsv.com answered 503', 503);
     return this.#groups;
   }
