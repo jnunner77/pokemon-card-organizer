@@ -21,18 +21,19 @@
       if (opts.onProgress) { try { opts.onProgress(settled, ids.length, [...outcome.values()].filter(x => !x).length); } catch (_) {} }
     };
     async function one(id) {
-      for (let attempt = 0; ; attempt++) {
+      /* a rate-limited answer means wait and go on: it doesn't count against the tries */
+      for (let attempt = 0; ; ) {
         const wait = Math.max(0, startAt - now());
         if (wait) await sleep(wait);
         startAt = Math.max(now(), startAt) + gapMs;
         try { await save(id); return done(id); }
         catch (e) {
-          if (e && e.code === "rate_limited" && attempt + 1 < tries) {
+          if (e && e.code === "rate_limited") {
             const ms = (e.retryAfter || 1) * 1000;
             startAt = Math.max(startAt, now() + ms); gapMs = 260;
             await sleep(ms); continue;
           }
-          if (e && RETRY.has(e.code) && attempt + 1 < tries) { await sleep(500 * 2 ** attempt); continue; }
+          if (e && RETRY.has(e.code) && attempt + 1 < tries) { await sleep(500 * 2 ** attempt); attempt++; continue; }
           if (e && FATAL.has(e.code)) stopped = stopped || e;
           return done(id, e || new Error("Couldn't save"));
         }
