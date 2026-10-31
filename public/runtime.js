@@ -39,7 +39,8 @@
       let info = {};
       try { info = await res.json(); } catch (_) {}
       const code = info.code || (res.status === 413 ? "too_large" : res.status === 429 ? "rate_limited" : res.status >= 500 ? "unavailable" : "invalid_argument");
-      throw fail(code, info.error || res.statusText);
+      const ra = Number(res.headers.get("Retry-After"));
+      throw Object.assign(fail(code, info.error || res.statusText), ra > 0 ? { retryAfter: ra } : {});
     }
     return res.status === 204 ? null : res.json();
   }
