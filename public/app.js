@@ -673,17 +673,17 @@ async function guestPriceRun(job){
   const res = await B.run(job.ids, id => S.db.doc("cards/"+id).update({guestPrice: job.r.guestPrice, ...(job.change.includes(id) ? {status:"listed"} : {}), updatedAt: nowISO()}),
     { onProgress: (n, t) => { const p = $("#gpProg"); if(p) p.textContent = B.progressText(n, t); } });
   S.gpBusy = false; $("#modalRoot .mcard")?.removeAttribute("aria-busy");
-  if(!res.failed.length){
+  const again = B.retryJob(job, res);
+  if(!again){
     S.gp = S.gpJob = null; closeModal(); if(S.pick) endPick();
     toast(GP.words(job.total, job.r.guestPrice) + (job.change.length ? ` · ${job.change.length} listed for sale` : ""));
     return;
   }
-  const left = res.failed.map(f => f.id), err = res.stopped || res.failed[0].error;
-  console.error(err);
-  S.gp = left; S.gpJob = {...job, ids: left};
-  if(S.pick){ S.pick = new Set(left); renderMain(); }
-  const p = $("#gpProg"); if(p){ p.hidden = false; p.textContent = B.partialText(res.saved.length, job.ids.length, left.length, err); }
-  const save = $("#gpSave"); if(save){ save.textContent = `Try the ${left.length} again`; save.disabled = false; }
+  console.error(again.error);
+  S.gp = again.left; S.gpJob = again.job;
+  if(S.pick){ S.pick = new Set(again.left); renderMain(); }
+  const p = $("#gpProg"); if(p){ p.hidden = false; p.textContent = again.text; }
+  const save = $("#gpSave"); if(save){ save.textContent = `Try the ${again.left.length} again`; save.disabled = false; }
   $("#gpClear")?.setAttribute("hidden", "");
   const cancel = $("#gpCancel"); if(cancel){ cancel.textContent = "Close"; cancel.disabled = false; }
 }
