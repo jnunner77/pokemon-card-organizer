@@ -99,6 +99,8 @@ export interface AnyCardPrices {
 /** Today's prices for a card that isn't in the ledger, worked out as the daily update would. Nothing is saved. */
 export interface AnyCardPricing {
   price(card: AnyCardToPrice): Promise<AnyCardPrices>;
+  /** Fetch now what price() will need from TCGplayer's catalog for this card (never PriceCharting), so pricing it soon after is quicker; resolves, never rejects. */
+  warm(card: AnyCardToPrice): Promise<void>;
 }
 
 /** A card saved or deleted (null), or the whole ledger replaced (a restore). */
