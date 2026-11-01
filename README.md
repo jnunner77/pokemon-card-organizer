@@ -853,7 +853,11 @@ own phone, without an account:
    condition or grade, illustrator, release year and **market value rounded up to the dollar**, or
    the price you set for guests (shown to the cent, like $2.50).
    They can search like *Find a card* (name, set, set code or number), sort by price, name or
-   set date, and tap a card to flip through them all full screen (swipe, or the arrow keys).
+   set date, and open **Filters** to narrow the cards by set, release year, price, rarity, variant,
+   language, condition or grade and illustrator (each choice shows how many cards have it; filters
+   combine with the search and the sort, and **Clear filters** starts over). They tap a card to flip
+   through them all full screen (swipe, or the arrow keys), just the filtered ones when filters are
+   on. The *Binders* view isn't filtered, and nothing about who owns a card is shown.
    Their page updates live: a card you list shows up, and one you delist or sell disappears
    (from full screen too), within a second, as does a new price.
    Tapping a card shows **where it is**: *Trade binder · Page 2 · Pocket 3*, or the display case's

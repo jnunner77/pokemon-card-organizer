@@ -262,6 +262,21 @@ try {
   await g.locator('#lbCap').getByText('Pikachu').waitFor();
   await g.locator('#lbCap').getByText('Show binder · Page 1 · Pocket 5').waitFor();
   await g.getByRole('button', { name: 'Close full screen' }).click();
+  // Filters: narrow by price (nothing matches), clear from the empty state, then by set.
+  await g.locator('#gQuery').fill('');
+  await g.locator('#gFiltBtn').click();
+  await g.locator('#gfPMin').fill('10');
+  await g.getByText('No cards match these filters.').waitFor();
+  await g.locator('#gFiltBtn').filter({ hasText: 'Filters · 1' }).waitFor();
+  const gFiltOverflow = await g.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  if (gFiltOverflow > 1) fail(`phone guest page with filters open scrolls sideways by ${gFiltOverflow}px`);
+  await g.locator('.empty-state [data-gclear]').click();
+  await g.locator('.gcard').filter({ hasText: 'Pikachu' }).waitFor();
+  await g.locator('#gfSet').selectOption({ label: 'Base Set (1)' });
+  if ((await g.locator('.gcard').count()) !== 1) fail('filtering by set hides the card for sale');
+  await g.locator('#gFilters [data-gclear]').click();
+  await g.locator('#gFiltBtn').filter({ hasText: /^Filters$/ }).waitFor();
+  await g.locator('#gFiltBtn').click();
   // The Binders view: the card in its pocket, and nothing else.
   await g.locator('[data-gview="binders"]').click();
   const pocket = g.locator('#gBinderView .pocket[data-gi]');
