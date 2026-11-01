@@ -637,7 +637,8 @@ other card.
 
 ## Change a binder's pockets per page
 
-A binder's settings (tap its tab again) choose its **pockets per page**: 4, 9, 12 or 16. Changing it
+A binder's settings (tap its tab again) choose its **pockets per page**: 4, 9, 12 or 16, and
+whether to **Hide from guests** (see [Guests from a QR code](#guests-from-a-qr-code)). Changing the pockets
 keeps every card in the same order, empty pockets included: the pockets are counted from page 1,
 pocket 1 and laid out again on pages of the new size, so going from 9 to 4 puts pockets 5–8 of page
 1 on page 2 and pocket 9 on page 3, and 4 back to 9 puts them back. The page you're on follows its
@@ -855,8 +856,20 @@ own phone, without an account:
    set date, and tap a card to flip through them all full screen (swipe, or the arrow keys).
    Their page updates live: a card you list shows up, and one you delist or sell disappears
    (from full screen too), within a second, as does a new price.
-3. Nothing else in the ledger reaches a guest: not what you paid, sales, notes, owner, where a
-   card sits, its price log or any other card or picture.
+   Tapping a card shows **where it is**: *Trade binder · Page 2 · Pocket 3*, or the display case's
+   name and *(display case)*, and nothing for a card in no binder.
+   The **Binders** view next to *All cards* lists each binder and display case holding cards for
+   sale, in your binder order and colour. A binder shows its pages that hold a card for sale, with
+   their real page numbers (‹ ›, or tap a page's number), only those cards in their pockets with
+   the pocket's number (×2 when copies share it); every other pocket looks empty, whatever you
+   keep in it. A display case shows its cards for sale in one grid, highest price first. Tapping a
+   card opens full screen on it and flips through that binder's cards in page and pocket order.
+3. Nothing else in the ledger reaches a guest: not what you paid, sales, notes, owner, the
+   binder's owner, binders you hide from guests, anything about cards that aren't for sale (not
+   even which pockets they're in), its price log or any other card or picture.
+
+A binder's or display case's settings have **Hide from guests**: guests still see its cards for
+sale in their list, but not the binder, its name or where those cards are.
 
 Guests are signed out after **15 minutes without use** and can sign in again. Several can look
 at once, but no two at the same time with the same name or the same phone number or email; giving
@@ -1056,7 +1069,7 @@ in `src/` is its own TypeScript project that may only import the layers inside i
   backup format and what makes one restorable); people and sign-in (`accounts/`: roles, usernames,
   what makes a password acceptable, lockouts that double each time, sessions, API tokens, and the
   account book that always keeps an administrator who can sign in), guests (`guests/`: names and
-  contacts, visits and the guest log, and what guests see of a card) and Administration (`admin/`:
+  contacts, visits and the guest log, and what guests see of a card, and where it is) and Administration (`admin/`:
   the settings' rules and defaults, the overview checks, status.txt's lines, the log's levels,
   categories and hidden secrets, problems grouped since last seen, PriceCharting's token format and
   the page errors' 30-a-minute limit); the cards that need a person are `cards/attention.ts`; price watches (when a buy or sell price is reached, emailed once per crossing) are `cards/watch.ts`, and a card's value as the binder shows it `cards/value.ts`; price alert settings are `admin/alerts.ts`; and

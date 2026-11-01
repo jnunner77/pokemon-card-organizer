@@ -43,7 +43,7 @@ const price = (over: Record<string, unknown>) => ({ type: 'market', amount: 10, 
 function seed() {
   const photo = assets.put(JPEG)!.id;
   const common = { binderId: 'b1', page: 1, owner: 'Justin', notes: 'Bought from Dave', sale: null, pricing: { source: 'pricecharting', id: 'x' } };
-  store.set('binders', 'b1', { name: 'For sale', pockets: 9 });
+  store.set('binders', 'b1', { name: 'For sale', pockets: 9, owner: 'Megan' });
   store.set('cards', 'listed1', { ...common, slot: 1, name: 'Charizard ex', set: 'Obsidian Flames', setCode: 'OBF', number: '125/197', rarity: 'Double Rare', condition: 'Near Mint', artist: 'PLANETA', released: '2023-08-11', status: 'listed', imageId: photo, prices: [price({ type: 'paid', amount: 4 }), price({ amount: 20.2, auto: true, date: '2026-10-04' }), price({ type: 'listed', amount: 35 })] });
   store.set('cards', 'listed2', { ...common, slot: 2, name: 'Umbreon VMAX', set: 'Evolving Skies', number: '215/203', grader: 'PSA', grade: '10', status: 'listed', imageId: 'data:image/png;base64,' + Buffer.from('png bytes').toString('base64'), prices: [price({ amount: 1000, currency: 'USD', type: 'comp' })] });
   store.set('cards', 'ph', { ...common, slot: 3, name: 'Mew', status: 'listed', placeholder: true, prices: [] });
@@ -72,7 +72,7 @@ async function listen(app: ReturnType<typeof makeApp>, loginResponse: request.Re
   await new Promise((ok) => server.once('listening', ok));
   const { port } = server.address() as AddressInfo;
   const res = await new Promise<http.IncomingMessage>((ok, bad) => http.get({ host: '127.0.0.1', port, path: '/api/guest/events', headers: { cookie } }, ok).on('error', bad));
-  const lists: { id: string; value: number | null }[][] = [];
+  const lists: { id: string; value: number | null; place: { binder: string } | null }[][] = [];
   let ended = false;
   let buf = '';
   res.setEncoding('utf8');
@@ -124,8 +124,11 @@ describe('guest viewing', () => {
     expect(zard).toMatchObject({ name: 'Charizard ex', setCode: 'OBF', number: '125/197', condition: 'Near Mint', artist: 'PLANETA', released: '2023-08-11', value: 21 });
     expect(cards.find((c: { id: string }) => c.id === 'listed2')).toMatchObject({ grader: 'PSA', grade: '10', value: 1370 });
     const body = JSON.stringify(cards);
-    // The binder id as a value ("b1"): a picture's version hash can contain the letters b1.
-    for (const secret of ['Dave', 'Justin', '"b1"', 'paid', 'pricecharting']) expect(body).not.toContain(secret);
+    for (const secret of ['Dave', 'Justin', 'Megan', 'paid', 'pricecharting']) expect(body).not.toContain(secret);
+    expect(zard.place).toEqual({ binderId: 'b1', binder: 'For sale', color: null, kind: 'binder', order: 0, pockets: 9, page: 1, pocket: 1 });
+
+    // The binder's Hide from guests switch is a true or false.
+    await admin.put('/api/docs/binders/b1').send({ name: 'For sale', hiddenFromGuests: 'yes' }).expect(400);
 
     // Pictures: listed cards only, inline photos too.
     await agent.get('/' + zard.image).expect(200).expect('content-type', /jpeg/);
@@ -237,28 +240,46 @@ describe("guests' live updates", () => {
 
       // Changes guests can't see send nothing.
       store.update('cards', 'kept', { notes: 'trade bait', page: 2 });
-      store.update('binders', 'b1', { name: 'Trade binder' });
+      store.update('binders', 'b1', { owner: 'Justin' });
       await pause(400);
       expect(live.lists.length).toBe(1);
 
+      // Renaming a binder that holds a listed card: sent.
+      store.update('binders', 'b1', { name: 'Trade binder' });
+      await until(() => live.lists.length === 2);
+      expect(live.lists[1].find((c) => c.id === 'listed1')?.place).toMatchObject({ binderId: 'b1', binder: 'Trade binder', page: 1, pocket: 1 });
+      // Hidden from guests: the cards stay, without their place.
+      store.update('binders', 'b1', { hiddenFromGuests: true });
+      await until(() => live.lists.length === 3);
+      expect(live.ids(2)).toEqual(['listed1', 'listed2']);
+      expect(live.lists[2].every((c) => c.place === null)).toBe(true);
+      expect(JSON.stringify(live.lists[2])).not.toContain('Trade binder');
+      // Nothing about a hidden binder reaches them.
+      store.update('binders', 'b1', { name: 'Secret' });
+      await pause(400);
+      expect(live.lists.length).toBe(3);
+      store.update('binders', 'b1', { hiddenFromGuests: false });
+      await until(() => live.lists.length === 4);
+      expect(live.lists[3].find((c) => c.id === 'listed1')?.place).toMatchObject({ binder: 'Secret', page: 1, pocket: 1 });
+
       // Listed, sold, repriced: sent right away, still only what guests see.
       store.update('cards', 'kept', { status: 'listed' });
-      await until(() => live.lists.length === 2);
-      expect(live.ids(1)).toEqual(['kept', 'listed1', 'listed2']);
-      expect(JSON.stringify(live.lists[1])).not.toMatch(/Justin|Dave|trade bait|"b1"/);
+      await until(() => live.lists.length === 5);
+      expect(live.ids(4)).toEqual(['kept', 'listed1', 'listed2']);
+      expect(JSON.stringify(live.lists[4])).not.toMatch(/Justin|Megan|Dave|trade bait/);
       store.update('cards', 'listed1', { status: 'sold' });
-      await until(() => live.lists.length === 3);
-      expect(live.ids(2)).toEqual(['kept', 'listed2']);
+      await until(() => live.lists.length === 6);
+      expect(live.ids(5)).toEqual(['kept', 'listed2']);
       store.update('settings', 'main', { usdToCad: 1.5 });
-      await until(() => live.lists.length === 4);
-      expect(live.lists[3].find((c) => c.id === 'listed2')?.value).toBe(1500);
+      await until(() => live.lists.length === 7);
+      expect(live.lists[6].find((c) => c.id === 'listed2')?.value).toBe(1500);
       // Several changes at once arrive as one list.
       store.update('cards', 'kept', { status: 'binder' });
       store.update('cards', 'listed1', { status: 'listed' });
-      await until(() => live.lists.length === 5);
+      await until(() => live.lists.length === 8);
       await pause(400);
-      expect(live.lists.length).toBe(5);
-      expect(live.ids(4)).toEqual(['listed1', 'listed2']);
+      expect(live.lists.length).toBe(8);
+      expect(live.ids(7)).toEqual(['listed1', 'listed2']);
       await agent.get('/api/guest/cards').expect(200);
     } finally {
       live.close();

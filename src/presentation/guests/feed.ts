@@ -1,9 +1,9 @@
-import type { LedgerChange, LedgerChanges } from '#application/guests/ports.ts';
+import type { LedgerChanges } from '#application/guests/ports.ts';
 import type { GuestCard } from '#domain/guests/guest-card.ts';
 
 /**
  * Live updates for the guest page: what guests see of the cards (the list GET /api/guest/cards
- * returns), as JSON, each time it changes. One feed serves every open guest page: card and
+ * returns), as JSON, each time it changes. One feed serves every open guest page: card, binder and
  * settings changes are gathered for `delayMs`, the list is worked out once, and it's sent only if
  * it differs from the last one, so ledger changes guests can't see send nothing.
  */
@@ -33,7 +33,7 @@ export class GuestCardFeed {
   subscribe(fn: (json: string) => void): () => void {
     if (!this.#unsubscribe) {
       this.#last = this.#json();
-      this.#unsubscribe = this.#changes.subscribe((c) => this.#changed(c));
+      this.#unsubscribe = this.#changes.subscribe(() => this.#changed());
     }
     this.#listeners.add(fn);
     return () => {
@@ -45,8 +45,8 @@ export class GuestCardFeed {
     };
   }
 
-  #changed(change: LedgerChange): void {
-    if (change.collection === 'binders' || this.#timer) return;
+  #changed(): void {
+    if (this.#timer) return;
     this.#timer = setTimeout(() => {
       this.#timer = undefined;
       // One list at a time, in order: a slow one never overtakes the next.

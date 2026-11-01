@@ -14,6 +14,7 @@ export class ListGuestCards {
     const rate = Number(ledger.settings.find((s) => s.id === 'main')?.['usdToCad']) || 1;
     const adjust = (card: Parameters<typeof guestCard>[0], price: Readonly<Record<string, unknown>>) => this.#deps.condition.adjust(card, price);
     const version = (image: string) => this.#deps.secrets.digest(image).slice(0, 12);
-    return ledger.cards.filter(isListed).map((c) => guestCard(c, rate, adjust, version));
+    const binders = new Map(ledger.binders.map((b) => [b.id, b]));
+    return ledger.cards.filter(isListed).map((c) => guestCard(c, rate, adjust, version, (id) => binders.get(id)));
   }
 }

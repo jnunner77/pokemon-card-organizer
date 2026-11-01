@@ -21,7 +21,7 @@ import { NodeBase64 } from '#infrastructure/node-base64.ts';
 export const START = Date.parse('2026-10-05T18:00:00.000Z');
 
 /** The guest use cases over memory, with a ledger of the cards given and a clock tests move. */
-export function setUpGuests(cards: DocumentView[] = [], settings: DocumentView[] = []) {
+export function setUpGuests(cards: DocumentView[] = [], settings: DocumentView[] = [], binders: DocumentView[] = []) {
   const clock = { at: START };
   const logged = { auth: [] as string[], admin: [] as string[] };
   const log = (into: string[]) => ({ info: (m: string) => void into.push(m), warn: (m: string) => void into.push(m) });
@@ -29,7 +29,7 @@ export function setUpGuests(cards: DocumentView[] = [], settings: DocumentView[]
   const photos = new MemoryPhotoStore();
   const deps: GuestDeps = {
     desk,
-    ledger: { read: async () => ({ binders: [], cards, settings }) },
+    ledger: { read: async () => ({ binders, cards, settings }) },
     cards: { card: async (id) => cards.find((c) => c.id === id) },
     photos,
     condition: new NoConditionRules(),

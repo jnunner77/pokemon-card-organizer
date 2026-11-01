@@ -37,6 +37,12 @@ describe('checking a card', () => {
     assert.equal(problem(checkDocument('cards', cardFields({ imagePref: 'drawing' }))), 'imagePref: Expected one of "official", "photo"');
   });
 
+  it('checks a binder\'s Hide from guests switch', () => {
+    value(checkDocument('binders', { name: 'Trade', hiddenFromGuests: true }));
+    value(checkDocument('binders', { name: 'Trade', hiddenFromGuests: null }));
+    assert.equal(problem(checkDocument('binders', { name: 'Trade', hiddenFromGuests: 'yes' })), 'hiddenFromGuests: Expected true or false');
+  });
+
   it('checks the price for guests', () => {
     value(checkDocument('cards', cardFields({ guestPrice: 3 })));
     value(checkDocument('cards', cardFields({ guestPrice: null })));

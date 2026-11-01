@@ -33,8 +33,8 @@
   }
   const key = () => store.get("key", "");
 
-  const G = { me: null, cards: [], q: "", sort: "value-desc", lastUse: Date.now(), lastCheck: Date.now(), timer: 0, live: null };
-  try { G.sort = localStorage.getItem("guest.sort") || G.sort; } catch (_) {}
+  const G = { me: null, cards: [], q: "", sort: "value-desc", view: "all", binderId: store.get("binderId", ""), page: store.get("page", 0), lastUse: Date.now(), lastCheck: Date.now(), timer: 0, live: null };
+  try { G.sort = localStorage.getItem("guest.sort") || G.sort; G.view = localStorage.getItem("guest.view") === "binders" ? "binders" : "all"; } catch (_) {}
 
   class Ended extends Error {}
   async function api(method, path, body) {
@@ -82,6 +82,7 @@
     G.me = guest;
     $("gWho").textContent = `Signed in as ${guest.name}`;
     $("gSort").value = G.sort;
+    setView(G.view, true);
     screen("main");
     await loadCards();
     listen();
@@ -95,7 +96,7 @@
     unlisten();
     closeViewer();
     G.me = null; G.cards = [];
-    $("gGrid").innerHTML = "";
+    $("gGrid").innerHTML = ""; $("gBinderView").innerHTML = "";
     let me = { open: true, keyOk: null };
     try { me = await api("GET", "me" + (key() ? "?k=" + encodeURIComponent(key()) : "")); } catch (_) {}
     pickScreen(me, text);
@@ -124,7 +125,7 @@
     clearInterval(G.timer);
     unlisten();
     closeViewer();
-    G.me = null; G.cards = []; $("gGrid").innerHTML = "";
+    G.me = null; G.cards = []; $("gGrid").innerHTML = ""; $("gBinderView").innerHTML = "";
     screen("signin", "You're signed out. Thanks for looking!");
   });
 
@@ -204,7 +205,80 @@
     const by = SORTS[G.sort] || SORTS["value-desc"];
     return G.cards.slice().sort((a, b) => by(a, b) || String(a.name || "").localeCompare(String(b.name || "")));
   }
+  const GB = window.GuestBinder;
+  function setView(v, quiet) {
+    G.view = v === "binders" ? "binders" : "all";
+    try { localStorage.setItem("guest.view", G.view); } catch (_) {}
+    const binders = G.view === "binders";
+    $("gFind").hidden = binders; $("gGrid").hidden = binders;
+    $("gBinderBar").hidden = !binders; $("gBinderView").hidden = !binders;
+    document.querySelectorAll("[data-gview]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.gview === G.view)));
+    if (!quiet) render();
+  }
+  document.querySelector(".gviews").addEventListener("click", e => {
+    const b = e.target.closest("[data-gview]");
+    if (b && b.dataset.gview !== G.view) setView(b.dataset.gview);
+  });
+
+  // The Binders view: one binder at a time, a page at a time, showing only the cards for sale.
+  // Pockets with nothing for sale look empty, whatever else the owner keeps there.
+  const pick = (binderId, page) => { G.binderId = binderId; G.page = page; store.set("binderId", binderId); store.set("page", page); };
+  function renderBinders() {
+    const view = $("gBinderView"), found = GB.binders(G.cards);
+    $("gBinderBar").hidden = !found.length;
+    if (!found.length) {
+      G.list = [];
+      $("gCount").textContent = "";
+      view.innerHTML = `<p class="empty-state">None of the cards for sale are in a binder right now.</p>`;
+      return;
+    }
+    const b = found.find(x => x.id === G.binderId) || found[0];
+    const isCase = b.kind === "case";
+    const pages = isCase ? [] : GB.pages(b.id, G.cards);
+    const page = isCase ? 0 : GB.pageNear(G.page, pages);
+    if (b.id !== G.binderId || page !== G.page) pick(b.id, page);
+    $("gBinder").innerHTML = found.map(x => `<option value="${esc(x.id)}"${x.id === b.id ? " selected" : ""}>${esc(x.name)} (${x.count})</option>`).join("");
+    const n = b.count;
+    $("gCount").textContent = `${n} card${n === 1 ? "" : "s"} for sale in this ${isCase ? "display case" : "binder"} · tap a card to see it full screen`;
+    document.querySelector(".gpages").hidden = isCase;
+    const color = esc(b.color || "#F2B705");
+    if (isCase) {
+      const by = SORTS["value-desc"];
+      const list = G.list = GB.cardsIn(b.id, G.cards).sort((x, y) => by(x, y) || String(x.name || "").localeCompare(String(y.name || "")));
+      view.innerHTML = `<div class="binder-page case-page" style="--bc:${color}"><div class="grid casegrid">${list.map((c, i) => `<button type="button" class="pocket" data-gi="${i}" aria-label="${esc(c.name || "Unnamed card")}">${tileFace(c)}</button>`).join("")}</div></div>`;
+      return;
+    }
+    const list = G.list = GB.cardsIn(b.id, G.cards);
+    const cells = GB.cells(b.id, page, G.cards);
+    $("gPageLbl").textContent = `Page ${page}`;
+    const at = pages.indexOf(page);
+    document.querySelector('[data-gstep="-1"]').disabled = at <= 0;
+    document.querySelector('[data-gstep="1"]').disabled = at >= pages.length - 1;
+    $("gChips").innerHTML = pages.map(p => `<button class="pchip" type="button" data-gpage="${p}" aria-label="Page ${p}" aria-current="${p === page}">${p}</button>`).join("");
+    view.innerHTML = `<div class="binder-page" style="--bc:${color}"><div class="grid" style="--cols:${GB.cols(cells.length)}">${cells.map((cell, k) => {
+      const s = k + 1, c = cell[0];
+      if (!c) return `<div class="pocket empty gempty"><span class="slotno">${s}</span></div>`;
+      const copies = cell.length;
+      return `<button type="button" class="pocket${copies > 1 ? " stack" : ""}" data-gi="${list.indexOf(c)}" aria-label="${esc(c.name || "Unnamed card")}, pocket ${s}${copies > 1 ? `, ${copies} copies` : ""}"><span class="slotno">${s}</span>${copies > 1 ? `<span class="stackn">×${copies}</span>` : ""}${tileFace(c)}</button>`;
+    }).join("")}</div></div>`;
+  }
+  const tileFace = c => c.image ? `<img src="${esc(c.image)}" alt="" loading="lazy" draggable="false">` : `<span class="face"><span class="n">${esc(c.name || "Unnamed card")}</span></span>`;
+  $("gBinderView").addEventListener("click", e => {
+    const b = e.target.closest("[data-gi]");
+    if (b) openViewer(+b.dataset.gi);
+  });
+  $("gBinder").addEventListener("change", e => { pick(e.target.value, 0); render(); });
+  $("gBinderBar").addEventListener("click", e => {
+    const step = e.target.closest("[data-gstep]"), chip = e.target.closest("[data-gpage]");
+    if (chip) { pick(G.binderId, +chip.dataset.gpage); render(); }
+    else if (step && !step.disabled) {
+      const pages = GB.pages(G.binderId, G.cards), at = pages.indexOf(G.page) + +step.dataset.gstep;
+      if (pages[at] != null) { pick(G.binderId, pages[at]); render(); }
+    }
+  });
+
   function render() {
+    if (G.view === "binders") return renderBinders();
     const list = shownList();
     G.list = list;
     const n = G.cards.length;
@@ -232,7 +306,7 @@
   });
   document.addEventListener("keydown", e => {
     if (LB.open) return;
-    if (e.key === "/" && G.me && document.activeElement?.tagName !== "INPUT") { e.preventDefault(); $("gQuery").focus(); }
+    if (e.key === "/" && G.me && G.view === "all" && document.activeElement?.tagName !== "INPUT") { e.preventDefault(); $("gQuery").focus(); }
   });
 
   // ---- full screen -----------------------------------------------------------------------
@@ -247,7 +321,8 @@
       [shape(c), c.variant, c.language].filter(Boolean).join(" · "),
       c.artist ? `Illustrated by ${c.artist}` : "",
     ].filter(Boolean);
-    return `<span class="n">${esc(c.name || "Unnamed card")}</span>${lines.map(l => `<span class="m">${esc(l)}</span>`).join("")}${c.value != null ? `<span class="v">${esc(money(c.value))}</span>` : ""}`;
+    const where = GB.placeText(c.place);
+    return `<span class="n">${esc(c.name || "Unnamed card")}</span>${where ? `<span class="m loc">${esc(where)}</span>` : ""}${lines.map(l => `<span class="m">${esc(l)}</span>`).join("")}${c.value != null ? `<span class="v">${esc(money(c.value))}</span>` : ""}`;
   }
   /* again: redraw the open viewer with the latest list */
   function openViewer(i, again) {
@@ -307,9 +382,13 @@
     $("lbRoot").innerHTML = "";
     document.documentElement.style.overflow = "";
     if (fromBack !== true) back.sync(false);
-    const i = LB.i, b = LB.back; LB.list = [];
-    // Leave the grid at the card the guest stopped on.
-    const tile = document.querySelector(`[data-gi="${i}"]`);
+    const shown = LB.list[LB.i], b = LB.back; LB.list = [];
+    // In the Binders view, go back to the page of the last card shown.
+    const toPage = G.view === "binders" ? GB.pageAfterClose(shown, G.page) : null;
+    if (toPage !== null) { pick(G.binderId, toPage); render(); }
+    // Leave the grid at the card the guest stopped on (a pocket's first card when copies share it).
+    const i = G.view === "binders" ? GB.tileIndex(G.list, shown) : G.list.findIndex(c => c.id === shown?.id);
+    const tile = i >= 0 ? document.querySelector(`#${G.view === "binders" ? "gBinderView" : "gGrid"} [data-gi="${i}"]`) : null;
     if (tile) { tile.scrollIntoView({ block: "nearest" }); try { tile.focus({ preventScroll: true }); } catch (_) {} }
     else if (b && document.contains(b)) try { b.focus({ preventScroll: true }); } catch (_) {}
   }
