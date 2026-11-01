@@ -1720,6 +1720,7 @@ function readForm(){
 
 
 /* ---------- automatic prices and official images ---------- */
+// (Cardmarket is no longer a source; its label names old daily prices that included it.)
 const SRC = {pricecharting:"PriceCharting", tcgplayer:"TCGplayer", cardmarket:"Cardmarket"};
 const isLinked = p => !!p && (p.source==="pricecharting" || p.source==="tcgplayer") && !!p.id;
 const dailyPrices = c => (Array.isArray(c.prices)?c.prices:[]).filter(p=>p.auto && typeof p.amount==="number").sort((a,b)=>(a.date||"").localeCompare(b.date||""));
@@ -1753,7 +1754,7 @@ function pairInfo(p){
   if(q) return `<p class="hint pairline">${esc(name)}: no certain match, so only ${esc(SRC[p.source])}'s price is used. Choose its product with Change match to compare both. ${off}</p>`;
   return `<p class="hint pairline">${esc(name)} is searched at the next update, to compare its price.</p>`;
 }
-/** "US$20.00 from TCGplayer; PriceCharting US$13.20, Cardmarket US$3.44" (or "US$12.80, blended from …"): which source's price an automatic entry is, and the others'. */
+/** "US$20.00 from TCGplayer; PriceCharting US$13.20" (or "US$12.80, blended from …"): which source's price an automatic entry is, and the others'. */
 function quoteText(e){
   if(e.usd==null) return "";
   if(e.grade) return ` (PriceCharting's ${e.grade} price, US$${Number(e.usd).toFixed(2)})`;
@@ -1775,9 +1776,10 @@ function latestLine(c, last){
 const priceMethod = () => window.BinderBlend.settings(S.pricing?.priceMethod);
 function methodText(){
   const m = priceMethod(), w = m.weights, t = m.tolerance;
-  if(m.method==="highest") return `The highest of PriceCharting's, TCGplayer's and Cardmarket's prices is used, unless it's more than ${t}% from PriceCharting's; then PriceCharting's is.`;
-  if(m.method==="pricecharting") return "PriceCharting's price is used (TCGplayer's, then Cardmarket's, when it has none).";
-  return `It's a blend: PriceCharting ${w.pricecharting}%, TCGplayer ${w.tcgplayer}%, Cardmarket ${w.cardmarket}%, leaving out a source more than ${t}% from PriceCharting's price.`;
+  if(m.method==="highest") return `The higher of PriceCharting's and TCGplayer's prices is used, unless it's more than ${t}% from PriceCharting's; then PriceCharting's is.`;
+  if(m.method==="pricecharting") return "PriceCharting's price is used (TCGplayer's when it has none).";
+  const total = w.pricecharting + w.tcgplayer, share = x => total > 0 ? Math.round(x / total * 100) : 50;
+  return `It's a blend: PriceCharting ${share(w.pricecharting)}%, TCGplayer ${share(w.tcgplayer)}%, leaving out a source more than ${t}% from PriceCharting's price.`;
 }
 function autoInfo(c){
   const p = c.pricing || null, daily = dailyPrices(c), last = daily[daily.length-1];
@@ -1788,7 +1790,7 @@ function autoInfo(c){
     <div class="links"><button class="btn sm" type="button" data-pr="refresh">Update now</button><button class="btn sm" type="button" data-pr="pick">Change match</button>${p.pair&&p.pair.id&&!p.pair.off?`<button class="btn sm ghost" type="button" data-pr="pairoff">Don't use ${esc(SRC[p.pair.source])}</button>`:""}<button class="btn sm ghost" type="button" data-pr="off">Turn off</button></div>`;
   if(p && p.source==="off") return `<p class="hint" style="margin:0">Automatic pricing is off for this card, so its value comes from the prices you log.</p>${busy}<div class="links"><button class="btn sm" type="button" data-pr="auto">Turn it back on</button></div>`;
   if(p && p.source==="none") return `${last?`<p class="hint" style="margin:0 0 4px">Latest ${esc(money(last.amount))} near mint on ${esc(last.date)}${esc(quoteText(last))}, from the card database's prices.</p>${sparkline(daily)}`:""}<p class="autoerr">${pcReady()?"No certain match on PriceCharting. If one of these is the card, choose it.":"PriceCharting isn't set up on this server, and the card database has no price for this card."}</p>${p.error?`<p class="autoerr">${esc(p.error)}</p>`:""}${candList(p.candidates||[], "stored")}${busy}<div class="links"><button class="btn sm" type="button" data-pr="pick">Search</button><button class="btn sm ghost" type="button" data-pr="off">Turn off</button></div>`;
-  return `<p class="hint" style="margin:0">This card is matched to PriceCharting and to the card database's TCGplayer product at the next daily update, and priced from their prices and Cardmarket's. You can do it now.</p>${p&&p.error?`<p class="autoerr">${esc(p.error)}</p>`:""}${busy}<div class="links"><button class="btn sm primary" type="button" data-pr="refresh">Find its price now</button><button class="btn sm" type="button" data-pr="pick">Choose the match</button></div>`;
+  return `<p class="hint" style="margin:0">This card is matched to PriceCharting and to the card database's TCGplayer product at the next daily update, and priced from their prices. You can do it now.</p>${p&&p.error?`<p class="autoerr">${esc(p.error)}</p>`:""}${busy}<div class="links"><button class="btn sm primary" type="button" data-pr="refresh">Find its price now</button><button class="btn sm" type="button" data-pr="pick">Choose the match</button></div>`;
 }
 const pickerQuery = c => S.pickQ ?? [c.name, String(c.number||"").split("/")[0]].filter(Boolean).join(" ");
 function pickerHTML(c){
@@ -1837,7 +1839,7 @@ function pricingSettingsHTML(){
   const need = S.cards.filter(x=>held(x) && x.pricing && x.pricing.source==="none");
   return `<div class="sec" style="margin-top:18px;border-top:1px solid var(--line-2);padding-top:14px" id="sPricing">
     <h3>Automatic prices</h3>
-    <p class="hint" style="margin:0 0 8px">Every morning each card is priced from PriceCharting's ungraded price, TCGplayer's market price and Cardmarket's trend (a graded card at PriceCharting's price for its grade), converted to Canadian dollars at the Bank of Canada's rate, and added to its price log. ${esc(methodText())} The last 30 days are kept. Prices you log yourself are never changed.</p>
+    <p class="hint" style="margin:0 0 8px">Every morning each card is priced from PriceCharting's ungraded price and TCGplayer's market price (a graded card at PriceCharting's price for its grade), converted to Canadian dollars at the Bank of Canada's rate, and added to its price log. ${esc(methodText())} The last 30 days are kept. Prices you log yourself are never changed.</p>
     ${st.problem?window.BinderRunLog.banner(st.problem, {running:!!st.running, canEdit:canEdit(), log: canEdit() ? RL.log : undefined}):""}
     ${st.running && st.scope!=="pictures"?`<p><b>Updating now:</b> ${st.done||0} of ${st.total||0} cards${st.current?.card?` (now ${esc(st.current.card)})`:""}…</p>`:last?`<p style="margin:0 0 6px">Last update <b>${esc(last.date)}</b> (${esc(last.reason==="manual"?"started by you":"daily")}) · ${c.updated||0} updated${c.needsMatch?` · ${c.needsMatch} need a match`:""}${c.noPrice?` · ${c.noPrice} without a price`:""}${c.failed?` · ${c.failed} failed`:""} · US$1 = C$${Number(last.rate).toFixed(4)}</p>`:`<p class="hint">Not run yet.</p>`}
     ${last && last.errors && last.errors.length?`<details class="autolog"><summary>Problems (${last.errors.length})</summary><ul class="errs">${last.errors.map(e=>`<li><b>${esc(e.card)}</b>: ${esc(e.error)}</li>`).join("")}</ul></details>`:""}
@@ -2566,6 +2568,7 @@ function cardChecks(c){
     if(p.source==="none" && !p.error && Array.isArray(p.candidates)) out.push({k:"price", title:"No certain price match", text:"The price sites had no certain match. Open it and choose the product."});
     else if(typeof p.error==="string" && p.error.includes("has no price for this printing")) out.push({k:"price", title:"No price yet", text:p.error});
     if(p.disagree?.quotes && c.pricesDisagreeIgnored!==p.disagree.sig){
+      // (Cardmarket is no longer a source; its label is for disagreements logged before it was dropped.)
       const SRC = {pricecharting:"PriceCharting", tcgplayer:"TCGplayer", cardmarket:"Cardmarket"};
       const list = Object.entries(p.disagree.quotes).map(([k,v])=>`${SRC[k]||k} US$${Number(v).toFixed(2)}`).join(", ");
       out.push({k:"disagree", title:"Price sources disagree", text:`${list}. One of its matches may be another printing or set (a reprint priced as its original, say). Open it to check its products (Change match), or ignore this if the prices are right.`});
@@ -4175,7 +4178,6 @@ function lookBack(){
   FIND.look = null; findRender();
   const q = $("#findQ"); q?.focus(); findSync();
 }
-const eur = n => n==null || isNaN(n) ? "—" : "€" + Number(n).toFixed(2);
 function lookRender(){
   const L = FIND.look, box = $("#findLook"), c = L.card, h = L.hit;
   const head = `<div class="look-top"><button type="button" class="btn ghost sm" data-find="back">← ${esc(FIND.res.length>1 ? "All results" : "Back")}</button><span class="hint">Nothing here is added to your ledger.</span></div>`;
@@ -4189,7 +4191,7 @@ function lookRender(){
   const p = c.printings[L.pi] || c.printings[0];
   const lb = lookBinder();
   const addBtn = lb ? `<button type="button" class="btn primary sm look-add" data-find="add" title="${esc(isCase(lb) ? `Adds it to ${lb.name}` : `Adds it to the next empty pocket of ${lb.name}`)}"${L.adding?" disabled":""}>+ Add to ${esc(lb.name)}</button>` : `<button type="button" class="btn primary sm" data-find="add">+ Add to a binder</button>`;
-  const srcs = x => [x.tcgplayer && `TCGplayer ${money(x.tcgplayer.usd,"USD")}`, x.cardmarket && `Cardmarket ${eur(x.cardmarket.eur)}`, x.pricecharting && x.pricecharting.usd!=null && `PriceCharting ${money(x.pricecharting.usd,"USD")}`].filter(Boolean).join(" · ") || "No prices";
+  const srcs = x => [x.tcgplayer && `TCGplayer ${money(x.tcgplayer.usd,"USD")}`, x.pricecharting && x.pricecharting.usd!=null && `PriceCharting ${money(x.pricecharting.usd,"USD")}`].filter(Boolean).join(" · ") || "No prices";
   const meta = [c.set, c.setCode, cardNo(c)].filter(Boolean).join(" · ");
   const about = [c.rarity, c.artist && `Illus. ${c.artist}`, c.released && `Released ${dLabel(c.released)}`].filter(Boolean).join(" · ");
   const links = [p?.tcgplayer?.url && `<a href="${esc(p.tcgplayer.url)}" target="_blank" rel="noopener noreferrer">TCGplayer</a>`, p?.pricecharting && `<a href="${esc(p.pricecharting.url)}" target="_blank" rel="noopener noreferrer">PriceCharting</a>`, `<a href="${esc(window.BinderGoogle.priceUrl({name:c.name, set:c.set, number:cardNo(c), variant:p?.variant}))}" target="_blank" rel="noopener noreferrer">Google</a>`].filter(Boolean).join("");
@@ -4201,7 +4203,7 @@ function lookRender(){
         ${about?`<p class="hint">${esc(about)}</p>`:""}
         ${priced ? `<div class="look-price"><span class="hint">Worth today${c.printings.length>1?` · ${esc(p.label)}`:""}</span><b>${p?.price ? money(p.price.cad) : "No price"}</b>${p?.price?`<span class="hint">${esc(p.price.summary)}</span>`:""}</div>`
           : `<div class="look-price">${L.priceError ? `<span class="hint err" role="status">${esc(`Couldn't get today's prices: ${L.priceError}`)}</span><button type="button" class="btn sm" data-find="lookprices">Try again</button>` : `<span class="hint" role="status">Getting today's prices…</span>`}</div>`}
-        ${p?.leftOut?`<p class="hint">TCGplayer's and Cardmarket's prices aren't counted: ${esc(p.leftOut)}.</p>`:""}
+        ${p?.leftOut?`<p class="hint">TCGplayer's price isn't counted: ${esc(p.leftOut)}.</p>`:""}
         <div class="look-acts">${canEdit()?`${addBtn}<button type="button" class="btn sm" data-find="watch" aria-expanded="${!!L.watch}">Watch price</button>`:""}<span class="look-links">${links}</span></div>
         ${L.watch && canEdit() ? `<div class="look-watch"><label for="lw_buy">Email me when it's at or below (CAD)</label><span class="look-watchrow"><input id="lw_buy" class="mono" inputmode="decimal" autocomplete="off" placeholder="${p?.price ? `now ${esc(money(p.price.cad))}` : "e.g. 5.00"}"><button type="button" class="btn sm primary" data-find="watchsave">Watch</button><button type="button" class="btn sm ghost" data-find="watchcancel">Cancel</button></span><span class="hint">${c.printings.length>1?`The ${esc(p.label)} printing goes`:"It goes"} on your Watchlist, not in a binder, and gets a price every day.</span></div>` : ""}
       </div>
@@ -4210,7 +4212,7 @@ function lookRender(){
       : priced ? `<p class="hint look-src">${esc(srcs(p||{}))}</p>` : ""}
     ${priced && p?.pricecharting?.grades?.length?`<h4 class="look-h">Graded (PriceCharting)</h4><div class="look-grades">${p.pricecharting.grades.map(g=>`<span><span class="hint">${esc(g.label)}</span> <b>${money(g.cad)}</b></span>`).join("")}</div>`:""}
     ${(c.notes || []).map(t=>`<p class="hint">${esc(t)}</p>`).join("")}
-    ${priced && c.rates ? `<p class="hint">In CAD at US$1 = ${money(c.rates.usd)}${c.rates.eur?` and €1 = ${money(c.rates.eur)}`:""}, the rates the last price update used.</p>` : ""}`;
+    ${priced && c.rates ? `<p class="hint">In CAD at US$1 = ${money(c.rates.usd)}, the rate the last price update used.</p>` : ""}`;
 }
 /* The binder Add puts the card in: the one open, unless Pricing or the Selling view is on top of it. */
 const lookBinder = () => window.BinderLookup.addTarget(S.binders, S.binderId, PV.open || SV.open);

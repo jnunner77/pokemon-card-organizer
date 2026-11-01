@@ -12,18 +12,16 @@ export interface PricingSchedule {
   readonly enabled: boolean;
   /** Hour of the day (0-23) after which the daily price update runs. */
   readonly hour: number;
-  /** Whether Cardmarket's price (in euros, from TCGdex) is compared with the others. */
-  readonly cardmarket?: boolean;
 }
 
 export const PRICE_METHODS = ['blend', 'highest', 'pricecharting'] as const;
 export type PriceMethodName = (typeof PRICE_METHODS)[number];
-const SOURCES = ['pricecharting', 'tcgplayer', 'cardmarket'] as const;
+const SOURCES = ['pricecharting', 'tcgplayer'] as const;
 
 /** How a card's daily price is worked out from its sources (public/blend.js). */
 export interface PriceMethod {
   readonly method: PriceMethodName;
-  readonly weights: { readonly pricecharting: number; readonly tcgplayer: number; readonly cardmarket: number };
+  readonly weights: { readonly pricecharting: number; readonly tcgplayer: number };
   /** Percent from PriceCharting's price beyond which a source is left out. */
   readonly tolerance: number;
 }
@@ -31,7 +29,7 @@ export interface PriceMethod {
 export interface AdminSettings {
   readonly backups: Retention;
   readonly pricing: PricingSchedule;
-  /** How a card's daily price is worked out; the default (blend 40/40/20, 25%) when not set. */
+  /** How a card's daily price is worked out; the default (blend 50/50, 25%) when not set. */
   readonly priceMethod?: PriceMethod | null;
   /** When someone last downloaded a full backup (a copy that leaves the server). */
   readonly lastFullBackupAt: string | null;
@@ -41,7 +39,7 @@ export interface AdminSettings {
   readonly alerts?: AlertSettings | null;
 }
 
-export const DEFAULT_ADMIN_SETTINGS: AdminSettings = { backups: DEFAULT_RETENTION, pricing: { enabled: true, hour: 5, cardmarket: true }, lastFullBackupAt: null };
+export const DEFAULT_ADMIN_SETTINGS: AdminSettings = { backups: DEFAULT_RETENTION, pricing: { enabled: true, hour: 5 }, lastFullBackupAt: null };
 
 export type InvalidSetting = { readonly code: 'INVALID_SETTING'; readonly message: string };
 
@@ -59,15 +57,14 @@ const first = (...problems: readonly (() => string | null)[]): string | null => 
 /** The daily price update's schedule as an administrator sent it. */
 export function checkPricingSchedule(input: unknown): Result<PricingSchedule, InvalidSetting> {
   if (!isRecord(input)) return invalid(expected('object', input));
-  const { enabled, hour, cardmarket } = input;
+  const { enabled, hour } = input;
   const problem = first(
     () => booleanProblem(enabled),
     () => numberProblem(hour, { int: true, min: 0, max: 23 }),
-    () => (cardmarket === undefined ? null : booleanProblem(cardmarket)),
-    () => unrecognized(input, ['enabled', 'hour', 'cardmarket']),
+    () => unrecognized(input, ['enabled', 'hour']),
   );
   if (problem !== null || typeof enabled !== 'boolean' || typeof hour !== 'number') return invalid(problem ?? 'Invalid input');
-  return ok({ enabled, hour, ...(typeof cardmarket === 'boolean' ? { cardmarket } : {}) });
+  return ok({ enabled, hour });
 }
 
 /** A price method as an administrator sent it: weights 0-100 (at least one above 0), tolerance 1-1000%. */
@@ -86,13 +83,13 @@ export function checkPriceMethod(input: unknown): Result<PriceMethod, InvalidSet
   );
   if (problem !== null) return invalid(problem);
   const name = PRICE_METHODS.find((m) => m === method);
-  const w = isRecord(weights) ? { pricecharting: weights['pricecharting'], tcgplayer: weights['tcgplayer'], cardmarket: weights['cardmarket'] } : null;
-  if (!name || !w || typeof w.pricecharting !== 'number' || typeof w.tcgplayer !== 'number' || typeof w.cardmarket !== 'number' || typeof tolerance !== 'number') return invalid('Invalid input');
-  if (w.pricecharting + w.tcgplayer + w.cardmarket <= 0) return invalid('Give at least one source a weight.');
-  return ok({ method: name, weights: { pricecharting: w.pricecharting, tcgplayer: w.tcgplayer, cardmarket: w.cardmarket }, tolerance });
+  const w = isRecord(weights) ? { pricecharting: weights['pricecharting'], tcgplayer: weights['tcgplayer'] } : null;
+  if (!name || !w || typeof w.pricecharting !== 'number' || typeof w.tcgplayer !== 'number' || typeof tolerance !== 'number') return invalid('Invalid input');
+  if (w.pricecharting + w.tcgplayer <= 0) return invalid('Give at least one source a weight.');
+  return ok({ method: name, weights: { pricecharting: w.pricecharting, tcgplayer: w.tcgplayer }, tolerance });
 }
 
-export const DEFAULT_PRICE_METHOD: PriceMethod = { method: 'blend', weights: { pricecharting: 40, tcgplayer: 40, cardmarket: 20 }, tolerance: 25 };
+export const DEFAULT_PRICE_METHOD: PriceMethod = { method: 'blend', weights: { pricecharting: 50, tcgplayer: 50 }, tolerance: 25 };
 
 /**
  * A saved price method with the default in place of each field that's missing or wrong (the same
@@ -108,7 +105,7 @@ export function priceMethodFrom(saved: unknown): PriceMethod {
   const t = Number(o['tolerance']);
   return {
     method: PRICE_METHODS.find((m) => m === o['method']) ?? DEFAULT_PRICE_METHOD.method,
-    weights: { pricecharting: weight('pricecharting'), tcgplayer: weight('tcgplayer'), cardmarket: weight('cardmarket') },
+    weights: { pricecharting: weight('pricecharting'), tcgplayer: weight('tcgplayer') },
     tolerance: t > 0 && t <= 1000 ? t : DEFAULT_PRICE_METHOD.tolerance,
   };
 }
@@ -124,7 +121,6 @@ const timeOr = <T extends string | null | undefined>(value: unknown, fallback: T
 export function adminSettingsFrom(saved: Readonly<Record<string, unknown>> | null, base: AdminSettings): AdminSettings {
   const backups = isRecord(saved?.['backups']) ? saved['backups'] : {};
   const pricing = isRecord(saved?.['pricing']) ? saved['pricing'] : {};
-  const cardmarket = typeof pricing['cardmarket'] === 'boolean' ? pricing['cardmarket'] : base.pricing.cardmarket;
   const method = saved?.['priceMethod'];
   const priceMethod = method === undefined ? base.priceMethod : method === null ? null : priceMethodFrom(method);
   const seen = timeOr(saved?.['problemsSeenAt'], base.problemsSeenAt);
@@ -134,7 +130,6 @@ export function adminSettingsFrom(saved: Readonly<Record<string, unknown>> | nul
     pricing: {
       enabled: typeof pricing['enabled'] === 'boolean' ? pricing['enabled'] : base.pricing.enabled,
       hour: numberOr(pricing['hour'], base.pricing.hour),
-      ...(cardmarket === undefined ? {} : { cardmarket }),
     },
     ...(priceMethod === undefined ? {} : { priceMethod }),
     lastFullBackupAt: timeOr(saved?.['lastFullBackupAt'], base.lastFullBackupAt),

@@ -18,15 +18,23 @@ const tempDir = () => {
 const mode = (file: string) => fs.statSync(file).mode & 0o777;
 
 describe('AdminFile', () => {
+  it('reads an admin.json that still has Cardmarket settings, without them', () => {
+    const dir = tempDir();
+    fs.writeFileSync(path.join(dir, 'admin.json'), JSON.stringify({ pricing: { enabled: true, hour: 7, cardmarket: false }, priceMethod: { method: 'blend', weights: { pricecharting: 40, tcgplayer: 40, cardmarket: 20 }, tolerance: 25 } }));
+    const a = new AdminFile(dir);
+    assert.deepEqual(a.get().pricing, { enabled: true, hour: 7 });
+    assert.deepEqual(a.get().priceMethod?.weights, { pricecharting: 40, tcgplayer: 40 });
+  });
+
   it('starts from the defaults, saves changes to admin.json readable only by the server, and reads them back', () => {
     const dir = tempDir();
     const a = new AdminFile(dir, { pricing: { enabled: false, hour: 6 } });
     assert.deepEqual(a.get().pricing, { enabled: false, hour: 6 });
     assert.equal(a.recovered, null);
-    a.set({ pricing: { enabled: true, hour: 7, cardmarket: false }, lastFullBackupAt: '2026-10-03T12:00:00.000Z' });
+    a.set({ pricing: { enabled: true, hour: 7 }, lastFullBackupAt: '2026-10-03T12:00:00.000Z' });
     assert.equal(mode(path.join(dir, 'admin.json')), 0o600);
     const again = new AdminFile(dir);
-    assert.deepEqual(again.get().pricing, { enabled: true, hour: 7, cardmarket: false });
+    assert.deepEqual(again.get().pricing, { enabled: true, hour: 7 });
     assert.equal(again.get().lastFullBackupAt, '2026-10-03T12:00:00.000Z');
     assert.deepEqual(again.get().backups, { daily: 14, weekly: 8, monthly: 12 });
   });
@@ -35,7 +43,7 @@ describe('AdminFile', () => {
     const dir = tempDir();
     fs.writeFileSync(path.join(dir, 'admin.json'), '{"pricing": {"hour": 7');
     const a = new AdminFile(dir);
-    assert.deepEqual(a.get().pricing, { enabled: true, hour: 5, cardmarket: true });
+    assert.deepEqual(a.get().pricing, { enabled: true, hour: 5 });
     assert.match(a.recovered ?? '', /^admin\.json was damaged .*The default settings are used/);
     assert.equal(fs.readdirSync(dir).filter((f) => f.startsWith('admin.json.damaged-')).length, 1);
   });

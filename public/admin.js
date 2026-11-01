@@ -224,12 +224,11 @@
         <div class="field"><label for="m_tol">Leave out a source more than this far from PriceCharting (%)</label><input id="m_tol" name="tolerance" type="number" min="1" max="1000" step="1" value="${esc(m.tolerance)}" class="mono"></div>
         <div class="field"><label for="m_pc">PriceCharting weight</label><input id="m_pc" name="pricecharting" type="number" min="0" max="100" step="1" value="${esc(w.pricecharting)}" class="mono"></div>
         <div class="field"><label for="m_tcg">TCGplayer weight</label><input id="m_tcg" name="tcgplayer" type="number" min="0" max="100" step="1" value="${esc(w.tcgplayer)}" class="mono"></div>
-        <div class="field"><label for="m_cm">Cardmarket weight</label><input id="m_cm" name="cardmarket" type="number" min="0" max="100" step="1" value="${esc(w.cardmarket)}" class="mono"></div>
       </div>
-      <p class="hint"><b>PriceCharting</b> (eBay sold prices) is the anchor; TCGplayer when PriceCharting has no price, then Cardmarket. A source further from it than the tolerance is taken to be another card's price.<br>
+      <p class="hint"><b>PriceCharting</b> (eBay sold prices) is the anchor; TCGplayer when PriceCharting has no price. A source further from it than the tolerance is taken to be another card's price.<br>
         <b>Blended</b>: the weighted average of the sources; one left out gives its weight to the anchor, one with no price that day shares its weight among the others.
         <b>Highest</b>: the highest source, unless it's beyond the tolerance, then the anchor's price.
-        <b>PriceCharting first</b>: PriceCharting's price, else TCGplayer's, else Cardmarket's. A graded card is always PriceCharting's price for its grade.</p>
+        <b>PriceCharting first</b>: PriceCharting's price, else TCGplayer's. A graded card is always PriceCharting's price for its grade.</p>
       <div class="formfoot"><span class="hint">New daily prices use it from the next update. Past ones change only when you rebuild them.</span><span style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" type="button" id="rebuildPreview">Rebuild past daily prices…</button><button class="btn primary" type="submit">Save</button></span></div>
       <div id="rebuildBox"></div></form>`;
   }
@@ -245,7 +244,7 @@
   function pcUsage(u) {
     if (!u) return "";
     const pct = u.limit ? Math.min(100, Math.round(u.calls / u.limit * 100)) : 0;
-    const paused = u.pausedUntil ? `<div class="probs" data-kind="bad" role="alert" style="margin:8px 0"><div class="probs-head"><h2>PriceCharting isn't being asked until ${esc(when(u.pausedUntil))}</h2></div><p>${esc(u.pausedWhy || "")}</p><p class="hint">This protects the subscription: PriceCharting blocks, then revokes, an account that asks too often. Prices come from TCGplayer and Cardmarket meanwhile, and it's asked again by itself afterwards.</p></div>` : "";
+    const paused = u.pausedUntil ? `<div class="probs" data-kind="bad" role="alert" style="margin:8px 0"><div class="probs-head"><h2>PriceCharting isn't being asked until ${esc(when(u.pausedUntil))}</h2></div><p>${esc(u.pausedWhy || "")}</p><p class="hint">This protects the subscription: PriceCharting blocks, then revokes, an account that asks too often. Prices come from TCGplayer meanwhile, and it's asked again by itself afterwards.</p></div>` : "";
     return `${paused}<p class="pcusage"><span><b>${u.calls}</b> of ${u.limit} calls today (UTC)</span><span class="meter" role="img" aria-label="${pct}% of today's calls used"><span style="width:${pct}%" class="${pct >= 80 ? "hi" : ""}"></span></span><span class="hint">at most one every ${(u.gapMs / 1000).toFixed(2)} s, retries included${u.cached ? ` · ${u.cached} recent answers reused` : ""}${u.failuresInARow ? ` · ${u.failuresInARow} failed in a row` : ""}${u.lastCallAt ? ` · last call ${esc(when(u.lastCallAt))}` : ""}</span></p>`;
   }
   let problemLog = null;
@@ -266,13 +265,12 @@
     return `${problem}<form class="adminform" id="schedForm"><h3>Daily price update</h3><div class="form">
         <div class="field"><label for="p_on">Runs every day</label><select id="p_on" name="enabled"><option value="1" ${s.enabled ? "selected" : ""}>Yes</option><option value="0" ${s.enabled ? "" : "selected"}>No (only when started by hand)</option></select></div>
         <div class="field"><label for="p_hour">After this hour (${esc(s.timeZone)})</label><input id="p_hour" name="hour" type="number" min="0" max="23" value="${s.hour}" class="mono"></div>
-        <div class="field"><label for="p_cm">Compare Cardmarket (Europe)</label><select id="p_cm" name="cardmarket"><option value="1" ${s.cardmarket ? "selected" : ""}>Yes</option><option value="0" ${s.cardmarket ? "" : "selected"}>No</option></select></div>
-      </div><p class="hint">Each card is priced from PriceCharting's ungraded price, TCGplayer's market price and Cardmarket's trend, as set below; a graded card at PriceCharting's price for its grade. PriceCharting's prices come from its API; TCGplayer's and Cardmarket's from the TCGdex card database. No site's pages are read. Pictures come from TCGplayer (717×1000) or TCGdex, and what TCGdex lacks from TCGplayer's own catalog (tcgcsv.com).</p><div class="formfoot"><span class="hint">${p.running ? `Running now: ${p.done} of ${p.total} cards${p.current?.card ? ` (now ${esc(p.current.card)})` : ""}.` : "If the server was off at that hour, it runs when it's back."}</span><span style="display:flex;gap:8px">${p.running && !p.problem ? `<button class="btn danger" type="button" data-runprob="stop">Stop the update</button>` : ""}<button class="btn" type="button" id="runNow" ${p.running ? "disabled" : ""}>Update all prices now</button><button class="btn primary" type="submit">Save</button></span></div></form>
+      </div><p class="hint">Each card is priced from PriceCharting's ungraded price and TCGplayer's market price, as set below; a graded card at PriceCharting's price for its grade. PriceCharting's prices come from its API; TCGplayer's from the TCGdex card database. No site's pages are read. Pictures come from TCGplayer (717×1000) or TCGdex, and what TCGdex lacks from TCGplayer's own catalog (tcgcsv.com).</p><div class="formfoot"><span class="hint">${p.running ? `Running now: ${p.done} of ${p.total} cards${p.current?.card ? ` (now ${esc(p.current.card)})` : ""}.` : "If the server was off at that hour, it runs when it's back."}</span><span style="display:flex;gap:8px">${p.running && !p.problem ? `<button class="btn danger" type="button" data-runprob="stop">Stop the update</button>` : ""}<button class="btn" type="button" id="runNow" ${p.running ? "disabled" : ""}>Update all prices now</button><button class="btn primary" type="submit">Save</button></span></div></form>
       ${methodForm(s.priceMethod)}
       ${pc ? `<form class="adminform" id="pcForm" autocomplete="off"><h3>PriceCharting</h3>
         <p>${pc.set ? `${chip("pass", "API token saved")} <span class="hint">on ${esc(when(pc.savedAt))}</span>` : chip("info", "No API token")}</p>
         ${pcUsage(pc.usage)}
-        <p class="hint">PriceCharting's prices (ungraded, and graded when the subscription includes them) come from its API with your subscription's token: on PriceCharting, <b>Subscription → API/Download</b>. The token is kept in its own file on the server, apart from the ledger: it's never shown here again, logged, or put in backups or exports. PriceCharting is asked at most once a second.${pc.set ? "" : " Without a token, prices come from TCGplayer and Cardmarket only."}</p>
+        <p class="hint">PriceCharting's prices (ungraded, and graded when the subscription includes them) come from its API with your subscription's token: on PriceCharting, <b>Subscription → API/Download</b>. The token is kept in its own file on the server, apart from the ledger: it's never shown here again, logged, or put in backups or exports. PriceCharting is asked at most once a second.${pc.set ? "" : " Without a token, prices come from TCGplayer only."}</p>
         <div class="tokenrow"><input name="token" type="password" maxlength="100" spellcheck="false" autocapitalize="off" placeholder="${pc.set ? "Paste a new token to replace it" : "Paste the 40-character token"}" aria-label="PriceCharting API token" required><button class="btn primary" type="submit">${pc.set ? "Replace token" : "Save token"}</button></div>
         <div class="formfoot"><span class="hint">Subscription ended? Purging removes the token and everything that came from PriceCharting: its matches, its prices in the daily price log (each day keeps the other sources' highest, or is removed) and its pictures (others are downloaded at the next update). Prices you logged yourself stay. Copies of the ledger on the server still hold PriceCharting's prices until they age out, as set under Backups.</span><span style="display:flex;gap:8px;flex-wrap:wrap">${pc.set ? `<button class="btn" type="button" id="pcRemove">Remove token</button>` : ""}<button class="btn danger" type="button" id="pcPurge">Purge PriceCharting data</button></span></div></form>` : ""}
       <h3 class="pad">Recent updates</h3>
@@ -280,11 +278,11 @@
   }
   function wirePrices() {
     const f = $("#schedForm"); if (!f) return;
-    f.onsubmit = e => { e.preventDefault(); const d = formData(e.target); act(() => api("PUT", "admin/pricing", { enabled: d.enabled === "1", hour: Number(d.hour), cardmarket: d.cardmarket === "1" }), "Schedule saved"); };
+    f.onsubmit = e => { e.preventDefault(); const d = formData(e.target); act(() => api("PUT", "admin/pricing", { enabled: d.enabled === "1", hour: Number(d.hour) }), "Schedule saved"); };
     $("#runNow").onclick = () => act(() => api("POST", "pricing/run"), "Price update started; it takes a few minutes");
     const mf = $("#methodForm");
     if (mf) {
-      const read = () => { const d = formData(mf); return { method: d.method, tolerance: Number(d.tolerance), weights: { pricecharting: Number(d.pricecharting), tcgplayer: Number(d.tcgplayer), cardmarket: Number(d.cardmarket) } }; };
+      const read = () => { const d = formData(mf); return { method: d.method, tolerance: Number(d.tolerance), weights: { pricecharting: Number(d.pricecharting), tcgplayer: Number(d.tcgplayer) } }; };
       mf.onsubmit = e => { e.preventDefault(); act(() => api("PUT", "admin/pricing/method", read()), "Saved: new daily prices use it from the next update"); };
       $("#rebuildPreview").onclick = async () => {
         const box = $("#rebuildBox");
@@ -313,7 +311,7 @@
     const pc = $("#pcForm"); if (!pc) return;
     pc.onsubmit = e => { e.preventDefault(); const input = e.target.elements.token; const token = input.value.trim(); input.value = ""; act(() => api("PUT", "admin/pricing/pricecharting-token", { token }), "PriceCharting accepted the token; it's saved"); };
     const rm = $("#pcRemove");
-    if (rm) rm.onclick = () => { if (confirm("Remove PriceCharting's API token? Prices then come from TCGplayer and Cardmarket only; PriceCharting's past prices stay.")) act(() => api("DELETE", "admin/pricing/pricecharting-token"), "Token removed"); };
+    if (rm) rm.onclick = () => { if (confirm("Remove PriceCharting's API token? Prices then come from TCGplayer only; PriceCharting's past prices stay.")) act(() => api("DELETE", "admin/pricing/pricecharting-token"), "Token removed"); };
     $("#pcPurge").onclick = () => {
       if (!confirm("Purge everything that came from PriceCharting? This removes the token, every card's PriceCharting match, PriceCharting's prices in the daily price log and its pictures. It can't be undone (except by restoring a copy).")) return;
       act(async () => { const r = await api("POST", "admin/pricing/purge-pricecharting"); toast(`Purged: ${r.cards} cards, ${r.prices} daily prices (${r.removed} removed), ${r.pictures} pictures`); return r; });

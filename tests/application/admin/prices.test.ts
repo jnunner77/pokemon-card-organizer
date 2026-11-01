@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { setUp } from './fixtures.ts';
 
 const TOKEN = 'abc123'.repeat(5);
-const weights = { pricecharting: 40, tcgplayer: 40, cardmarket: 20 };
+const weights = { pricecharting: 50, tcgplayer: 50 };
 
 describe('price settings', () => {
   it('show the schedule, the token state (never the token) and the update’s progress', () => {
@@ -28,9 +28,9 @@ describe('price settings', () => {
 
   it('change the schedule, keeping what was not sent, and log who did', () => {
     const a = setUp({ prices: false });
-    assert.deepEqual(a.changePriceSchedule.execute({ actor: 'ash', schedule: { enabled: false, hour: 7 } }), { ok: true, value: { schedule: { enabled: false, hour: 7, cardmarket: true } } });
-    assert.deepEqual(a.settings.get().pricing, { enabled: false, hour: 7, cardmarket: true });
-    assert.deepEqual(a.log.query({ cat: 'admin' }).map((e) => [e.msg, e.data]), [['ash changed the price update schedule', { enabled: false, hour: 7, cardmarket: true }]]);
+    assert.deepEqual(a.changePriceSchedule.execute({ actor: 'ash', schedule: { enabled: false, hour: 7 } }), { ok: true, value: { schedule: { enabled: false, hour: 7 } } });
+    assert.deepEqual(a.settings.get().pricing, { enabled: false, hour: 7 });
+    assert.deepEqual(a.log.query({ cat: 'admin' }).map((e) => [e.msg, e.data]), [['ash changed the price update schedule', { enabled: false, hour: 7 }]]);
     const refused = a.changePriceSchedule.execute({ actor: 'ash', schedule: { enabled: true, hour: 30 } });
     assert.deepEqual(refused, { ok: false, error: { code: 'INVALID_SETTING', message: 'Too big: expected number to be <=23' } });
     assert.equal(a.settings.get().pricing.hour, 7);
@@ -42,7 +42,7 @@ describe('price settings', () => {
     assert.ok(r.ok);
     assert.deepEqual(a.settings.get().priceMethod, { method: 'pricecharting', weights, tolerance: 10 });
     assert.equal(a.prices.noted, 1);
-    assert.equal(a.changePriceMethod.execute({ actor: 'ash', method: { method: 'blend', weights: { pricecharting: 0, tcgplayer: 0, cardmarket: 0 }, tolerance: 10 } }).ok, false);
+    assert.equal(a.changePriceMethod.execute({ actor: 'ash', method: { method: 'blend', weights: { pricecharting: 0, tcgplayer: 0 }, tolerance: 10 } }).ok, false);
     assert.equal(a.prices.noted, 1);
   });
 });

@@ -63,7 +63,6 @@ export interface LookupPrinting {
   /** What to type in a card's Variant for this printing ("" for the regular card). */
   readonly variant: string;
   readonly tcgplayer: { readonly usd: number; readonly url: string | null } | null;
-  readonly cardmarket: { readonly eur: number } | null;
   readonly pricecharting: {
     readonly id: string;
     readonly url: string;
@@ -71,7 +70,7 @@ export interface LookupPrinting {
     readonly usd: number | null;
     readonly grades: readonly { readonly label: string; readonly usd: number; readonly cad: number }[];
   } | null;
-  /** TCGplayer's and Cardmarket's prices are for another set or printing than PriceCharting's product: why. */
+  /** TCGplayer's price is for another set or printing than PriceCharting's product: why. */
   readonly leftOut: string | null;
   /** What the daily update would log for it today. */
   readonly price: { readonly usd: number; readonly cad: number; readonly where: string; readonly summary: string } | null;
@@ -91,7 +90,7 @@ export interface AnyCardPrices {
   /** Each printing priced, with its TCGplayer product (perhaps found in TCGplayer's own catalog). */
   readonly printings: readonly { readonly printing: LookupPrinting; readonly product: string | null }[];
   /** CAD per US dollar and per euro. */
-  readonly rates: { readonly usd: number; readonly eur: number | null };
+  readonly rates: { readonly usd: number };
   /** What couldn't be had: a source that didn't answer, or has no match. */
   readonly notes: readonly string[];
 }

@@ -17,7 +17,7 @@ for (const f of ['blend.js', 'pastprices.js']) vm.runInContext(fs.readFileSync(p
 const P = sandbox.window.BinderPastPrices;
 
 // The 30th Celebration Magikarp (a Classic Collection reprint) priced as Paldea Evolved's: from
-// 10-08 TCGplayer and Cardmarket were the other card's.
+// 10-08 TCGplayer and Cardmarket were the other card's. (Old entries keep Cardmarket in their working.)
 const fx = 1.4;
 const day = (date: string, quotes: Record<string, number>, where: string): Entry => {
   const usd = Math.max(...Object.values(quotes));
@@ -57,12 +57,13 @@ describe('fixing past daily prices', () => {
 
   it('works the sources left out by the price method', () => {
     const near: Entry[] = [day('2026-10-08', { pricecharting: 100, tcgplayer: 400, cardmarket: 110 }, 'TCGplayer')];
-    // Blended (the default): PriceCharting 40 and Cardmarket 20 of the 60 left.
+    // Cardmarket isn't a source any more: a kept Cardmarket quote doesn't count, so PriceCharting's price stands.
     const b = P.keepOnly(near, ['pricecharting', 'cardmarket']).prices[0];
-    expect(b).toMatchObject({ usd: 103.33, where: 'Blend', quotes: { pricecharting: 100, cardmarket: 110 } });
-    expect(b.note).toBe('Daily update · blend of PriceCharting US$100.00 (67%), Cardmarket US$110.00 (33%) at 1.4000 · TCGplayer left out (matched to the wrong card)');
-    // Highest: Cardmarket's, within 25% of PriceCharting's.
-    expect(P.keepOnly(near, ['pricecharting', 'cardmarket'], { method: 'highest' }).prices[0]).toMatchObject({ usd: 110, where: 'Cardmarket' });
+    expect(b).toMatchObject({ usd: 100, where: 'PriceCharting', quotes: { pricecharting: 100, cardmarket: 110 } });
+    expect(b.note).toBe('Daily update · PriceCharting US$100.00 at 1.4000 · TCGplayer left out (matched to the wrong card)');
+    // Highest of the two sources, within 25% of PriceCharting's.
+    const two: Entry[] = [day('2026-10-08', { pricecharting: 100, tcgplayer: 120, cardmarket: 110 }, 'TCGplayer')];
+    expect(P.keepOnly(two, ['pricecharting', 'tcgplayer', 'cardmarket'], { method: 'highest' }).prices[0]).toMatchObject({ usd: 120, where: 'TCGplayer' });
     // The Magikarp's Cardmarket price is the other card's too: more than 25% away, so PriceCharting's.
     expect(P.keepOnly(magikarp, ['pricecharting', 'cardmarket']).prices.find((x) => x.id === '2026-10-08')).toMatchObject({ usd: 102.1, where: 'PriceCharting' });
     expect(P.keepOnly(magikarp, ['pricecharting', 'tcgplayer', 'cardmarket'])).toMatchObject({ changed: 0, removed: 0 });

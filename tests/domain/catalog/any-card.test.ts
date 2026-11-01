@@ -95,12 +95,17 @@ describe("a card's printings", () => {
 
   it("lists each variant with its own prices, or a card's printings when it lists no variants", () => {
     const [holo] = printingsOf(CHARIZARD);
-    assert.deepEqual(holo, { label: 'holo', variant: 'Holo', tcgplayer: { usd: 928.32, productId: '42382' }, cardmarketEur: 432.4, product: '42382' });
+    assert.deepEqual(holo, { label: 'holo', variant: 'Holo', tcgplayer: { usd: 928.32, productId: '42382' }, product: '42382' });
     const plain: TcgdexCard = { id: 'x-1', localId: '1', name: 'X', set: { id: 'x', name: 'X' }, pricing: { tcgplayer: { normal: { productId: 7, marketPrice: 1.5 }, reverseHolofoil: { productId: 7, marketPrice: 3 } }, cardmarket: { 'trend-holo': 2 } } };
     assert.deepEqual(printingsOf(plain).map((p) => [p.label, p.tcgplayer?.usd ?? null]), [
       ['regular', 1.5],
       ['reverse', 3],
     ]);
+  });
+
+  it("doesn't list a printing only Cardmarket prices", () => {
+    const td: TcgdexCard = { id: 'x-2', localId: '2', name: 'Y', set: { id: 'x', name: 'X' }, pricing: { tcgplayer: { normal: { productId: 7, marketPrice: 1.5 } }, cardmarket: { 'trend-holo': 2 } } };
+    assert.deepEqual(printingsOf(td).map((p) => p.label), ['regular']);
   });
 
   it('pictures it by TCGdex, else its TCGplayer product, and numbers it with its set size', () => {

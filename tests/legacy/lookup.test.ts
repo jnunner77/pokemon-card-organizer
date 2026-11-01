@@ -98,15 +98,14 @@ class CardLookup {
   }
 }
 
-function fakeUpdater(o: { products?: () => Promise<unknown>; method?: string; eur?: number | null; cardmarket?: boolean; tcgcsv?: (card: TcgCsvCard, product: string | null) => Promise<unknown> } = {}) {
+function fakeUpdater(o: { products?: () => Promise<unknown>; method?: string; tcgcsv?: (card: TcgCsvCard, product: string | null) => Promise<unknown> } = {}) {
   const lookupProducts = vi.fn(o.products ?? (async () => PC));
   const lookupTcgplayer = vi.fn(o.tcgcsv ?? (async () => null));
   const updater = {
     lookupProducts,
     lookupTcgplayer,
-    savedRates: () => ({ usd: 1.4, eur: o.eur === undefined ? 1.6 : o.eur }),
-    schedule: () => ({ enabled: true, hour: 5, timeZone: 'UTC', cardmarket: o.cardmarket ?? true }),
-    priceMethod: () => ({ method: o.method ?? 'blend', weights: { pricecharting: 40, tcgplayer: 40, cardmarket: 20 }, tolerance: 25 }),
+    savedRates: () => ({ usd: 1.4 }),
+    priceMethod: () => ({ method: o.method ?? 'blend', weights: { pricecharting: 50, tcgplayer: 50 }, tolerance: 25 }),
   } as unknown as PriceUpdater;
   return { updater, lookupProducts, lookupTcgplayer };
 }
@@ -185,20 +184,18 @@ describe("one card's prices", () => {
     const { updater, lookupProducts } = fakeUpdater();
     const card = await new CardLookup({ details: new CardDetails({ fetcher: tcgdex() }), updater }).card('base1-4');
     expect(lookupProducts).toHaveBeenCalledWith('Charizard 4');
-    expect(card).toMatchObject({ id: 'base1-4', name: 'Charizard', number: '4', total: 102, set: 'Base Set', setCode: 'BS', rarity: 'Rare', artist: 'Mitsuhiro Arita', released: '1999-01-09', notes: [], rates: { usd: 1.4, eur: 1.6 } });
+    expect(card).toMatchObject({ id: 'base1-4', name: 'Charizard', number: '4', total: 102, set: 'Base Set', setCode: 'BS', rarity: 'Rare', artist: 'Mitsuhiro Arita', released: '1999-01-09', notes: [], rates: { usd: 1.4 } });
     expect(card.image).toBe('https://assets.tcgdex.net/en/base/base1/4/high.webp');
     const [holo, first] = card.printings;
     expect(holo).toMatchObject({
       label: 'holo',
       variant: 'Holo',
       tcgplayer: { usd: 928.32, url: 'https://www.tcgplayer.com/product/42382' },
-      cardmarket: { eur: 432.4 },
       pricecharting: { id: '630', usd: 400, title: 'Charizard' },
       leftOut: null,
     });
-    // PriceCharting US$400 is the anchor: TCGplayer's US$928.32 is too far from it, Cardmarket's
-    // €432.40 (US$494.17) counts.
-    expect(holo.price).toMatchObject({ usd: 418.83, cad: 586.36, where: 'Blend' });
+    // PriceCharting US$400 is the anchor: TCGplayer's US$928.32 is too far from it.
+    expect(holo.price).toMatchObject({ usd: 400, cad: 560, where: 'PriceCharting' });
     expect(holo.pricecharting!.grades).toEqual(expect.arrayContaining([{ label: 'PSA 10', usd: 15000, cad: 21000 }, { label: 'Grade 9', usd: 2000, cad: 2800 }]));
     expect(first).toMatchObject({ variant: '1st Edition Shadowless Holo', pricecharting: { id: '631', usd: 9000 } });
   });
@@ -207,16 +204,8 @@ describe("one card's prices", () => {
     const { updater } = fakeUpdater({ products: async () => Promise.reject(new Error("PriceCharting isn't set up.")) });
     const card = await new CardLookup({ details: new CardDetails({ fetcher: tcgdex() }), updater }).card('base1-4');
     expect(card.notes).toEqual(["No PriceCharting prices: PriceCharting isn't set up."]);
-    // TCGplayer is the anchor now; Cardmarket's US$494.17 is too far from it.
+    // TCGplayer is the anchor now.
     expect(card.printings[0]).toMatchObject({ pricecharting: null, price: { usd: 928.32, cad: 1299.65, where: 'TCGplayer' } });
-  });
-
-  it("leaves Cardmarket out without the euro's rate, or when it's turned off, and says so", async () => {
-    const lookup = (o: Parameters<typeof fakeUpdater>[0]) => new CardLookup({ details: new CardDetails({ fetcher: tcgdex() }), updater: fakeUpdater(o).updater }).card('base1-4');
-    const noRate = await lookup({ eur: null });
-    expect(noRate.printings[0].price).toMatchObject({ usd: 400, where: 'PriceCharting' });
-    expect(noRate.notes).toEqual(["Cardmarket's prices aren't counted until a price update has the euro's exchange rate."]);
-    expect((await lookup({ cardmarket: false })).notes).toEqual(["Cardmarket's prices aren't counted: it's left out under Administration → Prices."]);
   });
 
   it("keeps PriceCharting's calls for the daily update once lookups have used their share of its budget", async () => {
@@ -238,8 +227,8 @@ describe("one card's prices", () => {
 
   it('prices a card from the card database alone on a server without automatic prices', async () => {
     const card = await new CardLookup({ details: new CardDetails({ fetcher: tcgdex() }) }).card('base1-4');
-    expect(card.notes).toEqual(["Cardmarket's prices aren't counted until a price update has the euro's exchange rate."]);
-    expect(card.rates).toEqual({ usd: 1.37, eur: null });
+    expect(card.notes).toEqual([]);
+    expect(card.rates).toEqual({ usd: 1.37 });
     expect(card.printings[0]).toMatchObject({ pricecharting: null, price: { usd: 928.32, cad: 1271.8, where: 'TCGplayer' } });
   });
 
@@ -290,8 +279,8 @@ describe("one card's prices", () => {
     const card = await new CardLookup({ details: new CardDetails({ fetcher: tcgdex() }), updater }).card('base1-4');
     const missing = card.printings.slice(1).map((p) => p.label);
     expect(card.notes).toEqual([`No TCGplayer price from TCGplayer's catalog (tcgcsv.com) for the ${missing.join(', ')} printings: it didn't answer (tcgcsv.com answered 503).`]);
-    // TCGdex's TCGplayer and Cardmarket prices and PriceCharting's match are as before.
-    expect(card.printings[0]).toMatchObject({ tcgplayer: { usd: 928.32 }, cardmarket: { eur: 432.4 }, pricecharting: { id: '630', usd: 400 }, price: { usd: 418.83, where: 'Blend' } });
+    // TCGdex's TCGplayer price and PriceCharting's match are as before.
+    expect(card.printings[0]).toMatchObject({ tcgplayer: { usd: 928.32 }, pricecharting: { id: '630', usd: 400 }, price: { usd: 400, where: 'PriceCharting' } });
     expect(card.printings[1]).toMatchObject({ tcgplayer: null, pricecharting: { id: '631', usd: 9000 } });
   });
 

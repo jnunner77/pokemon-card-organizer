@@ -1,5 +1,5 @@
 import { asPrinted, cardNumber, norm, words } from './names.ts';
-import { featuresOf, tcgdexCardmarket, tcgdexTcgplayer, variantLabel, variantPrices } from './printings.ts';
+import { featuresOf, tcgdexTcgplayer, variantLabel, variantPrices } from './printings.ts';
 import { isPocketSet, setOfCard, type TcgdexBrief, type TcgdexCard, type TcgdexSetBrief, thumbOf } from './tcgdex.ts';
 import { tcgImage } from './tcgplayer.ts';
 
@@ -137,8 +137,6 @@ export interface CardPrinting {
   readonly variant: string;
   /** TCGplayer's market price (US$) and product, from the card database. */
   readonly tcgplayer: { readonly usd: number; readonly productId: string | null } | null;
-  /** Cardmarket's trend price (€). */
-  readonly cardmarketEur: number | null;
   /** The printing's TCGplayer product, even without a price. */
   readonly product: string | null;
 }
@@ -156,13 +154,13 @@ export function printingsOf(td: TcgdexCard): CardPrinting[] {
     return detailed.map((v) => {
       const p = variantPrices(v);
       const product = p.tcgplayer?.productId ?? (v.thirdParty?.tcgplayer ? String(Math.trunc(v.thirdParty.tcgplayer)) : null);
-      return { label: variantLabel(v), variant: variantText(v), tcgplayer: p.tcgplayer, cardmarketEur: p.cardmarketEur, product };
+      return { label: variantLabel(v), variant: variantText(v), tcgplayer: p.tcgplayer, product };
     });
   return KINDS.map((k): CardPrinting => {
     const want = { kind: k.kind, first: false, strict: true };
     const tcgplayer = tcgdexTcgplayer(td, want);
-    return { label: k.label, variant: k.variant, tcgplayer, cardmarketEur: tcgdexCardmarket(td, want), product: tcgplayer?.productId ?? null };
-  }).filter((p, i) => i === 0 || p.tcgplayer || p.cardmarketEur != null);
+    return { label: k.label, variant: k.variant, tcgplayer, product: tcgplayer?.productId ?? null };
+  }).filter((p, i) => i === 0 || p.tcgplayer);
 }
 
 /** A card's number as printed with its set size: "4" of 102 → "4/102"; others as they are. */

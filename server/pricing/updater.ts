@@ -20,7 +20,7 @@ import { NO_PRICE } from '#domain/cards/attention.ts';
 // The daily price and image update. For every card still in the collection it finds the card's
 // product on PriceCharting (through its API, pricecharting.ts) and the TCGplayer product the card
 // databases name for it (catalog.ts), logs the highest of PriceCharting's ungraded price,
-// TCGplayer's market price and Cardmarket's trend in Canadian dollars (a graded card: PriceCharting's
+// TCGplayer's market price in Canadian dollars (a graded card: PriceCharting's
 // price for its grade), keeps the last month of those automatic entries (and one a week before
 // that, for the Pricing view's longer date ranges), and downloads the card's high-resolution
 // picture. The card's main product (PriceCharting's when it has one) gives its details; the other
@@ -79,7 +79,7 @@ export interface UpdaterOptions {
   breakerAfter?: number | undefined;
   /** Fills cards' empty set, set code, rarity, illustrator and release date before pricing them (src/application/catalog). */
   details?: Pick<FillCardDetails, 'execute'> | undefined;
-  /** TCGplayer and Cardmarket prices and pictures from TCGdex (catalog.ts). */
+  /** TCGplayer prices and pictures from TCGdex (catalog.ts). */
   catalog?: Catalog | undefined;
   /** TCGplayer's own catalog (tcgcsv.ts), for what TCGdex doesn't have. */
   tcgcsv?: TcgCsv | undefined;
@@ -263,9 +263,9 @@ export interface RunProblem {
 /** The site isn't being asked: PriceCharting without its token, or a site refusing or failing during this update. */
 export class SiteOut extends SourceError {}
 
-/** Where a price can come from: the two sites cards are matched on, and Cardmarket (through TCGdex). */
-type PriceSource = Source | 'cardmarket';
-const SOURCE_NAME: Record<PriceSource, string> = { pricecharting: 'PriceCharting', tcgplayer: 'TCGplayer', cardmarket: 'Cardmarket' };
+/** Where a price can come from: the two sites cards are matched on. */
+type PriceSource = Source;
+const SOURCE_NAME: Record<PriceSource, string> = { pricecharting: 'PriceCharting', tcgplayer: 'TCGplayer' };
 const SOURCES: readonly string[] = ['pricecharting', 'tcgplayer'];
 const isLinked = (l: Link | null | undefined): l is Link & { source: Source; id: string } => !!l && SOURCES.includes(l.source) && !!l.id;
 /** A graded card (its grader and grade set): priced at PriceCharting's price for its grade. */
@@ -325,8 +325,6 @@ export class PriceUpdater {
   private readonly tcgcsv?: TcgCsv;
   private readonly pc?: PriceCharting;
   private readonly afterPrices?: () => unknown;
-  /** The euro rate fetched for the current run (Cardmarket's prices are in euros). */
-  private eur: number | null = null;
   /** During a run: each site's failures in a row, and the sites left alone for the rest of it (with why). */
   /** `force`: databases are asked again even about cards they were asked about this week (a manual run). */
   private run: { streak: Record<Source, number>; tripped: Map<Source, string>; scope: RunScope; force: boolean; guide: PriceGuide | null } | null = null;
@@ -371,7 +369,7 @@ export class PriceUpdater {
   /** Whether the daily run is on, and its hour (administrators can change both); whether PriceCharting has its token. */
   schedule() {
     const c = this.config?.get().pricing;
-    return { enabled: c?.enabled ?? true, hour: c?.hour ?? this.hour, timeZone: this.timeZone, pricecharting: !!this.pc?.ready, cardmarket: c?.cardmarket !== false, priceMethod: this.priceMethod() };
+    return { enabled: c?.enabled ?? true, hour: c?.hour ?? this.hour, timeZone: this.timeZone, pricecharting: !!this.pc?.ready, priceMethod: this.priceMethod() };
   }
 
   /**
@@ -383,7 +381,7 @@ export class PriceUpdater {
     if (src === 'pricecharting' && !this.pc?.ready) return NO_TOKEN;
     // Cooling down after "too many requests", the breaker open, or today's call budget spent.
     const paused = src === 'pricecharting' ? this.pc?.out() : null;
-    if (paused) return `${paused} TCGplayer and Cardmarket give prices meanwhile.`;
+    if (paused) return `${paused} TCGplayer gives prices meanwhile.`;
     return this.run?.tripped.get(src) ?? null;
   }
 
@@ -562,7 +560,6 @@ export class PriceUpdater {
     // Stopped (or the server shutting down): stop() or shutdown() already wrote down how far it got.
     if (!live()) return { ...summary, ended: 'stopped', done, total: ids.length };
     this.run = null;
-    this.eur = null;
     this.counts = null;
     const st = this.status();
     if (failure) {
@@ -763,7 +760,6 @@ export class PriceUpdater {
     this.watchdog = null;
     this.current = null;
     this.run = null;
-    this.eur = null;
     this.counts = null;
     this.stalled = false;
     this.step = null;
@@ -786,7 +782,7 @@ export class PriceUpdater {
       return result;
     } catch (err) {
       if (err instanceof Refused) {
-        const why = `${err.message} TCGplayer and Cardmarket gave prices meanwhile.`;
+        const why = `${err.message} TCGplayer gave prices meanwhile.`;
         if (run) run.tripped.set(src, why);
         this.log.warn('pricing', `${err.message}${run ? ' Not asking it again during this update.' : ''}`, { source: src });
       } else if (run && err instanceof ProductGone) run.streak[src] = 0;
@@ -802,23 +798,21 @@ export class PriceUpdater {
     return this.delayMs ? new Promise((r) => setTimeout(r, this.delayMs)) : Promise.resolve();
   }
 
-  /** Today's Bank of Canada rates (US dollar, and euro for Cardmarket); if they can't be had, the last ones saved. */
   /** The rate the last update saved (a picture update doesn't need today's). */
   private savedRate(): { rate: number; rateDate: string | null } {
     const main = this.store.get('settings', 'main') ?? {};
     return { rate: Number(main.usdToCad) > 0 ? Number(main.usdToCad) : 1.37, rateDate: (main.usdToCadDate as string) ?? null };
   }
 
+  /** Today's Bank of Canada USD to CAD rate; if it can't be had, the last one saved. */
   private async rate(): Promise<{ rate: number; rateDate: string | null }> {
     const main = this.store.get('settings', 'main') ?? {};
     try {
-      const { rate, eur, date } = await exchangeRates(this.fetcher);
-      this.store.set('settings', 'main', { ...main, usdToCad: rate, usdToCadDate: date, usdToCadSource: 'Bank of Canada', ...(eur ? { eurToCad: eur } : {}) });
-      this.eur = eur ?? (Number(main.eurToCad) > 0 ? Number(main.eurToCad) : null);
+      const { rate, date } = await exchangeRates(this.fetcher);
+      this.store.set('settings', 'main', { ...main, usdToCad: rate, usdToCadDate: date, usdToCadSource: 'Bank of Canada' });
       return { rate, rateDate: date };
     } catch (err) {
       this.log.warn('pricing', `Couldn't get the Bank of Canada rate, using the saved one: ${message(err)}`);
-      this.eur = Number(main.eurToCad) > 0 ? Number(main.eurToCad) : null;
       return { rate: Number(main.usdToCad) > 0 ? Number(main.usdToCad) : 1.37, rateDate: (main.usdToCadDate as string) ?? null };
     }
   }
@@ -839,9 +833,7 @@ export class PriceUpdater {
     const cat = await this.catalogQuote(card);
     // TCGplayer's own catalog, for a TCGplayer price, product, picture or details the databases lack.
     const tcq = await this.tcgcsvQuote(card, cat);
-    const eur = this.eur ?? (Number(this.store.get('settings', 'main')?.eurToCad) || null);
-    const useCardmarket = this.schedule().cardmarket && !!eur;
-    const catPriced = (!!cat && (!!cat.tcgplayer || (useCardmarket && cat.cardmarketEur != null))) || tcq?.usd != null;
+    const catPriced = (!!cat && !!cat.tcgplayer) || tcq?.usd != null;
     card = this.unlinkPlainProduct(id, card, cat);
     card = this.unlinkOtherPrinting(id, card);
 
@@ -930,13 +922,12 @@ export class PriceUpdater {
     // Else TCGplayer's own catalog's price for the card's product (tcgcsv.ts).
     const tcgOffAny = tcgOff || (card.pricing?.pair?.source === 'tcgplayer' && !!card.pricing.pair.off);
     if (tcq?.usd != null && quotes.tcgplayer == null && !tcgOffAny && (!ownTcg || ownTcg.id === tcq.productId)) quotes.tcgplayer = tcq.usd;
-    if (useCardmarket && cat?.cardmarketEur != null) quotes.cardmarket = round2((cat.cardmarketEur * eur!) / fx);
-    // PriceCharting knows every set and variant; the card databases (TCGplayer's and Cardmarket's
-    // prices) have subsets of them. Their prices count only when their card is PriceCharting's
+    // PriceCharting knows every set and variant; the card databases (TCGplayer's
+    // prices) have subsets of them. Its price counts only when its card is PriceCharting's
     // product's set and printing; otherwise PriceCharting's price stands alone.
     const pcProduct = link?.source === 'pricecharting' ? link : pair?.source === 'pricecharting' ? pair : null;
     const mismatch = quotes.pricecharting != null && cat ? catalogMismatch(card, pcProduct, cat.set, (card.details as DetailsStatus | null | undefined)?.parentSet) : null;
-    const leftOut = mismatch ? (['tcgplayer', 'cardmarket'] as const).filter((k) => quotes[k] != null) : [];
+    const leftOut = mismatch ? (['tcgplayer'] as const).filter((k) => quotes[k] != null) : [];
     for (const k of leftOut) delete quotes[k];
     // A graded card is worth PriceCharting's price for its grade (the others price raw cards). When
     // PriceCharting has no graded price for it, it gets the raw card's price, as before.
@@ -1009,7 +1000,7 @@ export class PriceUpdater {
           currency: 'CAD',
           date,
           where,
-          note: `Daily update${cat?.variant ? ` (${cat.variant})` : ''} · ${list} at ${fx.toFixed(4)}${quotes.cardmarket != null ? ` (Cardmarket €${cat!.cardmarketEur!.toFixed(2)}, €1 = C$${eur!.toFixed(4)})` : ''}${leftOut.length ? ` · ${leftOut.map((k) => SOURCE_NAME[k]).join(' and ')} left out: ${mismatch}` : ''}${ungraded}`,
+          note: `Daily update${cat?.variant ? ` (${cat.variant})` : ''} · ${list} at ${fx.toFixed(4)}${leftOut.length ? ` · ${leftOut.map((k) => SOURCE_NAME[k]).join(' and ')} left out: ${mismatch}` : ''}${ungraded}`,
           auto: true,
           usd,
           quotes,
@@ -1368,10 +1359,9 @@ export class PriceUpdater {
     return this.tcgcsv.quote(card, productId);
   }
 
-  /** The exchange rates the last update saved: CAD per US dollar, and per euro when known. */
-  savedRates(): { usd: number; eur: number | null } {
-    const main = this.store.get('settings', 'main') ?? {};
-    return { usd: this.savedRate().rate, eur: this.eur ?? (Number(main.eurToCad) > 0 ? Number(main.eurToCad) : null) };
+  /** The exchange rate the last update saved: CAD per US dollar. */
+  savedRates(): { usd: number } {
+    return { usd: this.savedRate().rate };
   }
 
   /**
@@ -1408,7 +1398,7 @@ export class PriceUpdater {
         let quotes = e.quotes && typeof e.quotes === 'object' ? e.quotes : null;
         if (!e.auto || e.grade || !quotes || !Object.values(quotes).some((v) => typeof v === 'number' && v > 0)) return e;
         if (mismatch && quotes.pricecharting != null) quotes = { pricecharting: quotes.pricecharting };
-        const again = repriced(e, quotes, method, `rebuilt: ${name}${mismatch && Object.keys(e.quotes!).length > 1 ? `; TCGplayer and Cardmarket left out: ${mismatch}` : ''}`);
+        const again = repriced(e, quotes, method, `rebuilt: ${name}${mismatch && Object.keys(e.quotes!).length > 1 ? `; TCGplayer left out: ${mismatch}` : ''}`);
         if (!again || Math.abs(again.amount - e.amount) < 0.005) return e;
         changed++;
         return again;

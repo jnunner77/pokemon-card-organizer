@@ -3,19 +3,19 @@
 // - TCGdex (https://tcgdex.dev, free, no key), which the binder already matches every card to for
 //   its details (src/application/catalog). Each card lists its variants (regular, reverse, holo, patterns such
 //   as Poké Ball and Master Ball, stamps, 1st Edition, Shadowless), each with its own TCGplayer
-//   and Cardmarket products and prices (in euros), refreshed daily. A card is priced from the
+//   product and price, refreshed daily. A card is priced from the
 //   variant its Variant field names, never from another variant's price. Its TCGplayer product's
 //   picture (717×1000), then TCGdex's own (600×825), picture the card.
 //
 // TCGplayer's own catalog (tcgcsv.ts) fills what TCGdex lacks. The updater (updater.ts) blends
 // these with PriceCharting's price.
 
-import { chooseVariant, featuresOf, printingOf, tcgdexCardmarket, tcgdexTcgplayer, variantLabel, variantPrices } from '#domain/catalog/printings.ts';
+import { chooseVariant, featuresOf, printingOf, tcgdexTcgplayer, variantLabel, variantPrices } from '#domain/catalog/printings.ts';
 import type { TcgdexCard } from '#domain/catalog/tcgdex.ts';
 import { type Fetcher, SourceError, get } from './sources.ts';
 
 // Reading a TCGdex card's printings and their prices is the domain's (src/domain/catalog/printings.ts).
-export { chooseVariant, featuresOf, namesFeature, pickPrinting, type Printing, printingOf, tcgdexCardmarket, tcgdexTcgplayer, variantLabel, variantPrices } from '#domain/catalog/printings.ts';
+export { chooseVariant, featuresOf, namesFeature, pickPrinting, type Printing, printingOf, tcgdexTcgplayer, variantLabel, variantPrices } from '#domain/catalog/printings.ts';
 export type { TcgdexCard, TcgdexVariant } from '#domain/catalog/tcgdex.ts';
 
 const TCGDEX = 'https://api.tcgdex.net/v2/en';
@@ -27,8 +27,6 @@ export interface CatalogQuote {
   tcgdexId: string;
   /** TCGplayer's market price in US$ for the card's printing, and its TCGplayer product. */
   tcgplayer: { usd: number; productId: string | null } | null;
-  /** Cardmarket's trend price in euros for the card's printing. */
-  cardmarketEur: number | null;
   /** The TCGplayer product of the card's printing, even on a day TCGplayer has no price for it (its picture stands in, updater.ts). */
   tcgplayerProduct: string | null;
   /** TCGdex's own picture (600×825), the last to try for a card with none. */
@@ -89,7 +87,6 @@ export class Catalog {
     const chosen = chooseVariant(td, card.variant);
     const own = chosen.variant ? variantPrices(chosen.variant) : null;
     const tcgplayer = chosen.unknown ? null : own ? own.tcgplayer : tcgdexTcgplayer(td, want);
-    const cardmarketEur = chosen.unknown ? null : own ? own.cardmarketEur : tcgdexCardmarket(td, want);
     const plainProducts = [
       ...(td.variants_detailed ?? []).filter((v) => !featuresOf(v).length).map((v) => v.thirdParty?.tcgplayer),
       ...Object.values(td.pricing?.tcgplayer ?? {}).map((v) => (typeof v === 'object' && v ? v.productId : undefined)),
@@ -99,7 +96,6 @@ export class Catalog {
     return {
       tcgdexId,
       tcgplayer,
-      cardmarketEur,
       tcgplayerProduct: chosen.unknown ? null : (tcgplayer?.productId ?? (chosen.variant?.thirdParty?.tcgplayer ? String(Math.trunc(chosen.variant.thirdParty.tcgplayer)) : null)),
       fallbackImage: td.image ? `${td.image}/high.png` : null,
       special: chosen.special,

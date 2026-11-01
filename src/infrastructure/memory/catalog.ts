@@ -193,10 +193,10 @@ export class MemoryAnyCardPricing implements AnyCardPricing {
     this.asked.push(card);
     return {
       printings: card.printings.map((p) => ({
-        printing: { label: p.label, variant: p.variant, tcgplayer: p.tcgplayer ? { usd: p.tcgplayer.usd, url: null } : null, cardmarket: p.cardmarketEur != null ? { eur: p.cardmarketEur } : null, pricecharting: null, leftOut: null, price: null },
+        printing: { label: p.label, variant: p.variant, tcgplayer: p.tcgplayer ? { usd: p.tcgplayer.usd, url: null } : null, pricecharting: null, leftOut: null, price: null },
         product: p.tcgplayer?.productId ?? null,
       })),
-      rates: { usd: 1.37, eur: null },
+      rates: { usd: 1.37 },
       notes: [],
     };
   }
