@@ -824,7 +824,7 @@ describe('prices and pictures from the card databases', () => {
     expect(store.get('cards', 'chosen')).toMatchObject({ pricing: { source: 'tcgplayer', id: '610356', linkedBy: 'user', error: expect.stringMatching(/doesn't price this TCGplayer product/) }, prices: [] });
   });
 
-  it("never gives a 1st Edition or unlisted variant another printing's price", async () => {
+  it("never gives a 1st Edition or unlisted variant another printing's price, and pictures it from TCGdex when there's nothing larger", async () => {
     const charizard = { name: 'Charizard', set: 'Base Set', number: '4/102', rarity: 'Rare', status: 'binder', prices: [], details: { source: 'tcgdex', result: 'complete', id: 'base1-4', checkedAt: '2026-10-01T00:00:00Z' } };
     const pikachu = { name: 'Pikachu', set: '151', number: '025/165', rarity: 'Common', status: 'binder', prices: [], details: { source: 'tcgdex', result: 'complete', id: 'sv03.5-025', checkedAt: '2026-10-01T00:00:00Z' } };
     store.set('cards', 'first', { ...charizard, variant: '1st Edition Shadowless' });
@@ -839,34 +839,25 @@ describe('prices and pictures from the card databases', () => {
     // TCGdex has no TCGplayer price for the 1st Edition Shadowless card (only Cardmarket's, which isn't used), and never the US$928 unlimited card's.
     const first = store.get('cards', 'first')!;
     expect(first.prices).toEqual([]);
-    // With nothing to price it from, the card is left alone (no picture either) until it's matched on PriceCharting.
-    expect(first.pricing ?? null).not.toMatchObject({ imageUrl: expect.any(String) });
-    expect(net.calls.some((u) => u.includes('assets.tcgdex.net'))).toBe(false);
+    expect(first.pricing).toMatchObject({ source: 'none', imageUrl: 'https://assets.tcgdex.net/en/base/base1/4/high.png' });
+    expect(fs.readFileSync(assets.find(first.officialImageId as string)!.file)).toEqual(TCGDEX_PIC);
     // A stamp TCGdex doesn't list: no database price at all; left to a match on PriceCharting.
     expect(store.get('cards', 'staff')).toMatchObject({ prices: [], pricing: { source: 'none' } });
+    expect(store.get('cards', 'staff')!.officialImageId ?? null).toBeNull();
     expect(s.counts).toMatchObject({ updated: 0, needsMatch: 2 });
   });
 
-  /** Lost Origin's Snorlax TG10 as TCGdex lists it, with the TCGplayer price its product has on other days. */
-  const snorlaxPriced = () => {
-    const c = JSON.parse(fixture('tcgdex-snorlax-tg.json'));
-    const tcgplayer = { holofoil: { productId: 284270, marketPrice: 4.25 } };
-    c.pricing.tcgplayer = tcgplayer;
-    for (const v of c.variants_detailed) v.pricing.tcgplayer = tcgplayer;
-    return Response.json(c);
-  };
-
   it('pictures a card from its TCGplayer product when TCGdex has no picture', async () => {
-    // Lost Origin's Trainer Gallery Snorlax: TCGdex has no picture of it, but names its TCGplayer product (and prices it).
+    // Lost Origin's Trainer Gallery Snorlax: TCGdex has no picture of it, nor a TCGplayer price today, but names its TCGplayer product.
     const snorlax = (over: Record<string, unknown> = {}) => ({ name: 'Snorlax', set: 'Lost Origin Trainer Gallery', number: 'TG10/TG30', rarity: 'Rare', status: 'binder', prices: [], details: { source: 'tcgdex', result: 'complete', id: 'swsh11tg-TG10', checkedAt: '2026-10-01T00:00:00Z' }, ...over });
     store.set('cards', 'tg', snorlax());
     store.set('cards', 'off', snorlax({ pricing: { source: 'none', pair: { source: 'tcgplayer', off: true } } }));
-    const tgNet = () => dbNet({ 'api.tcgdex.net/v2/en/cards/swsh11tg-TG10': snorlaxPriced });
+    const tgNet = () => dbNet({ 'api.tcgdex.net/v2/en/cards/swsh11tg-TG10': () => Response.json(JSON.parse(fixture('tcgdex-snorlax-tg.json'))) });
     const net = tgNet();
     const s = await noPc(net).runAll('manual');
-    expect(s.counts).toMatchObject({ updated: 2 });
+    expect(s.counts).toMatchObject({ updated: 0, needsMatch: 2 });
     const tg = store.get('cards', 'tg')!;
-    expect(tg.prices).toEqual([expect.objectContaining({ where: 'TCGplayer' })]);
+    expect(tg.prices).toEqual([]);
     expect(tg.pricing).toMatchObject({ imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/284270_in_1000x1000.jpg' });
     expect(fs.readFileSync(assets.find(tg.officialImageId as string)!.file)).toEqual(JPEG);
     // Not when the person turned TCGplayer off for the card.
@@ -909,7 +900,7 @@ describe('prices and pictures from the card databases', () => {
     const small = assets.put(Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('tcgdex picture')]))!;
     store.set('cards', 'small', lapras({ variant: '', officialImageId: small.id, pricing: { source: 'tcgplayer', id: '516694', linkedBy: 'auto', imageUrl: 'https://assets.tcgdex.net/en/sv/sv03.5/131/high.png' } }));
     store.set('cards', 'sold', { ...snorlax, status: 'sold' });
-    const tgNet = () => dbNet({ 'api.tcgdex.net/v2/en/cards/swsh11tg-TG10': snorlaxPriced });
+    const tgNet = () => dbNet({ 'api.tcgdex.net/v2/en/cards/swsh11tg-TG10': () => Response.json(JSON.parse(fixture('tcgdex-snorlax-tg.json'))) });
 
     // Pictures only: the card without one and the one with TCGdex's small picture (not the pictured
     // one, nor the sold one); no price, no exchange rate.
@@ -935,7 +926,7 @@ describe('prices and pictures from the card databases', () => {
     net = tgNet();
     s = await noPc(net).runAll('manual', 'prices');
     expect(s).toMatchObject({ scope: 'prices' });
-    expect(store.get('cards', 'tg')!.prices).toEqual([expect.objectContaining({ where: 'TCGplayer' })]);
+    expect(store.get('cards', 'tg')!.prices).toEqual([]);
     expect(store.get('cards', 'tg')!.officialImageId).toBeNull();
     expect(net.calls.some((u) => u.includes('_in_1000x1000.jpg') || u.includes('assets.tcgdex.net'))).toBe(false);
     expect(noPc(tgNet()).dueToday()).toBe(false);
@@ -948,7 +939,16 @@ describe('prices and pictures from the card databases', () => {
     expect(fills).toEqual([['tg', true], ['done', true], ['small', true], ['sold', true]]);
     expect(store.get('cards', 'tg')).toMatchObject({ pricing: { imageUrl: 'https://tcgplayer-cdn.tcgplayer.com/product/284270_in_1000x1000.jpg' } });
     // Still one automatic price a day.
-    expect(store.get('cards', 'tg')!.prices).toEqual([expect.objectContaining({ where: 'TCGplayer' })]);
+    expect(store.get('cards', 'tg')!.prices).toEqual([]);
+  });
+
+  it('gets no picture in a prices-only update for a card TCGdex knows but no source prices', async () => {
+    store.set('cards', 'tg', { name: 'Snorlax', set: 'Lost Origin Trainer Gallery', number: 'TG10/TG30', rarity: 'Rare', status: 'binder', prices: [], details: { source: 'tcgdex', result: 'complete', id: 'swsh11tg-TG10', checkedAt: '2026-10-01T00:00:00Z' } });
+    const net = dbNet({ 'api.tcgdex.net/v2/en/cards/swsh11tg-TG10': () => Response.json(JSON.parse(fixture('tcgdex-snorlax-tg.json'))) });
+    await noPc(net).runAll('manual', 'prices');
+    expect(store.get('cards', 'tg')).toMatchObject({ prices: [] });
+    expect(store.get('cards', 'tg')!.officialImageId ?? null).toBeNull();
+    expect(net.calls.some((u) => u.includes('_in_1000x1000.jpg') || u.includes('assets.tcgdex.net'))).toBe(false);
   });
 
   it("fills what the databases lack from TCGplayer's own catalog (tcgcsv.com): price, product, picture, rarity and release date", async () => {

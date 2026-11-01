@@ -834,6 +834,8 @@ export class PriceUpdater {
     // TCGplayer's own catalog, for a TCGplayer price, product, picture or details the databases lack.
     const tcq = await this.tcgcsvQuote(card, cat);
     const catPriced = (!!cat && !!cat.tcgplayer) || tcq?.usd != null;
+    // Cards the databases know but no source prices are still pictured, as the daily update did when Cardmarket priced them.
+    const pictureUnpriced = !!cat && !cat.unknownVariant && this.run?.scope !== 'prices';
     card = this.unlinkPlainProduct(id, card, cat);
     card = this.unlinkOtherPrinting(id, card);
 
@@ -862,6 +864,7 @@ export class PriceUpdater {
       card = this.store.get('cards', id) as Card;
       if (unmatched && !catPriced) {
         if (cat) this.patchLink(id, { catalog: catalogOf(cat) });
+        if (pictureUnpriced) await this.savePicture(id, this.store.get('cards', id) as Card, cat, tcq);
         return unmatched;
       }
     }
@@ -871,7 +874,10 @@ export class PriceUpdater {
     await this.findPair(id, cat, tcq);
     card = this.store.get('cards', id) as Card;
     const link = isLinked(card.pricing) ? card.pricing : null;
-    if (!link && !catPriced) return unmatched ?? 'skipped';
+    if (!link && !catPriced) {
+      if (pictureUnpriced) await this.savePicture(id, card, cat, tcq);
+      return unmatched ?? 'skipped';
+    }
     const pair = link && pairLinked(link.pair) && link.pair.source !== link.source ? link.pair : null;
 
     // Both sites at once: the main product gives details too, the pair only its price. TCGplayer's
@@ -1084,10 +1090,15 @@ export class PriceUpdater {
     if (card.pricing?.source === 'off') return 'off';
     if (card.status === 'sold' || card.status === 'traded') return 'skipped';
     const cat = await this.catalogQuote(card);
+    const tcq = await this.tcgcsvQuote(card, cat);
+    return this.savePicture(id, card, cat, tcq);
+  }
+
+  /** Fetch and save the best picture for a card whose TCGdex quote (and TCGplayer catalog quote) are known; no price is logged. */
+  private async savePicture(id: string, card: Card, cat: CatalogQuote | null, tcq: TcgCsvQuote | null): Promise<CardOutcome> {
     const link = isLinked(card.pricing) ? card.pricing : null;
     const pair = link && pairLinked(link.pair) && link.pair.source !== link.source ? link.pair : null;
     const mainImage = link?.source === 'tcgplayer' ? tcgImage(link.id, 1000) : null;
-    const tcq = await this.tcgcsvQuote(card, cat);
     const image = await this.fetchImage(card, this.pictureUrls(card, cat, link, pair, mainImage, tcq));
     // Network work is done: re-read the card so nothing the person changed meanwhile is lost.
     const fresh = this.store.get('cards', id) as Card | undefined;
