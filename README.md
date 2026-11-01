@@ -854,9 +854,9 @@ own phone, without an account:
    the price you set for guests (shown to the cent, like $2.50).
    They can search like *Find a card* (name, set, set code or number), sort by price, name or
    set date, and open **Filters** to narrow the cards by set, release year, price, rarity, variant,
-   language, condition or grade and illustrator (each choice shows how many cards have it; a choice you picked stays listed, with 0, if its last
-   card sells while you look; filters
-   combine with the search and the sort, and **Clear filters** starts over). They tap a card to flip
+   language, condition or grade and illustrator (each choice shows how many cards have it; a choice
+   you picked stays listed, with 0, if its last card sells while you look; filters combine with the
+   search and the sort, and **Clear filters** starts over). They tap a card to flip
    through them all full screen (swipe, or the arrow keys), just the filtered ones when filters are
    on. The *Binders* view isn't filtered, and nothing about who owns a card is shown.
    Their page updates live: a card you list shows up, and one you delist or sell disappears
