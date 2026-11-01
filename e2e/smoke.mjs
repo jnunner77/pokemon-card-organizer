@@ -72,6 +72,8 @@ try {
   // Find it by set code and number: Show in binder highlights its pocket; Full screen opens the viewer.
   await page.getByRole('tab', { name: /Sales/ }).click();
   await page.keyboard.press('/');
+  // "/" opens Find on any card in the card database; these steps look in the ledger.
+  await page.getByRole('button', { name: 'Your cards' }).click();
   await page.locator('#findQ').fill('obf 125');
   await page.locator('.find-item').filter({ hasText: 'Charizard ex' }).waitFor();
   await page.getByRole('button', { name: 'Show in binder', exact: true }).click();
@@ -118,6 +120,7 @@ try {
   await page.keyboard.press('Escape');
   await page.locator('.casegrid [data-card]').filter({ hasText: 'Charizard ex' }).waitFor();
   await page.keyboard.press('/');
+  await page.getByRole('button', { name: 'Your cards' }).click();
   await page.locator('#findQ').fill('charizard');
   await page.getByRole('button', { name: 'Show in case', exact: true }).click();
   await page.locator('.casegrid .pocket.found').filter({ hasText: 'Charizard ex' }).waitFor();
