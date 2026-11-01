@@ -272,8 +272,11 @@ try {
   if (gFiltOverflow > 1) fail(`phone guest page with filters open scrolls sideways by ${gFiltOverflow}px`);
   await g.locator('.empty-state [data-gclear]').click();
   await g.locator('.gcard').filter({ hasText: 'Pikachu' }).waitFor();
-  await g.locator('#gfSet').selectOption({ label: 'Base Set (1)' });
-  if ((await g.locator('.gcard').count()) !== 1) fail('filtering by set hides the card for sale');
+  // One set, one year and no more: nothing to choose, so those fields stay hidden; price shows at 16px.
+  if (await g.locator('[data-gff="set"]').isVisible()) fail('the Set filter shows with a single set');
+  if (await g.locator('[data-gff="year"]').isVisible()) fail('the Released filter shows with fewer than two years');
+  const priceSize = await g.locator('#gfPMin').evaluate(el => getComputedStyle(el).fontSize);
+  if (priceSize !== '16px') fail(`phone price filter is ${priceSize}, not 16px (iOS zooms in below that)`);
   await g.locator('#gFilters [data-gclear]').click();
   await g.locator('#gFiltBtn').filter({ hasText: /^Filters$/ }).waitFor();
   await g.locator('#gFiltBtn').click();

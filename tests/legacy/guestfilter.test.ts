@@ -29,6 +29,7 @@ interface GuestFilter {
   count(f: Filters): number;
   match(c: Card, f: Filters): boolean;
   choices(cards: Card[], f: Filters): Record<string, Choice[]>;
+  visible(ch: Record<string, Choice[]>, f: Filters): Record<string, boolean>;
   fromStore(x: unknown): Filters;
 }
 const sandbox = { window: {} as { GuestFilter: GuestFilter } };
@@ -123,6 +124,18 @@ describe('the guest page filters', () => {
     expect(c.set.find((o) => o.value === 'Gone')).toMatchObject({ count: 0 });
     expect(c.rarity).toEqual([{ value: 'Rare', label: 'Rare', count: 0 }]);
     expect(c.years.map((o) => o.value)).toEqual(['1990', '1999']);
+  });
+
+  it('hide a field with fewer than two values unless it is set; price always shows', () => {
+    const one = [{ set: 'Jungle', released: '1999-06-16', rarity: 'Rare' }];
+    const v = F.visible(F.choices(one, F.EMPTY), F.EMPTY);
+    expect([v.set, v.year, v.rarity, v.artist, v.price]).toEqual([false, false, false, false, true]);
+    const set = f({ set: 'Jungle', yTo: '1999' });
+    const w = F.visible(F.choices(one, set), set);
+    expect([w.set, w.year, w.rarity]).toEqual([true, true, false]);
+    const two = [...one, { set: 'Base Set', released: '2000-01-01', rarity: 'Common' }];
+    const x = F.visible(F.choices(two, F.EMPTY), F.EMPTY);
+    expect([x.set, x.year, x.rarity]).toEqual([true, true, true]);
   });
 
   it('read back only known text from the tab storage', () => {

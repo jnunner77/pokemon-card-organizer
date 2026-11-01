@@ -61,6 +61,17 @@
     return out;
   }
 
+  /* Which list fields to show: one with fewer than two values has nothing to choose, so it's hidden
+     unless it's already set. Price is a free range and always shows. */
+  function visible(ch, f) {
+    f = { ...EMPTY, ...f };
+    const out = {};
+    for (const k of FIELDS) out[k] = ch[k].length >= 2 || !!f[k];
+    out.year = ch.years.length >= 2 || !!(f.yFrom || f.yTo);
+    out.price = true;
+    return out;
+  }
+
   /* filters kept for the tab: only the known keys, only text */
   function fromStore(x) {
     const f = { ...EMPTY };
@@ -68,5 +79,5 @@
     return f;
   }
 
-  root.GuestFilter = { EMPTY, FIELDS, count, match, choices, fromStore, setOf, shapeOf, yearOf };
+  root.GuestFilter = { EMPTY, FIELDS, count, match, choices, visible, fromStore, setOf, shapeOf, yearOf };
 })(typeof window !== "undefined" ? window : globalThis);

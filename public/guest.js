@@ -228,9 +228,8 @@
       if (sel.dataset.html !== html) { sel.innerHTML = html; sel.dataset.html = html; }
       if (sel.value !== G.filt[k]) sel.value = G.filt[k];
     }
-    for (const k of ["rarity", "variant", "language", "shape", "artist"]) {
-      document.querySelector(`[data-gff="${k}"]`).hidden = ch[k].length < 2 && !G.filt[k];
-    }
+    const vis = GF.visible(ch, G.filt);
+    for (const k of [...GF.FIELDS, "year", "price"]) document.querySelector(`[data-gff="${k}"]`).hidden = !vis[k];
     if (document.activeElement !== $("gfPMin")) $("gfPMin").value = G.filt.pMin;
     if (document.activeElement !== $("gfPMax")) $("gfPMax").value = G.filt.pMax;
     document.querySelectorAll("#gFilters [data-gclear]").forEach(b => { b.disabled = !n; });
