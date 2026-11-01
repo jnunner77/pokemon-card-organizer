@@ -49,6 +49,8 @@ describe('checking a card', () => {
     assert.equal(problem(checkDocument('cards', cardFields({ prices: [{ amount: 1, currency: 'CAD' }] }))), 'prices.0.type: Required');
     assert.equal(problem(checkDocument('cards', cardFields({ prices: 'none' }))), 'prices: Expected a list');
     assert.equal(problem(checkDocument('cards', cardFields({ prices: [{ type: 'market', amount: 1, currency: 'CAD', quotes: { amazon: 3 } }] }))), 'prices.0.quotes.amazon: Expected one of "pricecharting", "tcgplayer", "cardmarket", "ebay"');
+    // Daily prices logged while Cardmarket was a source still validate.
+    value(checkDocument('cards', cardFields({ prices: [{ type: 'market', amount: 3, currency: 'CAD', auto: true, usd: 2.2, where: 'Cardmarket', quotes: { cardmarket: 3.44, tcgplayer: 2.12 } }] })));
     value(checkDocument('cards', cardFields({ prices: [{ type: 'market', amount: 1, currency: 'CAD', auto: true, usd: 0.7, quotes: { pricecharting: 0.7, tcgplayer: 0.6 }, extra: 'kept' }] })));
   });
 

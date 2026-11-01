@@ -68,7 +68,7 @@ if (/^(1|true|yes)$/i.test(env['EVENT_LOG'] ?? '')) events.subscribe((e) => log.
 
 // CARD_LOOKUPS=off: no TCGdex lookups (card details, Any card, master sets) at all.
 const cardDatabase = env['CARD_LOOKUPS'] === 'off' ? undefined : new TcgdexCardDatabase();
-// TCGplayer and Cardmarket prices and pictures from TCGdex.
+// TCGplayer prices and pictures from TCGdex.
 const catalog = cardDatabase ? new Catalog() : undefined;
 // PriceCharting's API, with the token administrators enter under Administration → Prices.
 const pcToken = new FileSecret(secretsDir, 'pricecharting-token');

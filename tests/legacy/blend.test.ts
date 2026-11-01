@@ -11,38 +11,40 @@ vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public/blend.js')
 const B = sandbox.window.BinderBlend;
 
 describe('the blended daily price', () => {
-  it('weighs PriceCharting 40%, TCGplayer 40% and Cardmarket 20%', () => {
-    const r = B.price({ pricecharting: 100, tcgplayer: 110, cardmarket: 90 })!;
-    expect(r).toMatchObject({ usd: 102, where: 'Blend', used: { pricecharting: 0.4, tcgplayer: 0.4, cardmarket: 0.2 }, out: [], anchor: 'pricecharting' });
-    expect(r.summary).toBe('blend of PriceCharting US$100.00 (40%), TCGplayer US$110.00 (40%), Cardmarket US$90.00 (20%)');
+  it('weighs PriceCharting 50% and TCGplayer 50%', () => {
+    const r = B.price({ pricecharting: 100, tcgplayer: 110 })!;
+    expect(r).toMatchObject({ usd: 105, where: 'Blend', used: { pricecharting: 0.5, tcgplayer: 0.5 }, out: [], anchor: 'pricecharting' });
+    expect(r.summary).toBe('blend of PriceCharting US$100.00 (50%), TCGplayer US$110.00 (50%)');
   });
 
   it('leaves out a source more than 25% from PriceCharting, giving its share to PriceCharting', () => {
-    // The Magikarp: TCGplayer and Cardmarket were Paldea Evolved's.
-    const r = B.price({ pricecharting: 102.71, tcgplayer: 352.67, cardmarket: 393.61 })!;
-    expect(r).toMatchObject({ usd: 102.71, where: 'PriceCharting', used: { pricecharting: 1 }, out: ['tcgplayer', 'cardmarket'] });
-    expect(r.summary).toBe('PriceCharting US$102.71 · left out (more than 25% from PriceCharting): TCGplayer US$352.67, Cardmarket US$393.61');
-    // One out of three: its 20% goes to PriceCharting (60/40).
-    const one = B.price({ pricecharting: 100, tcgplayer: 120, cardmarket: 200 })!;
-    expect(one).toMatchObject({ usd: 108, used: { pricecharting: 0.6, tcgplayer: 0.4 }, out: ['cardmarket'] });
+    // The Magikarp: TCGplayer's price was Paldea Evolved's.
+    const r = B.price({ pricecharting: 102.71, tcgplayer: 352.67 })!;
+    expect(r).toMatchObject({ usd: 102.71, where: 'PriceCharting', used: { pricecharting: 1 }, out: ['tcgplayer'] });
+    expect(r.summary).toBe('PriceCharting US$102.71 · left out (more than 25% from PriceCharting): TCGplayer US$352.67');
     // Exactly 25% away still counts; below the anchor counts the same as above it.
     expect(B.price({ pricecharting: 100, tcgplayer: 125 })!.out).toEqual([]);
     expect(B.price({ pricecharting: 1.2, tcgplayer: 1.5 })!.out).toEqual([]);
     expect(B.price({ pricecharting: 100, tcgplayer: 70 })!.out).toEqual(['tcgplayer']);
   });
 
-  it('shares a missing source’s weight among the others', () => {
+  it('uses the one source that has a price', () => {
     expect(B.price({ pricecharting: 100, tcgplayer: 120 })).toMatchObject({ usd: 110, used: { pricecharting: 0.5, tcgplayer: 0.5 } });
-    expect(B.price({ tcgplayer: 100, cardmarket: 90 })).toMatchObject({ usd: 96.67, anchor: 'tcgplayer' });
-    expect(B.price({ cardmarket: 90 })).toMatchObject({ usd: 90, where: 'Cardmarket', summary: 'Cardmarket US$90.00' });
+    expect(B.price({ tcgplayer: 100 })).toMatchObject({ usd: 100, where: 'TCGplayer', anchor: 'tcgplayer', summary: 'TCGplayer US$100.00' });
     expect(B.price({})).toBeNull();
     expect(B.price({ pricecharting: 0, tcgplayer: null })).toBeNull();
   });
 
+  it('ignores a Cardmarket quote (it is no longer a source)', () => {
+    expect(B.price({ pricecharting: 100, cardmarket: 90 })).toMatchObject({ usd: 100, where: 'PriceCharting', used: { pricecharting: 1 } });
+    expect(B.price({ pricecharting: 100, tcgplayer: 110, cardmarket: 90 })!.usd).toBe(105);
+    expect(B.price({ cardmarket: 90 })).toBeNull();
+  });
+
   it('takes the highest within 25% of PriceCharting, or PriceCharting’s price', () => {
     const o = { method: 'highest' };
-    expect(B.price({ pricecharting: 100, tcgplayer: 120, cardmarket: 90 }, o)).toMatchObject({ usd: 120, where: 'TCGplayer', summary: 'highest of PriceCharting US$100.00, TCGplayer US$120.00, Cardmarket US$90.00' });
-    const far = B.price({ pricecharting: 102.71, tcgplayer: 352.67, cardmarket: 120 }, o)!;
+    expect(B.price({ pricecharting: 100, tcgplayer: 120 }, o)).toMatchObject({ usd: 120, where: 'TCGplayer', summary: 'highest of PriceCharting US$100.00, TCGplayer US$120.00' });
+    const far = B.price({ pricecharting: 102.71, tcgplayer: 352.67 }, o)!;
     expect(far).toMatchObject({ usd: 102.71, where: 'PriceCharting', out: ['tcgplayer'] });
     expect(far.summary).toBe('PriceCharting US$102.71 · the highest, TCGplayer US$352.67, is more than 25% from PriceCharting');
     // PriceCharting itself the highest: it's the anchor, so it's taken.
@@ -51,9 +53,11 @@ describe('the blended daily price', () => {
 
   it('PriceCharting first, and its own weights and tolerance', () => {
     expect(B.price({ pricecharting: 100, tcgplayer: 120 }, { method: 'pricecharting' })).toMatchObject({ usd: 100, where: 'PriceCharting' });
-    expect(B.price({ tcgplayer: 120, cardmarket: 90 }, { method: 'pricecharting' })).toMatchObject({ usd: 120, where: 'TCGplayer' });
-    expect(B.price({ pricecharting: 100, tcgplayer: 140 }, { tolerance: 50, weights: { pricecharting: 50, tcgplayer: 50, cardmarket: 0 } })).toMatchObject({ usd: 120, out: [] });
-    expect(B.settings({ method: 'nonsense', tolerance: -3, weights: { tcgplayer: 'x' } })).toEqual({ method: 'blend', weights: { pricecharting: 40, tcgplayer: 40, cardmarket: 20 }, tolerance: 25 });
+    expect(B.price({ tcgplayer: 120 }, { method: 'pricecharting' })).toMatchObject({ usd: 120, where: 'TCGplayer' });
+    expect(B.price({ pricecharting: 100, tcgplayer: 140 }, { tolerance: 50, weights: { pricecharting: 50, tcgplayer: 50 } })).toMatchObject({ usd: 120, out: [] });
+    expect(B.settings({ method: 'nonsense', tolerance: -3, weights: { tcgplayer: 'x' } })).toEqual({ method: 'blend', weights: { pricecharting: 50, tcgplayer: 50 }, tolerance: 25 });
+    // A saved Cardmarket weight never comes through.
+    expect(B.settings({ weights: { pricecharting: 40, tcgplayer: 40, cardmarket: 5 } }).weights).toEqual({ pricecharting: 40, tcgplayer: 40 });
   });
 });
 
@@ -81,9 +85,10 @@ describe('rebuilding past daily prices', () => {
     store.set('cards', 'a', {
       name: 'Pikachu', status: 'binder',
       prices: [
-        day('2026-10-09', { pricecharting: 100, tcgplayer: 110, cardmarket: 90 }), // blend 102 (was 110)
+        day('2026-10-09', { pricecharting: 100, tcgplayer: 110, cardmarket: 90 }), // blend 105 without Cardmarket (was 110)
         day('2026-10-10', { pricecharting: 102.71, tcgplayer: 352.67 }), // TCGplayer left out: 102.71 (was 352.67)
         day('2026-10-08', { pricecharting: 900 }, { grade: 'PSA 10' }), // graded: as it is
+        day('2026-10-07', { cardmarket: 50 }), // only Cardmarket: as it is
         { id: 'old', date: '2026-10-01', type: 'market', currency: 'CAD', auto: true, usd: 50, amount: 70, where: 'TCGplayer' }, // no quotes: as it is
         { id: 'mine', date: '2026-10-05', type: 'paid', currency: 'CAD', amount: 80 },
       ],
@@ -99,15 +104,16 @@ describe('rebuilding past daily prices', () => {
     expect(done).toMatchObject({ prices: 3, copy: 'db-snapshot-x.json' });
     expect(copied).toBe(true);
     const a = Object.fromEntries((store.get('cards', 'a')!.prices as { id: string }[]).map((e) => [e.id, e])) as unknown as Record<string, { amount: number; usd: number; where: string; note: string }>;
-    expect(a['2026-10-09']).toMatchObject({ usd: 102, amount: 142.8, where: 'Blend' });
-    expect(a['2026-10-09'].note).toBe('Daily update · blend of PriceCharting US$100.00 (40%), TCGplayer US$110.00 (40%), Cardmarket US$90.00 (20%) at 1.4000 (rebuilt: Blended)');
+    expect(a['2026-10-09']).toMatchObject({ usd: 105, amount: 147, where: 'Blend' });
+    expect(a['2026-10-09'].note).toBe('Daily update · blend of PriceCharting US$100.00 (50%), TCGplayer US$110.00 (50%) at 1.4000 (rebuilt: Blended)');
     expect(a['2026-10-10']).toMatchObject({ usd: 102.71, amount: 143.79, where: 'PriceCharting' });
     expect(a['2026-10-08']).toMatchObject({ amount: 1260 });
+    expect(a['2026-10-07']).toMatchObject({ usd: 50, amount: 70, where: 'x', quotes: { cardmarket: 50 } });
     expect(a.old).toMatchObject({ amount: 70 });
     expect(a.mine).toMatchObject({ amount: 80 });
     // Nothing more to do the second time; switching to Highest changes them again.
     expect(u.rebuildPrices(false).prices).toBe(0);
-    config.set({ priceMethod: { method: 'highest', weights: { pricecharting: 40, tcgplayer: 40, cardmarket: 20 }, tolerance: 25 } });
+    config.set({ priceMethod: { method: 'highest', weights: { pricecharting: 50, tcgplayer: 50 }, tolerance: 25 } });
     u.rebuildPrices(true);
     const h = Object.fromEntries((store.get('cards', 'a')!.prices as { id: string }[]).map((e) => [e.id, e])) as unknown as Record<string, { usd: number; where: string }>;
     expect(h['2026-10-09']).toMatchObject({ usd: 110, where: 'TCGplayer' });
@@ -123,8 +129,9 @@ describe('rebuilding past daily prices', () => {
     const log = new Logger({ stdout: false });
     const app = createApp({ store, assets: (u as unknown as { assets: never }).assets, log, config, updater: u, publicDir: path.join(__dirname, '../../public') });
     store.set('cards', 'a', { name: 'Pikachu', status: 'binder', prices: [day('2026-10-09', { pricecharting: 100, tcgplayer: 110 })] });
-    await request(app).put('/api/admin/pricing/method').send({ method: 'blend', weights: { pricecharting: 0, tcgplayer: 0, cardmarket: 0 }, tolerance: 25 }).expect(400);
-    await request(app).put('/api/admin/pricing/method').send({ method: 'pricecharting', weights: { pricecharting: 40, tcgplayer: 40, cardmarket: 20 }, tolerance: 25 }).expect(200);
+    await request(app).put('/api/admin/pricing/method').send({ method: 'blend', weights: { pricecharting: 0, tcgplayer: 0 }, tolerance: 25 }).expect(400);
+    await request(app).put('/api/admin/pricing/method').send({ method: 'blend', weights: { pricecharting: 40, tcgplayer: 40, cardmarket: 20 }, tolerance: 25 }).expect(400);
+    await request(app).put('/api/admin/pricing/method').send({ method: 'pricecharting', weights: { pricecharting: 50, tcgplayer: 50 }, tolerance: 25 }).expect(200);
     expect(store.get('settings', 'pricing')).toMatchObject({ priceMethod: { method: 'pricecharting' } });
     expect((await request(app).post('/api/admin/pricing/rebuild').send({}).expect(200)).body).toMatchObject({ prices: 1, copy: null });
     const r = await request(app).post('/api/admin/pricing/rebuild').send({ apply: true }).expect(200);
@@ -140,7 +147,7 @@ describe('rebuilding past daily prices', () => {
     const { dir, store, config, u } = await setup();
     const app = createApp({ store, assets: (u as unknown as { assets: never }).assets, log: new Logger({ stdout: false }), config, updater: u, publicDir: path.join(__dirname, '../../public') });
     store.set('cards', 'a', { name: 'Pikachu', status: 'binder', prices: [day('2026-10-09', { pricecharting: 100, tcgplayer: 110 })] });
-    await request(app).put('/api/admin/pricing/method').send({ method: 'pricecharting', weights: { pricecharting: 40, tcgplayer: 40, cardmarket: 20 }, tolerance: 25 }).expect(200);
+    await request(app).put('/api/admin/pricing/method').send({ method: 'pricecharting', weights: { pricecharting: 50, tcgplayer: 50 }, tolerance: 25 }).expect(200);
     expect((await request(app).post('/api/admin/pricing/rebuild').send({ apply: true }).expect(200)).body.copy).toMatch(/^db-snapshot-/);
     const again = await request(app).post('/api/admin/pricing/rebuild').send({ apply: true }).expect(200);
     expect(again.body).toMatchObject({ cards: 0, copy: null });

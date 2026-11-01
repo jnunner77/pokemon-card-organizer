@@ -25,8 +25,10 @@ Every morning (after 5:00 in your time zone, catching up if the server was off) 
    before this was checked is matched again. A card
    PriceCharting had no certain match for is searched again a week later.
 2. **Logs today's market price** in CAD, worked out from PriceCharting's ungraded price (recent
-   eBay sales), TCGplayer's market price (recent TCGplayer sales) and Cardmarket's trend (Europe,
-   in euros), converted at the Bank of Canada's daily rates. By default it's a **blend**, as apps
+   eBay sales), TCGplayer's market price (recent TCGplayer sales), converted at the Bank of Canada's daily
+   US$ to CA$ rate. PriceCharting and TCGplayer are the only price sources: Cardmarket was dropped
+   as one, and past daily prices that included it keep it in their working until they age out or
+   are rebuilt. By default it's a **blend**, as apps
    like Collectr do (see [How a card's daily price is worked out](#how-a-cards-daily-price-is-worked-out)).
    A **graded card** (its *Graded by* and *Grade* set) is valued at PriceCharting's price for its
    grader and grade instead (Grade 7, 8, 9, 9.5, PSA 10, BGS 10, CGC 10, SGC 10, TAG 10, ACE 10…),
@@ -34,17 +36,17 @@ Every morning (after 5:00 in your time zone, catching up if the server was off) 
    the ungraded price, and its drawer says so. When PriceCharting doesn't answer for its product, or
    is paused, a graded card's last price stays until PriceCharting answers, rather than the
    ungraded one being logged.
-   TCGplayer's and Cardmarket's prices come from TCGdex's free API, refreshed daily, for the
+   TCGplayer's prices come from TCGdex's free API, refreshed daily, for the
    card's own variant: TCGdex lists each card's regular, reverse holo and holo printings, patterns
    (Poké Ball, Master Ball, Cosmos…), stamps, 1st Edition and Shadowless separately, each with its
-   own TCGplayer and Cardmarket products. The card's **Variant** picks one ("Master Ball",
+   own TCGplayer product. The card's **Variant** picks one ("Master Ball",
    "1st Edition Shadowless", "Pokemon Together Stamp"); a variant TCGdex doesn't list, or lists
    without a price, is never given another printing's price. TCGplayer's own catalog stands in
    for TCGplayer's price when TCGdex has none (see *TCGplayer's own catalog* below). The entry says
    which source it came from
    and keeps every price. If a source has no match, no price or doesn't answer, the others are
    used, and a card the card database prices is priced even before it's matched on PriceCharting.
-   Cardmarket can be left out under **Administration → Prices**. Each day adds one entry; the last
+   Each day adds one entry; the last
    30 days are kept, and older automatic entries are thinned to one a week (the last of each
    week) for the Pricing view's longer ranges. Prices you log yourself (what you paid, sales,
    listings, your own market prices) are never changed.
@@ -113,11 +115,11 @@ No site's pages are read: every price comes from an API.
     growing waits and its *Retry-After* (in seconds or as a date), within 90 seconds; never for an
     answer that won't change (400, 401, 403, 404).
 
-  While PriceCharting is paused, the update prices from TCGplayer and Cardmarket and asks it again
+  While PriceCharting is paused, the update prices from TCGplayer and asks it again
   afterwards by itself. *Administration → Prices* shows the calls made today against the budget,
   and a red notice while it's paused and why. If it stops accepting the token,
-  that update stops asking it, prices every card from TCGplayer and Cardmarket, and *Recent
-  updates* says why. Without a token, prices come from TCGplayer and Cardmarket only. Guests may
+  that update stops asking it, prices every card from TCGplayer, and *Recent
+  updates* says why. Without a token, prices come from TCGplayer only. Guests may
   see PriceCharting's values: the owner has PriceCharting's written permission. When the subscription ends, *Purge
   PriceCharting data* on the same page removes the token and everything that came from
   PriceCharting, as its terms ask: cards' PriceCharting matches, its prices in the daily price log
@@ -252,28 +254,28 @@ prices use it from the next update, and *Rebuild past daily prices…* works the
 again with it.
 
 - **PriceCharting is the anchor** (eBay sold prices: what collectors pay each other); TCGplayer
-  when PriceCharting has no price that day, then Cardmarket. A source further from it than the
+  when PriceCharting has no price that day. A source further from it than the
   **tolerance** (25%) is taken to be another card's price.
-- **Blended** (the default): the weighted average of the sources, **PriceCharting 40%,
-  TCGplayer 40%, Cardmarket 20%**. A source left out gives its weight to PriceCharting; one with no
-  price that day shares its weight among the others. PriceCharting US$100, TCGplayer US$110,
-  Cardmarket US$90 → US$102; PriceCharting US$102.71, TCGplayer US$352.67 (another card's) →
+- **Blended** (the default): the weighted average of the sources, **PriceCharting 50%,
+  TCGplayer 50%**. A source left out gives its weight to PriceCharting; one with no
+  price that day shares its weight among the others. PriceCharting US$100, TCGplayer US$110
+  → US$105; PriceCharting US$102.71, TCGplayer US$352.67 (another card's) →
   US$102.71.
 - **Highest**: the highest source, unless it's more than the tolerance from PriceCharting; then
   PriceCharting's price.
-- **PriceCharting first**: PriceCharting's price, else TCGplayer's, else Cardmarket's.
+- **PriceCharting first**: PriceCharting's price, else TCGplayer's.
 - A **graded card** is always PriceCharting's price for its grade.
-- **PriceCharting knows every set and variant; the card databases don't.** TCGplayer's and
-  Cardmarket's prices come through TCGdex, which has subsets of them. So when a card has a
+- **PriceCharting knows every set and variant; the card databases don't.** TCGplayer's
+  prices come through TCGdex, which has subsets of them. So when a card has a
   PriceCharting product, they count only when TCGdex's card is from the same set as PriceCharting's
   product (a reprint sub-set like the 30th Classic Collection counts as 30th Celebration) and, for
   a product of a variant beyond the plain printings (a stamp, a Poké Ball pattern), the card is
   priced for that variant. Otherwise PriceCharting's price stands alone, and the day's note says
-  why (*TCGplayer and Cardmarket left out: the card database's card is from Paldea Evolved,
+  why (*TCGplayer left out: the card database's card is from Paldea Evolved,
   PriceCharting's product from 30th Celebration*). The rebuild applies this to past days too.
 
 The weights and the tolerance can be changed there too. Each daily price's note shows the working
-(*blend of PriceCharting US$100.00 (40%), TCGplayer US$110.00 (40%), Cardmarket US$90.00 (20%)*,
+(*blend of PriceCharting US$100.00 (50%), TCGplayer US$110.00 (50%)*,
 or what was left out and why), and the card's drawer says which method is used.
 
 **Rebuild past daily prices…** shows what would change first (how many daily prices on how many
@@ -781,7 +783,7 @@ when you've rearranged the binder and want to keep the new layout instead.
   its picture, set, number, rarity and illustrator at once, with **Add** and **Watch price** ready;
   what it's worth today in CAD fills in a moment later (a printing chosen meanwhile stays), worked out as
   the daily update would price it (see *How a card's daily price is worked out*), for each of its
-  printings (regular, reverse holo, patterns, stamps, 1st Edition…), with TCGplayer's, Cardmarket's
+  printings (regular, reverse holo, patterns, stamps, 1st Edition…), with TCGplayer's
   and PriceCharting's prices, PriceCharting's graded prices, and links to its products. Nothing is
   added to the ledger; with a binder open, **Add to `<binder>`** puts it, in the printing chosen,
   in that binder's next empty pocket (a display case just takes it) and shows it there, with
@@ -1113,7 +1115,7 @@ asks `IdentifyCaller` and `IdentifyGuest` who is calling, decides which pages ne
 applies the rate limits (not to signed-in administrators).
 
 - `server/pricing/`: `pricecharting.ts` (PriceCharting's API, price guide download and graded prices), `tcgcsv.ts` (finding a card in TCGplayer's own catalog), `catalog.ts`
-  (TCGdex: TCGplayer and Cardmarket prices, pictures), `sources.ts` (the price sites' answers,
+  (TCGdex: TCGplayer prices, pictures), `sources.ts` (the price sites' answers,
   Bank of Canada), `match.ts` (which product is this card), `any-card.ts` (any card's prices today,
   for Find a card → Any card), `updater.ts` (the daily run, per-card updates and the PriceCharting
   purge). They read cards with the domain's rules (`src/domain/catalog/`) and download with the

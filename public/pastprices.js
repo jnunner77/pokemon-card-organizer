@@ -7,6 +7,7 @@
 (function (root) {
   "use strict";
 
+  // (Cardmarket is no longer a source; old daily prices that included it keep it in their working.)
   const NAME = { pricecharting: "PriceCharting", tcgplayer: "TCGplayer", cardmarket: "Cardmarket" };
   const KEY = { PriceCharting: "pricecharting", TCGplayer: "tcgplayer", Cardmarket: "cardmarket" };
   const round2 = n => Math.round(n * 100) / 100;

@@ -10,8 +10,8 @@ import vm from 'node:vm';
 export type PriceMethod = 'blend' | 'highest' | 'pricecharting';
 export interface BlendSettings {
   method: PriceMethod;
-  /** Shares (any scale) for pricecharting, tcgplayer and cardmarket. */
-  weights: Record<'pricecharting' | 'tcgplayer' | 'cardmarket', number>;
+  /** Shares (any scale) for pricecharting and tcgplayer. */
+  weights: Record<'pricecharting' | 'tcgplayer', number>;
   /** How far (%) from the anchor (PriceCharting, else TCGplayer) a source may be and still count. */
   tolerance: number;
 }

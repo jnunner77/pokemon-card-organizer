@@ -3,7 +3,7 @@ import { ok, type Result } from '#shared/result.ts';
 import type { AdminDeps } from './deps.ts';
 import type { PriceUpdateSchedule } from './ports.ts';
 
-/** Turn the daily price update on or off, change its hour, or whether Cardmarket is compared. */
+/** Turn the daily price update on or off, or change its hour. */
 export class ChangePriceSchedule {
   readonly #deps: Pick<AdminDeps, 'settings' | 'prices' | 'log'>;
 

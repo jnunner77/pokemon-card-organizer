@@ -191,7 +191,7 @@ describe('the price update and a paused PriceCharting', () => {
     const api = pc(n);
     await expect(api.product('100')).rejects.toBeInstanceOf(Paused);
     const u = new PriceUpdater({ store: new Store(dir), assets: new Assets(dir), fetcher: n.fetcher, now: () => new Date(clock), delayMs: 0, pricecharting: api });
-    expect(u.siteOut('pricecharting')).toMatch(/^PriceCharting said too many requests \(429\).*TCGplayer and Cardmarket give prices meanwhile\.$/);
+    expect(u.siteOut('pricecharting')).toMatch(/^PriceCharting said too many requests \(429\).*TCGplayer gives prices meanwhile\.$/);
     expect(u.siteOut('tcgplayer')).toBeNull();
   });
 });

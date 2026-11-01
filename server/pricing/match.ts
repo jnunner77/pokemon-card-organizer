@@ -212,7 +212,7 @@ const searchName = (card: CardForMatch) =>
     .trim();
 
 /**
- * Why the card databases' prices (TCGplayer's and Cardmarket's, through TCGdex) aren't this card's,
+ * Why the card databases' prices (TCGplayer's, through TCGdex) aren't this card's,
  * judged against its PriceCharting product, which knows every set and variant; null when they are.
  * TCGdex's card must be from the same set as PriceCharting's product (a 30th Celebration reprint
  * isn't Paldea Evolved's card), and a product for a variant beyond the plain printings (a stamp, a

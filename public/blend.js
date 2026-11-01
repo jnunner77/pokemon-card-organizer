@@ -1,27 +1,27 @@
 /* How a card's daily price is worked out from its sources' US$ prices that day (PriceCharting's
-   ungraded price, TCGplayer's market price, Cardmarket's trend), the same way on the server (the
+   ungraded price, TCGplayer's market price), the same way on the server (the
    daily update, the history rebuild, the PriceCharting purge) and in the page (Fix past daily
-   prices). PriceCharting is the anchor (TCGplayer when PriceCharting has no price, then
-   Cardmarket): a source further than the tolerance from it is taken to be another card's price.
+   prices). PriceCharting is the anchor (TCGplayer when PriceCharting has no price): a source further than the tolerance from it is taken to be another card's price.
    - blend: the weighted average of the sources within the tolerance; a source outside it is left
      out and its weight goes to the anchor; a source with no price shares its weight among the rest.
    - highest: the highest source, unless it's outside the tolerance, then the anchor's price.
-   - pricecharting: PriceCharting's price, else TCGplayer's, else Cardmarket's.
+   - pricecharting: PriceCharting's price, else TCGplayer's.
    A plain script: the page uses window.BinderBlend, the server and the tests load it the same way. */
 (function (root) {
   "use strict";
 
-  const NAME = { pricecharting: "PriceCharting", tcgplayer: "TCGplayer", cardmarket: "Cardmarket" };
-  const ORDER = ["pricecharting", "tcgplayer", "cardmarket"];
-  const DEFAULTS = { method: "blend", weights: { pricecharting: 40, tcgplayer: 40, cardmarket: 20 }, tolerance: 25 };
+  const NAME = { pricecharting: "PriceCharting", tcgplayer: "TCGplayer" };
+  const ORDER = ["pricecharting", "tcgplayer"];
+  const DEFAULTS = { method: "blend", weights: { pricecharting: 50, tcgplayer: 50 }, tolerance: 25 };
   const METHODS = { blend: "Blended", highest: "Highest", pricecharting: "PriceCharting first" };
   const round2 = n => Math.round(n * 100) / 100;
   const pct = n => `${Math.round(n)}%`;
 
   /* The settings with their defaults filled in. */
   function settings(o) {
-    const w = { ...DEFAULTS.weights, ...((o && o.weights) || {}) };
-    for (const k of ORDER) w[k] = Number(w[k]) >= 0 ? Number(w[k]) : DEFAULTS.weights[k];
+    const saved = (o && o.weights) || {};
+    const w = {};
+    for (const k of ORDER) w[k] = Number(saved[k] ?? DEFAULTS.weights[k]) >= 0 ? Number(saved[k] ?? DEFAULTS.weights[k]) : DEFAULTS.weights[k];
     const t = Number(o && o.tolerance);
     return {
       method: o && METHODS[o.method] ? o.method : DEFAULTS.method,

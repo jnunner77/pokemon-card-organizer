@@ -5,7 +5,7 @@ import { isoDate } from './names.ts';
 
 type TcgplayerEntry = { readonly productId?: number | undefined; readonly marketPrice?: number | null | undefined };
 
-/** A card's (or one of its variants') prices: TCGplayer's by printing, and Cardmarket's (in euros). */
+/** A card's (or one of its variants') prices: TCGplayer's by printing (the binder reads only TCGplayer's; TCGdex also lists Cardmarket's, in euros). */
 export interface TcgdexPricing {
   readonly tcgplayer?: Readonly<Record<string, TcgplayerEntry | string>> | null | undefined;
   readonly cardmarket?: Readonly<Record<string, number | string | null>> | null | undefined;

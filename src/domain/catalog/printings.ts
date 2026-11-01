@@ -67,20 +67,6 @@ export function tcgdexTcgplayer(c: TcgdexCard, want: Printing): { usd: number; p
   return tcgplayerQuote(hit, hit?.productId);
 }
 
-/**
- * Cardmarket's trend price (€) for the printing, from a TCGdex card. Cardmarket keeps one product
- * per card: its "-holo" prices are the reverse holo; the plain ones are the card itself, holo rares
- * included.
- */
-export function tcgdexCardmarket(c: TcgdexCard, want: Printing): number | null {
-  const cm = c.pricing?.cardmarket;
-  if (!cm) return null;
-  const plain = usd(cm['trend']);
-  const reverse = usd(cm['trend-holo']);
-  if (want.kind === 'reverse') return reverse ?? (want.strict ? null : plain);
-  return plain ?? (want.strict ? null : reverse);
-}
-
 /** What sets a TCGdex variant apart from the regular card: its pattern, stamps and subtype ("unlimited" is the default). */
 export const featuresOf = (v: TcgdexVariant): string[] => [v.foil, ...(v.stamp ?? []), v.subtype && v.subtype !== 'unlimited' ? v.subtype : null].filter((f): f is string => !!f);
 
@@ -152,22 +138,15 @@ export function chooseVariant(c: TcgdexCard, variantText: unknown): ChosenVarian
   return { variant: null, special, unknown: true };
 }
 
-/**
- * A TCGdex variant's own prices: TCGplayer's market price (US$) for its product and Cardmarket's
- * trend (€; a reverse holo's is Cardmarket's "holo" price). Never another variant's.
- */
-export function variantPrices(v: TcgdexVariant): { tcgplayer: { usd: number; productId: string | null } | null; cardmarketEur: number | null } {
+/** A TCGdex variant's own prices: TCGplayer's market price (US$) for its product. Never another variant's. */
+export function variantPrices(v: TcgdexVariant): { tcgplayer: { usd: number; productId: string | null } | null } {
   const kind: Printing['kind'] = v.type === 'reverse' ? 'reverse' : v.type === 'holo' ? 'holo' : 'normal';
   const first = (v.stamp ?? []).includes('1st-edition');
   const list = v.pricing?.tcgplayer;
   const priced = (x: TcgplayerEntry) => usd(x.marketPrice) != null;
   // A pattern's own TCGplayer product (a Poké Ball reverse, say) is listed as a holofoil.
   const hit = pickPrinting<TcgplayerEntry>(list, { kind, first, strict: true }, priced) ?? (v.foil ? pickPrinting<TcgplayerEntry>(list, { kind: 'holo', first, strict: true }, priced) : null);
-  const cm = v.pricing?.cardmarket;
-  return {
-    tcgplayer: tcgplayerQuote(hit, v.thirdParty?.tcgplayer ?? hit?.productId),
-    cardmarketEur: cm ? usd(kind === 'reverse' ? cm['trend-holo'] : cm['trend']) : null,
-  };
+  return { tcgplayer: tcgplayerQuote(hit, v.thirdParty?.tcgplayer ?? hit?.productId) };
 }
 
 /** "Master Ball reverse", "1st Edition Shadowless holo": a TCGdex variant in words, for the price note. */

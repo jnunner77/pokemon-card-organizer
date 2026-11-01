@@ -10,7 +10,7 @@ import { type AnyCardDetails, detailsOf, readAnyCard } from './read-any-card.ts'
 export interface LookupCard extends Omit<AnyCardDetails, 'printings'> {
   readonly printings: readonly LookupPrinting[];
   /** CAD per US dollar and per euro. */
-  readonly rates: { readonly usd: number; readonly eur: number | null };
+  readonly rates: { readonly usd: number };
   /** What couldn't be had: a source that didn't answer, or has no match. */
   readonly notes: readonly string[];
 }

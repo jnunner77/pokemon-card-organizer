@@ -154,7 +154,7 @@ describe("one card's details and printings", () => {
     const t = setUp({ answers: tcgdex });
     const r = await show('base1-4', t);
     assert.ok(r.ok);
-    matches(r.value, { id: 'base1-4', name: 'Charizard', number: '4', total: 102, set: 'Base Set', setCode: 'BS', rarity: 'Rare', artist: 'Mitsuhiro Arita', released: '1999-01-09', image: 'https://assets.tcgdex.net/en/base/base1/4/high.webp', rates: { usd: 1.37, eur: null }, notes: [] });
+    matches(r.value, { id: 'base1-4', name: 'Charizard', number: '4', total: 102, set: 'Base Set', setCode: 'BS', rarity: 'Rare', artist: 'Mitsuhiro Arita', released: '1999-01-09', image: 'https://assets.tcgdex.net/en/base/base1/4/high.webp', rates: { usd: 1.37 }, notes: [] });
     assert.deepEqual(
       r.value.printings.map((p) => [p.label, p.variant]),
       [

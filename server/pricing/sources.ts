@@ -1,8 +1,7 @@
 // Where prices and card images come from, and how the binder asks.
 //
 // PriceCharting's official API (pricecharting.ts, with the owner's subscription token) gives each
-// card's ungraded price, recent eBay sales, and its graded prices. TCGplayer's market price and
-// Cardmarket's trend come from the TCGdex card database (catalog.ts), and what it lacks from
+// card's ungraded price, recent eBay sales, and its graded prices. TCGplayer's market price comes from the TCGdex card database (catalog.ts), and what it lacks from
 // TCGplayer's own catalog (tcgcsv.ts); pictures from TCGplayer's products and TCGdex. A card is
 // priced from all of them, blended (updater.ts). No site's pages are read; the daily run records
 // failures instead of stopping.
@@ -66,14 +65,12 @@ export { tcgImage } from '#domain/catalog/tcgplayer.ts';
 // ---- Exchange rate ----------------------------------------------------------------
 
 /**
- * The Bank of Canada's daily USD to CAD and EUR to CAD rates (published each business day around
- * 16:30 ET). The euro rate (for Cardmarket's prices) is null if it's missing.
+ * The Bank of Canada's daily USD to CAD rate (published each business day around 16:30 ET).
  */
-export async function exchangeRates(fetcher: Fetcher): Promise<{ rate: number; eur: number | null; date: string }> {
-  const res = await get(fetcher, 'https://www.bankofcanada.ca/valet/observations/FXUSDCAD,FXEURCAD/json?recent=1');
-  const obs = ((await res.json()) as { observations?: { d: string; FXUSDCAD?: { v: string }; FXEURCAD?: { v: string } }[] }).observations?.[0];
+export async function exchangeRates(fetcher: Fetcher): Promise<{ rate: number; date: string }> {
+  const res = await get(fetcher, 'https://www.bankofcanada.ca/valet/observations/FXUSDCAD/json?recent=1');
+  const obs = ((await res.json()) as { observations?: { d: string; FXUSDCAD?: { v: string } }[] }).observations?.[0];
   const rate = Number(obs?.FXUSDCAD?.v);
   if (!obs || !(rate > 0.5 && rate < 5)) throw new SourceError('The Bank of Canada rate was missing or out of range');
-  const eur = Number(obs.FXEURCAD?.v);
-  return { rate, eur: eur > 0.5 && eur < 5 ? eur : null, date: obs.d };
+  return { rate, date: obs.d };
 }
