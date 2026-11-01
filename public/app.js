@@ -2409,6 +2409,7 @@ function binderModal(id){
       <div class="field"><label for="b_name">Name</label><input id="b_name" value="${esc(b.name)}" maxlength="40" placeholder="e.g. Vintage holos" autocomplete="off"></div>
       <div class="field"><label>Colour</label><div class="swatches" id="b_colors">${BINDER_COLORS.map(c=>`<button type="button" style="--c:${c}" data-color="${c}" aria-pressed="${(b.color||BINDER_COLORS[0])===c}" aria-label="Colour ${c}"></button>`).join("")}</div></div>
       <div class="field"><label for="b_owner">Owner</label><select id="b_owner">${opt(OWNERS, b.owner||"")}</select><span class="hint" id="b_ownerHint"></span></div>
+      <div class="field"><label class="phswitch"><input type="checkbox" id="b_guestHidden" role="switch" ${b.hiddenFromGuests?"checked":""}><span><b>Hide from guests</b> <span class="hint">Guests from the QR code don't see this <span id="b_guestWhat">${what()}</span> or where its cards are. Its cards listed for sale still show in their list.</span></span></label></div>
       <div class="field" id="b_pocketsF"><label for="b_pockets">Pockets per page</label><select id="b_pockets">${[4,9,12,16].map(p=>`<option value="${p}" ${p===n?"selected":""}>${p}-pocket</option>`).join("")}</select><span class="hint">Cards keep their order: changing this moves them onto pages of the new size, empty pockets too (9 to 4: pockets 5–9 of page 1 go to pages 2 and 3).</span></div>
     </div>
     <div class="mfoot" style="justify-content:space-between"><span id="bDelZone"></span>
@@ -2420,6 +2421,7 @@ function binderModal(id){
     $("#bLead").textContent = lead();
     $("#bSave").textContent = isNew ? `Create ${what()}` : "Save";
     $("#b_pocketsF").hidden = kind==="case";
+    $("#b_guestWhat").textContent = what();
     const ow = {"":"Justin", Both:"Megan and Justin"}[$("#b_owner").value] ?? $("#b_owner").value;
     $("#b_ownerHint").textContent = `Cards you add to it start as ${ow}'s${isNew?"":"; the cards already in it keep their owner"}.`;
     $("#bDelZone").innerHTML = isNew ? "" : count ? `<span class="hint">Move or delete its ${count} cards to remove this ${what()}.</span>` : `<button class="btn sm danger" type="button" id="bDel">Delete ${what()}</button>`;
@@ -2442,10 +2444,10 @@ function binderModal(id){
   nameIn.addEventListener("keydown", e => { if(e.key==="Enter"){ e.preventDefault(); $("#bSave").click(); } });
   $("#bSave").onclick = async () => {
     const name = nameIn.value.trim() || b.name;
-    const pockets = +$("#b_pockets").value, owner = $("#b_owner").value;
+    const pockets = +$("#b_pockets").value, owner = $("#b_owner").value, hiddenFromGuests = $("#b_guestHidden").checked;
     if(isNew){
       const nid = rid();
-      if(await guard(()=> S.db.collection("binders").doc(nid).set({name, color, pockets, kind, owner, order:Math.max(0,...S.binders.map(x=>x.order||0))+1, createdAt:nowISO()}))){
+      if(await guard(()=> S.db.collection("binders").doc(nid).set({name, color, pockets, kind, owner, hiddenFromGuests, order:Math.max(0,...S.binders.map(x=>x.order||0))+1, createdAt:nowISO()}))){
         closeModal(); S.binderId=nid; S.page=1; persistNav(); toast(`${name} created`); render();
       }
       return;
@@ -2453,7 +2455,7 @@ function binderModal(id){
     if(kind!==(isCase(b)?"case":"binder") && cardsIn(id).length) return toast(`Move its cards out to change its type.`);
     // taken before saving: the moved cards can arrive (and re-render) before the save answers
     const onPage = S.page, was = isCase(b) ? null : window.BinderLayout.widthOf(pocketsOf(b), cardsIn(id), b.layout), next = kind==="binder" ? pockets : null;
-    if(await guard(()=> S.db.doc("binders/"+id).update({name, color, pockets, kind, owner}))){
+    if(await guard(()=> S.db.doc("binders/"+id).update({name, color, pockets, kind, owner, hiddenFromGuests}))){
       closeModal();
       // its cards moved onto pages of the new size: stay on the cards you were looking at
       const go = window.BinderLayout.pageAfterSave(onPage, was, next);

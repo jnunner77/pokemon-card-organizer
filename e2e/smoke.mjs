@@ -240,7 +240,10 @@ try {
   if (svOverflow > 1) fail(`phone Selling view scrolls sideways by ${svOverflow}px`);
 
   // Guests: list a card for sale, turn guest viewing on, and look at it from the QR code's link on a phone.
-  const listed = await page.request.put(new URL('api/docs/cards/e2e-listed', BASE).href, { data: { name: 'Pikachu', set: 'Base Set', number: '58/102', status: 'listed', condition: 'Near Mint', prices: [{ type: 'market', amount: 4.2, currency: 'CAD', date: '2026-10-01' }] } });
+  const showBinder = { name: 'Show binder', pockets: 9 };
+  const made = await page.request.put(new URL('api/docs/binders/e2e-guest', BASE).href, { data: showBinder });
+  if (!made.ok()) fail(`making a binder: ${made.status()}`);
+  const listed = await page.request.put(new URL('api/docs/cards/e2e-listed', BASE).href, { data: { binderId: 'e2e-guest', page: 1, slot: 5, name: 'Pikachu', set: 'Base Set', number: '58/102', status: 'listed', condition: 'Near Mint', prices: [{ type: 'market', amount: 4.2, currency: 'CAD', date: '2026-10-01' }] } });
   if (!listed.ok()) fail(`listing a card: ${listed.status()}`);
   await page.goto(new URL('admin.html#guests', BASE).href);
   await page.getByRole('button', { name: 'Turn guest viewing on' }).click();
@@ -257,9 +260,28 @@ try {
   await g.locator('#gQuery').fill('58/102');
   await g.locator('.gcard').filter({ hasText: 'Pikachu' }).click();
   await g.locator('#lbCap').getByText('Pikachu').waitFor();
+  await g.locator('#lbCap').getByText('Show binder · Page 1 · Pocket 5').waitFor();
+  await g.getByRole('button', { name: 'Close full screen' }).click();
+  // The Binders view: the card in its pocket, and nothing else.
+  await g.locator('[data-gview="binders"]').click();
+  const pocket = g.locator('#gBinderView .pocket[data-gi]');
+  await pocket.first().waitFor();
+  if ((await pocket.count()) !== 1) fail('the binder view shows more than the cards for sale');
+  if ((await pocket.locator('.slotno').textContent()) !== '5') fail('the binder view puts the card in the wrong pocket');
+  await pocket.click();
+  await g.locator('#lbCap').getByText('Pikachu').waitFor();
   await g.getByRole('button', { name: 'Close full screen' }).click();
   const gOverflow = await g.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   if (gOverflow > 1) fail(`phone guest page scrolls sideways by ${gOverflow}px`);
+  // Hide from guests: the binder leaves the Binders view and the card loses its place, still listed.
+  const hid = await page.request.put(new URL('api/docs/binders/e2e-guest', BASE).href, { data: { ...showBinder, hiddenFromGuests: true } });
+  if (!hid.ok()) fail(`hiding a binder: ${hid.status()}`);
+  await g.getByText('None of the cards for sale are in a binder right now.').waitFor();
+  await g.locator('[data-gview="all"]').click();
+  await g.locator('.gcard').filter({ hasText: 'Pikachu' }).click();
+  await g.locator('#lbCap').getByText('Pikachu').waitFor();
+  if ((await g.locator('#lbCap .loc').count()) !== 0) fail('a hidden binder still shows where the card is');
+  await g.getByRole('button', { name: 'Close full screen' }).click();
   if ((await g.request.get(new URL('api/guest/cards', BASE).href)).status() !== 200) fail('guest card list');
 
   if (errors.length) fail(`page errors:\n${errors.join('\n')}`);
