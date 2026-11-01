@@ -384,10 +384,10 @@
     if (fromBack !== true) back.sync(false);
     const shown = LB.list[LB.i], b = LB.back; LB.list = [];
     // In the Binders view, go back to the page of the last card shown.
-    if (G.view === "binders" && shown?.place?.kind === "binder" && shown.place.page !== G.page) { pick(G.binderId, shown.place.page); render(); }
+    const toPage = G.view === "binders" ? GB.pageAfterClose(shown, G.page) : null;
+    if (toPage !== null) { pick(G.binderId, toPage); render(); }
     // Leave the grid at the card the guest stopped on (a pocket's first card when copies share it).
-    let i = G.list.findIndex(c => c.id === shown?.id);
-    if (i >= 0 && G.view === "binders" && shown.place.kind === "binder") i = G.list.findIndex(c => c.place && c.place.page === shown.place.page && c.place.pocket === shown.place.pocket);
+    const i = G.view === "binders" ? GB.tileIndex(G.list, shown) : G.list.findIndex(c => c.id === shown?.id);
     const tile = i >= 0 ? document.querySelector(`#${G.view === "binders" ? "gBinderView" : "gGrid"} [data-gi="${i}"]`) : null;
     if (tile) { tile.scrollIntoView({ block: "nearest" }); try { tile.focus({ preventScroll: true }); } catch (_) {} }
     else if (b && document.contains(b)) try { b.focus({ preventScroll: true }); } catch (_) {}

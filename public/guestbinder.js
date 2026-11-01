@@ -74,5 +74,22 @@
     return p.page && p.pocket ? p.binder + " · Page " + p.page + " · Pocket " + p.pocket : p.binder;
   }
 
-  root.GuestBinder = { binders, cardsIn, pages, width, cols, cells, pageNear, placeText };
+  /* The page to go back to when full screen closes on `shown`: its page when that isn't the one on
+     show, else null (stay). Display case cards have no page. */
+  function pageAfterClose(shown, page) {
+    const p = shown && shown.place;
+    return p && p.kind === "binder" && p.page && p.page !== page ? p.page : null;
+  }
+
+  /* Where `shown` is in the list on show: its own index, or for a card in a binder the index of its
+     pocket's first card (the one the pocket's tile opens). -1 when it's not in the list. */
+  function tileIndex(list, shown) {
+    if (!shown) return -1;
+    const own = list.findIndex((c) => c.id === shown.id);
+    const p = shown.place;
+    if (own < 0 || !p || p.kind !== "binder") return own;
+    return list.findIndex((c) => c.place && c.place.page === p.page && c.place.pocket === p.pocket);
+  }
+
+  root.GuestBinder = { pageAfterClose, tileIndex, binders, cardsIn, pages, width, cols, cells, pageNear, placeText };
 })(typeof window !== "undefined" ? window : globalThis);

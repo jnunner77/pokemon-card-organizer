@@ -28,6 +28,8 @@ interface GuestBinder {
   cells(id: string, page: number, cards: Card[]): Card[][];
   pageNear(page: number, pages: number[]): number | null;
   placeText(p: Place | null): string;
+  pageAfterClose(shown: Card | undefined, page: number): number | null;
+  tileIndex(list: Card[], shown: Card | undefined): number;
 }
 const sandbox = { window: {} as { GuestBinder: GuestBinder } };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public/guestbinder.js'), 'utf8'), sandbox);
@@ -89,6 +91,24 @@ describe('the guest page binders', () => {
     expect(G.pageNear(9, [1, 2, 5])).toBe(5);
     expect(G.pageNear(3, [1, 5])).toBe(1);
     expect(G.pageNear(1, [])).toBeNull();
+  });
+
+  it('goes back to the page of the last card shown', () => {
+    expect(G.pageAfterClose(card('a', 'A', { page: 3 }), 1)).toBe(3);
+    expect(G.pageAfterClose(card('a', 'A', { page: 3 }), 3)).toBeNull();
+    expect(G.pageAfterClose(card('a', 'A', { kind: 'case', page: null, pocket: null }), 1)).toBeNull();
+    expect(G.pageAfterClose(card('a', 'A', null), 1)).toBeNull();
+    expect(G.pageAfterClose(undefined, 1)).toBeNull();
+  });
+
+  it("finds the tile a card's pocket opens", () => {
+    const list = [card('a', 'Pika', { pocket: 2 }), card('b', 'Pika', { pocket: 2 }), card('c', 'Mew', { page: 2, pocket: 2 })];
+    expect(G.tileIndex(list, list[1])).toBe(0);
+    expect(G.tileIndex(list, list[2])).toBe(2);
+    expect(G.tileIndex(list, card('x', 'X'))).toBe(-1);
+    const cases = [card('a', 'A', { kind: 'case', page: null, pocket: null }), card('b', 'B', { kind: 'case', page: null, pocket: null })];
+    expect(G.tileIndex(cases, cases[1])).toBe(1);
+    expect(G.tileIndex(cases, undefined)).toBe(-1);
   });
 
   it('says where a card is', () => {
