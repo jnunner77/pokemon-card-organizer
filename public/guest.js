@@ -235,7 +235,9 @@
     if (document.activeElement !== $("gfPMax")) $("gfPMax").value = G.filt.pMax;
     document.querySelectorAll("#gFilters [data-gclear]").forEach(b => { b.disabled = !n; });
   }
-  function setFilters(f) { G.filt = f; store.set("filters", f); render(); }
+  // A change event right after the input events says nothing new: drawing the list again then
+  // would replace a button the guest is just pressing (blurring Min to tap Clear filters).
+  function setFilters(f) { if (JSON.stringify(f) === JSON.stringify(G.filt)) return; G.filt = f; store.set("filters", f); render(); }
   $("gFiltBtn").addEventListener("click", () => { G.filtOpen = !G.filtOpen; store.set("filtersOpen", G.filtOpen); render(); });
   const readFilters = () => {
     const f = { ...GF.EMPTY };
