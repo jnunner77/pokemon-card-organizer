@@ -45,6 +45,7 @@
     for (const k of FIELDS) {
       const seen = new Map();
       for (const c of cards) { const v = valueOf(k, c); if (v) seen.set(v, (seen.get(v) || 0) + 1); }
+      // Keep a picked value no card has any more (sold live), with count 0, so the select still shows the filter that applies.
       if (f[k] && !seen.has(f[k])) seen.set(f[k], 0);
       let list = [...seen].map(([value, n]) => ({ value, label: value, count: n }));
       if (k === "set") {

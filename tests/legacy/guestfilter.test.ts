@@ -119,10 +119,11 @@ describe('the guest page filters', () => {
     expect(c.variant).toEqual([]);
   });
 
-  it('keep a picked value that is no longer on any card, with 0', () => {
+  it('keeps the picked value with count 0 when no card has it any more', () => {
     const c = F.choices([{ set: 'Jungle', released: '1999-06-16' }], f({ set: 'Gone', rarity: 'Rare', yFrom: '1990' }));
     expect(c.set.find((o) => o.value === 'Gone')).toMatchObject({ count: 0 });
     expect(c.rarity).toEqual([{ value: 'Rare', label: 'Rare', count: 0 }]);
+    expect(c.set.map((o) => o.value)).not.toContain('Other');
     expect(c.years.map((o) => o.value)).toEqual(['1990', '1999']);
   });
 
