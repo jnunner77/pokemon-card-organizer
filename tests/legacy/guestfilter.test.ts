@@ -114,7 +114,7 @@ describe('the guest page filters', () => {
     expect(c.set.map((o) => [o.value, o.count])).toEqual([['Scarlet', 1], ['Aqua', 1], ['Jungle', 1], ['Base Set', 2], ['XX', 1]]);
     expect(c.rarity.map((o) => [o.value, o.count])).toEqual([['Common', 1], ['Rare', 3]]);
     expect(c.shape.map((o) => [o.value, o.count])).toEqual([['Near Mint', 1], ['Played', 1], ['PSA 10', 1]]);
-    expect(c.years.map((o) => [o.value, o.count])).toEqual([['1999', 3], ['2023', 1]]);
+    expect(c.years.map((o) => [o.value, o.count])).toEqual([['1999', 4], ['2023', 1]]);
     expect(c.variant).toEqual([]);
   });
 
