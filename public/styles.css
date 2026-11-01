@@ -872,6 +872,10 @@ tbody tr.found{background:var(--accent-soft);box-shadow:inset 4px 0 0 var(--acce
 #gBinderView .binder-page{margin-top:4px}
 .gempty:hover{border-color:var(--pocket-line);transform:none}
 .lb-cap .loc{color:#F2C94C}
+.gfilters{margin:0 0 10px;border:1px solid var(--line);border-radius:var(--r)}
+.gfilters select,.gfilters input{font-size:16px;padding-block:9px}
+.gfilters .filtrange select,.gfilters .filtrange input{min-width:0;flex:1}
+.gfilters .field.wide{grid-column:1/-1}
 .gcount{margin:2px 0 10px}
 .ggrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:14px}
 .ggrid .empty-state{grid-column:1/-1}
@@ -884,7 +888,7 @@ tbody tr.found{background:var(--accent-soft);box-shadow:inset 4px 0 0 var(--acce
 .gcard .row{display:flex;align-items:baseline;justify-content:space-between;gap:6px;margin-top:auto;padding-top:2px}
 .gcard .v{font-family:var(--f-mono);font-size:14px;font-weight:600;white-space:nowrap}
 @media (prefers-reduced-motion:no-preference){.gcard{transition:transform .12s ease,border-color .12s}.gcard:hover{transform:translateY(-2px);border-color:var(--ink-3)}}
-@media (max-width:640px){.ggrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.gcard{padding:6px 6px 8px}.gbar select{flex:1 1 100%}.gviews{flex:1 1 100%}.gviews button{flex:1}.gbinderbar select{flex:1 1 100%}.gpages .pchip,.gpages .btn{min-height:36px}.gpages .btn{min-width:36px}}
+@media (max-width:640px){.ggrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.gcard{padding:6px 6px 8px}.gbar select{flex:1 1 100%}.gbar #gSort{flex:1 1 55%}.gbar #gFiltBtn{flex:1 1 35%;min-height:40px}.gfilters{grid-template-columns:repeat(2,minmax(0,1fr));padding:10px}.gfilters .filtacts{grid-column:1/-1}.gviews{flex:1 1 100%}.gviews button{flex:1}.gbinderbar select{flex:1 1 100%}.gpages .pchip,.gpages .btn{min-height:36px}.gpages .btn{min-width:36px}}
 .lb-noimg{display:flex;align-items:center;justify-content:center;width:min(100cqw,calc(100cqh*63/88));aspect-ratio:63/88;border-radius:12px;background:#1A2028;color:rgba(233,238,243,.55);font-size:13px}
 
 /* Administration → Guests: the QR code, and a page with just the code when printed. */

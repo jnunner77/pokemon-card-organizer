@@ -1,5 +1,6 @@
 // Guest page: people who scan the QR code sign in with their name and a phone number or email,
-// then look through the cards listed for sale: search, sort, and flip through them full screen.
+// then look through the cards listed for sale: search, sort, filter (public/guestfilter.js), and
+// flip through them full screen.
 // The server decides what guests see (src/domain/guests/guest-card.ts, through
 // src/application/guests/list-guest-cards.ts); this page only shows it.
 (() => {
@@ -33,7 +34,7 @@
   }
   const key = () => store.get("key", "");
 
-  const G = { me: null, cards: [], q: "", sort: "value-desc", view: "all", binderId: store.get("binderId", ""), page: store.get("page", 0), lastUse: Date.now(), lastCheck: Date.now(), timer: 0, live: null };
+  const G = { me: null, cards: [], q: "", sort: "value-desc", view: "all", binderId: store.get("binderId", ""), page: store.get("page", 0), filt: window.GuestFilter.fromStore(store.get("filters", {})), filtOpen: store.get("filtersOpen", false), lastUse: Date.now(), lastCheck: Date.now(), timer: 0, live: null };
   try { G.sort = localStorage.getItem("guest.sort") || G.sort; G.view = localStorage.getItem("guest.view") === "binders" ? "binders" : "all"; } catch (_) {}
 
   class Ended extends Error {}
@@ -192,7 +193,7 @@
 
   const year = c => (c.released || "").slice(0, 4);
   const code = c => [c.setCode || c.set, c.number].filter(Boolean).join(" ");
-  const shape = c => c.grader && c.grader !== "Raw" ? [c.grader, c.grade].filter(Boolean).join(" ") : c.condition;
+  const GF = window.GuestFilter;
   const SORTS = {
     "value-desc": (a, b) => (b.value ?? -1) - (a.value ?? -1),
     "value-asc": (a, b) => (a.value ?? Infinity) - (b.value ?? Infinity),
@@ -201,10 +202,53 @@
     old: (a, b) => (a.released || "9999").localeCompare(b.released || "9999"),
   };
   function shownList() {
-    if (G.q.trim()) return window.BinderSearch.search(G.cards, G.q, { limit: G.cards.length }).map(r => r.card);
-    const by = SORTS[G.sort] || SORTS["value-desc"];
-    return G.cards.slice().sort((a, b) => by(a, b) || String(a.name || "").localeCompare(String(b.name || "")));
+    let list;
+    if (G.q.trim()) list = window.BinderSearch.search(G.cards, G.q, { limit: G.cards.length }).map(r => r.card);
+    else {
+      const by = SORTS[G.sort] || SORTS["value-desc"];
+      list = G.cards.slice().sort((a, b) => by(a, b) || String(a.name || "").localeCompare(String(b.name || "")));
+    }
+    return GF.count(G.filt) ? list.filter(c => GF.match(c, G.filt)) : list;
   }
+
+  // The filters panel: its markup is in guest.html, so a live update only swaps the <select>
+  // options (and only when they changed) and never replaces a field being typed in.
+  const SELECTS = { set: "gfSet", yFrom: "gfYFrom", yTo: "gfYTo", rarity: "gfRarity", variant: "gfVariant", language: "gfLanguage", shape: "gfShape", artist: "gfArtist" };
+  const ANY = { set: "Any set", yFrom: "From any", yTo: "Any", rarity: "Any rarity", variant: "Any variant", language: "Any language", shape: "Any condition or grade", artist: "Any illustrator" };
+  function renderFilters() {
+    const n = GF.count(G.filt), ch = GF.choices(G.cards, G.filt);
+    const btn = $("gFiltBtn");
+    btn.textContent = n ? `Filters · ${n}` : "Filters";
+    btn.classList.toggle("primary", n > 0);
+    btn.setAttribute("aria-expanded", String(G.filtOpen));
+    $("gFilters").hidden = !G.filtOpen || G.view === "binders";
+    for (const [k, id] of Object.entries(SELECTS)) {
+      const years = k === "yFrom" || k === "yTo", list = years ? ch.years : ch[k], sel = $(id);
+      const html = `<option value="">${esc(ANY[k])}</option>` + list.map(o => `<option value="${esc(o.value)}"${o.value === G.filt[k] ? " selected" : ""}>${esc(years ? o.label : `${o.label} (${o.count})`)}</option>`).join("");
+      if (sel.dataset.html !== html) { sel.innerHTML = html; sel.dataset.html = html; }
+      if (sel.value !== G.filt[k]) sel.value = G.filt[k];
+    }
+    for (const k of ["rarity", "variant", "language", "shape", "artist"]) {
+      document.querySelector(`[data-gff="${k}"]`).hidden = ch[k].length < 2 && !G.filt[k];
+    }
+    if (document.activeElement !== $("gfPMin")) $("gfPMin").value = G.filt.pMin;
+    if (document.activeElement !== $("gfPMax")) $("gfPMax").value = G.filt.pMax;
+    document.querySelectorAll("#gFilters [data-gclear]").forEach(b => { b.disabled = !n; });
+  }
+  function setFilters(f) { G.filt = f; store.set("filters", f); render(); }
+  $("gFiltBtn").addEventListener("click", () => { G.filtOpen = !G.filtOpen; store.set("filtersOpen", G.filtOpen); render(); });
+  const readFilters = () => {
+    const f = { ...GF.EMPTY };
+    for (const [k, id] of Object.entries({ ...SELECTS, pMin: "gfPMin", pMax: "gfPMax" })) f[k] = $(id).value;
+    setFilters(f);
+  };
+  $("gFilters").addEventListener("change", readFilters);
+  $("gFilters").addEventListener("input", readFilters);
+  document.addEventListener("click", e => {
+    if (!e.target.closest("[data-gclear]")) return;
+    $("gfPMin").value = ""; $("gfPMax").value = "";
+    setFilters({ ...GF.EMPTY });
+  });
   const GB = window.GuestBinder;
   function setView(v, quiet) {
     G.view = v === "binders" ? "binders" : "all";
@@ -278,20 +322,22 @@
   });
 
   function render() {
+    renderFilters();
     if (G.view === "binders") return renderBinders();
     const list = shownList();
     G.list = list;
     const n = G.cards.length;
-    $("gCount").textContent = G.q.trim()
+    const narrowed = GF.count(G.filt) > 0;
+    $("gCount").textContent = G.q.trim() || narrowed
       ? `${list.length} of ${n} card${n === 1 ? "" : "s"} match`
       : `${n} card${n === 1 ? "" : "s"} for sale · tap a card to see it full screen`;
     $("gGrid").innerHTML = list.length ? list.map((c, i) => `<button type="button" class="gcard" data-gi="${i}">
         <span class="pic">${c.image ? `<img src="${esc(c.image)}" alt="" loading="lazy" draggable="false">` : `<span class="face">No picture yet</span>`}</span>
         <span class="n">${esc(c.name || "Unnamed card")}</span>
         <span class="m">${esc([code(c), c.rarity].filter(Boolean).join(" · "))}</span>
-        <span class="row"><span class="m">${esc(shape(c) || "")}</span><span class="v">${esc(money(c.value))}</span></span>
+        <span class="row"><span class="m">${esc(GF.shapeOf(c) || "")}</span><span class="v">${esc(money(c.value))}</span></span>
       </button>`).join("")
-      : `<p class="empty-state">${n ? "No cards match. Try a Pokémon name, a set or a card number." : "Nothing is listed for sale right now. Check back soon!"}</p>`;
+      : `<p class="empty-state">${n && narrowed ? `No cards match these filters. <button class="btn sm" type="button" data-gclear>Clear filters</button>` : n ? "No cards match. Try a Pokémon name, a set or a card number." : "Nothing is listed for sale right now. Check back soon!"}</p>`;
   }
   $("gQuery").addEventListener("input", e => { G.q = e.target.value; render(); });
   $("gSort").addEventListener("change", e => {
@@ -318,7 +364,7 @@
     const lines = [
       [code(c), c.rarity].filter(Boolean).join(" · "),
       [c.setCode && c.set, year(c)].filter(Boolean).join(" · "),
-      [shape(c), c.variant, c.language].filter(Boolean).join(" · "),
+      [GF.shapeOf(c), c.variant, c.language].filter(Boolean).join(" · "),
       c.artist ? `Illustrated by ${c.artist}` : "",
     ].filter(Boolean);
     const where = GB.placeText(c.place);
