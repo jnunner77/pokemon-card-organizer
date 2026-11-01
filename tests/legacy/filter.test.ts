@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
 
 // public/filter.js is a plain browser script; load it the way the page does.
-type Filters = Partial<{ owners: string[]; set: string; rarity: string; status: string; ph: string; yFrom: string; yTo: string; vMin: string; vMax: string }>;
+type Filters = Partial<{ owners: string[]; set: string; rarity: string; artist: string; status: string; ph: string; yFrom: string; yTo: string; vMin: string; vMax: string }>;
 type Card = Record<string, unknown>;
 const sandbox = { window: {} as { BinderFilter: { count: (f: Filters) => number; match: (c: Card, f: Filters, value: number | null) => boolean } } };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public/filter.js'), 'utf8'), sandbox);
@@ -48,6 +48,15 @@ describe('filtering the list', () => {
     expect(match(lapras, { ph: 'bogus' }, 1)).toBe(true);
   });
 
+  it('matches the illustrator exactly, leaving out cards with none', () => {
+    const arita = { ...lapras, artist: 'Mitsuhiro Arita' };
+    expect(match(arita, { artist: 'Mitsuhiro Arita' }, 1)).toBe(true);
+    expect(match(arita, { artist: 'Arita' }, 1)).toBe(false);
+    expect(match(lapras, { artist: 'Mitsuhiro Arita' }, 1)).toBe(false);
+    expect(count({ artist: 'x' })).toBe(1);
+    expect(count({})).toBe(0);
+  });
+
   it('matches a release year range, leaving out cards with no date', () => {
     expect(match(lapras, { yFrom: '2026' }, 1)).toBe(true);
     expect(match(lapras, { yFrom: '2020', yTo: '2025' }, 1)).toBe(false);
@@ -62,9 +71,10 @@ describe('filtering the list', () => {
   });
 
   it('needs every filter to match, and counts each one that is set', () => {
-    const f = { owners: ['Megan', 'Justin'], set: '30th Celebration', ph: 'none', yFrom: '2026', yTo: '2026', vMin: '5' };
-    expect(count(f)).toBe(5);
-    expect(match(lapras, f, 21.2)).toBe(true);
-    expect(match(lapras, { ...f, rarity: 'Promo' }, 21.2)).toBe(false);
+    const f = { owners: ['Megan', 'Justin'], set: '30th Celebration', ph: 'none', yFrom: '2026', yTo: '2026', vMin: '5', artist: 'Mitsuhiro Arita' };
+    expect(count(f)).toBe(6);
+    expect(match({ ...lapras, artist: 'Mitsuhiro Arita' }, f, 21.2)).toBe(true);
+    expect(match(lapras, f, 21.2)).toBe(false);
+    expect(match({ ...lapras, artist: 'Mitsuhiro Arita' }, { ...f, rarity: 'Promo' }, 21.2)).toBe(false);
   });
 });

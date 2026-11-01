@@ -349,7 +349,7 @@ with several copies shows the top copy's dot. Hovering the dot names the owner.
 ## Filters
 
 *Filters* in the List view narrows the cards shown (in this binder, or *All cards*): by **owner**
-(tick any of Megan, Justin, Maiya, Both, Not set), **set**, **rarity**, **status**, **placeholders**
+(tick any of Megan, Justin, Maiya, Both, Not set), **set**, **rarity**, **illustrator**, **status**, **placeholders**
 (*Placeholders only* for the cards you still need, *No placeholders* for the rest), **release year**
 (from / to) and **value** in CAD (min / max). Cards with no release date or value are left out when
 those filters are set. The count and total value of what's shown sit next to the button, and filters are remembered
@@ -417,7 +417,7 @@ binder, or the cards not in a binder:
 
 - **Date range:** 1D (since yesterday: what the latest daily price update changed), 7D, 30D, 90D,
   1Y, All (from the first price), or *Custom* from / to dates.
-- **Filters:** owner, set, rarity, status, release year and value, like the List view's (kept
+- **Filters:** owner, set, rarity, illustrator, status, release year and value, like the List view's (kept
   separately, and remembered on this device).
 - **Value** at the end of the range, the **change** since its start ($ and %), and the high and
   low, with a chart of the total; point at (or tap, or use the arrow keys on) the chart to read any day.
@@ -439,7 +439,7 @@ a month are weekly at their start.
 cards sold from one binder:
 
 - **Date range:** 7D, 30D, 90D, 1Y, All (the default, from your first sale), or *Custom* from / to dates.
-- **Filters:** owner, set, rarity, status (sold or traded), release year and **sold for** in CAD, like
+- **Filters:** owner, set, rarity, illustrator, status (sold or traded), release year and **sold for** in CAD, like
   the Pricing view's, plus **where** it sold. Kept separately and remembered on this device.
 - **Totals:** what it all sold for (cards and sales: a bundle is one sale), the **profit** and margin on
   what the cards cost, the average per card and the best sale.
@@ -773,8 +773,10 @@ when you've rearranged the binder and want to keep the new layout instead.
   price you're adding or editing, a move you're setting up) asks first, whether by Back, ✕,
   tapping outside, Escape or opening another card, and so does leaving the page. Back also closes
   the Pricing and Selling views, returning to the binders instead of leaving the page.
-- **Find a card** (the *Find a card* button, or press `/` or Ctrl+K (⌘K), which open it on **Any card**): type a Pokémon name, set name, set code
-  or set number, in any combination ("pikachu m22", "base set 2 118", "7/15"). Each match shows
+- **Find a card** (the *Find a card* button, or press `/` or Ctrl+K (⌘K), which open it on **Any card**): type a Pokémon name, set name, set code,
+  set number or illustrator, in any combination ("pikachu m22", "base set 2 118", "7/15",
+  "pikachu kodama"). Cards with a blank illustrator can be filled in with *Settings → Update all
+  cards → Details*. Each match shows
   where it is; **Show in binder** turns to its binder and page and highlights the pocket (loose and
   sold cards are highlighted in their list), and **Full screen** opens it in the photo viewer,
   flipping through all the matches. Arrow keys and Enter (Shift+Enter for full screen) work too.
@@ -852,7 +854,7 @@ own phone, without an account:
    marked **Listed for sale**: its picture, name, set, number, rarity, variant, language,
    condition or grade, illustrator, release year and **market value rounded up to the dollar**, or
    the price you set for guests (shown to the cent, like $2.50).
-   They can search like *Find a card* (name, set, set code or number), sort by price, name or
+   They can search like *Find a card* (name, set, set code, number or illustrator), sort by price, name or
    set date, and tap a card to flip through them all full screen (swipe, or the arrow keys).
    Their page updates live: a card you list shows up, and one you delist or sell disappears
    (from full screen too), within a second, as does a new price.
