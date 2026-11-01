@@ -1,4 +1,4 @@
-/* Find a card by Pokémon name, set name, set code or set number.
+/* Find a card by Pokémon name, set name, set code, set number or illustrator.
    Every word of the query has to match one of those on the card ("pikachu m22", "base set 2 118",
    "7/15"); cards matching better come first. Accents, case and punctuation don't matter.
    A plain script: the page uses window.BinderSearch, and the tests load it the same way. */
@@ -30,6 +30,8 @@
     if (w.length >= 3 && f.nameCompact.includes(w)) take(12);
     for (const s of f.setWords) { if (s === w) take(22); else if (s.startsWith(w)) take(18); }
     if (w.length >= 3 && f.setCompact.includes(w)) take(8);
+    for (const a of f.artistWords) { if (a === w) take(20); else if (a.startsWith(w)) take(15); }
+    if (w.length >= 3 && f.artistCompact.includes(w)) take(6);
     return best;
   }
 
@@ -37,6 +39,7 @@
     return {
       nameWords: words(c.name), nameCompact: compact(c.name),
       setWords: words(c.set), setCompact: compact(c.set),
+      artistWords: words(c.artist), artistCompact: compact(c.artist),
       code: compact(c.setCode),
       number: norm(c.number).replace(/\s+/g, ""), numPart: numPart(c.number),
     };

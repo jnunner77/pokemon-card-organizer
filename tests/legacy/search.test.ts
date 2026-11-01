@@ -4,16 +4,16 @@ import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
 
 // public/search.js is a plain browser script; load it the way the page does.
-interface Card { id: string; name?: string; set?: string; setCode?: string; number?: string; page?: number }
+interface Card { id: string; name?: string; set?: string; setCode?: string; number?: string; artist?: string; page?: number }
 const sandbox = { window: {} as { BinderSearch: { search: (cards: Card[], q: string, o?: { limit?: number; order?: (c: Card) => string }) => { card: Card; score: number }[]; norm: (s: string) => string } } };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public/search.js'), 'utf8'), sandbox);
 const { search, norm } = sandbox.window.BinderSearch;
 
 const cards: Card[] = [
-  { id: 'pika-m22', name: 'Pikachu', set: "McDonald's Collection 2022", setCode: 'M22', number: '7/15' },
-  { id: 'pika-tef', name: 'Pikachu', set: 'Temporal Forces', setCode: 'TEF', number: '51/162' },
+  { id: 'pika-m22', name: 'Pikachu', set: "McDonald's Collection 2022", setCode: 'M22', number: '7/15', artist: 'Mitsuhiro Arita' },
+  { id: 'pika-tef', name: 'Pikachu', set: 'Temporal Forces', setCode: 'TEF', number: '51/162', artist: 'kodama' },
   { id: 'pika-xy', name: 'Pikachu', set: 'XY', setCode: 'XY', number: '42/146' },
-  { id: 'bill', name: 'Bill', set: 'Base Set 2', setCode: 'B2', number: '118/130' },
+  { id: 'bill', name: 'Bill', set: 'Base Set 2', setCode: 'B2', number: '118/130', artist: 'Ken Sugimori' },
   { id: 'gust', name: 'Gust of Wind', set: 'Base Set', setCode: 'PBS', number: '93/102' },
   { id: 'zekrom', name: "N's Zekrom", set: 'Mega Evolution Promos', setCode: 'MEP', number: '031' },
   { id: 'shovel', name: 'Hole-Digging Shovel', set: 'Perfect Order', setCode: 'POR', number: '74/88' },
@@ -80,6 +80,28 @@ describe('finding a card', () => {
     // Equal scores follow the order function (here: where the card sits).
     const where: Record<string, string> = { 'pika-m22': '3', 'pika-tef': '1', 'pika-xy': '2' };
     expect(ids('pikachu', { order: (c) => where[c.id] })).toEqual(['pika-tef', 'pika-xy', 'pika-m22']);
+  });
+
+  it('finds by illustrator, whole word or start of one, ignoring case and accents', () => {
+    expect(ids('arita')).toEqual(['pika-m22']);
+    expect(ids('SUGI')).toEqual(['bill']);
+    expect(ids('Kodamá')).toEqual(['pika-tef']);
+    expect(ids('mitsuhiro arita')).toEqual(['pika-m22']);
+  });
+
+  it('combines illustrator words with other words', () => {
+    expect(ids('pikachu kodama')).toEqual(['pika-tef']);
+    expect(ids('pikachu sugimori')).toEqual([]);
+  });
+
+  it('ranks a name match above an illustrator-only match', () => {
+    const extra: Card[] = [{ id: 'by-ken', name: 'Eevee', artist: 'Ken Sugimori' }, { id: 'ken', name: 'Kenya', set: 'X' }];
+    expect(search(extra, 'ken').map((r) => r.card.id)).toEqual(['ken', 'by-ken']);
+  });
+
+  it('copes with cards that have no illustrator', () => {
+    expect(ids('gust')).toEqual(['gust']);
+    expect(ids('arita')).not.toContain('gust');
   });
 
   it('returns nothing for an empty query and caps the results', () => {

@@ -511,7 +511,7 @@ function renderList(m){
    Placeholders filter: only the List view has placeholders and owned cards side by side). */
 function filterPane(list, F=S.filt, pre="ff", pane="filtPane", statuses=STATUSES, o={}){
   const uniq = a => [...new Set(a.filter(Boolean))].sort((x,y)=>x.localeCompare(y));
-  const sets = uniq(list.map(window.BinderFilter.setOf)), rars = uniq(list.map(c=>c.rarity));
+  const sets = uniq(list.map(window.BinderFilter.setOf)), rars = uniq(list.map(c=>c.rarity)), arts = uniq(list.map(c=>(c.artist||"").trim()));
   const years = uniq(list.map(c=>/^\d{4}/.test(c.released||"") ? c.released.slice(0,4) : ""));
   const sel = (id, v, any, opts) => `<select id="${id}"><option value="">${any}</option>${opts.map(o=>{ const [val,lab]=Array.isArray(o)?o:[o,o]; return `<option value="${esc(val)}" ${String(v)===String(val)?"selected":""}>${esc(lab)}</option>`; }).join("")}</select>`;
   const nOwner = v => list.filter(c=>(c.owner||"")===v).length, nPh = list.filter(window.BinderFilter.isPlaceholder).length;
@@ -519,6 +519,7 @@ function filterPane(list, F=S.filt, pre="ff", pane="filtPane", statuses=STATUSES
     <fieldset class="field full"><legend>Owner</legend><div class="filtowners">${OWNERS.map(([v,l])=>`<label><input type="checkbox" data-fowner="${esc(v)}" ${F.owners.includes(v)?"checked":""}> ${esc(l)} <span class="hint">${nOwner(v)}</span></label>`).join("")}</div></fieldset>
     <div class="field"><label for="${pre}_set">Set</label>${sel(pre+"_set", F.set, "Any set", sets)}</div>
     <div class="field"><label for="${pre}_rarity">Rarity</label>${sel(pre+"_rarity", F.rarity, "Any rarity", rars)}</div>
+    <div class="field"><label for="${pre}_artist">Illustrator</label>${sel(pre+"_artist", F.artist, "Any illustrator", arts)}</div>
     <div class="field"><label for="${pre}_status">Status</label>${sel(pre+"_status", F.status, "Any status", statuses)}</div>
     ${o.placeholders ? `<div class="field"><label for="${pre}_ph">Placeholders</label>${sel(pre+"_ph", F.ph, "Any", [["only",`Placeholders only (${nPh})`],["none",`No placeholders (${list.length-nPh})`]])}</div>` : ""}
     <div class="field"><label for="${pre}_yFrom">Released</label><span class="filtrange">${sel(pre+"_yFrom", F.yFrom, "From any", years)}<span>to</span>${sel(pre+"_yTo", F.yTo, "Any", years)}</span></div>
@@ -529,7 +530,7 @@ function filterPane(list, F=S.filt, pre="ff", pane="filtPane", statuses=STATUSES
 }
 function filtersFrom(pre, pane){
   const v = id => $("#"+pre+"_"+id)?.value ?? "", el = $("#"+pane);
-  return {owners:el ? [...el.querySelectorAll("[data-fowner]:checked")].map(x=>x.dataset.fowner) : [], set:v("set"), rarity:v("rarity"), status:v("status"), ph:v("ph"), yFrom:v("yFrom"), yTo:v("yTo"), vMin:v("vMin"), vMax:v("vMax")};
+  return {owners:el ? [...el.querySelectorAll("[data-fowner]:checked")].map(x=>x.dataset.fowner) : [], set:v("set"), rarity:v("rarity"), artist:v("artist"), status:v("status"), ph:v("ph"), yFrom:v("yFrom"), yTo:v("yTo"), vMin:v("vMin"), vMax:v("vMax")};
 }
 function readFilters(){ S.filt = filtersFrom("ff", "filtPane"); store.set("filt", S.filt); }
 
@@ -4007,14 +4008,14 @@ function findRun(){
 function findRender(){
   const list = $("#findList"), note = $("#findNote"); if(!list) return;
   document.querySelectorAll("#findRoot [data-mode]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode===FIND.mode)));
-  $("#findQ").placeholder = FIND.mode==="any" ? "Any card: name, set or number" : "Name, set, set code or number";
+  $("#findQ").placeholder = FIND.mode==="any" ? "Any card: name, set or number" : "Name, set, set code, number or illustrator";
   list.setAttribute("aria-label", FIND.mode==="any" ? "Cards in the card database" : "Matching cards");
   list.hidden = !!FIND.look; note.hidden = !!FIND.look; $("#findLook").hidden = !FIND.look;
   if(FIND.look) return lookRender();
   if(FIND.mode==="any") return anyRender();
   const q = FIND.q.trim(), n = FIND.res.length;
   const keys = window.matchMedia && matchMedia("(pointer: fine)").matches ? " · Enter shows it, Shift+Enter opens it full screen" : "";
-  note.textContent = !q ? (S.cards.length ? `Type a Pokémon name, a set (Base Set), a set code (PBS) or a number (7/15). ${S.cards.length} cards to look through.` : "No cards yet.")
+  note.textContent = !q ? (S.cards.length ? `Type a Pokémon name, a set (Base Set), a set code (PBS), a number (7/15) or an illustrator (Arita). ${S.cards.length} cards to look through.` : "No cards yet.")
     : !n ? `No card matches “${q}”. Try fewer words, a set code like PBS, or a number like 7/15.`
     : `${n===50?"The best 50 matches":`${n} match${n===1?"":"es"}`}${keys}`;
   list.innerHTML = FIND.res.map(({card:c}, k) => {
