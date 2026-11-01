@@ -14,9 +14,9 @@ const PHOTO = 'a'.repeat(32);
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
 
 /** The routes over the real use cases in memory; the guest comes from the cookie, as the request pipeline would work it out. */
-async function setUp(o: { cards?: DocumentView[]; streams?: StreamGate; off?: boolean } = {}) {
+async function setUp(o: { cards?: DocumentView[]; binders?: DocumentView[]; streams?: StreamGate; off?: boolean } = {}) {
   const cards = o.cards ?? [];
-  const t = setUpGuests(cards);
+  const t = setUpGuests(cards, [], o.binders ?? []);
   const changes = new ManualLedgerChanges();
   const feed = new GuestCardFeed(() => t.use.listCards.execute(), changes, 20);
   const guests = new WeakMap<object, SignedInGuest | null>();
@@ -137,6 +137,33 @@ describe('the guest page', () => {
     changes.send({ collection: 'cards' });
     await until(() => ended);
     assert.equal(lists.length, 2);
+  });
+
+  it('pushes the list again when a binder holding a listed card changes in a way guests can see', async () => {
+    const binders: DocumentView[] = [{ id: 'b1', name: 'Trade', owner: 'Megan' }];
+    const { t, changes } = await setUp({ cards: [{ id: 'c1', status: 'listed', binderId: 'b1', page: 1, slot: 2 }], binders });
+    const feed = new GuestCardFeed(() => t.use.listCards.execute(), changes, 20);
+    const lists: { place: { binder: string } | null }[][] = [];
+    const stop = feed.subscribe((j) => lists.push(JSON.parse(j)));
+    const settle = () => new Promise((r) => setTimeout(r, 80));
+    const first = JSON.parse(await feed.current());
+    assert.equal(first[0].place.binder, 'Trade');
+    const edit = async (over: Record<string, unknown>) => {
+      Object.assign(binders[0] ?? {}, over);
+      changes.send({ collection: 'binders' });
+      await settle();
+    };
+    await edit({ owner: 'Justin' });
+    assert.equal(lists.length, 0);
+    await edit({ name: 'Renamed' });
+    assert.equal(lists.length, 1);
+    assert.equal(lists[0]?.[0]?.place?.binder, 'Renamed');
+    await edit({ hiddenFromGuests: true });
+    assert.equal(lists.length, 2);
+    assert.equal(lists[1]?.[0]?.place, null);
+    await edit({ name: 'Renamed again' });
+    assert.equal(lists.length, 2);
+    stop();
   });
 
   it('refuses live updates past the connection limit, and to anyone but a signed-in guest', async () => {

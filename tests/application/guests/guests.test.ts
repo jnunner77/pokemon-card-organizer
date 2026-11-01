@@ -150,6 +150,17 @@ describe('what guests see', () => {
     assert.doesNotMatch(JSON.stringify(cards), /Justin|Dave/);
   });
 
+  it('says where a card is, unless it is in no binder, a deleted one or one hidden from guests', async () => {
+    const binders = [{ id: 'b1', name: 'Trade', owner: 'Megan', color: '#2F6FD8', pockets: 12 }, { id: 'b2', name: 'Secret', hiddenFromGuests: true }];
+    const t = setUpGuests([listed({ binderId: 'b1', page: 2, slot: 3 }), listed({ id: 'c2', binderId: 'gone', page: 1, slot: 1 }), listed({ id: 'c3', binderId: 'b2', page: 1, slot: 1 })], [], binders);
+    const cards = await t.use.listCards.execute();
+    assert.deepEqual(cards[0]?.place, { binderId: 'b1', binder: 'Trade', color: '#2F6FD8', kind: 'binder', order: 0, pockets: 12, page: 2, pocket: 3 });
+    assert.equal(cards[1]?.place, null);
+    assert.equal(cards[2]?.place, null);
+    assert.equal(cards[2]?.value, 1000);
+    assert.doesNotMatch(JSON.stringify(cards), /Megan|Secret|b2/);
+  });
+
   it('is their pictures: photos and inline ones, for listed cards only', async () => {
     const t = setUpGuests([listed({ imageId: PHOTO }), listed({ id: 'c2', imageId: `data:image/png;base64,${Buffer.from('png bytes').toString('base64')}` }), listed({ id: 'kept', status: 'binder', imageId: PHOTO }), listed({ id: 'gone', imageId: 'b'.repeat(32) })]);
     await t.photos.save(PHOTO as never, JPEG);

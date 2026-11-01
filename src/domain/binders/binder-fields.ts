@@ -1,5 +1,5 @@
 import { MAX_PAGE, MAX_POCKETS, OWNERS } from '../cards/card-fields.ts';
-import { arrayOf, count, documentIdRule, integer, loose, nullish, number, oneOf, optText, strict, text, type Shape } from '../ledger/rules.ts';
+import { arrayOf, bool, count, documentIdRule, integer, loose, nullish, number, oneOf, optText, strict, text, type Shape } from '../ledger/rules.ts';
 
 /** case: a display case, holding cards with no pages or pockets (their page and slot are blank). */
 export const BINDER_KINDS = ['binder', 'case'] as const;
@@ -13,6 +13,8 @@ export const BINDER_FIELDS: Shape = {
   /** Whose binder it is: a card added to it starts as theirs (Justin's when not set). */
   owner: nullish(oneOf(OWNERS)),
   order: nullish(number()),
+  /** Guests don't see this binder or where its cards are (its cards for sale still show). */
+  hiddenFromGuests: nullish(bool),
   createdAt: optText(40),
   /** The binder's own layout, saved when it was first sorted, so it can be put back after sorting. */
   layout: nullish(
