@@ -224,7 +224,7 @@
     $("gFilters").hidden = !G.filtOpen || G.view === "binders";
     for (const [k, id] of Object.entries(SELECTS)) {
       const years = k === "yFrom" || k === "yTo", list = years ? ch.years : ch[k], sel = $(id);
-      const html = `<option value="">${esc(ANY[k])}</option>` + list.map(o => `<option value="${esc(o.value)}"${o.value === G.filt[k] ? " selected" : ""}>${esc(years ? o.label : `${o.label} (${o.count})`)}</option>`).join("");
+      const html = `<option value="">${esc(ANY[k])}</option>` + list.map(o => `<option value="${esc(o.value)}"${o.value === G.filt[k] ? " selected" : ""}>${esc(`${o.label} (${o.count})`)}</option>`).join("");
       if (sel.dataset.html !== html) { sel.innerHTML = html; sel.dataset.html = html; }
       if (sel.value !== G.filt[k]) sel.value = G.filt[k];
     }
