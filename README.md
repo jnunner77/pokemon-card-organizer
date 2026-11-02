@@ -716,7 +716,8 @@ counts pockets (with the number of cards after it when they differ).
   card, a row is added as another copy (under *Replace what's there*, row by row it overwrites the
   copies, with extra rows added as copies); a different card follows *If a pocket already has a
   different card*.
-- **API:** the server enforces it too. Saving a card (PUT or PATCH) into a pocket that holds a
+- **API:** the server enforces it too. Saving a sold or traded card takes it out of its binder
+  (its pocket is remembered as the sale's `from`), and moving one into a binder answers 409. Saving a card (PUT or PATCH) into a pocket that holds a
   different card, moving cards (`POST /api/cards/place`), a sale's undo and a sort that would put
   different cards in one pocket answer 409 (400 for a sort) and change nothing.
 
@@ -778,8 +779,8 @@ when you've rearranged the binder and want to keep the new layout instead.
   set number or illustrator, in any combination ("pikachu m22", "base set 2 118", "7/15",
   "pikachu kodama"). Cards with a blank illustrator can be filled in with *Settings → Update all
   cards → Details*. Each match shows
-  where it is; **Show in binder** turns to its binder and page and highlights the pocket (loose and
-  sold cards are highlighted in their list), and **Full screen** opens it in the photo viewer,
+  where it is; **Show in binder** turns to its binder and page and highlights the pocket (loose cards are
+  highlighted in their list; sold cards open on the Sales tab), and **Full screen** opens it in the photo viewer,
   flipping through all the matches. Arrow keys and Enter (Shift+Enter for full screen) work too.
 - **Look up any card** (*Find a card* → **Any card**, or *Look up … in any card* under your own
   matches): any Pokémon card, yours or not, from the TCGdex card database, by its name with its set
@@ -809,7 +810,7 @@ when you've rearranged the binder and want to keep the new layout instead.
 - **Quick status**, to list cards for sale fast: press and hold a card's status badge (*Listed*,
   *Grading*… on a pocket, or the status in the List view) and tap its new status, or press and hold
   a card, select more, and tap *Status*. It saves straight away, with *Undo*. *Sold* opens Quick
-  sell, so the price is recorded. Placeholders can't be listed, graded, sold or traded, and cards
+  sell, so the price is recorded; choosing *Sold* in a card's Status field does the same. Placeholders can't be listed, graded, sold or traded, and cards
   sold with Quick sell keep their sale (undo it to change them); it says which were left as they were.
 - **Price for guests**, to sell at your own price: press and hold a card, select more (or *Select
   all*), tap *Price*, type an amount like `3` or `2.50` and *Save*. Guests then see that price (to the
@@ -831,6 +832,14 @@ when you've rearranged the binder and want to keep the new layout instead.
   table, pricing or selling views, or in the display case), and every action also has its button, so touch screens lose nothing.
 - **Quick sell** one or many cards (press and hold to select), with profit against what you
   paid (or the market price). A **Sales** tab totals it, and a sale can be undone.
+  **Sold and traded cards leave their binder:** their pocket is free for another card, and the
+  Sales tab is the only place that shows them (not a binder, display case, *Not in a binder* or the
+  Table). *Find a card* still finds them and opens them on the Sales tab. The binder, page and
+  pocket they left are remembered, so *Selling* still counts a sale under the binder it came from
+  and *Undo* puts the card back in its pocket. *Add a price → My sale* records a sale like Quick
+  sell (price, profit, where from), with an *Undo* in the message. A sold or traded card with no
+  sale price stays under *Not in a binder*. Cards sold before this update leave their binders when
+  the server starts, and when you restore a copy or a full backup.
   Several cards sold together for one price (3 cards for $18) are a **bundle**: choose *One price
   for all*, enter the total, and it's split across the cards by market value, evenly or by hand
   (to the cent; Sell waits until the shares add up). Each card gets its own sale price and profit,
@@ -839,7 +848,8 @@ when you've rearranged the binder and want to keep the new layout instead.
   dropdown of the usual places (eBay, Card show, PriceCharting…); *Custom…* shows a field to type
   any other place.
 - **CSV import and export**, with a template, per-row checks and a "rows to fix" file. Rows for
-  the same card in one pocket go in together as copies.
+  the same card in one pocket go in together as copies. A row whose Status is Sold or Traded isn't
+  put in a binder: the preview says it goes to the Sales tab.
 - **Full backups** with photos: *Settings → Download full backup* / *Restore from backup*.
   The server also keeps the ledger as it was at the start of each of the last 14 days.
 - **Live updates** between every open tab and device.

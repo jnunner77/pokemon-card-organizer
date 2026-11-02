@@ -35,5 +35,18 @@
     return (cents(total) - shares.reduce((a, s) => a + cents(s || 0), 0)) / 100;
   }
 
-  root.BinderSales = { split, remaining };
+  /* The sale record a card keeps when it is sold: what was paid, in dollars and in CAD, the cost
+     it is measured against and the profit (none without a cost), where the card was, and the
+     bundle it was sold in (only when it was). */
+  function record(o) {
+    const cost = o.cost != null ? Math.round(o.cost * 100) / 100 : null;
+    return {
+      amount: o.amount, currency: o.currency, soldCAD: o.soldCAD, cost, basis: o.basis,
+      profit: o.cost != null ? Math.round((o.soldCAD - o.cost) * 100) / 100 : null,
+      date: o.date, where: o.where, at: o.at, priceId: o.priceId, from: o.from,
+      ...(o.bundle ? { bundle: o.bundle } : {})
+    };
+  }
+
+  root.BinderSales = { split, remaining, record };
 })(typeof window !== "undefined" ? window : globalThis);

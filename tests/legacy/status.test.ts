@@ -22,6 +22,7 @@ const inBinder: Card = { id: 'a' };
 const listed: Card = { id: 'b', status: 'listed' };
 const ph: Card = { id: 'c', placeholder: true };
 const quickSold: Card = { id: 'd', status: 'sold', sale: { soldCAD: 20 } };
+const keptPlaceOnly: Card = { id: 'e', status: 'sold', sale: { from: { binderId: 'b1', page: 1, slot: 2 } } };
 const soldByHand: Card = { id: 'e', status: 'sold' };
 const grading: Card = { id: 'f', status: 'grading' };
 
@@ -70,5 +71,9 @@ describe('a quick status change', () => {
       '1 card listed for sale. Left as they were: 1 was already listed for sale; 1 is a placeholder; 1 was sold with Quick sell (undo the sale to change it).',
     );
     expect(summary(plan([grading], 'binder'), 1)).toBe('1 card back in the binder');
+  });
+
+  it('does not count a sale that only remembers where the card was as Quick sold', () => {
+    expect(plan([keptPlaceOnly], 'binder')).toMatchObject({ change: ['e'], quickSold: 0 });
   });
 });
