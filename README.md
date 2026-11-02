@@ -1033,7 +1033,8 @@ any kept copy refers to them), `backups/`
 file per day, two weeks), `admin.json` (backup retention, price schedule, where price alerts are
 emailed from and to), `auth.json` and
 `sessions.json` (people, password hashes, API token hashes and sessions; never in responses),
-`guests.json` (guest viewing on/off, the QR code's key and the guest log), `status.txt` (the
+`guests.json` (guest viewing on/off, the QR code's key and the guest log), `open-trades.json` (trades
+being put together, with their customers' names; readable only by the server), `status.txt` (the
 Overview's checks and the cards that need a person, rewritten every five minutes for the server's
 nightly job) and `offsite.json` (written by that job after it copies a backup off the server). The Gmail app password for price
 alerts, like PriceCharting's token, is a file in `SECRETS_DIR` instead (`gmail-app-password`).
@@ -1042,10 +1043,11 @@ What each kind of backup holds:
 
 - **The ledger's copies** (Administration → Backups: daily, weekly, monthly, snapshots) and **full
   backup downloads** hold binders, cards, settings and (downloads only) photos. They never contain
-  accounts, password or token hashes, sessions, or guests' names and contacts.
+  accounts, password or token hashes, sessions, guests' names and contacts, or open trades; restoring
+  one leaves the open trades alone.
 - **The server's archives** (`deploy/backup.sh`, and the copies the nightly job puts in Cloud
   Storage) hold the whole data volume except secrets, so they do contain `auth.json`,
-  `sessions.json` and `guests.json`: that's what lets a server be restored with its accounts. The
+  `sessions.json`, `guests.json` and `open-trades.json`: that's what lets a server be restored with its accounts. The
   archives and their folder are readable only by the owner, and the Cloud Storage bucket is
   private.
 
@@ -1095,7 +1097,9 @@ in `src/` is its own TypeScript project that may only import the layers inside i
   number, set size and the set it's filed under (reprint sub-sets, promos, TCG Pocket left out),
   what a lookup fills and records on the card, which cards want one, searching any card, and master
   sets: each card's variants, promo printings, the printings only TCGplayer lists and the
-  placeholder cards). No Node APIs; time is passed in.
+  placeholder cards), and open trades (`open-trades/`: a trade being put together, its customer
+  and both sides, the lowest free number of 1 to 10, at most 10 open, and a version that rises
+  with every change). No Node APIs; time is passed in.
 - `src/application/`: one use case per action (`ledger/`: save, merge or delete a document, change
   price entries, sort a binder, move cards, read the ledger; `photos/`: upload, delete, show;
   `backups/`: download and restore a full backup, list, snapshot, download, restore and delete kept
@@ -1108,7 +1112,7 @@ in `src/` is its own TypeScript project that may only import the layers inside i
   emails, and Administration → Alerts (the Gmail account, a test email); `catalog/`: look a card up, choose its match, fill one card or
   every card in (Fill in missing details), a new or changed card filling itself in and the watch
   that queues them one at a time, the look-up-again after an update, search and show any card, and
-  list, preview and make master sets), ports for the clock, the unit of work, events, the server log
+  list, preview and make master sets; `open-trades/`: list, save and discard open trades), ports for the clock, the unit of work, events, the server log
   (`logging.ts`, used by every layer above the domain), the photo store, the kept copies, password
   hashing, random secrets, the account and guest files, the QR code, admin.json, the token file, the
   disk and the daily update, the card database (TCGdex), TCGplayer's catalog, the cards' changes and
@@ -1120,7 +1124,8 @@ in `src/` is its own TypeScript project that may only import the layers inside i
   to open pages), a unit of work over it (`unit-of-work.ts`: all or nothing, one at a time, and run
   again if the store changed meanwhile), its repositories, the photo files (`photos/`), the kept
   copies (`backups/`), `auth.json` and `sessions.json` with scrypt password hashing (`accounts/`),
-  `guests.json`, the page's condition rules and the QR code (`guests/`), `admin.json`, PriceCharting's
+  `guests.json`, the page's condition rules and the QR code (`guests/`), `open-trades.json` (`open-trades/`; written
+  directly, not through the unit of work, which is for changes to the ledger), `admin.json`, PriceCharting's
   token file, status.txt, offsite.json and the disk (`admin/`), the server log with its daily files
   (`logging/logger.ts`), email through Gmail's SMTP server with Node's own TLS (`alerts/smtp-mailer.ts`), random secrets (`node-secrets.ts`), TCGdex over its API and tcgcsv.com
   (`catalog/`, each remembering its answers for a while), requests to other sites with retries
@@ -1133,7 +1138,14 @@ in `src/` is its own TypeScript project that may only import the layers inside i
   error reports; `alerts/`: Administration → Alerts; `catalog/`: card details, Fill in missing details, Any card and master sets, all
   answering 503 when `CARD_LOOKUPS=off`) on `node:http`, with hand-written checks
   of each request and an exhaustive switch from error codes to HTTP statuses; the guest page's live
-  updates (`guests/feed.ts`).
+  updates (`guests/feed.ts`). Open trades (`open-trades/`) are for editors and administrators
+  only (view-only people get 403, signed-out visitors and guests 401): `GET /api/open-trades` lists
+  them, `PUT /api/open-trades/:id` creates or replaces one (`{baseVersion, customer, dealer,
+  mine}`; 409 `trade_changed` when another device saved first, 410 `trade_closed` when it was
+  recorded or discarded meanwhile, 409 `too_many_trades` for an 11th), and `DELETE
+  /api/open-trades/:id` discards one (204 even if already gone). Recording a trade with
+  `openTradeId` closes that open trade too. Every change reaches other open pages of editors and
+  administrators on `/api/events` as `{"type":"openTrade","id":…,"trade":{…}|null}`.
 - `src/compose.ts` wires the layers together and `src/main.ts` starts the server, building the
   store and the rest it hands over: within `src/`, they are the only files that know the concrete
   classes. `scripts/import-backup.ts` restores through the same use case as the page. The Express

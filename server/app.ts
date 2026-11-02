@@ -9,6 +9,7 @@ import type { Identity } from '#application/accounts/identity.ts';
 import type { IdentifyGuest } from '#application/guests/identify-guest.ts';
 import type { SignedInGuest } from '#application/guests/state.ts';
 import { atLeast, type Role } from '#domain/accounts/role.ts';
+import type { OpenTradeNews } from '#application/open-trades/ports.ts';
 import type { ServerLog } from '#application/logging.ts';
 import type { TakeSnapshot } from '#application/backups/take-snapshot.ts';
 import { SESSION_COOKIE } from '#presentation/accounts/routes.ts';
@@ -74,6 +75,8 @@ export interface AppOptions {
   now?: (() => Date) | undefined;
   /** PriceCharting's API token (its own secret file, outside the data that's backed up) and its client. */
   pricecharting?: { token: TokenVault; api: PriceCharting } | undefined;
+  /** Open trades saved, discarded or recorded; sent to the open pages of editors and administrators. */
+  openTradeNews?: Pick<OpenTradeNews, 'subscribe'> | undefined;
 }
 
 /**
@@ -234,11 +237,12 @@ export function createExpressApp(o: AppOptions) {
     const sent = credentials(req);
     // Writes go out one at a time and in order, each after checking the session or token still works.
     let queue = Promise.resolve();
-    const whileAllowed = (write: () => void) => {
+    const whileAllowed = (write: () => void, needs?: Role) => {
       queue = queue.then(async () => {
         try {
-          if ((await people.identifyCaller.execute(sent)).identity) write();
-          else stop();
+          const { identity } = await people.identifyCaller.execute(sent);
+          if (!identity) stop();
+          else if (!needs || atLeast(identity.role, needs)) write();
         } catch {
           stop();
         }
@@ -247,15 +251,19 @@ export function createExpressApp(o: AppOptions) {
     const stop = () => {
       clearInterval(heartbeat);
       unsubscribe();
+      unsubscribeTrades();
       release();
       res.end();
     };
     const unsubscribe = store.subscribe((e) => whileAllowed(() => res.write(`data: ${JSON.stringify(e)}\n\n`)));
+    // Open trades are for those who can edit: viewers never hear of them.
+    const unsubscribeTrades = o.openTradeNews?.subscribe((c) => whileAllowed(() => res.write(`data: ${JSON.stringify({ type: 'openTrade', ...c })}\n\n`), 'editor')) ?? (() => {});
     // A connection that broke is closed (the page reconnects), never left to throw.
     const heartbeat = setInterval(() => whileAllowed(() => res.write(': ping\n\n')), 25_000);
     req.on('close', () => {
       clearInterval(heartbeat);
       unsubscribe();
+      unsubscribeTrades();
       release();
     });
   });

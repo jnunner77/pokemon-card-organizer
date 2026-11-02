@@ -1,4 +1,6 @@
 import fs from 'node:fs';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import request from 'supertest';
@@ -31,6 +33,28 @@ const card = (over: Record<string, unknown> = {}) => ({
   slot: 2,
   ...over,
 });
+
+/** An /api/events stream's data lines as they arrive. */
+async function openEvents(app: ReturnType<typeof createApp>, cookie?: string) {
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise((ok) => server.once('listening', ok));
+  const { port } = server.address() as AddressInfo;
+  const res = await new Promise<http.IncomingMessage>((ok, bad) => http.get({ host: '127.0.0.1', port, path: '/api/events', headers: cookie ? { cookie } : {} }, ok).on('error', bad));
+  let text = '';
+  res.setEncoding('utf8');
+  res.on('data', (chunk: string) => (text += chunk));
+  return {
+    status: res.statusCode,
+    text: () => text,
+    close: () => {
+      res.destroy();
+      server.close();
+    },
+  };
+}
+const waitFor = async (ok: () => boolean) => {
+  for (let i = 0; i < 100 && !ok(); i++) await new Promise((r) => setTimeout(r, 20));
+};
 
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'binder-'));
@@ -385,5 +409,50 @@ describe('page', () => {
     expect(r.headers['content-security-policy']).toContain("script-src 'self'");
     await request(app).get('/runtime.js').expect(200);
     await request(app).get('/fonts/archivo/wdth.css').expect(200);
+  });
+});
+
+describe('open trades', () => {
+  const trade = { baseVersion: 0, customer: 'Ash', dealer: { pct: '90', cash: '5', items: [{ cardId: 'x', name: 'Mew' }] }, mine: { items: [] } };
+
+  it('are saved on the server, listed, and kept out of the ledger', async () => {
+    await request(app).put('/api/docs/settings/main').send({ usdToCad: 1.37 }).expect(200);
+    const saved = await request(app).put('/api/open-trades/ot1').send(trade).expect(200);
+    expect(saved.body).toMatchObject({ id: 'ot1', number: 1, version: 1, customer: 'Ash' });
+    const list = await request(app).get('/api/open-trades').expect(200);
+    expect(list.body.trades).toHaveLength(1);
+    expect(JSON.stringify((await request(app).get('/api/data')).body)).not.toContain('Ash');
+    expect(fs.readFileSync(path.join(dir, 'db.json'), 'utf8')).not.toContain('Ash');
+    expect(fs.existsSync(path.join(dir, 'open-trades.json'))).toBe(true);
+    await request(app).put('/api/open-trades/ot1').send(trade).expect(409);
+  });
+
+  it('are left alone by a restore, and closed by recording the trade', async () => {
+    await request(app).put('/api/open-trades/ot1').send(trade).expect(200);
+    const file = path.join(dir, 'open-trades.json');
+    const before = fs.readFileSync(file, 'utf8');
+    const backup = await request(app).get('/api/backup').expect(200);
+    expect(JSON.stringify(backup.body)).not.toContain('Ash');
+    await request(app).post('/api/restore').send(backup.body).expect(200);
+    expect(fs.readFileSync(file, 'utf8')).toBe(before);
+    expect((await request(app).get('/api/open-trades')).body.trades).toHaveLength(1);
+
+    await request(app).post('/api/trades').send({ id: 'tr1', openTradeId: 'ot1', given: [], received: [{ id: 'n1', binderId: null, doc: { name: 'Mew' } }] }).expect(200);
+    expect((await request(app).get('/api/open-trades')).body.trades).toEqual([]);
+  });
+
+  it('are sent to other open pages as they change', async () => {
+    const live = await openEvents(app);
+    try {
+      await waitFor(() => live.text().includes('hello'));
+      await request(app).put('/api/open-trades/ot1').send(trade).expect(200);
+      await waitFor(() => live.text().includes('"type":"openTrade"'));
+      expect(live.text()).toContain('"type":"openTrade","id":"ot1","trade":{');
+      await request(app).delete('/api/open-trades/ot1').expect(204);
+      await waitFor(() => live.text().includes('"trade":null'));
+      expect(live.text()).toContain('"id":"ot1","trade":null');
+    } finally {
+      live.close();
+    }
   });
 });

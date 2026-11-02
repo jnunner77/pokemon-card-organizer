@@ -138,6 +138,7 @@ describe('guest viewing', () => {
 
     // The ledger itself stays closed.
     await agent.get('/api/data').expect(401);
+    await agent.get('/api/open-trades').expect(401);
     await agent.get('/api/events').expect(401);
     await agent.get(`/blob/${store.get('cards', 'kept')!.imageId}`).expect(401);
     await agent.put('/api/docs/cards/listed1').send({ name: 'x' }).expect(401);
@@ -147,6 +148,7 @@ describe('guest viewing', () => {
 
     // Without signing in: nothing.
     await request(app).get('/api/guest/cards').expect(401);
+    await request(app).get('/api/open-trades').expect(401);
     await request(app).get('/api/guest/cards/listed1/image').expect(401);
     await request(app).get('/guest.html').expect(200);
 

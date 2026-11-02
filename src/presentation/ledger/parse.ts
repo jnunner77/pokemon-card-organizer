@@ -95,3 +95,8 @@ export function tradeRecord(body: unknown): TradeRecord | null {
   const received = listOf(body['received'], receivedCard, { max: MAX_TRADE_CARDS });
   return given && received && isRecord(summary) ? { tradeId: body['id'], summary, given, received } : null;
 }
+
+/** The open trade a trade is recorded from, if the body names one. */
+export function openTradeIdOf(body: unknown): string | null {
+  return isRecord(body) && isDocumentId(body['openTradeId']) ? body['openTradeId'] : null;
+}

@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { type Caller, requireRole, type Role } from '#application/access.ts';
 import type { ArrangeBinder } from '#application/ledger/arrange-binder.ts';
 import type { ChangePriceEntries } from '#application/ledger/change-price-entries.ts';
+import type { DiscardOpenTrade } from '#application/open-trades/discard-open-trade.ts';
 import type { DeleteDocument } from '#application/ledger/delete-document.ts';
 import type { MergeDocument } from '#application/ledger/merge-document.ts';
 import type { PlaceCards } from '#application/ledger/place-cards.ts';
@@ -16,7 +17,7 @@ import { accessFailure, badRequest, bodyFailure } from '../http/errors.ts';
 import { sendFailure, sendJson, sendNoContent } from '../http/respond.ts';
 import { Router } from '../http/router.ts';
 import { arrangeFailure, documentFailure, placeFailure, priceEntriesFailure, tradeFailure } from './errors.ts';
-import { arrangement, placements, priceChange, tradeRecord } from './parse.ts';
+import { arrangement, openTradeIdOf, placements, priceChange, tradeRecord } from './parse.ts';
 
 export interface LedgerRouteDeps {
   readonly identify: CallerResolver;
@@ -29,6 +30,8 @@ export interface LedgerRouteDeps {
   readonly placeCards: Pick<PlaceCards, 'execute'>;
   readonly recordTrade: Pick<RecordTrade, 'execute'>;
   readonly undoTrade: Pick<UndoTrade, 'execute'>;
+  /** Closes the open trade a recorded trade came from. */
+  readonly discardOpenTrade?: Pick<DiscardOpenTrade, 'execute'> | undefined;
 }
 
 /** Binders, cards and settings: the ledger itself, as routes relative to /api. */
@@ -134,8 +137,11 @@ export function ledgerRoutes(deps: LedgerRouteDeps): Router {
         const trade = tradeRecord(raw.value);
         if (!trade) return sendFailure(res, badRequest('Send the trade with its id, the cards given and the cards received.'));
         const r = await deps.recordTrade.execute({ actor: caller.name, ...trade });
-        if (r.ok) sendJson(res, 200, r.value);
-        else sendFailure(res, tradeFailure(r.error));
+        if (!r.ok) return sendFailure(res, tradeFailure(r.error));
+        // The trade is recorded; closing its open trade must never fail that.
+        const openTradeId = openTradeIdOf(raw.value);
+        if (openTradeId !== null) await deps.discardOpenTrade?.execute({ actor: caller.name, id: openTradeId, reason: 'recorded' }).catch(() => undefined);
+        sendJson(res, 200, r.value);
       })
       .add('DELETE', '/trades/:id', async (req, res, p) => {
         const caller = allowed(req, res, 'editor');
