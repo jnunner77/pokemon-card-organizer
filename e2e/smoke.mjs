@@ -298,6 +298,16 @@ try {
   await page.getByRole('tab', { name: /Offline/ }).click();
   await page.locator('#tr_clear').click();
   await page.getByRole('tab', { name: /Offline/ }).waitFor({ state: 'detached' });
+  // A card of mine sold meanwhile (here a change from elsewhere) leaves the open trade without reopening the dialog.
+  const hidden = { name: 'Trade shelf', pockets: 9, hiddenFromGuests: true };
+  if (!(await page.request.put(new URL('api/docs/binders/e2e-trade', BASE).href, { data: hidden })).ok()) fail('making the trade binder');
+  const bulb = { binderId: 'e2e-trade', page: 1, slot: 1, name: 'Bulbasaur', set: 'Base Set', number: '44/102', condition: 'Near Mint' };
+  if (!(await page.request.put(new URL('api/docs/cards/e2e-bulb', BASE).href, { data: bulb })).ok()) fail('adding a card to give');
+  await page.locator('[data-trq="mine"]').fill('Bulbasaur');
+  await page.locator('[data-trpick]').first().click();
+  await page.locator('[data-trlist="mine"] .tr-item').waitFor();
+  if (!(await page.request.put(new URL('api/docs/cards/e2e-bulb', BASE).href, { data: { ...bulb, status: 'sold' } })).ok()) fail('selling the card');
+  await page.locator('[data-trlist="mine"] .tr-item').waitFor({ state: 'detached', timeout: 8000 });
   await page.keyboard.press('Escape');
   await p.getByRole('button', { name: 'Back to binders' }).click();
   await p.locator('#btnTrade').click();

@@ -1086,6 +1086,8 @@ function trNorm(raw){
   for(const k of TR_SIDES) r[k].items.forEach(it => { it.key = rid(); });
   return {id:raw.id, n:raw.n, customer:String(raw.customer || "").slice(0, window.BinderTrades.MAX_CUSTOMER), ...r, q:{dealer:"", mine:""}, version:Number.isInteger(raw.version) ? raw.version : 0};
 }
+/* A server copy replacing a trade here keeps the card searches typed on this device. */
+const trKeepQ = (fresh, old) => { if(old) fresh.q = old.q; return fresh; };
 const trFromView = v => trNorm({id:v.id, n:v.number, customer:v.customer, dealer:v.dealer, mine:v.mine, version:v.version});
 /* What a trade holds, for telling whether two copies differ. */
 const trContent = t => { const {baseVersion, ...w} = window.BinderTrades.toWire(t); return JSON.stringify(w); };
@@ -1164,7 +1166,7 @@ function trApply(views, fresh){
   const r = BT.reconcile(TRADES.list, views.filter(v => !TRGONE.has(v.id) && !TRDISC.has(v.id)), TRP);
   const mineById = new Map(TRADES.list.map(t => [t.id, t]));
   // a trade the server has at the version this device has is the same trade: keep the object (and its focus)
-  let list = r.trades.map(t => had.has(t) ? t : mineById.get(t.id)?.version===t.version ? mineById.get(t.id) : trNorm(t));
+  let list = r.trades.map(t => had.has(t) ? t : mineById.get(t.id)?.version===t.version ? mineById.get(t.id) : trKeepQ(trNorm(t), mineById.get(t.id)));
   for(const c of r.conflicts){
     // a save of this trade is on its way: it finds out itself if the server moved on
     if(trSaver.status(c.id)==="saving"){ list = list.map(t => t.id===c.id ? c.mine : t); continue; }
@@ -1205,7 +1207,7 @@ async function trConflict(id){
   try{ views = (await trApi("GET")).trades || []; }catch(_){ trSaver.changed(mine); return; }
   const v = views.find(x => x.id===id);
   if(!v) return trClosedElsewhere(id);
-  const theirs = trFromView(v);
+  const theirs = trKeepQ(trFromView(v), mine);
   if(trContent(mine)!==trContent(theirs)) TRNOTES.set(id, {mine});
   trSet(TRADES.list.map(t => t.id===id ? theirs : t));
   if(!$("#tr_card")) toast(`${window.BinderTrades.label(theirs)} was changed on another device; open the trade evaluator to see it.`);
@@ -1245,7 +1247,7 @@ window.addEventListener("binder:opentrade", ev => {
   const local = trById(id);
   if(!trade){ if(local && local.version>0) trClosedElsewhere(id); return; }
   if(local ? trade.version<=local.version : TRADES.list.length>=window.BinderTrades.MAX) return;
-  const fresh = trFromView(trade);
+  const fresh = trKeepQ(trFromView(trade), local);
   trSet(local ? TRADES.list.map(t => t.id===id ? fresh : t) : [...TRADES.list, fresh].sort((a, b) => a.n-b.n));
   trPrune();
 });
@@ -1680,8 +1682,21 @@ async function trRecord(items){
   TRR.busy = true; go.disabled = true; go.textContent = "Recording…";
   const t = TR, id = rid();
   // a save of this trade still on its way must land before the server closes it, or it would open it again
-  const openTradeId = trServer() ? t.id : null;
-  if(openTradeId){ await trSaver.settle(openTradeId); trSaver.forget(openTradeId); }
+  let openTradeId = trServer() ? t.id : null;
+  if(openTradeId){
+    await trSaver.settle(openTradeId);
+    // the server's copy must still be the one this device has: another device may have changed (or closed) it, and recording mine would close that newer version unseen
+    let views = null;
+    try{ views = (await trApi("GET")).trades; }catch(_){}
+    const theirs = Array.isArray(views) ? views.find(v => v.id===openTradeId) : null;
+    if(Array.isArray(views) && trById(t.id)===t && ((theirs && theirs.version!==t.version) || (!theirs && t.version>0))){
+      if(theirs) await trConflict(t.id); else trClosedElsewhere(t.id);
+      TRR = null; tradeModal();
+      return;
+    }
+    trSaver.forget(openTradeId);
+    if(Array.isArray(views) && !theirs) openTradeId = null; // the server never got this one
+  }
   const mine = t.mine.items.map(it => { const c = trCard(it.cardId); if(!c || !owned(c)) return null; const cb = costBasis(c); return {cardId:c.id, cost:cb.cost, basis:cb.basis}; });
   const body = window.BinderTrade.recordBody(t, {id, date:$("#rt_date").value || today(), at:nowISO(), who:$("#rt_with").value.trim(), newId:rid, mine, lands:items.map(x => TRR.land[x.it.key]), owner:newCardOwner});
   if(openTradeId) body.openTradeId = openTradeId;
@@ -5666,7 +5681,7 @@ async function boot(){
   const done = () => { if(got.b && got.c && S.mode==="loading"){ S.mode="ready"; } pickDefaults(); render(); trStart(); };
   const onErr = e => { console.error(e); if(e?.code==="revoked"||e?.code==="not_granted"){ S.mode="nodb"; render(); } };
   db.collection("binders").onSnapshot(s => { S.binders = s.docs.map(d=>({id:d.id, ...d.data()})); got.b=true; done(); }, onErr);
-  db.collection("cards").onSnapshot(s => { S.cards = s.docs.map(d=>({id:d.id, ...d.data()})); got.c=true; if(S.sel && S.sel!=="__new" && !S.cards.some(c=>c.id===S.sel)) { S.sel=null; } done(); if($("#chkCard")) renderChecks(); }, onErr);
+  db.collection("cards").onSnapshot(s => { S.cards = s.docs.map(d=>({id:d.id, ...d.data()})); got.c=true; trPrune(); if(S.sel && S.sel!=="__new" && !S.cards.some(c=>c.id===S.sel)) { S.sel=null; } done(); if($("#chkCard")) renderChecks(); }, onErr);
   db.doc("settings/main").onSnapshot(s => { if(s.exists) S.settings = {...S.settings, ...s.data()}; if(S.mode==="ready") render(); }, onErr);
   db.doc("settings/details").onSnapshot(s => { S.detailsRun = s.exists ? s.data() : {}; const sd=$("#sDetails"); if(sd) sd.outerHTML = detailsSettingsHTML(); const ua=$("#sUpdateAll"); if(ua) ua.outerHTML = updateAllHTML(); }, onErr);
   db.doc("settings/pricing").onSnapshot(s => { S.pricing = s.exists ? s.data() : {}; if(S.mode==="ready"){ renderBanner(); renderStats(); const sp=$("#sPricing"); if(sp){ sp.outerHTML = pricingSettingsHTML(); scrollRunLog($("#sPricing")); } const ua=$("#sUpdateAll"); if(ua) ua.outerHTML = updateAllHTML(); } }, onErr);
