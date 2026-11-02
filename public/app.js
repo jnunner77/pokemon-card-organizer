@@ -1131,9 +1131,17 @@ function trPrune(){
 }
 /* A change to a trade: kept in this browser at once and, for editors, saved on the server a moment later. */
 function trChanged(t=TR){
-  if(!t) return;
+  // a late answer for a trade that's been discarded, recorded or replaced must not save it again
+  if(!t || trById(t.id)!==t) return;
   if(trServer() && (t.version>0 || TRP.has(t.id) || !window.BinderTrades.isEmpty(t))){ TRP.add(t.id); trSaver.changed(t); }
   trMirror(); trTabs(); trStatus();
+}
+/* Once the ledger is loaded and the account known, open trades kept here are picked up and the ones the server hasn't got are sent: without the dialog being opened, so a reload doesn't leave them waiting. */
+let trStarted = false;
+function trStart(){
+  if(trStarted || !trServer()) return;
+  trStarted = true;
+  trInit(); trSendDiscards(); trPrune(); trSendPending();
 }
 const trSaver = window.BinderTrades.createSaver({
   put: (id, wire) => trApi("PUT", id, wire),
@@ -1509,6 +1517,12 @@ async function trLookLoad(it){
   }catch(err){
     it.lookState = {busy:false, error:err.message || "The card database didn't answer."};
   }
+  if(trById(t.id)!==t){
+    // the trade was closed meanwhile (nothing to do), or another device's version replaced this object: ask again for its row
+    const next = trById(t.id)?.dealer.items.find(x => x.look?.id===L.id && !x.look.printings);
+    if(next) void trLookLoad(next);
+    return;
+  }
   if(!t.dealer.items.includes(it)) return;
   if(here()){
     // its row again with the printings; the inputs keep what's typed (the same item)
@@ -1676,7 +1690,6 @@ async function trRecord(items){
   // the server closed the open trade with the record; this device lets go of it too
   const others = TRADES.list.length>1;
   TRGONE.add(t.id); trRemove(t.id); TRR = null;
-  if(openTradeId) void trApi("DELETE", openTradeId).catch(() => {});
   closeModal();
   toast(`Trade recorded: ${body.received.length} card${body.received.length===1?"":"s"} in, ${body.given.length} traded away`, {label:"Undo", run:()=>void undoTrade(id)});
   render();
@@ -5648,9 +5661,9 @@ async function boot(){
     window.claude?.use?.("db") ?? null, window.claude?.use?.("assets") ?? null, window.claude?.use?.("downloads") ?? null
   ].map(p => Promise.resolve(p).catch(()=>null)));
   S.db=db; S.assets=assets; S.downloads=downloads;
-  window.ledgerApi?.call("GET","api/auth/me").then(r=>{ S.me=r; renderBanner(); watchProblems(); }, ()=>{});
+  window.ledgerApi?.call("GET","api/auth/me").then(r=>{ S.me=r; renderBanner(); watchProblems(); trStart(); }, ()=>{});
   if(!db){ S.mode="nodb"; pickDefaults(); render(); return; }
-  const done = () => { if(got.b && got.c && S.mode==="loading"){ S.mode="ready"; } pickDefaults(); render(); };
+  const done = () => { if(got.b && got.c && S.mode==="loading"){ S.mode="ready"; } pickDefaults(); render(); trStart(); };
   const onErr = e => { console.error(e); if(e?.code==="revoked"||e?.code==="not_granted"){ S.mode="nodb"; render(); } };
   db.collection("binders").onSnapshot(s => { S.binders = s.docs.map(d=>({id:d.id, ...d.data()})); got.b=true; done(); }, onErr);
   db.collection("cards").onSnapshot(s => { S.cards = s.docs.map(d=>({id:d.id, ...d.data()})); got.c=true; if(S.sel && S.sel!=="__new" && !S.cards.some(c=>c.id===S.sel)) { S.sel=null; } done(); if($("#chkCard")) renderChecks(); }, onErr);

@@ -281,6 +281,24 @@ try {
   page.once('dialog', (d) => d.accept()); // it has a card, so discarding it asks first
   await page.locator('#tr_clear').click();
   await page.getByRole('tab', { name: /Trade 2/ }).waitFor({ state: 'detached' });
+  // A trade kept unsaved before a reload is sent once the page is up, without the dialog being opened.
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => {
+    const m = JSON.parse(localStorage.getItem('bl:trades'));
+    const ash = m.trades.find((t) => t.customer === 'Ash');
+    m.trades.push({ ...ash, id: 'e2e-offline', n: 9, customer: 'Offline', version: 0 });
+    m.pending = [...(m.pending || []), 'e2e-offline'];
+    localStorage.setItem('bl:trades', JSON.stringify(m));
+  });
+  await page.reload();
+  await page.waitForFunction(async () => (await (await fetch('api/open-trades')).json()).trades.some((t) => t.id === 'e2e-offline'), null, { timeout: 15000 });
+  await page.locator('#btnTrade').click();
+  await page.getByRole('tab', { name: /Offline/ }).waitFor();
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('tab', { name: /Offline/ }).click();
+  await page.locator('#tr_clear').click();
+  await page.getByRole('tab', { name: /Offline/ }).waitFor({ state: 'detached' });
+  await page.keyboard.press('Escape');
   await p.getByRole('button', { name: 'Back to binders' }).click();
   await p.locator('#btnTrade').click();
   await p.locator('#tr_card').waitFor();
