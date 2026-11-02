@@ -48,5 +48,16 @@
     };
   }
 
-  root.BinderSales = { split, remaining, record };
+  /* A sold or traded card that has a sale (its sale record or a "mysale" price) is on the Sales tab
+     and in no binder; `info` is its sale, or null when it has none. */
+  function onSalesTab(card, info) {
+    return (card.status === "sold" || card.status === "traded") && !!info;
+  }
+
+  /* The cards that are not only on the Sales tab; `infoOf(card)` is a card's sale or null. */
+  function withoutSales(cards, infoOf) {
+    return cards.filter(c => !onSalesTab(c, infoOf(c)));
+  }
+
+  root.BinderSales = { split, remaining, record, onSalesTab, withoutSales };
 })(typeof window !== "undefined" ? window : globalThis);

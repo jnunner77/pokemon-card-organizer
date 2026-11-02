@@ -93,8 +93,8 @@ import { ChangePriceEntries } from '#application/ledger/change-price-entries.ts'
 import { DeleteDocument } from '#application/ledger/delete-document.ts';
 import type { LedgerDeps } from '#application/ledger/deps.ts';
 import { MergeDocument } from '#application/ledger/merge-document.ts';
-import { TakeSoldCardsOutOfBinders } from '#application/ledger/take-sold-cards-out.ts';
 import { PlaceCards } from '#application/ledger/place-cards.ts';
+import { TakeSoldCardsOutOfBinders } from '#application/ledger/take-sold-cards-out.ts';
 import { RecordTrade } from '#application/ledger/record-trade.ts';
 import { UndoTrade } from '#application/ledger/undo-trade.ts';
 import { PutDocument } from '#application/ledger/put-document.ts';

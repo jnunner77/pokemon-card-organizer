@@ -48,7 +48,7 @@ const owned = c => held(c) && !c.placeholder && c.watchlist!==true;
 const W = window.BinderWatch;
 const ledgerCards = () => S.cards.filter(c => !W.onWatchlist(c));
 /* the cards that are in the collection and not only on the Sales tab */
-const binderCards = () => ledgerCards().filter(c => !onSalesTab(c));
+const binderCards = () => window.BinderSales.withoutSales(ledgerCards(), saleInfo);
 const watchList = () => W.list(S.cards, valueOf);
 /* sale record: quick sells store a snapshot; cards sold through the price log are worked out on the fly. Paid beats market as the cost basis. */
 function costBasis(c){ const pd = paidOf(c); if(pd!=null) return {cost:pd, basis:"paid"}; const v = valueOf(c); if(v!=null) return {cost:v, basis:"market"}; return {cost:null, basis:"none"}; }
@@ -59,7 +59,7 @@ function saleInfo(c){
   return {soldCAD:sd, amount:p.amount, currency:p.currency, date:p.date, where:p.where, at:p.at, cost:cb.cost, basis:cb.basis, profit: cb.cost!=null ? Math.round((sd-cb.cost)*100)/100 : null, from:c.sale?.from || null, quick:false};
 }
 /* a sold or traded card with a sale: it is on the Sales tab, in no binder */
-const onSalesTab = c => !held(c) && !!saleInfo(c);
+const onSalesTab = c => window.BinderSales.onSalesTab(c, saleInfo(c));
 const salesList = () => S.cards.map(c=>({c, s:saleInfo(c)})).filter(x=>x.s).sort((a,b)=>(b.s.date||"").localeCompare(a.s.date||"") || (b.s.at||"").localeCompare(a.s.at||""));
 function salesTotals(){ const l = salesList(); return {n:l.length, rev:l.reduce((t,x)=>t+x.s.soldCAD,0), cost:l.reduce((t,x)=>t+(x.s.cost??0),0), profit:l.reduce((t,x)=>t+(x.s.profit??0),0), nobasis:l.filter(x=>x.s.profit==null).length}; }
 const signed = n => n==null ? "—" : (n>=0?"+":"−") + money(Math.abs(n));
