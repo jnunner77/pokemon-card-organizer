@@ -63,7 +63,7 @@ function readSide(raw: unknown, name: string): Result<TradeSide, InvalidOpenTrad
   if (!Array.isArray(items)) return invalid(`The ${name} cards must be a list`);
   if (items.length > MAX_SIDE_CARDS) return invalid(`A side of a trade has at most ${MAX_SIDE_CARDS} cards`);
   const kept: TradeItem[] = [];
-  for (const item of items as unknown[]) {
+  for (const item of items) {
     if (!isRecord(item)) return invalid(`Each ${name} card must be an object`);
     kept.push(item);
   }
@@ -131,7 +131,7 @@ export function discardOpenTrade(book: OpenTradeBook, id: OpenTradeId): OpenTrad
 
 /** The book as saved in the file: entries that are broken, or repeat an id or number, are left out. */
 export function openTradeBookFrom(raw: unknown): OpenTradeBook {
-  const list = isRecord(raw) && Array.isArray(raw['trades']) ? (raw['trades'] as unknown[]) : [];
+  const list = isRecord(raw) && Array.isArray(raw['trades']) ? raw['trades'] : [];
   const ids = new Set<string>();
   const numbers = new Set<number>();
   const trades: OpenTrade[] = [];
