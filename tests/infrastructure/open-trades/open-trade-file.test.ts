@@ -35,6 +35,15 @@ describe('the open trades file', () => {
     assert.match(said[0] ?? '', /Open trades start empty/);
     assert.ok(fs.readdirSync(d).some((f) => f.startsWith('open-trades.json.damaged-')));
   });
+  it('does not log any of a damaged file, such as a customer name at its start', () => {
+    const d = dir();
+    fs.writeFileSync(path.join(d, 'open-trades.json'), 'Ash Ketchum and his Pikachu');
+    const said: string[] = [];
+    new FileOpenTradeShelf({ dataDir: d, onDamaged: (m) => said.push(m) });
+    assert.equal(said.length, 1);
+    assert.doesNotMatch(said[0] ?? '', /Ash|Ketchum/);
+    assert.match(said[0] ?? '', /Open trades start empty/);
+  });
   it('writes nothing for work that fails or changes nothing', async () => {
     const d = dir();
     const shelf = new FileOpenTradeShelf({ dataDir: d, onDamaged: () => {} });

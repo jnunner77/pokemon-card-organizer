@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { OpenTradeDraft, OpenTradeShelf } from '#application/open-trades/ports.ts';
 import { type OpenTradeBook, openTradeBookFrom } from '#domain/open-trades/open-trade.ts';
 import type { Result } from '#shared/result.ts';
-import { damagedMessage, readJson } from '../json-store/damaged.ts';
+import { type Damaged, readJson } from '../json-store/damaged.ts';
 import { writePrivate } from '../private-file.ts';
 
 // The open trades in <data>/open-trades.json (readable only by the server: it holds customers'
@@ -18,6 +18,11 @@ export interface FileOpenTradeShelfOptions {
   readonly onDamaged: (message: string) => void;
 }
 
+// Not the shared damagedMessage: it quotes the parser's error, and V8's parse errors quote the
+// start of the file, which here is a customer's name. Names are never logged.
+const damagedMessage = (d: Damaged): string =>
+  `${path.basename(d.file)} was damaged${d.setAside ? `; it was kept as ${path.basename(d.setAside)}` : ''}. Open trades start empty.`;
+
 export class FileOpenTradeShelf implements OpenTradeShelf {
   readonly #file: string;
   #book: OpenTradeBook;
@@ -25,7 +30,7 @@ export class FileOpenTradeShelf implements OpenTradeShelf {
   constructor(o: FileOpenTradeShelfOptions) {
     fs.mkdirSync(o.dataDir, { recursive: true });
     this.#file = path.join(o.dataDir, 'open-trades.json');
-    const raw = readJson<unknown>(this.#file, (d) => o.onDamaged(damagedMessage(d, 'Open trades start empty.')));
+    const raw = readJson<unknown>(this.#file, (d) => o.onDamaged(damagedMessage(d)));
     this.#book = openTradeBookFrom(raw);
   }
 
