@@ -3406,7 +3406,7 @@ function ciValidate(P, o){
     let bn = cell("binder"), pg = cell("page"), sl = cell("slot");
     const goneToSales = ["sold","traded"].includes(d.status);
     if(goneToSales && (bn||pg||sl)){
-      W(`Status is ${d.status==="sold"?"Sold":"Traded"}, so it isn't put in a binder: it goes to the Sales tab.`);
+      W(`Status is ${d.status==="sold"?"Sold":"Traded"}, so it isn't put in a binder: ${r.prices.some(p=>p.type==="mysale") ? "it goes to the Sales tab" : "it goes under Not in a binder (there's no Sold for price to show it on the Sales tab)"}.`);
       bn = pg = sl = "";
     }
     if(!bn){ if((pg||sl) && !goneToSales) W("Binder is blank, so Page and Pocket are ignored. The card goes under Not in a binder."); }
@@ -3482,7 +3482,7 @@ async function ciLoad(f){
 }
 function ciCheck(){ if(!CI.P) return; CI.res = ciValidate(CI.P, CI.o); ciRenderRes(); }
 function ciWhere(r){
-  if(!r.bkey) return ["sold","traded"].includes(r.data?.status) ? "Sales tab" : "Not in a binder";
+  if(!r.bkey) return ["sold","traded"].includes(r.data?.status) && r.prices.some(p => p.type === "mysale") ? "Sales tab" : "Not in a binder";
   if(!r.page || !r.slot) return `${r.bname}${r.isNew?" (new)":""}`;
   return `${r.bname}${r.isNew?" (new)":""} · p${r.page} · #${r.slot}${r.auto?" · next empty":""}${r.replaceId?` · replaces ${r.replaceName}`:""}`;
 }
@@ -3882,6 +3882,10 @@ document.addEventListener("change", e => {
       if(c.placeholder) return void toast("A placeholder can't be sold.");
       if(unsaved()) return void toast("Save or discard your changes first, then choose Sold.");
       return void quickSellModal([c.id]);
+    }
+    if(c && c.status==="traded"){
+      e.target.value = "traded";
+      return void toast("A traded card can't be sold.");
     }
   }
   if(e.target.closest("#cardForm")){ S.dirty=true; syncSaveButton(); }
