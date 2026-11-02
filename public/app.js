@@ -1152,6 +1152,7 @@ const trSaver = window.BinderTrades.createSaver({
   onStatus: id => { if(trSaver.status(id)==="saved") TRP.delete(id); else if(trById(id)) TRP.add(id); trMirror(); trTabs(); trStatus(); },
   onConflict: id => void trConflict(id),
   onClosed: id => trClosedElsewhere(id),
+  onInvalid: () => toast("This trade can't be saved as it is: shorten it. It stays on this device."),
   onFull: () => toast(`At most ${window.BinderTrades.MAX} trades can be open on the server at once: record or discard one, and this one saves.`),
 });
 /* Trades with changes the server hasn't got are sent (again): after a reload, or when the server answers. */
@@ -1342,8 +1343,8 @@ function trSideHTML(k){
     </div>
     <div class="tr-list" data-trlist="${k}"></div>
     <div class="tr-opts">
-      <div class="field"><label for="tr_cash_${k}">${mine ? "Cash I add" : "Cash from the dealer"}</label><input id="tr_cash_${k}" class="mono" data-trs="cash" value="${esc(TR[k].cash)}" type="text" inputmode="decimal" placeholder="$0.00" autocomplete="off"></div>
-      <div class="field"><label for="tr_pct_${k}">${mine ? "Dealer takes my cards at" : "Dealer's cards count at"}</label><span class="tr-pctin"><input id="tr_pct_${k}" class="mono" data-trs="pct" value="${esc(TR[k].pct)}" type="text" inputmode="decimal" placeholder="100" autocomplete="off"><span>%</span></span></div>
+      <div class="field"><label for="tr_cash_${k}">${mine ? "Cash I add" : "Cash from the dealer"}</label><input id="tr_cash_${k}" class="mono" data-trs="cash" value="${esc(TR[k].cash)}" maxlength="${window.BinderTrades.MAX_FIELD}" type="text" inputmode="decimal" placeholder="$0.00" autocomplete="off"></div>
+      <div class="field"><label for="tr_pct_${k}">${mine ? "Dealer takes my cards at" : "Dealer's cards count at"}</label><span class="tr-pctin"><input id="tr_pct_${k}" class="mono" data-trs="pct" value="${esc(TR[k].pct)}" maxlength="${window.BinderTrades.MAX_FIELD}" type="text" inputmode="decimal" placeholder="100" autocomplete="off"><span>%</span></span></div>
     </div>
   </section>`;
 }
@@ -1364,7 +1365,7 @@ function trTabs(){
 function trStatus(){
   const el = $("#tr_status"); if(!el || !TR) return;
   const st = !trServer() ? "local" : TR.version===0 && !TRP.has(TR.id) ? "" : trSaver.status(TR.id);
-  el.textContent = {local:"Kept in this browser only.", saved:"Saved", saving:"Saving…", unsaved:"Not saved yet: kept on this device, it'll save when the server answers.", "":""}[st];
+  el.textContent = {local:"Kept in this browser only.", saved:"Saved", saving:"Saving…", unsaved:"Not saved yet: kept on this device, it'll save when the server answers.", invalid:"This trade can't be saved as it is: shorten it (kept on this device).", "":""}[st];
   el.dataset.state = st;
 }
 /* The note under the tabs when another device's version of the trade is showing instead of mine. */
@@ -1481,8 +1482,9 @@ function tradeModal(){
   void trSync(true);
 }
 const trItemOf = el => { const [k, key] = (el.closest("[data-tritem]")?.dataset.tritem || "").split(":"); return k && TR[k] ? TR[k].items.find(x => x.key===key) : null; };
+const trFull = k => TR[k].items.length >= window.BinderTrades.MAX_SIDE_CARDS && (toast(`A side of a trade holds at most ${window.BinderTrades.MAX_SIDE_CARDS} cards.`), true);
 function trAddCard(id){
-  const c = trCard(id); if(!c) return;
+  const c = trCard(id); if(!c || trFull("mine")) return;
   const v = trMyValue(c).value;
   TR.mine.items.push({key:rid(), cardId:c.id, look:null, name:c.name||"", grader:c.grader||"Raw", grade:c.grade||"", value:v==null ? "" : v.toFixed(2), valueFrom:"", pct:""});
   TR.q.mine = ""; const q = $(`[data-trq="mine"]`); q.value = "";
@@ -1490,13 +1492,14 @@ function trAddCard(id){
   q.focus();
 }
 function trAddTyped(k){
+  if(trFull(k)) return;
   const it = {key:rid(), cardId:null, look:null, name:"", grader:"Raw", grade:"", value:"", valueFrom:"", pct:""};
   TR[k].items.push(it); trList(k); trChanged(); trRefresh();
   $(`[data-tritem="${k}:${it.key}"] [data-trf="name"]`)?.focus();
 }
 /* A card from the card database for the dealer's side: added straight away, its prices following. */
 function trAddLooked(hit){
-  if(!hit) return;
+  if(!hit || trFull("dealer")) return;
   const look = {...window.BinderTrade.lookFrom(hit, null), printings:null};
   const it = {key:rid(), cardId:null, look, name:[look.name, look.number].filter(Boolean).join(" "), grader:"Raw", grade:"", value:"", valueFrom:"", pct:""};
   TR.dealer.items.push(it);
@@ -1690,6 +1693,12 @@ async function trRecord(items){
     // the server's copy must still be the one this device has: another device may have changed (or closed) it, and recording mine would close that newer version unseen
     let views = null;
     try{ views = (await trApi("GET")).trades; }catch(_){}
+    if(!Array.isArray(views)){
+      // the server can't be asked, so it can't be trusted to take the record either
+      TRR.busy = false; go.textContent = "Record trade"; go.disabled = false;
+      toast("The server didn't answer, so nothing was recorded. Try again in a moment.");
+      return;
+    }
     const theirs = Array.isArray(views) ? views.find(v => v.id===openTradeId) : null;
     // a sync meanwhile may have replaced this device's copy: the current one is what counts
     const cur = trById(t.id);

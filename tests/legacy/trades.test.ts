@@ -26,11 +26,14 @@ type SaverOptions = {
   onConflict?: (id: string) => void;
   onClosed?: (id: string) => void;
   onFull?: (id: string) => void;
+  onInvalid?: (id: string) => void;
   onStatus?: (id: string) => void;
 };
 type Trades = {
   MAX: number;
   MAX_CUSTOMER: number;
+  MAX_FIELD: number;
+  MAX_SIDE_CARDS: number;
   blank: (n: number) => T;
   isEmpty: (t: unknown) => boolean;
   label: (t: unknown) => string;
@@ -235,6 +238,7 @@ function setup(over: Partial<SaverOptions> = {}) {
     onConflict: (id) => events.push(`conflict ${id}`),
     onClosed: (id) => events.push(`closed ${id}`),
     onFull: (id) => events.push(`full ${id}`),
+    onInvalid: (id) => events.push(`invalid ${id}`),
     ...over,
   });
   const target = trade('a', 1, 0);
@@ -290,6 +294,20 @@ describe('saving trades', () => {
     expect(events).toEqual(['conflict a']);
     expect(saver.status('a')).toBe('unsaved');
     expect(clock.waits).toEqual([]);
+  });
+
+  it('does not retry a trade the server refuses, and tries again once it changes', async () => {
+    let calls = 0;
+    const { saver, clock, events, target } = setup({ put: async (id) => { calls++; if (calls === 1) throw Object.assign(new Error('x'), { code: 'invalid_argument' }); return view(id, 1, 1); } });
+    saver.changed(target); await turn(); await clock.advance();
+    expect(events).toEqual(['invalid a']);
+    expect(saver.status('a')).toBe('invalid');
+    expect(calls).toBe(1);
+    target.customer = 'x'; saver.changed(target); await turn();
+    expect(saver.status('a')).toBe('saving');
+    await clock.advance();
+    expect(calls).toBe(2);
+    expect(saver.status('a')).toBe('saved');
   });
 
   it('reports a trade closed elsewhere and forgets it', async () => {

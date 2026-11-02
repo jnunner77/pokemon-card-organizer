@@ -11,7 +11,7 @@
 (function (root) {
   "use strict";
 
-  const MAX = 10, MAX_CUSTOMER = 40;
+  const MAX = 10, MAX_CUSTOMER = 40, MAX_FIELD = 20, MAX_SIDE_CARDS = 100; // the server's limits (src/domain/open-trades/open-trade.ts)
 
   const side = () => ({ pct: "100", cash: "", items: [] });
   /* A new trade numbered n; its id is chosen when the page makes it. */
@@ -112,8 +112,9 @@
    * - delayMs: the wait after the last change before saving; retryMs: waits between tries while the
    *   server can't be reached (the last repeats).
    * Callbacks: onSaved(id, view), onConflict(id) (changed elsewhere meanwhile), onClosed(id)
-   * (recorded or discarded elsewhere), onFull(id) (too many open trades), onStatus(id).
-   * A trade's status is 'saved', 'saving' or 'unsaved' (tried and couldn't, trying again).
+   * (recorded or discarded elsewhere), onFull(id) (too many open trades), onInvalid(id) (the server refuses it as it is, e.g. too long: not retried
+   until the trade changes), onStatus(id).
+   * A trade's status is 'saved', 'saving' or 'unsaved' (tried and couldn't, trying again) or 'invalid' (refused; kept here).
    * changed(t) takes the trade itself and reads its version when each save is sent, so onSaved
    * should update the trade's version before the next goes.
    */
@@ -144,6 +145,7 @@
             if (e.gone) break;
             if (err?.code === "trade_changed") { e.dirty = false; setState(e, "unsaved"); call("onConflict", e.id); }
             else if (err?.code === "trade_closed") { e.dirty = false; e.gone = true; entries.delete(e.id); call("onClosed", e.id); }
+            else if (err?.code === "invalid_argument" || err?.code === "too_large") { e.dirty = false; setState(e, "invalid"); call("onInvalid", e.id); }
             else if (err?.code === "too_many_trades") { e.dirty = false; setState(e, "unsaved"); call("onFull", e.id); }
             else { e.dirty = true; retry = true; setState(e, "unsaved"); }
           }
@@ -165,7 +167,7 @@
         if (e.gone) return;
         e.t = t; e.dirty = true;
         const gen = ++e.gen;
-        if (e.state === "saved") setState(e, "saving");
+        if (e.state === "saved" || e.state === "invalid") setState(e, "saving");
         if (e.inflight) return;
         wait(delayMs).then(() => { if (e.gen === gen && !e.gone && e.dirty) void run(e); });
       },
@@ -204,5 +206,5 @@
     };
   }
 
-  root.BinderTrades = { MAX, MAX_CUSTOMER, blank, isEmpty, label, summary, nextNumber, toWire, afterClose, reconcile, fromLegacy, createSaver };
+  root.BinderTrades = { MAX, MAX_CUSTOMER, MAX_FIELD, MAX_SIDE_CARDS, blank, isEmpty, label, summary, nextNumber, toWire, afterClose, reconcile, fromLegacy, createSaver };
 })(typeof window !== "undefined" ? window : globalThis);
