@@ -20,7 +20,8 @@ export function outOfBinderWhenSold<F extends CardFields>(fields: F): F | (F & {
   const binderId = fields['binderId'];
   const from = { binderId: typeof binderId === 'string' && binderId !== '' ? binderId : null, page: numberOrNull(fields['page']), slot: numberOrNull(fields['slot']) };
   const sale = fields['sale'];
-  const kept = isRecord(sale) ? (isRecord(sale['from']) ? sale : { ...sale, from }) : { from };
+  // The pocket it leaves now wins over a from already there (a card set back to In binder keeps its sale).
+  const kept = isRecord(sale) ? { ...sale, from } : { from };
   return { ...fields, binderId: null, page: null, slot: null, sale: kept };
 }
 

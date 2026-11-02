@@ -9,10 +9,10 @@ describe('a sold card is in no binder', () => {
     assert.deepEqual(outOfBinderWhenSold(sold()), { name: 'Lapras', status: 'sold', binderId: null, page: null, slot: null, sale: { from: { binderId: 'b1', page: 1, slot: 2 } } });
   });
 
-  it('keeps the rest of an existing sale, and a from already there', () => {
+  it('keeps the rest of an existing sale, and records the pocket it leaves over a from already there', () => {
     assert.deepEqual(outOfBinderWhenSold(sold({ sale: { soldCAD: 5 } }))['sale'], { soldCAD: 5, from: { binderId: 'b1', page: 1, slot: 2 } });
     const sale = { soldCAD: 5, from: { binderId: 'b0', page: 3, slot: 4 } };
-    assert.deepEqual(outOfBinderWhenSold(sold({ sale }))['sale'], sale);
+    assert.deepEqual(outOfBinderWhenSold(sold({ sale }))['sale'], { soldCAD: 5, from: { binderId: 'b1', page: 1, slot: 2 } });
   });
 
   it('treats traded like sold, and a display case as a place without page or pocket', () => {
