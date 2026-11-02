@@ -1052,34 +1052,196 @@ async function bulkBuyUndo(btn, list){
 }
 
 /* ---------- trade evaluator ----------
-   A trade with a dealer worked out before agreeing to it (public/trade.js): what the dealer gives
+   Trades with dealers worked out before agreeing to them (public/trade.js): what the dealer gives
    (any card, looked up in the card database with its prices, or typed in) and what I give (cards I
    own, or typed in), graded or not, and cash, with the trade percentage each side's cards are taken
-   at. Nothing is saved to the ledger until it's recorded (below); the trade being worked out is
-   kept in this browser until Start over. */
+   at. Nothing is saved to the ledger until a trade is recorded (below).
+   Several trades can be open at once, each a tab with an optional customer (public/trades.js).
+   Editors' open trades are saved on the server a moment after each change (api/open-trades), so
+   every device they sign in on shows them, and an open dialog follows changes made elsewhere; a
+   copy is always kept in this browser (bl:trades) and saved when the server answers again. View-only
+   accounts can work trades out, kept in this browser only. */
 const TR_SIDES = ["dealer","mine"];
 const TR_NAME = {dealer:"Dealer gives", mine:"I give"};
+/* The open trades, and which one is in front. TR is that trade, so what works on one trade works on the open one. */
+const TRADES = {list:[], active:null, init:false};
 let TR = null;
+const TRP = new Set();    // trades with changes the server hasn't got yet
+const TRDISC = new Set(); // trades discarded here that the server hasn't been told about yet
+const TRGONE = new Set(); // trades closed on this device since the page opened: their echoes are ignored
+const TRNOTES = new Map(); // trade id -> {mine}: my copy, which lost to another device's changes
 /* The dealer side's search of the card database: the text it's for, its hits, and whether it's on its way. */
 let TRS = {seq:0, t:0, q:"", busy:false, error:"", hits:[]};
-const trBlank = () => ({dealer:{pct:"100", cash:"", items:[]}, mine:{pct:"100", cash:"", items:[]}, q:{dealer:"", mine:""}});
+const trBlank = n => ({...window.BinderTrades.blank(n), id:rid(), q:{dealer:"", mine:""}});
+const trById = id => TRADES.list.find(t => t.id===id) || null;
 const trCard = id => id ? S.cards.find(c => c.id===id) : null;
 const trMyValue = c => window.BinderTrade.myCardValue(window.BinderGuestPrice.priceOf(c), valueOf(c));
-const trAny = () => !!TR && TR_SIDES.some(k => TR[k].items.length || TR[k].cash.trim() || (TR[k].pct.trim() && TR[k].pct.trim()!=="100"));
-/* The trade kept in this browser, if any (trade.js restore). Cards of mine that are gone, sold or
-   traded since are left out, but only once the ledger is loaded: before then (or with no server) a
-   card can't be told apart from one that's gone. */
-function trLoad(){
-  const ownedIds = S.mode==="ready" ? new Set(S.cards.filter(owned).map(c => c.id)) : null;
-  const t = window.BinderTrade.restore(store.get("trade", null), ownedIds, GRADERS);
-  for(const k of TR_SIDES) t[k].items.forEach(it => { it.key = rid(); });
-  return {...t, q:{dealer:"", mine:""}};
+/* Whether open trades are kept on the server: for people who can edit, with the ledger loaded. */
+const trServer = () => !!S.db && canEdit() && S.mode==="ready" && !!window.ledgerApi;
+const trApi = (method, id, body) => window.ledgerApi.call(method, "api/open-trades" + (id ? "/" + encodeURIComponent(id) : ""), body);
+const trIsId = id => typeof id==="string" && /^[A-Za-z0-9_-]{1,64}$/.test(id);
+/* A trade as kept in the mirror or sent by the server ({id, n, customer, dealer, mine, version}), ready for the dialog (trade.js restore). */
+function trNorm(raw){
+  const r = window.BinderTrade.restore(raw, null, GRADERS);
+  for(const k of TR_SIDES) r[k].items.forEach(it => { it.key = rid(); });
+  return {id:raw.id, n:raw.n, customer:String(raw.customer || "").slice(0, window.BinderTrades.MAX_CUSTOMER), ...r, q:{dealer:"", mine:""}, version:Number.isInteger(raw.version) ? raw.version : 0};
 }
-function trSave(){
-  if(!TR) return;
-  const side = k => ({pct:TR[k].pct, cash:TR[k].cash, items:TR[k].items.map(({key, lookState, ...it}) => it)});
-  store.set("trade", {dealer:side("dealer"), mine:side("mine")});
+const trFromView = v => trNorm({id:v.id, n:v.number, customer:v.customer, dealer:v.dealer, mine:v.mine, version:v.version});
+/* What a trade holds, for telling whether two copies differ. */
+const trContent = t => { const {baseVersion, ...w} = window.BinderTrades.toWire(t); return JSON.stringify(w); };
+/* The copy kept in this browser (localStorage bl:trades): every trade, which is in front, and what the server hasn't got yet. */
+function trMirror(){
+  store.set("trades", {
+    active:TRADES.active,
+    trades:TRADES.list.map(t => { const {baseVersion, ...w} = window.BinderTrades.toWire(t); return {...w, id:t.id, n:t.n, version:t.version}; }),
+    pending:[...TRP], discards:[...TRDISC],
+  });
 }
+/* Starts from the copy in this browser; a trade kept by the earlier version (bl:trade) becomes an open trade. */
+function trInit(){
+  if(TRADES.init) return;
+  TRADES.init = true;
+  const BT = window.BinderTrades, m = store.get("trades", null);
+  const list = [];
+  for(const raw of Array.isArray(m?.trades) ? m.trades : []){
+    if(raw && typeof raw==="object" && trIsId(raw.id) && list.length<BT.MAX && !list.some(t => t.id===raw.id)) list.push(trNorm({...raw, n:Number.isInteger(raw.n) && raw.n>0 ? raw.n : BT.nextNumber(list)}));
+  }
+  for(const id of Array.isArray(m?.pending) ? m.pending : []) if(list.some(t => t.id===id)) TRP.add(id);
+  for(const id of Array.isArray(m?.discards) ? m.discards : []) if(trIsId(id)) TRDISC.add(id);
+  const old = store.get("trade", null);
+  if(old!=null && list.length<BT.MAX){
+    const t = BT.fromLegacy(old, BT.nextNumber(list), null, GRADERS);
+    if(t){ const n = trNorm({...t, id:rid()}); list.push(n); TRP.add(n.id); }
+    try{ localStorage.removeItem("bl:trade"); }catch(_){}
+  }
+  if(!list.length) list.push(trBlank(1));
+  TRADES.list = list;
+  TRADES.active = list.some(t => t.id===m?.active) ? m.active : list[0].id;
+  TR = trById(TRADES.active);
+  trMirror();
+}
+/* Cards of mine that are gone, sold or traded since are left out of every open trade, but only once the ledger is loaded: before then (or with no server) a card can't be told apart from one that's gone. */
+function trPrune(){
+  if(S.mode!=="ready") return;
+  const own = new Set(S.cards.filter(owned).map(c => c.id));
+  for(const t of TRADES.list){
+    const keep = t.mine.items.filter(it => !it.cardId || own.has(it.cardId));
+    if(keep.length!==t.mine.items.length){ t.mine.items = keep; trChanged(t); if(t===TR && $("#tr_card")) trShow(true); }
+  }
+}
+/* A change to a trade: kept in this browser at once and, for editors, saved on the server a moment later. */
+function trChanged(t=TR){
+  if(!t) return;
+  if(trServer() && (t.version>0 || TRP.has(t.id) || !window.BinderTrades.isEmpty(t))){ TRP.add(t.id); trSaver.changed(t); }
+  trMirror(); trTabs(); trStatus();
+}
+const trSaver = window.BinderTrades.createSaver({
+  put: (id, wire) => trApi("PUT", id, wire),
+  del: id => trApi("DELETE", id),
+  onSaved: (id, v) => { const t = trById(id); if(!t) return; t.version = v.version; t.n = v.number; trMirror(); trTabs(); },
+  onStatus: id => { if(trSaver.status(id)==="saved") TRP.delete(id); else if(trById(id)) TRP.add(id); trMirror(); trTabs(); trStatus(); },
+  onConflict: id => void trConflict(id),
+  onClosed: id => trClosedElsewhere(id),
+  onFull: () => toast(`At most ${window.BinderTrades.MAX} trades can be open on the server at once: record or discard one, and this one saves.`),
+});
+/* Trades with changes the server hasn't got are sent (again): after a reload, or when the server answers. */
+function trSendPending(){ if(trServer()) for(const t of TRADES.list) if(TRP.has(t.id) && trSaver.status(t.id)==="saved") trSaver.changed(t); }
+function trSendDiscards(){
+  if(!trServer()) return;
+  for(const id of [...TRDISC]) void trSaver.discard(id).then(() => { TRDISC.delete(id); trMirror(); });
+}
+/* The server's trades against this device's (trades.js reconcile). `fresh`: the dialog just opened, so empty trades never started are tidied away (unless that's all there is). */
+function trApply(views, fresh){
+  const BT = window.BinderTrades, had = new Set(TRADES.list);
+  const r = BT.reconcile(TRADES.list, views.filter(v => !TRGONE.has(v.id) && !TRDISC.has(v.id)), TRP);
+  const mineById = new Map(TRADES.list.map(t => [t.id, t]));
+  // a trade the server has at the version this device has is the same trade: keep the object (and its focus)
+  let list = r.trades.map(t => had.has(t) ? t : mineById.get(t.id)?.version===t.version ? mineById.get(t.id) : trNorm(t));
+  for(const c of r.conflicts){
+    // a save of this trade is on its way: it finds out itself if the server moved on
+    if(trSaver.status(c.id)==="saving"){ list = list.map(t => t.id===c.id ? c.mine : t); continue; }
+    trSaver.forget(c.id); TRP.delete(c.id);
+    const theirs = list.find(t => t.id===c.id);
+    if(theirs && trContent(c.mine)!==trContent(theirs)) TRNOTES.set(c.id, {mine:c.mine});
+  }
+  for(const t of r.closed){ trSaver.forget(t.id); TRP.delete(t.id); TRGONE.add(t.id); toast(`${BT.label(t)} was recorded or discarded on another device.`); }
+  if(fresh){ const used = list.filter(t => t.version>0 || TRP.has(t.id) || !BT.isEmpty(t)); if(used.length) list = used; }
+  trSet(list);
+  trPrune(); trSendPending();
+}
+/* Replaces the trades; the one in front stays in front if it's still there, else the next one is. */
+function trSet(list){
+  const was = TRADES.active, old = TRADES.list, prev = TR;
+  if(!list.length) list = [trBlank(1)];
+  TRADES.list = list;
+  if(!list.some(t => t.id===was)){
+    const next = window.BinderTrades.afterClose(old, was);
+    TRADES.active = list.some(t => t.id===next) ? next : list[0].id;
+    trResetSearch();
+  }
+  TR = trById(TRADES.active);
+  trMirror();
+  if(TR===prev){ trTabs(); trStatus(); } else trShow(true);
+}
+async function trSync(fresh){
+  if(!trServer()) return;
+  let r;
+  try{ r = await trApi("GET"); }catch(_){ return; }
+  trApply(Array.isArray(r?.trades) ? r.trades : [], fresh);
+}
+/* Another device changed this one while this one had changes of its own: its version is shown, mine can be kept. */
+async function trConflict(id){
+  const mine = trById(id); trSaver.forget(id); TRP.delete(id);
+  if(!mine) return;
+  let views;
+  try{ views = (await trApi("GET")).trades || []; }catch(_){ trSaver.changed(mine); return; }
+  const v = views.find(x => x.id===id);
+  if(!v) return trClosedElsewhere(id);
+  const theirs = trFromView(v);
+  if(trContent(mine)!==trContent(theirs)) TRNOTES.set(id, {mine});
+  trSet(TRADES.list.map(t => t.id===id ? theirs : t));
+  if(!$("#tr_card")) toast(`${window.BinderTrades.label(theirs)} was changed on another device; open the trade evaluator to see it.`);
+}
+function trClosedElsewhere(id){
+  const t = trById(id); if(!t) return;
+  trSaver.forget(id); TRGONE.add(id);
+  const lab = window.BinderTrades.label(t);
+  trRemove(id); trShow(true);
+  toast(`${lab} was recorded or discarded on another device.`);
+}
+/* Takes a trade out of the open ones; the next one is in front after (an empty Trade 1 when it was the last). */
+function trRemove(id){
+  const next = window.BinderTrades.afterClose(TRADES.list, id);
+  TRADES.list = TRADES.list.filter(t => t.id!==id);
+  TRP.delete(id); TRNOTES.delete(id);
+  if(!TRADES.list.length){ const b = trBlank(1); TRADES.list.push(b); TRADES.active = b.id; }
+  else if(TRADES.active===id) TRADES.active = next;
+  TR = trById(TRADES.active);
+  trResetSearch(); trMirror();
+}
+function trDiscard(t){
+  TRGONE.add(t.id);
+  if(trServer() && (t.version>0 || TRP.has(t.id))){
+    TRDISC.add(t.id);
+    void trSaver.discard(t.id).then(() => { TRDISC.delete(t.id); trMirror(); });
+  } else trSaver.forget(t.id);
+  trRemove(t.id);
+}
+/* Changes made on other devices while the page is open. */
+window.addEventListener("binder:opentrade", ev => {
+  if(!TRADES.init || !trServer()) return;
+  const {id, trade} = ev.detail || {};
+  if(!trIsId(id) || TRGONE.has(id) || TRDISC.has(id) || (id===TRADES.active && $("#rt_card"))) return;
+  // a trade with changes of its own finds out when it's saved (409 and 410)
+  if(TRP.has(id)) return;
+  const local = trById(id);
+  if(!trade){ if(local && local.version>0) trClosedElsewhere(id); return; }
+  if(local ? trade.version<=local.version : TRADES.list.length>=window.BinderTrades.MAX) return;
+  const fresh = trFromView(trade);
+  trSet(local ? TRADES.list.map(t => t.id===id ? fresh : t) : [...TRADES.list, fresh].sort((a, b) => a.n-b.n));
+  trPrune();
+});
+window.addEventListener("binder:reconnected", () => { if(!TRADES.init || !trServer()) return; trSaver.retryAll(); trSendDiscards(); void trSync(false); });
 const trPct = k => window.BinderTrade.percent(TR[k].pct) ?? 100;
 /* My cards to add: the cards I own, each once. */
 function trCandidates(){
@@ -1173,18 +1335,82 @@ function trSideHTML(k){
     </div>
   </section>`;
 }
+/* The tabs: each open trade's customer (else Trade N) and what's in it, a dot when it hasn't reached the server. */
+function trTabs(){
+  const el = $("#tr_tabs"); if(!el) return;
+  const BT = window.BinderTrades, had = document.activeElement?.dataset?.trtab;
+  el.innerHTML = TRADES.list.map(t => {
+    const sel = t.id===TRADES.active, unsaved = trServer() && TRP.has(t.id) && trSaver.status(t.id)==="unsaved";
+    return `<button class="tr-tab" type="button" role="tab" id="tr_tab_${esc(t.id)}" data-trtab="${esc(t.id)}" aria-selected="${sel}" aria-controls="tr_panel" tabindex="${sel ? 0 : -1}"><b>${esc(BT.label(t))}</b><span class="hint">${esc(BT.summary(t))}</span>${unsaved ? `<span class="tr-unsaved" role="img" aria-label="Not saved yet"></span>` : ""}</button>`;
+  }).join("");
+  if(had) $(`#tr_tab_${had}`)?.focus();
+  const full = TRADES.list.length>=BT.MAX, nw = $("#tr_new");
+  nw.disabled = full;
+  nw.title = full ? `At most ${BT.MAX} open trades: record or discard one first` : "Start another trade without losing this one";
+}
+/* Whether the trade in front is saved: on the server for editors, in this browser for view-only accounts. */
+function trStatus(){
+  const el = $("#tr_status"); if(!el || !TR) return;
+  const st = !trServer() ? "local" : TR.version===0 && !TRP.has(TR.id) ? "" : trSaver.status(TR.id);
+  el.textContent = {local:"Kept in this browser only.", saved:"Saved", saving:"Saving…", unsaved:"Not saved yet: kept on this device, it'll save when the server answers.", "":""}[st];
+  el.dataset.state = st;
+}
+/* The note under the tabs when another device's version of the trade is showing instead of mine. */
+function trNote(){
+  const el = $("#tr_note"); if(!el) return;
+  el.innerHTML = TRNOTES.has(TR.id) ? `${esc(`${window.BinderTrades.label(TR)} was changed on another device; showing that version.`)} <button class="btn sm" type="button" data-trkeep>Keep mine</button>` : "";
+}
+function trResetSearch(){ clearTimeout(TRS.t); TRS = {seq:TRS.seq+1, t:0, q:"", busy:false, error:"", hits:[]}; }
+/* Shows the trade in front: tabs, customer, both sides, notes. `keep` holds the focus on the same field (the trade changed under it). */
+function trShow(keep){
+  const card = $("#tr_card"); if(!card || !TR) return;
+  const a = document.activeElement;
+  const was = keep && a && card.contains(a) ? {id:a.id, side:a.closest("[data-trside]")?.dataset.trside, q:a.dataset.trq!=null, f:a.dataset.trf, i:[...(a.closest("[data-trlist]")?.children || [])].indexOf(a.closest(".tr-item")), pos:a.selectionStart} : null;
+  trTabs();
+  $("#tr_customer").value = TR.customer;
+  $("#tr_sides").innerHTML = trSideHTML("dealer") + trSideHTML("mine");
+  $("#tr_panel").setAttribute("aria-labelledby", "tr_tab_" + TR.id);
+  TR_SIDES.forEach(trList); trRefresh(); trNote(); trStatus();
+  $("#tr_tab_" + TR.id)?.scrollIntoView?.({block:"nearest", inline:"nearest"});
+  if(was){
+    const el = (was.id && document.getElementById(was.id)) || (was.q ? $(`[data-trside="${was.side}"] [data-trq]`) : was.f ? $(`[data-trlist="${was.side}"] .tr-item:nth-child(${was.i + 1}) [data-trf="${was.f}"]`) : null);
+    if(el){ el.focus(); if(was.pos!=null) try{ el.setSelectionRange(was.pos, was.pos); }catch(_){} }
+  }
+}
+function trSwitch(id){
+  if(id===TRADES.active || !trById(id)) return;
+  TRADES.active = id; TR = trById(id);
+  trResetSearch(); trMirror(); trShow();
+}
+function trNewTrade(){
+  const BT = window.BinderTrades;
+  if(TRADES.list.length>=BT.MAX) return;
+  const t = trBlank(BT.nextNumber(TRADES.list));
+  TRADES.list.push(t);
+  trSwitch(t.id);
+  $("#tr_customer")?.focus();
+}
 function tradeModal(){
-  TR = trLoad();
+  trInit(); trSendDiscards(); trPrune(); trSendPending();
+  const BT = window.BinderTrades;
+  TR = trById(TRADES.active);
   $("#modalRoot").innerHTML = `<div class="modal" data-mclose><div class="mcard tr-card" id="tr_card" role="dialog" aria-modal="true" aria-labelledby="trTitle">
     <h2 id="trTitle">Trade evaluator</h2>
-    <p class="lead">Find the dealer's cards (any card, with today's price, or PriceCharting's for its grade) and yours, add cash, and put in the dealer's percentage ("your cards at 80%"). Values are in CAD. Nothing changes in your ledger until you record the trade, and it stays here until you start over.</p>
-    <div class="tr-sides">${trSideHTML("dealer")}${trSideHTML("mine")}</div>
+    <p class="lead">Find the dealer's cards (any card, with today's price, or PriceCharting's for its grade) and yours, add cash, and put in the dealer's percentage ("your cards at 80%"). Values are in CAD. Nothing changes in your ledger until you record the trade. Open several at once, one per customer: ${trServer() ? "each stays open here, on every device you sign in on, until you record or discard it." : "each stays in this browser until you record or discard it."}</p>
+    <div class="tr-tabbar"><div class="tr-tabs" id="tr_tabs" role="tablist" aria-label="Open trades"></div><button class="btn sm" type="button" id="tr_new">+ New trade</button></div>
+    <p class="tr-conflict" id="tr_note" role="status"></p>
+    <div id="tr_panel" role="tabpanel">
+      <div class="field tr-cust"><label for="tr_customer">Customer (optional)</label><input id="tr_customer" maxlength="${BT.MAX_CUSTOMER}" autocomplete="off" placeholder="Who is this trade with?"></div>
+      <div class="tr-sides" id="tr_sides"></div>
+    </div>
     <section class="tr-sum" id="tr_sum" aria-live="polite" aria-label="Breakdown"></section>
-    <div class="mfoot"><button class="btn ghost" type="button" id="tr_clear">Start over</button><button class="btn" type="button" data-mclose>Close</button>${S.db && canEdit() ? `<button class="btn primary" type="button" id="tr_record" title="Add the dealer's cards to your ledger and mark yours Traded">Record trade…</button>` : ""}</div>
+    <div class="mfoot"><span class="hint tr-status" id="tr_status" aria-live="polite"></span><button class="btn ghost" type="button" id="tr_clear">Discard trade</button><button class="btn" type="button" data-mclose>Close</button>${S.db && canEdit() ? `<button class="btn primary" type="button" id="tr_record" title="Add the dealer's cards to your ledger and mark yours Traded">Record trade…</button>` : ""}</div>
   </div></div>`;
   const card = $("#tr_card");
   const onEdit = e => {
-    const t = e.target, side = t.closest("[data-trside]")?.dataset.trside; if(!side) return;
+    const t = e.target;
+    if(t.id==="tr_customer"){ TR.customer = t.value; trChanged(); return; }
+    const side = t.closest("[data-trside]")?.dataset.trside; if(!side) return;
     if(t.dataset.trq!=null){ TR.q[side] = t.value; if(side==="dealer") trSearch(); else trResults(side); return; }
     if(t.dataset.trs){
       TR[side][t.dataset.trs] = t.value;
@@ -1198,22 +1424,39 @@ function tradeModal(){
       if((f==="grader" || f==="grade") && it.look) trLookPrice(it);
     }
     if(it && t.matches("[data-trprint]") && it.look?.printings){ it.look.pi = +t.value; trLookPrice(it); }
-    trSave(); trRefresh();
+    trChanged(); trRefresh();
   };
   card.addEventListener("input", onEdit);
   card.addEventListener("change", e => { if(e.target.matches("select")) onEdit(e); });
   card.addEventListener("click", e => {
     const t = e.target;
+    const tab = t.closest("[data-trtab]"); if(tab) return trSwitch(tab.dataset.trtab);
+    if(t.closest("#tr_new")) return trNewTrade();
+    if(t.closest("[data-trkeep]")){
+      const n = TRNOTES.get(TR.id); TRNOTES.delete(TR.id);
+      if(n){ TR.customer = n.mine.customer; TR.dealer = n.mine.dealer; TR.mine = n.mine.mine; trChanged(); trShow(); }
+      return;
+    }
     const pk = t.closest("[data-trpick]"); if(pk) return trAddCard(pk.dataset.trpick);
     const lk = t.closest("[data-trlook]"); if(lk) return trAddLooked(TRS.hits[+lk.dataset.trlook]);
     const ra = t.closest("[data-trretry]"); if(ra){ const it = trItemOf(ra); if(it){ it.lookState = null; void trLookLoad(it); } return; }
     const ad = t.closest("[data-tradd]"); if(ad) return trAddTyped(ad.dataset.tradd);
-    const dl = t.closest("[data-trdel]"); if(dl){ const [k, key] = dl.dataset.trdel.split(":"); TR[k].items = TR[k].items.filter(x => x.key!==key); trList(k); trResults(k); trSave(); trRefresh(); return; }
-    const ev = t.closest("[data-treven]"); if(ev){ const k = ev.dataset.treven, r = window.BinderTrade.evaluate(TR); TR[k].cash = window.BinderTrade.addCash(TR[k].cash, r.even.cash); $(`#tr_cash_${k}`).value = TR[k].cash; trSave(); trRefresh(); return; }
+    const dl = t.closest("[data-trdel]"); if(dl){ const [k, key] = dl.dataset.trdel.split(":"); TR[k].items = TR[k].items.filter(x => x.key!==key); trList(k); trResults(k); trChanged(); trRefresh(); return; }
+    const ev = t.closest("[data-treven]"); if(ev){ const k = ev.dataset.treven, r = window.BinderTrade.evaluate(TR); TR[k].cash = window.BinderTrade.addCash(TR[k].cash, r.even.cash); $(`#tr_cash_${k}`).value = TR[k].cash; trChanged(); trRefresh(); return; }
     if(t.closest("#tr_record")) return trRecordModal();
-    if(t.closest("#tr_clear")){ if(!trAny() || confirm("Start over? This trade is cleared.")){ TR = trBlank(); TRS = {...TRS, q:"", hits:[], busy:false, error:""}; TRS.seq++; trSave(); TR_SIDES.forEach(k => { $(`#tr_cash_${k}`).value = ""; $(`#tr_pct_${k}`).value = "100"; $(`[data-trq="${k}"]`).value = ""; trList(k); trResults(k); }); trRefresh(); } return; }
+    if(t.closest("#tr_clear")){
+      if(BT.isEmpty(TR) || confirm(`Discard ${BT.label(TR)}? Its cards, cash and percentages are cleared.`)){ trDiscard(TR); trShow(); }
+      return;
+    }
   });
   card.addEventListener("keydown", e => {
+    const tab = e.target.closest?.("[data-trtab]");
+    if(tab){
+      const ids = TRADES.list.map(t => t.id), i = ids.indexOf(tab.dataset.trtab), n = ids.length;
+      const j = e.key==="ArrowRight" ? (i + 1) % n : e.key==="ArrowLeft" ? (i - 1 + n) % n : e.key==="Home" ? 0 : e.key==="End" ? n - 1 : -1;
+      if(j>=0){ e.preventDefault(); trSwitch(ids[j]); $(`#tr_tab_${ids[j]}`)?.focus(); }
+      return;
+    }
     const k = e.target.dataset?.trq; if(k==null) return;
     if(e.key==="Enter"){
       e.preventDefault();
@@ -1222,7 +1465,8 @@ function tradeModal(){
     }
     else if(e.key==="Escape" && TR.q[k]){ e.preventDefault(); e.stopPropagation(); e.target.value = ""; TR.q[k] = ""; if(k==="dealer") trSearch(); else trResults(k); }
   });
-  TR_SIDES.forEach(trList); trRefresh();
+  trShow();
+  void trSync(true);
 }
 const trItemOf = el => { const [k, key] = (el.closest("[data-tritem]")?.dataset.tritem || "").split(":"); return k && TR[k] ? TR[k].items.find(x => x.key===key) : null; };
 function trAddCard(id){
@@ -1230,12 +1474,12 @@ function trAddCard(id){
   const v = trMyValue(c).value;
   TR.mine.items.push({key:rid(), cardId:c.id, look:null, name:c.name||"", grader:c.grader||"Raw", grade:c.grade||"", value:v==null ? "" : v.toFixed(2), valueFrom:"", pct:""});
   TR.q.mine = ""; const q = $(`[data-trq="mine"]`); q.value = "";
-  trList("mine"); trResults("mine"); trSave(); trRefresh();
+  trList("mine"); trResults("mine"); trChanged(); trRefresh();
   q.focus();
 }
 function trAddTyped(k){
   const it = {key:rid(), cardId:null, look:null, name:"", grader:"Raw", grade:"", value:"", valueFrom:"", pct:""};
-  TR[k].items.push(it); trList(k); trSave(); trRefresh();
+  TR[k].items.push(it); trList(k); trChanged(); trRefresh();
   $(`[data-tritem="${k}:${it.key}"] [data-trf="name"]`)?.focus();
 }
 /* A card from the card database for the dealer's side: added straight away, its prices following. */
@@ -1245,13 +1489,15 @@ function trAddLooked(hit){
   const it = {key:rid(), cardId:null, look, name:[look.name, look.number].filter(Boolean).join(" "), grader:"Raw", grade:"", value:"", valueFrom:"", pct:""};
   TR.dealer.items.push(it);
   TR.q.dealer = ""; const q = $(`[data-trq="dealer"]`); q.value = ""; trSearch();
-  trList("dealer"); trSave(); trRefresh();
+  trList("dealer"); trChanged(); trRefresh();
   q.focus();
 }
 /* Today's prices for a looked-up card (src/application/catalog/show-any-card.ts), each printing's and its graded ones. */
 async function trLookLoad(it){
   const L = it.look; if(!L || it.lookState?.busy) return;
-  it.lookState = {busy:true, error:""}; trRefresh();
+  // the trade this card is in: the answer lands there, even if another trade is in front by then
+  const t = TR, here = () => t===TR && !!$("#tr_card");
+  it.lookState = {busy:true, error:""}; if(here()) trRefresh();
   try{
     if(!trLookups()) throw new Error("Card lookups aren't available here.");
     const card = await window.ledgerApi.call("GET", "api/lookup/cards/" + encodeURIComponent(L.id));
@@ -1259,24 +1505,26 @@ async function trLookLoad(it){
     L.printings = got.printings; L.pi = got.pi; L.number = L.number || got.number;
     if(!L.thumb && typeof card?.image==="string") L.thumb = card.image;
     it.lookState = null;
-    if(!it.value.trim() || it.valueFrom) trLookPrice(it, false);
+    if(!it.value.trim() || it.valueFrom) trLookPrice(it, false, t);
   }catch(err){
     it.lookState = {busy:false, error:err.message || "The card database didn't answer."};
   }
-  if(!TR || !TR.dealer.items.includes(it)) return;
-  // its row again with the printings; the inputs keep what's typed (the same item)
-  const el = $(`[data-tritem="dealer:${it.key}"]`), had = el?.contains(document.activeElement) ? document.activeElement.dataset.trf : null;
-  if(el){ const i = TR.dealer.items.indexOf(it); el.outerHTML = trItemHTML("dealer", it, i); if(had) $(`[data-tritem="dealer:${it.key}"] [data-trf="${had}"]`)?.focus(); }
-  trSave(); trRefresh();
+  if(!t.dealer.items.includes(it)) return;
+  if(here()){
+    // its row again with the printings; the inputs keep what's typed (the same item)
+    const el = $(`[data-tritem="dealer:${it.key}"]`), had = el?.contains(document.activeElement) ? document.activeElement.dataset.trf : null;
+    if(el){ const i = TR.dealer.items.indexOf(it); el.outerHTML = trItemHTML("dealer", it, i); if(had) $(`[data-tritem="dealer:${it.key}"] [data-trf="${had}"]`)?.focus(); }
+  }
+  trChanged(t); if(here()) trRefresh();
 }
 /* A looked-up card's value as its printing, grader and grade, when there's a price for it. */
-function trLookPrice(it, refresh=true){
+function trLookPrice(it, refresh=true, t=TR){
   if(!it.look?.printings) return;
   const lv = window.BinderTrade.lookValue(it.look, it.grader, it.grade);
   const was = it.value;
   Object.assign(it, window.BinderTrade.followLook(it, lv));
-  const inp = $(`[data-tritem="dealer:${it.key}"] [data-trf="value"]`); if(inp && it.value!==was) inp.value = it.value;
-  if(refresh){ trSave(); trRefresh(); }
+  if(t===TR){ const inp = $(`[data-tritem="dealer:${it.key}"] [data-trf="value"]`); if(inp && it.value!==was) inp.value = it.value; }
+  if(refresh){ trChanged(t); if(t===TR) trRefresh(); }
 }
 /* Each card's trade value and notes, each side's heading, and the breakdown. */
 function trRefresh(){
@@ -1401,7 +1649,7 @@ function trRecordModal(){
     <div class="rt-list">${mine.length ? mine.map(giveRow).join("") : `<p class="hint">No cards${s.gaveCash?`, ${esc(money(s.gaveCash))} cash`:""}.</p>`}</div>
     <div class="rt-opts">
       <div class="field"><label for="rt_date">Date</label><input id="rt_date" type="date" value="${today()}"></div>
-      <div class="field"><label for="rt_with">Traded with <span class="hint">(optional)</span></label><input id="rt_with" type="text" maxlength="100" placeholder="Dealer or shop" autocomplete="off"></div>
+      <div class="field"><label for="rt_with">Traded with <span class="hint">(optional)</span></label><input id="rt_with" type="text" maxlength="100" placeholder="Dealer or shop" autocomplete="off" value="${esc(TR.customer)}"></div>
     </div>
     <p class="rt-problem warn-text" id="rt_problem" role="status"></p>
     <div class="mfoot"><button class="btn ghost" type="button" id="rt_back">← Back to the trade</button><button class="btn primary" type="button" id="rt_go">Record trade</button></div>
@@ -1416,15 +1664,24 @@ function trRecordModal(){
 async function trRecord(items){
   const go = $("#rt_go"); if(!go || go.disabled || TRR.busy) return;
   TRR.busy = true; go.disabled = true; go.textContent = "Recording…";
-  const id = rid();
-  const mine = TR.mine.items.map(it => { const c = trCard(it.cardId); if(!c || !owned(c)) return null; const cb = costBasis(c); return {cardId:c.id, cost:cb.cost, basis:cb.basis}; });
-  const body = window.BinderTrade.recordBody(TR, {id, date:$("#rt_date").value || today(), at:nowISO(), who:$("#rt_with").value.trim(), newId:rid, mine, lands:items.map(x => TRR.land[x.it.key]), owner:newCardOwner});
+  const t = TR, id = rid();
+  // a save of this trade still on its way must land before the server closes it, or it would open it again
+  const openTradeId = trServer() ? t.id : null;
+  if(openTradeId){ await trSaver.settle(openTradeId); trSaver.forget(openTradeId); }
+  const mine = t.mine.items.map(it => { const c = trCard(it.cardId); if(!c || !owned(c)) return null; const cb = costBasis(c); return {cardId:c.id, cost:cb.cost, basis:cb.basis}; });
+  const body = window.BinderTrade.recordBody(t, {id, date:$("#rt_date").value || today(), at:nowISO(), who:$("#rt_with").value.trim(), newId:rid, mine, lands:items.map(x => TRR.land[x.it.key]), owner:newCardOwner});
+  if(openTradeId) body.openTradeId = openTradeId;
   try{ await S.db.trade(body); }
-  catch(e){ TRR.busy = false; go.textContent = "Record trade"; go.disabled = false; writeErr(e); return; }
-  TR = trBlank(); TRS = {...TRS, q:"", hits:[], busy:false, error:""}; TRS.seq++; trSave(); TRR = null;
+  catch(e){ TRR.busy = false; go.textContent = "Record trade"; go.disabled = false; if(openTradeId) trChanged(t); writeErr(e); return; }
+  // the server closed the open trade with the record; this device lets go of it too
+  const others = TRADES.list.length>1;
+  TRGONE.add(t.id); trRemove(t.id); TRR = null;
+  if(openTradeId) void trApi("DELETE", openTradeId).catch(() => {});
   closeModal();
   toast(`Trade recorded: ${body.received.length} card${body.received.length===1?"":"s"} in, ${body.given.length} traded away`, {label:"Undo", run:()=>void undoTrade(id)});
   render();
+  // another open trade is next
+  if(others) tradeModal();
 }
 /* Undo a recorded trade (the server puts everything back, src/domain/ledger/trade.ts undoTrade). */
 async function undoTrade(id, ask){
