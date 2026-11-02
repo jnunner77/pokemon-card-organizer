@@ -3880,6 +3880,7 @@ document.addEventListener("change", e => {
       e.target.value = c.status || "binder";
       if(S.sel==="__new") return void toast("Save the card first, then use Quick sell.");
       if(c.placeholder) return void toast("A placeholder can't be sold.");
+      if(W.onWatchlist(c)) return void toast("It's on your watchlist: tap I got it when you have it, then sell it.");
       if(unsaved()) return void toast("Save or discard your changes first, then choose Sold.");
       return void quickSellModal([c.id]);
     }
