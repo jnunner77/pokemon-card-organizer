@@ -611,6 +611,10 @@ its own cards, cash, percentages and search.
 - **If the server can't be reached,** the trade is kept on this device, its tab shows a dot and the
   line says *Not saved yet*; it saves by itself once the server answers, even after reloading the
   page.
+- **If your account can't save it** (it was made view-only, or you were signed out), the trade
+  stays on this device and the line says so; it isn't sent again until you change it or the server
+  reconnects, and once the account is known to be view-only it's kept in this browser only. It
+  saves after signing in again as someone who can edit.
 - **Changed on another device meanwhile:** the trade shows that device's version with a note and
   **Keep mine**, which saves your version instead. A trade recorded or discarded on another device
   closes its tab with a message.
