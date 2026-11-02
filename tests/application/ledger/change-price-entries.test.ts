@@ -47,4 +47,13 @@ describe('ChangePriceEntries', () => {
     assert.equal((await change.execute({ cardId: 'c1', add: [entry('b')], fields: { slot: 3 } })).ok, true);
     assert.equal((await change.execute({ cardId: 'c2', add: [entry('c')], fields: { status: 'sold' } })).ok, true);
   });
+
+  it('takes a card sold with its prices out of its pocket, freeing it', async () => {
+    const { ledger, deps } = setUp();
+    ledger.seed('cards', 'c1', card({ slot: 1 }));
+    const r = await new ChangePriceEntries(deps).execute({ cardId: 'c1', add: [entry('sale', 30)], fields: { status: 'sold' } });
+    assert.ok(r.ok);
+    assert.deepEqual([r.value['binderId'], r.value['page'], r.value['slot']], [null, null, null]);
+    assert.deepEqual(r.value['sale'], { from: { binderId: 'b1', page: 1, slot: 1 } });
+  });
 });

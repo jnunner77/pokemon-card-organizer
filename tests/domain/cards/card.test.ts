@@ -66,4 +66,35 @@ describe('Card', () => {
     c.delete(AT);
     assert.deepEqual(c.pullEvents(), [{ type: 'DocumentDeleted', collection: 'cards', id: 'c1', occurredAt: AT }]);
   });
+
+  describe('when sold', () => {
+    const pocket = { binderId: 'b1', page: 1, slot: 2 };
+    const out = { binderId: null, page: null, slot: null };
+
+    it('is created, merged or given price entries with no place', () => {
+      assert.deepEqual(value(Card.create(id, cardFields({ status: 'sold' }), AT)).place, out);
+      const merged = card('c1');
+      value(merged.merge({ status: 'sold' }, AT));
+      assert.deepEqual(merged.place, out);
+      assert.deepEqual(merged.fields['sale'], { from: pocket });
+      const priced = card('c2');
+      value(priced.changePriceEntries({ fields: { status: 'sold' } }, AT));
+      assert.deepEqual(priced.place, out);
+    });
+
+    it('takes a sold card out once, and the undo puts it back', () => {
+      const c = card('c1', { status: 'sold' });
+      assert.deepEqual(value(c.takeOutIfSold(AT)), true);
+      assert.deepEqual(c.place, out);
+      assert.equal(value(c.takeOutIfSold(AT)), false);
+      value(c.merge({ status: 'binder', ...pocket, sale: null }, AT));
+      assert.deepEqual(c.place, pocket);
+    });
+
+    it('leaves a card that is not sold alone', () => {
+      const c = card('c1');
+      assert.equal(value(c.takeOutIfSold(AT)), false);
+      assert.deepEqual(c.pullEvents(), []);
+    });
+  });
 });

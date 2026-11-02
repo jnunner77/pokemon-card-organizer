@@ -14,7 +14,7 @@ import { PriceUpdater } from '../server/pricing/updater.ts';
 import { Security } from '../server/security.ts';
 import { TcgCsv } from '../server/pricing/tcgcsv.ts';
 import { every } from '../server/recover.ts';
-import { createAccounts, createAlerts, createApp, createBackups, createCardLookups, createGuests } from './compose.ts';
+import { createAccounts, createAlerts, createApp, createBackups, createCardLookups, createGuests, createLedgerUpkeep } from './compose.ts';
 
 const env = process.env;
 const dataDir = path.resolve(env['DATA_DIR'] ?? 'data');
@@ -65,6 +65,10 @@ const guestSweep = every(log, 'app', 'Closing idle guest visits', 60_000, () => 
 // EVENT_LOG=1 writes every domain event (a binder, card or setting saved or deleted) to the log.
 const events = new LocalEventBus();
 if (/^(1|true|yes)$/i.test(env['EVENT_LOG'] ?? '')) events.subscribe((e) => log.info('app', `${e.type} ${e.collection}/${e.id}`));
+
+// Cards sold or traded before sold cards left their binders are taken out now (one save).
+const tidy = await createLedgerUpkeep({ store, log, events }).takeSoldCardsOut.execute();
+if (!tidy.ok) log.error('app', `Taking sold cards out of their binders failed: ${tidy.error.message}`);
 
 // CARD_LOOKUPS=off: no TCGdex lookups (card details, Any card, master sets) at all.
 const cardDatabase = env['CARD_LOOKUPS'] === 'off' ? undefined : new TcgdexCardDatabase();

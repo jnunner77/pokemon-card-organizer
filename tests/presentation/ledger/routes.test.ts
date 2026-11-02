@@ -66,6 +66,12 @@ describe('ledger routes', () => {
     assert.deepEqual([placed.status, await placed.json()], [409, { error: 'Charizard is in that pocket: a pocket only holds copies of one card. Nothing moved.', code: 'conflict' }]);
   });
 
+  it('answers 409 when a sold card is moved into a binder', async () => {
+    const { base } = await setUp({ placeCards: { execute: async () => err({ code: 'CARD_SOLD', name: 'Mew' } as const) } });
+    const r = await fetch(`${base}/cards/place`, as('editor', json({ moves: [{ id: 'c1', binderId: 'b1', page: 1, slot: 1 }] })));
+    assert.deepEqual([r.status, await r.json()], [409, { error: "Mew is sold or traded, so it can't go in a binder. Nothing moved.", code: 'conflict' }]);
+  });
+
   it('answers 409 when a saved card would share a pocket with a different card', async () => {
     const holds = err({ code: 'POCKET_HOLDS_ANOTHER_CARD', name: 'Charizard' } as const);
     const { base } = await setUp({ putDocument: { execute: async () => holds }, mergeDocument: { execute: async () => holds }, changePriceEntries: { execute: async () => holds } });

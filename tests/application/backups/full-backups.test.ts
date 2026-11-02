@@ -55,4 +55,14 @@ describe('full backups', () => {
     assert.deepEqual(Object.keys(ledger.data.cards), ['old']);
     assert.equal(ledger.resets, 0);
   });
+
+describe('restoring a full backup with a sold card', () => {
+  it('stores the card out of its pocket, keeping where it was', async () => {
+    const { deps, ledger } = setUp();
+    const backup = { format: 'pokemon-binder-ledger-backup', version: 1, exportedAt: '2026-10-01T00:00:00.000Z', binders: {}, cards: { c1: { name: 'Mew', status: 'traded', binderId: 'b1', page: 1, slot: 2 } }, settings: {}, assets: {} };
+    const r = await new RestoreFullBackup(deps).execute({ actor: 'admin', backup });
+    assert.ok(r.ok);
+    assert.deepEqual(ledger.data.cards['c1'], { name: 'Mew', status: 'traded', binderId: null, page: null, slot: null, sale: { from: { binderId: 'b1', page: 1, slot: 2 } } });
+  });
+});
 });

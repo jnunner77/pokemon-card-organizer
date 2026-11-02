@@ -77,4 +77,11 @@ describe('moving cards', () => {
     assert.deepEqual(placeCards([to('p', 'b1', 1, 1)], list, binders, AT), refused('POCKET_HOLDS_ANOTHER_CARD', { name: 'Lapras' }));
     assert.deepEqual(list.map((c) => c.place.slot), [1, 1, 2]);
   });
+
+  it('refuses to put a sold or traded card in a binder, but lets it go to no binder', () => {
+    const list = [card('x', { status: 'sold', binderId: null, page: null, slot: null })];
+    assert.deepEqual(placeCards([to('x', 'b1', 1, 3)], list, binders, AT), refused('CARD_SOLD', { name: 'Lapras' }));
+    assert.deepEqual(list[0]?.place, { binderId: null, page: null, slot: null });
+    assert.deepEqual(value(placeCards([to('x', null, null, null)], list, binders, AT)), []);
+  });
 });

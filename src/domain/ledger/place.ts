@@ -1,6 +1,7 @@
 import { err, ok, type Result } from '#shared/result.ts';
 import type { Binder } from '../binders/binder.ts';
 import type { Card, CardPlace } from '../cards/card.ts';
+import { soldOrTraded } from '../cards/sold.ts';
 import { sameCard } from '../cards/identity.ts';
 import type { InvalidDocument } from './check-document.ts';
 import { type PocketHoldsAnotherCard, pocketKey } from './pockets.ts';
@@ -17,6 +18,7 @@ export interface Placement extends CardPlace {
 export type PlaceError =
   | { readonly code: 'CARD_GIVEN_TWICE' }
   | { readonly code: 'CARD_DELETED_MEANWHILE' }
+  | { readonly code: 'CARD_SOLD'; readonly name: string | null }
   | { readonly code: 'BINDER_GONE' }
   | { readonly code: 'CASE_HAS_NO_POCKETS'; readonly binderName: string | null }
   | { readonly code: 'POCKET_REQUIRED' }
@@ -29,6 +31,10 @@ export function placeCards(placements: readonly Placement[], cards: readonly Car
   if (new Set(placements.map((p) => p.cardId)).size !== placements.length) return err({ code: 'CARD_GIVEN_TWICE' });
   const cardById = new Map(cards.map((c) => [String(c.id), c]));
   if (placements.some((p) => !cardById.has(p.cardId))) return err({ code: 'CARD_DELETED_MEANWHILE' });
+  for (const p of placements) {
+    const card = cardById.get(p.cardId);
+    if (card && p.binderId !== null && soldOrTraded(card.fields)) return err({ code: 'CARD_SOLD', name: typeof card.fields['name'] === 'string' ? card.fields['name'] : null });
+  }
   const binderById = new Map(binders.map((b) => [String(b.id), b]));
   for (const p of placements) {
     if (p.binderId === null) continue;

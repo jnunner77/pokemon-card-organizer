@@ -93,6 +93,7 @@ import { ChangePriceEntries } from '#application/ledger/change-price-entries.ts'
 import { DeleteDocument } from '#application/ledger/delete-document.ts';
 import type { LedgerDeps } from '#application/ledger/deps.ts';
 import { MergeDocument } from '#application/ledger/merge-document.ts';
+import { TakeSoldCardsOutOfBinders } from '#application/ledger/take-sold-cards-out.ts';
 import { PlaceCards } from '#application/ledger/place-cards.ts';
 import { RecordTrade } from '#application/ledger/record-trade.ts';
 import { UndoTrade } from '#application/ledger/undo-trade.ts';
@@ -166,10 +167,9 @@ const jobLog = (log: ServerLog, category: Category): JobLog => ({
   error: (message, details) => log.error(category, message, details ? { ...details } : undefined),
 });
 
-/** The ledger slice over the JSON store, as HTTP routes relative to /api. */
-export function composeLedgerRoutes(store: Store, identify: CallerResolver, activity: ActivityLog, events: LocalEventBus): Router {
+function ledgerDeps(store: Store, activity: ActivityLog, events: LocalEventBus): LedgerDeps {
   const unitOfWork = new StoreUnitOfWork(store);
-  const deps: LedgerDeps = {
+  return {
     cards: new JsonCardRepository(unitOfWork),
     binders: new JsonBinderRepository(unitOfWork),
     settings: new JsonSettingRepository(unitOfWork),
@@ -179,6 +179,16 @@ export function composeLedgerRoutes(store: Store, identify: CallerResolver, acti
     unitOfWork,
     activity,
   };
+}
+
+/** Housekeeping on the ledger that runs when the server starts. */
+export function createLedgerUpkeep(o: { readonly store: Store; readonly log: ServerLog; readonly events: LocalEventBus }) {
+  return { takeSoldCardsOut: new TakeSoldCardsOutOfBinders(ledgerDeps(o.store, activityLog(o.log, 'app'), o.events)) };
+}
+
+/** The ledger slice over the JSON store, as HTTP routes relative to /api. */
+export function composeLedgerRoutes(store: Store, identify: CallerResolver, activity: ActivityLog, events: LocalEventBus): Router {
+  const deps = ledgerDeps(store, activity, events);
   return ledgerRoutes({
     identify,
     readLedger: new ReadLedger(deps),
