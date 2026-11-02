@@ -20,6 +20,8 @@ type Result = {
 };
 type Settled = { missing: number; forTheirs: number; forMine: number; paid: number[]; sold: number[]; gaveCash: number; gotCash: number };
 type Trade = {
+  myCardValue: (guest: unknown, market: unknown) => { value: number | null; from: 'guest' | 'market' | null };
+  myCardNote: (typed: number | null, guest: unknown, market: number | null, fmt: (n: number) => string) => string;
   settle: (t: { dealer?: Side; mine?: Side }) => Settled;
   newCard: (it: { look?: Look | null; name?: string; grader?: string; grade?: string }) => Record<string, string>;
   recordProblem: (t: unknown, lands: string[], given: number) => string;
@@ -50,7 +52,7 @@ type SavedSide = { pct: string; cash: string; items: SavedItem[] };
 const sandbox = { window: {} as { BinderTrade: Trade } };
 // bulkbuy.js comes first, as on the page: trade.js shares amounts out with its allocate.
 for (const f of ['bulkbuy.js', 'trade.js']) vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public', f), 'utf8'), sandbox);
-const { settle, newCard, recordProblem, recordBody, landings, salesGroups, amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, addCash, restore } = sandbox.window.BinderTrade;
+const { myCardValue, myCardNote, settle, newCard, recordProblem, recordBody, landings, salesGroups, amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, addCash, restore } = sandbox.window.BinderTrade;
 
 describe('reading what was typed', () => {
   it('reads amounts with or without a dollar sign and commas', () => {
@@ -447,5 +449,36 @@ describe('where the cards I get go, and the Sales tab', () => {
     expect(g[0].items.map((x: { c: { id: string } }) => x.c.id)).toEqual(['x', 'y']);
     expect(g[1]).toEqual({ trade: { id: 't2', date: '2026-10-15' }, items: [] });
     expect(salesGroups([], [{ id: 'plain' }])).toEqual([]);
+  });
+});
+
+describe('the value one of my cards comes in at', () => {
+  it('uses the price for guests when set', () => {
+    expect(myCardValue(25, 18.4)).toEqual({ value: 25, from: 'guest' });
+    expect(myCardValue(25, null)).toEqual({ value: 25, from: 'guest' });
+  });
+  it('falls back to the market value, then to nothing', () => {
+    expect(myCardValue(null, 18.4)).toEqual({ value: 18.4, from: 'market' });
+    expect(myCardValue(null, null)).toEqual({ value: null, from: null });
+  });
+  it('ignores a price for guests that is not a positive number', () => {
+    for (const g of [0, -1, NaN, '3']) expect(myCardValue(g, 18.4)).toEqual({ value: 18.4, from: 'market' });
+  });
+});
+
+describe('the note under one of my cards', () => {
+  const fmt = (n: number) => '$' + n.toFixed(2);
+  it('says the value is the price for guests', () => {
+    expect(myCardNote(25, 25, 18.4, fmt)).toBe('Its price for guests; market value $18.40.');
+    expect(myCardNote(25, 25, null, fmt)).toBe('Its price for guests.');
+  });
+  it('says so when the typed value differs or is blank', () => {
+    expect(myCardNote(20, 25, 18.4, fmt)).toBe('Its price for guests: $25.00, market value $18.40.');
+    expect(myCardNote(null, 25, null, fmt)).toBe('Its price for guests: $25.00.');
+  });
+  it('keeps the notes for cards with no price for guests', () => {
+    expect(myCardNote(20, null, 18.4, fmt)).toBe('Its value in your ledger: $18.40.');
+    expect(myCardNote(18.4, null, 18.4, fmt)).toBe('');
+    expect(myCardNote(5, null, null, fmt)).toBe('No price in your ledger: put in its value.');
   });
 });

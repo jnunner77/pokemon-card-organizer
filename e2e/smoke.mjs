@@ -1,7 +1,7 @@
 // Browser smoke test. Start the app on an empty data directory first:
 //   DATA_DIR=$(mktemp -d) AUTH=off PRICE_UPDATES=off npm start
 //   BASE_URL=http://localhost:4100/ npm run test:e2e
-// It creates a binder and cards, prices, moves and sells one, finds it with Find, checks live
+// It creates a binder and cards, prices, moves and sells one, finds it with Find ("/" opens Any card; it switches to Your cards), checks live
 // updates between two tabs, the Pricing and Selling views, a backup download, a display case (the
 // card moved in and back out), editing in the Table, the phone layout, and a guest from the QR
 // code looking through the cards listed for sale on a phone.
@@ -72,6 +72,8 @@ try {
   // Find it by set code and number: Show in binder highlights its pocket; Full screen opens the viewer.
   await page.getByRole('tab', { name: /Sales/ }).click();
   await page.keyboard.press('/');
+  await page.locator('[data-find="mode"][data-mode="any"][aria-pressed="true"]').waitFor(); // "/" opens Any card (AB#581)
+  await page.locator('[data-find="mode"][data-mode="mine"]').click();
   await page.locator('#findQ').fill('obf 125');
   await page.locator('.find-item').filter({ hasText: 'Charizard ex' }).waitFor();
   await page.getByRole('button', { name: 'Show in binder', exact: true }).click();
@@ -118,6 +120,8 @@ try {
   await page.keyboard.press('Escape');
   await page.locator('.casegrid [data-card]').filter({ hasText: 'Charizard ex' }).waitFor();
   await page.keyboard.press('/');
+  await page.locator('[data-find="mode"][data-mode="any"][aria-pressed="true"]').waitFor(); // "/" opens Any card (AB#581)
+  await page.locator('[data-find="mode"][data-mode="mine"]').click();
   await page.locator('#findQ').fill('charizard');
   await page.getByRole('button', { name: 'Show in case', exact: true }).click();
   await page.locator('.casegrid .pocket.found').filter({ hasText: 'Charizard ex' }).waitFor();
