@@ -2065,6 +2065,7 @@ async function changePrices(id, ops, fields={}){ return guard(()=> S.db.doc("car
 async function addPrice(){
   const c = selCard(); const p = readPriceFields("n"); if(!p) return;
   p.id = rid(); p.at = nowISO();
+  if(p.type==="mysale" && c.status==="traded") return void toast("A traded card can't be sold.");
   if(p.type==="mysale" && owned(c)){
     // Recorded like Quick sell: the sale keeps its price, profit and pocket, and can be undone.
     const soldCAD = Math.round(toCAD(p)*100)/100, cb = costBasis(c);
