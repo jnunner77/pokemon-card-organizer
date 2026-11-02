@@ -718,8 +718,9 @@ counts pockets (with the number of cards after it when they differ).
   different card*.
 - **API:** the server enforces it too. Saving a sold or traded card takes it out of its binder
   (its pocket is remembered as the sale's `from`), and moving one into a binder answers 409. Saving
-  a card (PUT or PATCH) into a pocket that holds a different card, moving cards (`POST /api/cards/place`), a sale's undo and a sort that would put
-  different cards in one pocket answer 409 (400 for a sort) and change nothing.
+  a card (PUT or PATCH) into a pocket that holds a different card, moving cards
+  (`POST /api/cards/place`), a sale's undo and a sort that would put different cards in one
+  pocket answer 409 (400 for a sort) and change nothing.
 
 ## Display cases
 
@@ -851,7 +852,8 @@ when you've rearranged the binder and want to keep the new layout instead.
   any other place.
 - **CSV import and export**, with a template, per-row checks and a "rows to fix" file. Rows for
   the same card in one pocket go in together as copies. A row whose Status is Sold or Traded isn't
-  put in a binder: the preview says it goes to the Sales tab.
+  put in a binder: the preview says it goes to the Sales tab when the row has a Sold for price,
+  and under Not in a binder otherwise.
 - **Full backups** with photos: *Settings → Download full backup* / *Restore from backup*.
   The server also keeps the ledger as it was at the start of each of the last 14 days.
 - **Live updates** between every open tab and device.
