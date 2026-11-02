@@ -1158,6 +1158,7 @@ const trSaver = window.BinderTrades.createSaver({
   onConflict: id => void trConflict(id),
   onClosed: id => trClosedElsewhere(id),
   onInvalid: () => toast("This trade can't be saved as it is: shorten it. It stays on this device."),
+  onDenied: () => { toast("This trade can't be saved with this account: it stays on this device."); trRecheckAccount(); },
   onFull: id => { TRFULL.add(id); toast(`At most ${window.BinderTrades.MAX} trades can be open on the server at once: record or discard one, and this one saves.`); },
 });
 /* Trades with changes the server hasn't got are sent (again): after a reload, or when the server answers. */
@@ -1167,9 +1168,21 @@ function trRetryFull(){
   if(!trServer()) return;
   for(const id of [...TRFULL]){ TRFULL.delete(id); const t = trById(id); if(t && TRP.has(id)) trSaver.changed(t); }
 }
+/* A discard the server answered: done (or given up), unless this account may not (null), when it waits for one that may, after a reload too. */
+function trDiscarded(id, gone){
+  if(gone===null) return trRecheckAccount();
+  TRDISC.delete(id); trMirror(); if(gone) trRetryFull();
+}
 function trSendDiscards(){
   if(!trServer()) return;
-  for(const id of [...TRDISC]) void trSaver.discard(id).then(gone => { TRDISC.delete(id); trMirror(); if(gone) trRetryFull(); });
+  for(const id of [...TRDISC]) void trSaver.discard(id).then(gone => trDiscarded(id, gone));
+}
+/* The server refused this account a save or discard: ask who it is now, so an account that's view-only now keeps its trades in this browser only. */
+let trAsking = false;
+function trRecheckAccount(){
+  if(trAsking || !window.ledgerApi) return;
+  trAsking = true;
+  window.ledgerApi.call("GET","api/auth/me").then(r => { S.me = r; renderBanner(); }, () => {}).finally(() => { trAsking = false; trTabs(); trStatus(); });
 }
 /* The server's trades against this device's (trades.js reconcile). `fresh`: the dialog just opened, so empty trades never started are tidied away (unless that's all there is). */
 function trApply(views, fresh, since){
@@ -1249,7 +1262,7 @@ function trDiscard(t){
   TRGONE.add(t.id);
   if(trMaySave() && (t.version>0 || TRP.has(t.id))){
     TRDISC.add(t.id);
-    if(trServer()) void trSaver.discard(t.id).then(gone => { TRDISC.delete(t.id); trMirror(); if(gone) trRetryFull(); });
+    if(trServer()) void trSaver.discard(t.id).then(gone => trDiscarded(t.id, gone));
     else trSaver.forget(t.id);
   } else trSaver.forget(t.id);
   trRemove(t.id);
@@ -1385,7 +1398,7 @@ function trSaveState(t){
 function trStatus(){
   const el = $("#tr_status"); if(!el || !TR) return;
   const st = trSaveState(TR);
-  el.textContent = {local:"Kept in this browser only.", saved:"Saved", saving:"Saving…", unsaved:"Not saved yet: kept on this device, it'll save when the server answers.", invalid:"This trade can't be saved as it is: shorten it (kept on this device).", "":""}[st];
+  el.textContent = {local:"Kept in this browser only.", saved:"Saved", saving:"Saving…", unsaved:"Not saved yet: kept on this device, it'll save when the server answers.", invalid:"This trade can't be saved as it is: shorten it (kept on this device).", denied:"This trade can't be saved with this account (kept on this device).", "":""}[st];
   el.dataset.state = st;
 }
 /* The note under the tabs when another device's version of the trade is showing instead of mine. */
