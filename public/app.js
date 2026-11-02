@@ -1060,6 +1060,7 @@ let TR = null;
 let TRS = {seq:0, t:0, q:"", busy:false, error:"", hits:[]};
 const trBlank = () => ({dealer:{pct:"100", cash:"", items:[]}, mine:{pct:"100", cash:"", items:[]}, q:{dealer:"", mine:""}});
 const trCard = id => id ? S.cards.find(c => c.id===id) : null;
+const trMyValue = c => window.BinderTrade.myCardValue(window.BinderGuestPrice.priceOf(c), valueOf(c));
 const trAny = () => !!TR && TR_SIDES.some(k => TR[k].items.length || TR[k].cash.trim() || (TR[k].pct.trim() && TR[k].pct.trim()!=="100"));
 /* The trade kept in this browser, if any (trade.js restore). Cards of mine that are gone, sold or
    traded since are left out, but only once the ledger is loaded: before then (or with no server) a
@@ -1114,7 +1115,7 @@ function trResults(k){
     return;
   }
   const list = trCandidates();
-  el.innerHTML = list.length ? list.map(c => { const g = window.BinderTrade.gradeLabel(c.grader, c.grade), v = valueOf(c); return `<button class="tr-hit" type="button" data-trpick="${esc(c.id)}">${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="">`:`<span class="thumb"></span>`}<span class="bb-what"><b>${esc(c.name||"Unnamed card")}</b><span class="hint">${esc([metaLine(c), c.variant, g].filter(Boolean).join(" · "))}</span><span class="hint">${esc(locShort(c))}</span></span><span class="mono tr-hitv">${esc(money(v))}</span></button>`; }).join("")
+  el.innerHTML = list.length ? list.map(c => { const g = window.BinderTrade.gradeLabel(c.grader, c.grade), v = trMyValue(c).value; return `<button class="tr-hit" type="button" data-trpick="${esc(c.id)}">${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="">`:`<span class="thumb"></span>`}<span class="bb-what"><b>${esc(c.name||"Unnamed card")}</b><span class="hint">${esc([metaLine(c), c.variant, g].filter(Boolean).join(" · "))}</span><span class="hint">${esc(locShort(c))}</span></span><span class="mono tr-hitv">${esc(money(v))}</span></button>`; }).join("")
     : `<p class="hint tr-none">None of your cards match (cards already in the trade aren't listed).</p>`;
 }
 const trInput = (it, f, label, extra="") => `<input data-trf="${f}" value="${esc(it[f])}" aria-label="${esc(label)}" autocomplete="off" ${extra}>`;
@@ -1222,7 +1223,7 @@ function tradeModal(){
 const trItemOf = el => { const [k, key] = (el.closest("[data-tritem]")?.dataset.tritem || "").split(":"); return k && TR[k] ? TR[k].items.find(x => x.key===key) : null; };
 function trAddCard(id){
   const c = trCard(id); if(!c) return;
-  const v = valueOf(c);
+  const v = trMyValue(c).value;
   TR.mine.items.push({key:rid(), cardId:c.id, look:null, name:c.name||"", grader:c.grader||"Raw", grade:c.grade||"", value:v==null ? "" : v.toFixed(2), valueFrom:"", pct:""});
   TR.q.mine = ""; const q = $(`[data-trq="mine"]`); q.value = "";
   trList("mine"); trResults("mine"); trSave(); trRefresh();
@@ -1285,7 +1286,7 @@ function trRefresh(){
       el.querySelector("[data-trv]").innerHTML = v==null ? `<span class="warn-text">No value</span>` : p===100 ? esc(money(v)) : `${esc(BT.pctText(p))}% → <b>${esc(money(BT.cardTrade(v, p)))}</b>`;
       el.dataset.state = v==null ? "novalue" : "";
       const notes = [], c = trCard(it.cardId), L = it.look;
-      if(c){ const now = valueOf(c); if(now!=null && v!=null && Math.abs(now - v) >= 0.005) notes.push(esc(`Its value in your ledger: ${money(now)}.`)); else if(now==null) notes.push(esc("No price in your ledger: put in its value.")); }
+      if(c){ const t = BT.myCardNote(v, window.BinderGuestPrice.priceOf(c), valueOf(c), money); if(t) notes.push(esc(t)); }
       if(L){
         if(it.lookState?.busy) notes.push(esc("Getting today's prices…"));
         else if(it.lookState?.error) notes.push(`<span class="warn-text">${esc(`Couldn't get its prices: ${it.lookState.error}`)}</span> <button class="btn sm" type="button" data-trretry>Try again</button>`);

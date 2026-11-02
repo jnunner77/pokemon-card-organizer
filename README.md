@@ -545,7 +545,8 @@ Nothing in the ledger changes until you record it (step 4).
 
 1. **Dealer gives** and **I give** each take cards and cash.
    - **Your cards:** type part of a name, set or number under *I give* and pick it (Enter takes the
-     first). It comes with its current value (a graded card's is its grade's price), its grade and
+     first). It comes with its price for guests when you've set one (the note under it shows its
+     market value too), otherwise its current value (a graded card's is its grade's price), its grade and
      where it is. Only cards you own are listed, each once.
    - **The dealer's cards:** type part of any card's name, set or number under *Dealer gives* (the
      same card database as *Find a card → Any card*, so it doesn't have to be in your ledger) and pick

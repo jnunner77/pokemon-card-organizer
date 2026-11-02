@@ -1,5 +1,6 @@
 /* Trade evaluator: what a trade with a dealer comes to. Each side (the dealer's and mine) has cards
-   and cash; the cards' values are market values in CAD, and each side has a trade percentage (the
+   and cash; the cards' values are in CAD (the dealer's cards' market values; my cards come in at their price for
+   guests when one is set, else their market value), and each side has a trade percentage (the
    dealer takes my cards "at 80%") that a card can override with its own.
    - A card's trade value is its value times its percentage, to the cent; cash is never discounted.
    - In trade terms, the side giving less owes the difference in cash: that's the cash that evens it.
@@ -385,5 +386,26 @@
     return groups.sort((a, b) => dateOf(b).localeCompare(dateOf(a)));
   }
 
-  root.BinderTrade = { settle, newCard, recordProblem, recordBody, landings, salesGroups, amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, addCash, restore };
+  /* The value one of my cards comes into the trade at: its price for guests when that is a positive
+     number, else its market value, else none. → {value, from: "guest" | "market" | null} */
+  function myCardValue(guestPrice, market) {
+    if (typeof guestPrice === "number" && Number.isFinite(guestPrice) && guestPrice > 0) return { value: guestPrice, from: "guest" };
+    if (typeof market === "number" && Number.isFinite(market)) return { value: market, from: "market" };
+    return { value: null, from: null };
+  }
+  /* The note under one of my cards saying where its value comes from. typed is the value as read
+     (number or null); fmt shows an amount. "" when there's nothing to say. */
+  function myCardNote(typed, guestPrice, market, fmt) {
+    const differs = (a, b) => Math.abs(a - b) >= 0.005;
+    const hasMarket = typeof market === "number" && Number.isFinite(market);
+    if (typeof guestPrice === "number" && Number.isFinite(guestPrice) && guestPrice > 0) {
+      if (typed == null || differs(typed, guestPrice)) return `Its price for guests: ${fmt(guestPrice)}${hasMarket ? `, market value ${fmt(market)}` : ""}.`;
+      return `Its price for guests${hasMarket ? `; market value ${fmt(market)}` : ""}.`;
+    }
+    if (!hasMarket) return "No price in your ledger: put in its value.";
+    if (typed != null && differs(typed, market)) return `Its value in your ledger: ${fmt(market)}.`;
+    return "";
+  }
+
+  root.BinderTrade = { myCardValue, myCardNote, settle, newCard, recordProblem, recordBody, landings, salesGroups, amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, addCash, restore };
 })(typeof window !== "undefined" ? window : globalThis);
