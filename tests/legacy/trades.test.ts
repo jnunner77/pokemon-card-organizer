@@ -10,11 +10,11 @@ type View = { id: string; number: number; customer: string; dealer: Side; mine: 
 type Err = Error & { code?: string };
 type Saver = {
   changed: (t: T) => void;
-  discard: (id: string) => Promise<boolean>;
+  discard: (id: string) => Promise<boolean | null>;
   settle: (id: string) => Promise<void>;
   forget: (id: string) => void;
   retryAll: () => void;
-  status: (id: string) => 'saved' | 'saving' | 'unsaved';
+  status: (id: string) => 'saved' | 'saving' | 'unsaved' | 'invalid' | 'denied';
 };
 type SaverOptions = {
   put: (id: string, wire: unknown) => Promise<View>;
@@ -27,6 +27,7 @@ type SaverOptions = {
   onClosed?: (id: string) => void;
   onFull?: (id: string) => void;
   onInvalid?: (id: string) => void;
+  onDenied?: (id: string) => void;
   onStatus?: (id: string) => void;
 };
 type Trades = {
@@ -239,6 +240,7 @@ function setup(over: Partial<SaverOptions> = {}) {
     onClosed: (id) => events.push(`closed ${id}`),
     onFull: (id) => events.push(`full ${id}`),
     onInvalid: (id) => events.push(`invalid ${id}`),
+    onDenied: (id) => events.push(`denied ${id}`),
     ...over,
   });
   const target = trade('a', 1, 0);
@@ -308,6 +310,36 @@ describe('saving trades', () => {
     await clock.advance();
     expect(calls).toBe(2);
     expect(saver.status('a')).toBe('saved');
+  });
+
+  it('does not retry a trade this account may not save (403), and tries again once it changes or on retryAll', async () => {
+    let calls = 0, allowed = false;
+    const { saver, clock, events, target } = setup({ put: async (id) => { calls++; if (!allowed) throw Object.assign(new Error('You have view-only access.'), { code: 'forbidden' }); return view(id, 1, calls); } });
+    saver.changed(target); await turn(); await clock.advance();
+    expect(events).toEqual(['denied a']);
+    expect(saver.status('a')).toBe('denied');
+    expect(calls).toBe(1);
+    expect(clock.waits).toEqual([]);
+    target.customer = 'x'; saver.changed(target); await turn();
+    expect(saver.status('a')).toBe('saving');
+    await clock.advance();
+    expect(calls).toBe(2);
+    expect(saver.status('a')).toBe('denied');
+    expect(clock.waits).toEqual([]);
+    allowed = true;
+    saver.retryAll(); await turn();
+    expect(calls).toBe(3);
+    expect(saver.status('a')).toBe('saved');
+  });
+
+  it('stops on a signed-out answer (runtime.js not_granted) too', async () => {
+    let calls = 0;
+    const { saver, clock, events, target } = setup({ put: async () => { calls++; throw Object.assign(new Error('Please sign in'), { code: 'not_granted' }); } });
+    saver.changed(target); await turn(); await clock.advance();
+    expect(events).toEqual(['denied a']);
+    expect(saver.status('a')).toBe('denied');
+    await clock.advance();
+    expect(calls).toBe(1);
   });
 
   it('reports a trade closed elsewhere and forgets it', async () => {
@@ -399,6 +431,17 @@ describe('saving trades', () => {
     down = false; await clock.advance();
     expect(await d).toBe(true);
     expect(calls).toBe(3);
+  });
+
+  it('stops trying to discard when this account may not (403 or 401), resolving null', async () => {
+    for (const code of ['forbidden', 'not_granted', 'signin']) {
+      let calls = 0;
+      const { saver, clock } = setup({ del: async () => { calls++; throw Object.assign(new Error('no'), { code }); } });
+      expect(await saver.discard('a')).toBe(null);
+      await clock.advance();
+      expect(calls).toBe(1);
+      expect(clock.waits).toEqual([]);
+    }
   });
 
   it('settle sends what is waiting and resolves once it is saved', async () => {

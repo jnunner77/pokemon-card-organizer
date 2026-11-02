@@ -113,8 +113,10 @@
    *   server can't be reached (the last repeats).
    * Callbacks: onSaved(id, view), onConflict(id) (changed elsewhere meanwhile), onClosed(id)
    * (recorded or discarded elsewhere), onFull(id) (too many open trades), onInvalid(id) (the server refuses it as it is, e.g. too long: not retried
-   until the trade changes), onStatus(id).
-   * A trade's status is 'saved', 'saving' or 'unsaved' (tried and couldn't, trying again) or 'invalid' (refused; kept here).
+   until the trade changes), onDenied(id) (this account may not save it: view-only, or signed out; not retried until the trade
+   changes or retryAll), onStatus(id).
+   * A trade's status is 'saved', 'saving' or 'unsaved' (tried and couldn't, trying again), 'invalid' (refused; kept here) or
+   'denied' (this account may not; kept here).
    * changed(t) takes the trade itself and reads its version when each save is sent, so onSaved
    * should update the trade's version before the next goes.
    */
@@ -126,6 +128,8 @@
     const entry = id => { let e = entries.get(id); if (!e) { e = { id, t: null, gen: 0, dirty: false, state: "saved", inflight: null, tries: 0, kick: null, gone: false, waiters: [] }; entries.set(id, e); } return e; };
     const setState = (e, s) => { if (e.state !== s) { e.state = s; call("onStatus", e.id); } };
     const netFail = err => !err || !["trade_changed", "trade_closed", "too_many_trades"].includes(err.code);
+  /* 403 forbidden (view-only), 401 (runtime.js gives not_granted and goes to sign in; the server's code is signin). */
+  const denied = err => ["forbidden", "signin", "not_granted"].includes(err?.code);
 
     const flush = e => { const w = e.waiters; e.waiters = []; w.forEach(r => r()); };
     function run(e) {
@@ -147,6 +151,7 @@
             else if (err?.code === "trade_closed") { e.dirty = false; e.gone = true; entries.delete(e.id); call("onClosed", e.id); }
             else if (err?.code === "invalid_argument" || err?.code === "too_large") { e.dirty = false; setState(e, "invalid"); call("onInvalid", e.id); }
             else if (err?.code === "too_many_trades") { e.dirty = false; setState(e, "unsaved"); call("onFull", e.id); }
+            else if (denied(err)) { e.dirty = false; setState(e, "denied"); call("onDenied", e.id); }
             else { e.dirty = true; retry = true; setState(e, "unsaved"); }
           }
           flush(e);
@@ -167,12 +172,13 @@
         if (e.gone) return;
         e.t = t; e.dirty = true;
         const gen = ++e.gen;
-        if (e.state === "saved" || e.state === "invalid") setState(e, "saving");
+        if (e.state === "saved" || e.state === "invalid" || e.state === "denied") setState(e, "saving");
         if (e.inflight) return;
         wait(delayMs).then(() => { if (e.gen === gen && !e.gone && e.dirty) void run(e); });
       },
       /* Takes the trade off the server. Waits for a save on its way first, cancels the ones waiting, and
-         tries again until the server answers. Resolves true when it's gone, false when it gave up. */
+         tries again until the server answers. Resolves true when it's gone, false when it gave up, null when this
+         account may not (view-only or signed out: the page keeps it waiting for an account that may). */
       async discard(id) {
         const e = entry(id);
         e.gen++; e.dirty = false;
@@ -181,6 +187,7 @@
         for (let tries = 0; ; tries++) {
           try { await o.del(id); return true; }
           catch (err) {
+            if (denied(err)) return null;
             if (!netFail(err) || err?.code === "invalid_argument") return false;
             await wait(retryMs[Math.min(tries, retryMs.length - 1)]);
           }
@@ -200,8 +207,13 @@
       },
       /* The trade is gone from this device: stop saving it. */
       forget(id) { const e = entries.get(id); if (!e) return; e.gone = true; e.dirty = false; e.gen++; if (e.kick) e.kick(); entries.delete(id); },
-      /* Tries every unsaved trade now (the server is reachable again). */
-      retryAll() { for (const e of entries.values()) if (e.dirty && e.kick) e.kick(); },
+      /* Tries every unsaved trade now (the server is reachable again), and once more the ones this account was refused. */
+      retryAll() {
+        for (const e of entries.values()) {
+          if (e.dirty && e.kick) e.kick();
+          else if (e.state === "denied" && e.t && !e.inflight && !e.gone) { e.dirty = true; e.gen++; void run(e); }
+        }
+      },
       status: id => entries.get(id)?.state ?? "saved",
     };
   }
