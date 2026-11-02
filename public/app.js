@@ -1070,6 +1070,7 @@ const TRP = new Set();    // trades with changes the server hasn't got yet
 const TRDISC = new Set(); // trades discarded here that the server hasn't been told about yet
 const TRGONE = new Set(); // trades closed on this device since the page opened: their echoes are ignored
 const TRNOTES = new Map(); // trade id -> {mine}: my copy, which lost to another device's changes
+const TRFULL = new Set(); // trades the server turned away for being one too many: sent again once one closes
 /* The dealer side's search of the card database: the text it's for, its hits, and whether it's on its way. */
 let TRS = {seq:0, t:0, q:"", busy:false, error:"", hits:[]};
 const trBlank = n => ({...window.BinderTrades.blank(n), id:rid(), q:{dealer:"", mine:""}});
@@ -1078,6 +1079,8 @@ const trCard = id => id ? S.cards.find(c => c.id===id) : null;
 const trMyValue = c => window.BinderTrade.myCardValue(window.BinderGuestPrice.priceOf(c), valueOf(c));
 /* Whether open trades are kept on the server: for people who can edit, with the ledger loaded. */
 const trServer = () => !!S.db && canEdit() && S.mode==="ready" && !!window.ledgerApi;
+/* Whether this account's trades go to the server once it answers: an editor, or not known yet (the server didn't answer when the page opened). */
+const trMaySave = () => !S.me || canEdit();
 const trApi = (method, id, body) => window.ledgerApi.call(method, "api/open-trades" + (id ? "/" + encodeURIComponent(id) : ""), body);
 const trIsId = id => typeof id==="string" && /^[A-Za-z0-9_-]{1,64}$/.test(id);
 /* A trade as kept in the mirror or sent by the server ({id, n, customer, dealer, mine, version}), ready for the dialog (trade.js restore). */
@@ -1131,11 +1134,13 @@ function trPrune(){
     if(keep.length!==t.mine.items.length){ t.mine.items = keep; trChanged(t); if(t===TR && $("#tr_card")) trShow(true); }
   }
 }
-/* A change to a trade: kept in this browser at once and, for editors, saved on the server a moment later. */
+/* A change to a trade: kept in this browser at once and, for editors, saved on the server a moment later.
+   Made while the server can't be reached (or before the ledger is loaded), it's marked as not saved yet,
+   and trStart sends it once the server answers, after a reload too. */
 function trChanged(t=TR){
   // a late answer for a trade that's been discarded, recorded or replaced must not save it again
   if(!t || trById(t.id)!==t) return;
-  if(trServer() && (t.version>0 || TRP.has(t.id) || !window.BinderTrades.isEmpty(t))){ TRP.add(t.id); trSaver.changed(t); }
+  if(trMaySave() && (t.version>0 || TRP.has(t.id) || !window.BinderTrades.isEmpty(t))){ TRP.add(t.id); if(trServer()) trSaver.changed(t); }
   trMirror(); trTabs(); trStatus();
 }
 /* Once the ledger is loaded and the account known, open trades kept here are picked up and the ones the server hasn't got are sent: without the dialog being opened, so a reload doesn't leave them waiting. */
@@ -1153,13 +1158,18 @@ const trSaver = window.BinderTrades.createSaver({
   onConflict: id => void trConflict(id),
   onClosed: id => trClosedElsewhere(id),
   onInvalid: () => toast("This trade can't be saved as it is: shorten it. It stays on this device."),
-  onFull: () => toast(`At most ${window.BinderTrades.MAX} trades can be open on the server at once: record or discard one, and this one saves.`),
+  onFull: id => { TRFULL.add(id); toast(`At most ${window.BinderTrades.MAX} trades can be open on the server at once: record or discard one, and this one saves.`); },
 });
 /* Trades with changes the server hasn't got are sent (again): after a reload, or when the server answers. */
 function trSendPending(){ if(trServer()) for(const t of TRADES.list) if(TRP.has(t.id) && trSaver.status(t.id)==="saved") trSaver.changed(t); }
+/* A trade turned away for being one too many is sent again once another one closes. */
+function trRetryFull(){
+  if(!trServer()) return;
+  for(const id of [...TRFULL]){ TRFULL.delete(id); const t = trById(id); if(t && TRP.has(id)) trSaver.changed(t); }
+}
 function trSendDiscards(){
   if(!trServer()) return;
-  for(const id of [...TRDISC]) void trSaver.discard(id).then(() => { TRDISC.delete(id); trMirror(); });
+  for(const id of [...TRDISC]) void trSaver.discard(id).then(gone => { TRDISC.delete(id); trMirror(); if(gone) trRetryFull(); });
 }
 /* The server's trades against this device's (trades.js reconcile). `fresh`: the dialog just opened, so empty trades never started are tidied away (unless that's all there is). */
 function trApply(views, fresh, since){
@@ -1176,6 +1186,7 @@ function trApply(views, fresh, since){
     if(theirs && trContent(c.mine)!==trContent(theirs)) TRNOTES.set(c.id, {mine:c.mine});
   }
   for(const t of r.closed){ trSaver.forget(t.id); TRP.delete(t.id); TRGONE.add(t.id); toast(`${BT.label(t)} was recorded or discarded on another device.`); }
+  if(r.closed.length) trRetryFull();
   if(fresh){ const used = list.filter(t => t.version>0 || TRP.has(t.id) || !BT.isEmpty(t)); if(used.length) list = used; }
   trSet(list);
   trPrune(); trSendPending();
@@ -1221,6 +1232,7 @@ function trClosedElsewhere(id){
   const lab = window.BinderTrades.label(t);
   trRemove(id); trShow(true);
   toast(`${lab} was recorded or discarded on another device.`);
+  trRetryFull();
 }
 /* Takes a trade out of the open ones; the next one is in front after (an empty Trade 1 when it was the last). */
 function trRemove(id){
@@ -1232,11 +1244,13 @@ function trRemove(id){
   TR = trById(TRADES.active);
   trResetSearch(); trMirror();
 }
+/* A trade the server may have is taken off it too; discarded while it can't be reached, that waits in this browser (bl:trades discards) until it answers, after a reload too. */
 function trDiscard(t){
   TRGONE.add(t.id);
-  if(trServer() && (t.version>0 || TRP.has(t.id))){
+  if(trMaySave() && (t.version>0 || TRP.has(t.id))){
     TRDISC.add(t.id);
-    void trSaver.discard(t.id).then(() => { TRDISC.delete(t.id); trMirror(); });
+    if(trServer()) void trSaver.discard(t.id).then(gone => { TRDISC.delete(t.id); trMirror(); if(gone) trRetryFull(); });
+    else trSaver.forget(t.id);
   } else trSaver.forget(t.id);
   trRemove(t.id);
 }
@@ -1248,7 +1262,7 @@ window.addEventListener("binder:opentrade", ev => {
   // a trade with changes of its own finds out when it's saved (409 and 410)
   if(TRP.has(id)) return;
   const local = trById(id);
-  if(!trade){ if(local && local.version>0) trClosedElsewhere(id); return; }
+  if(!trade){ if(local && local.version>0) trClosedElsewhere(id); else trRetryFull(); return; }
   if(local ? trade.version<=local.version : TRADES.list.length>=window.BinderTrades.MAX) return;
   const fresh = trKeepQ(trFromView(trade), local);
   trSet(local ? TRADES.list.map(t => t.id===id ? fresh : t) : [...TRADES.list, fresh].sort((a, b) => a.n-b.n));
@@ -1353,7 +1367,7 @@ function trTabs(){
   const el = $("#tr_tabs"); if(!el) return;
   const BT = window.BinderTrades, had = document.activeElement?.dataset?.trtab;
   el.innerHTML = TRADES.list.map(t => {
-    const sel = t.id===TRADES.active, unsaved = trServer() && TRP.has(t.id) && trSaver.status(t.id)==="unsaved";
+    const sel = t.id===TRADES.active, unsaved = trSaveState(t)==="unsaved";
     return `<button class="tr-tab" type="button" role="tab" id="tr_tab_${esc(t.id)}" data-trtab="${esc(t.id)}" aria-selected="${sel}" aria-controls="tr_panel" tabindex="${sel ? 0 : -1}"><b>${esc(BT.label(t))}</b><span class="hint">${esc(BT.summary(t))}</span>${unsaved ? `<span class="tr-unsaved" role="img" aria-label="Not saved yet"></span>` : ""}</button>`;
   }).join("");
   if(had) $(`#tr_tab_${had}`)?.focus();
@@ -1361,10 +1375,16 @@ function trTabs(){
   nw.disabled = full;
   nw.title = full ? `At most ${BT.MAX} open trades: record or discard one first` : "Start another trade without losing this one";
 }
-/* Whether the trade in front is saved: on the server for editors, in this browser for view-only accounts. */
+/* Whether a trade is saved: on the server for editors ("" for an empty one never saved), in this browser for view-only
+   accounts; for an editor (or an account not known yet) while the server can't be reached, its changes aren't saved yet. */
+function trSaveState(t){
+  if(trServer()) return t.version===0 && !TRP.has(t.id) ? "" : trSaver.status(t.id);
+  if(!trMaySave()) return "local";
+  return TRP.has(t.id) ? "unsaved" : "";
+}
 function trStatus(){
   const el = $("#tr_status"); if(!el || !TR) return;
-  const st = !trServer() ? "local" : TR.version===0 && !TRP.has(TR.id) ? "" : trSaver.status(TR.id);
+  const st = trSaveState(TR);
   el.textContent = {local:"Kept in this browser only.", saved:"Saved", saving:"Saving…", unsaved:"Not saved yet: kept on this device, it'll save when the server answers.", invalid:"This trade can't be saved as it is: shorten it (kept on this device).", "":""}[st];
   el.dataset.state = st;
 }
@@ -1720,6 +1740,7 @@ async function trRecord(items){
   // the server closed the open trade with the record; this device lets go of it too
   const others = TRADES.list.length>1;
   TRGONE.add(t.id); trRemove(t.id); TRR = null;
+  if(openTradeId) trRetryFull();
   closeModal();
   toast(`Trade recorded: ${body.received.length} card${body.received.length===1?"":"s"} in, ${body.given.length} traded away`, {label:"Undo", run:()=>void undoTrade(id)});
   render();
