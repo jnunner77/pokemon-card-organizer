@@ -304,6 +304,16 @@ try {
   const bulb = { binderId: 'e2e-trade', page: 1, slot: 1, name: 'Bulbasaur', set: 'Base Set', number: '44/102', condition: 'Near Mint' };
   if (!(await page.request.put(new URL('api/docs/cards/e2e-bulb', BASE).href, { data: bulb })).ok()) fail('adding a card to give');
   await page.locator('[data-trq="mine"]').fill('Bulbasaur');
+  await page.locator('[data-trpick]').first().waitFor();
+  // a search keeps its results when another trade was in front meanwhile
+  await page.locator('#tr_new').click();
+  await page.getByRole('tab', { name: /Trade 2/ }).waitFor();
+  await page.getByRole('tab', { name: /Ash/ }).click();
+  if ((await page.locator('[data-trq="mine"]').inputValue()) !== 'Bulbasaur') fail("Ash's trade lost its search when switching tabs");
+  await page.locator('[data-trpick]').first().waitFor({ timeout: 3000 });
+  await page.getByRole('tab', { name: /Trade 2/ }).click();
+  await page.locator('#tr_clear').click(); // empty, so no question
+  await page.getByRole('tab', { name: /Trade 2/ }).waitFor({ state: 'detached' });
   await page.locator('[data-trpick]').first().click();
   await page.locator('[data-trlist="mine"] .tr-item').waitFor();
   if (!(await page.request.put(new URL('api/docs/cards/e2e-bulb', BASE).href, { data: { ...bulb, status: 'sold' } })).ok()) fail('selling the card');

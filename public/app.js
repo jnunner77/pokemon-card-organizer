@@ -1417,6 +1417,10 @@ function trShow(keep){
   $("#tr_sides").innerHTML = trSideHTML("dealer") + trSideHTML("mine");
   $("#tr_panel").setAttribute("aria-labelledby", "tr_tab_" + TR.id);
   TR_SIDES.forEach(trList); trRefresh(); trNote(); trStatus();
+  // the search boxes keep their results: the dealer's is looked up again only when this trade's query has none yet (a switch cleared them)
+  const dq = TR.q.dealer.trim();
+  trResults("mine");
+  if(dq && !TRS.busy && TRS.q!==dq) trSearch(); else trResults("dealer");
   $("#tr_tab_" + TR.id)?.scrollIntoView?.({block:"nearest", inline:"nearest"});
   if(was){
     const el = (was.id && document.getElementById(was.id)) || (was.q ? $(`[data-trside="${was.side}"] [data-trq]`) : was.f ? $(`[data-trlist="${was.side}"] .tr-item:nth-child(${was.i + 1}) [data-trf="${was.f}"]`) : null);
