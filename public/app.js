@@ -1148,7 +1148,7 @@ function trStart(){
 const trSaver = window.BinderTrades.createSaver({
   put: (id, wire) => trApi("PUT", id, wire),
   del: id => trApi("DELETE", id),
-  onSaved: (id, v) => { const t = trById(id); if(!t) return; t.version = v.version; t.n = v.number; trMirror(); trTabs(); },
+  onSaved: (id, v) => { const t = trById(id); if(!t || v.version<t.version) return; t.version = v.version; t.n = v.number; trMirror(); trTabs(); },
   onStatus: id => { if(trSaver.status(id)==="saved") TRP.delete(id); else if(trById(id)) TRP.add(id); trMirror(); trTabs(); trStatus(); },
   onConflict: id => void trConflict(id),
   onClosed: id => trClosedElsewhere(id),
@@ -1161,9 +1161,9 @@ function trSendDiscards(){
   for(const id of [...TRDISC]) void trSaver.discard(id).then(() => { TRDISC.delete(id); trMirror(); });
 }
 /* The server's trades against this device's (trades.js reconcile). `fresh`: the dialog just opened, so empty trades never started are tidied away (unless that's all there is). */
-function trApply(views, fresh){
+function trApply(views, fresh, since){
   const BT = window.BinderTrades, had = new Set(TRADES.list);
-  const r = BT.reconcile(TRADES.list, views.filter(v => !TRGONE.has(v.id) && !TRDISC.has(v.id)), TRP);
+  const r = BT.reconcile(TRADES.list, views.filter(v => !TRGONE.has(v.id) && !TRDISC.has(v.id)), TRP, since);
   const mineById = new Map(TRADES.list.map(t => [t.id, t]));
   // a trade the server has at the version this device has is the same trade: keep the object (and its focus)
   let list = r.trades.map(t => had.has(t) ? t : mineById.get(t.id)?.version===t.version ? mineById.get(t.id) : trKeepQ(trNorm(t), mineById.get(t.id)));
@@ -1195,9 +1195,11 @@ function trSet(list){
 }
 async function trSync(fresh){
   if(!trServer()) return;
+  // the versions as the list is asked for: a trade saved for the first time meanwhile isn't closed elsewhere
+  const since = new Map(TRADES.list.map(t => [t.id, t.version]));
   let r;
   try{ r = await trApi("GET"); }catch(_){ return; }
-  trApply(Array.isArray(r?.trades) ? r.trades : [], fresh);
+  trApply(Array.isArray(r?.trades) ? r.trades : [], fresh, since);
 }
 /* Another device changed this one while this one had changes of its own: its version is shown, mine can be kept. */
 async function trConflict(id){
@@ -1689,8 +1691,12 @@ async function trRecord(items){
     let views = null;
     try{ views = (await trApi("GET")).trades; }catch(_){}
     const theirs = Array.isArray(views) ? views.find(v => v.id===openTradeId) : null;
-    if(Array.isArray(views) && trById(t.id)===t && ((theirs && theirs.version!==t.version) || (!theirs && t.version>0))){
-      if(theirs) await trConflict(t.id); else trClosedElsewhere(t.id);
+    // a sync meanwhile may have replaced this device's copy: the current one is what counts
+    const cur = trById(t.id);
+    if(!cur || cur!==t || (Array.isArray(views) && ((theirs && theirs.version!==cur.version) || (!theirs && cur.version>0)))){
+      if(!cur) trClosedElsewhere(t.id);
+      else if(Array.isArray(views) && ((theirs && theirs.version!==cur.version) || (!theirs && cur.version>0))){ if(theirs) await trConflict(cur.id); else trClosedElsewhere(cur.id); }
+      else toast(`${window.BinderTrades.label(cur)} changed on another device; check it and record again.`);
       TRR = null; tradeModal();
       return;
     }

@@ -38,7 +38,7 @@ type Trades = {
   nextNumber: (trades: { n: number }[]) => number;
   toWire: (t: T) => { baseVersion: number; customer: string; dealer: Side; mine: Side };
   afterClose: (trades: { id: string }[], id: string) => string | null;
-  reconcile: (local: T[], server: View[], pending: Set<string> | string[]) => { trades: T[]; conflicts: { id: string; mine: T }[]; closed: T[] };
+  reconcile: (local: T[], server: View[], pending: Set<string> | string[], since?: Map<string, number>) => { trades: T[]; conflicts: { id: string; mine: T }[]; closed: T[] };
   fromLegacy: (saved: unknown, n: number, owned: Set<string> | null, graders: string[]) => T | null;
   createSaver: (o: SaverOptions) => Saver;
 };
@@ -154,6 +154,22 @@ describe('this device\'s trades against the server\'s', () => {
     const r = B.reconcile([trade('a', 1, 2, { customer: 'old' })], [view('a', 1, 5, 'new')], new Set());
     expect(r.trades[0]).toMatchObject({ customer: 'new', version: 5 });
     expect(r.conflicts).toEqual([]);
+  });
+
+  it('keeps this trade when the server\'s list is older (fetched before a save)', () => {
+    const mine = trade('a', 1, 4, { customer: 'latest' });
+    const r = B.reconcile([mine], [view('a', 1, 3, 'older')], new Set());
+    expect(r.trades).toEqual([mine]);
+    expect(r.conflicts).toEqual([]);
+  });
+
+  it('does not call a trade closed when it was first saved after the list was asked for', () => {
+    const saved = trade('n', 1, 1, { customer: 'x' });
+    const r = B.reconcile([saved], [], new Set(), new Map([['n', 0]]));
+    expect(r.trades).toEqual([saved]);
+    expect(r.closed).toEqual([]);
+    const r2 = B.reconcile([saved], [], new Set(), new Map([['n', 1]]));
+    expect(r2.closed).toEqual([saved]);
   });
 
   it('keeps an unsaved trade that starts from the server\'s version', () => {

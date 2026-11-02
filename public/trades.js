@@ -65,24 +65,28 @@
    * This device's trades against the server's list (views as GET api/open-trades gives them).
    * `pending` is the ids of the trades with changes not saved yet. Per trade:
    * - only on the server: taken;
-   * - on both, nothing unsaved here: the server's;
+   * - on both, nothing unsaved here: the server's, unless this has a newer version (the list was
+   *   fetched before a save and answered after it): then this is kept;
    * - on both, unsaved here and the server's version is the one this started from: kept (it saves next);
    * - on both, unsaved here but the server has moved on: the server's is taken and this one is
    *   reported in `conflicts` as `mine`, to keep if wanted;
    * - only here and never saved: kept (a new trade); only here but it was saved before: it was
    *   recorded or discarded elsewhere, so it's dropped and reported in `closed`.
+   * `since` (optional) is the versions the trades had when the list was asked for (id → version): a trade
+   * that was never saved then isn't "closed elsewhere" for being missing from an older list.
    * Returns {trades, conflicts: [{id, mine}], closed: [trade]}, the trades in number order.
    */
-  function reconcile(local, server, pending) {
+  function reconcile(local, server, pending, since) {
     const isPending = id => typeof pending?.has === "function" ? pending.has(id) : (pending || []).includes(id);
     const byId = new Map((server || []).map(v => [v.id, v]));
     const out = [], conflicts = [], closed = [];
     for (const t of local || []) {
       const v = byId.get(t.id);
-      if (!v) { if (t.version > 0) closed.push(t); else out.push(t); continue; }
+      if (!v) { if (t.version > 0 && (!since || (since.get(t.id) ?? 0) > 0)) closed.push(t); else out.push(t); continue; }
       byId.delete(t.id);
       if (isPending(t.id) && v.version <= t.version) out.push(t);
       else if (isPending(t.id)) { out.push(fromServer(v)); conflicts.push({ id: t.id, mine: t }); }
+      else if (v.version < t.version) out.push(t);
       else out.push(fromServer(v));
     }
     for (const v of byId.values()) out.push(fromServer(v));
