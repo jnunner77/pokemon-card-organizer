@@ -137,6 +137,12 @@ import type { PhotoFiles } from '#infrastructure/photos/photo-files.ts';
 import { NodeScheduler } from '#infrastructure/node-scheduler.ts';
 import { RandomHexIds, RandomShortIds } from '#infrastructure/random-ids.ts';
 import { SystemClock } from '#infrastructure/system-clock.ts';
+import type { OpenTradeDeps } from '#application/open-trades/deps.ts';
+import { DiscardOpenTrade } from '#application/open-trades/discard-open-trade.ts';
+import { ListOpenTrades } from '#application/open-trades/list-open-trades.ts';
+import { SaveOpenTrade } from '#application/open-trades/save-open-trade.ts';
+import { FileOpenTradeShelf } from '#infrastructure/open-trades/open-trade-file.ts';
+import { LocalOpenTradeNews } from '#infrastructure/open-trades/local-news.ts';
 import { accountRoutes } from '#presentation/accounts/routes.ts';
 import { adminRoutes } from '#presentation/admin/routes.ts';
 import { alertRoutes } from '#presentation/alerts/routes.ts';
@@ -146,6 +152,7 @@ import { GuestCardFeed } from '#presentation/guests/feed.ts';
 import { guestRoutes } from '#presentation/guests/routes.ts';
 import type { CallerResolver } from '#presentation/http/caller.ts';
 import { combine, type Router } from '#presentation/http/router.ts';
+import { openTradeRoutes } from '#presentation/open-trades/routes.ts';
 import { ledgerRoutes } from '#presentation/ledger/routes.ts';
 import { photoRoutes } from '#presentation/photos/routes.ts';
 import { type AppOptions, createExpressApp, type LayeredContext, type LayeredRoutes } from '../server/app.ts';
@@ -187,7 +194,7 @@ export function createLedgerUpkeep(o: { readonly store: Store; readonly log: Ser
 }
 
 /** The ledger slice over the JSON store, as HTTP routes relative to /api. */
-export function composeLedgerRoutes(store: Store, identify: CallerResolver, activity: ActivityLog, events: LocalEventBus): Router {
+export function composeLedgerRoutes(store: Store, identify: CallerResolver, activity: ActivityLog, events: LocalEventBus, discardOpenTrade?: Pick<DiscardOpenTrade, 'execute'>): Router {
   const deps = ledgerDeps(store, activity, events);
   return ledgerRoutes({
     identify,
@@ -200,6 +207,7 @@ export function composeLedgerRoutes(store: Store, identify: CallerResolver, acti
     placeCards: new PlaceCards(deps),
     recordTrade: new RecordTrade(deps),
     undoTrade: new UndoTrade(deps),
+    discardOpenTrade,
   });
 }
 
@@ -351,6 +359,26 @@ export function createGuests(o: CreateGuestsOptions) {
 }
 
 export type Guests = ReturnType<typeof createGuests>;
+
+export interface CreateOpenTradesOptions {
+  readonly dataDir: string;
+  readonly log?: ServerLog | undefined;
+  readonly now?: (() => Date) | undefined;
+}
+
+/** Open trades over open-trades.json in the data directory. */
+export function createOpenTrades(o: CreateOpenTradesOptions) {
+  const log = o.log ?? quietLogger();
+  const deps: OpenTradeDeps = {
+    shelf: new FileOpenTradeShelf({ dataDir: o.dataDir, onDamaged: (message) => log.error('app', message) }),
+    news: new LocalOpenTradeNews(),
+    clock: { now: o.now ?? (() => new Date()) },
+    activity: activityLog(log, 'app'),
+  };
+  return { list: new ListOpenTrades(deps), save: new SaveOpenTrade(deps), discard: new DiscardOpenTrade(deps), news: deps.news };
+}
+
+export type OpenTrades = ReturnType<typeof createOpenTrades>;
 
 /** The daily price update as new cards and chosen matches use it; read when used, as it may be made after them. */
 const cardPricing = (updater: () => PriceUpdater | undefined): CardPricing => ({
@@ -580,17 +608,20 @@ export interface CreateAppOptions extends Omit<AppOptions, 'layeredRoutes' | 'ba
   readonly tcgcsv?: TcgplayerCatalog | undefined;
   /** Price watches and alert emails; made with the app password in <data>/secrets if omitted. */
   readonly alerts?: Alerts | undefined;
+  /** Open trades; made over open-trades.json in the data directory if omitted. */
+  readonly openTrades?: OpenTrades | undefined;
 }
 
 /** The whole app: the layered slices plugged into the Express server that still hosts the rest. */
 export function createApp(options: CreateAppOptions) {
-  const { events = new LocalEventBus(), accounts, guests, config: given, envPassword, cardLookups: givenLookups, cardDatabase, tcgcsv, alerts: givenAlerts, ...rest } = options;
+  const { events = new LocalEventBus(), accounts, guests, config: given, envPassword, cardLookups: givenLookups, cardDatabase, tcgcsv, alerts: givenAlerts, openTrades: givenOpenTrades, ...rest } = options;
   const log = options.log ?? quietLogger();
   const config = given ?? new AdminFile(options.store.dataDir);
   const now = options.now ?? (() => new Date());
   const backups = options.backups ?? createBackups({ store: options.store, assets: options.assets, config, log, now });
   const lookups = givenLookups ?? (cardDatabase ? createCardLookups({ store: options.store, database: cardDatabase, tcgcsv, updater: () => options.updater, log, events, now }) : null);
   const alerts = givenAlerts ?? createAlerts({ store: options.store, config, password: new FileSecret(`${options.store.dataDir}/secrets`, 'gmail-app-password'), log, events, now });
+  const openTrades = givenOpenTrades ?? createOpenTrades({ dataDir: options.store.dataDir, log, now });
   const admin = createAdmin({ store: options.store, assets: options.assets, config, log, now, backups, accounts, envPassword, security: options.security, updater: options.updater, pricecharting: options.pricecharting });
   const layeredRoutes = (c: LayeredContext): LayeredRoutes => {
     const photos = photoRoutes({ identify: c.identify, ...backups });
@@ -598,7 +629,8 @@ export function createApp(options: CreateAppOptions) {
       api: combine(
         accountRoutes({ identify: c.identity, client: c.client, accounts: accounts ?? null }),
         guestRoutes({ identify: c.identify, guest: c.guest, client: c.client, streams: c.streams, guests: guests ?? null }),
-        composeLedgerRoutes(options.store, c.identify, activityLog(log, 'app'), events),
+        composeLedgerRoutes(options.store, c.identify, activityLog(log, 'app'), events, openTrades.discard),
+        openTradeRoutes({ identify: c.identify, ...openTrades }),
         photos.api,
         backupRoutes({ identify: c.identify, ...backups }),
         adminRoutes({ identify: c.identify, identity: c.identity, client: c.client, guest: guests ? c.guest : null, trustsProxy: !!options.trustProxy, ...admin }),
@@ -609,7 +641,7 @@ export function createApp(options: CreateAppOptions) {
     };
   };
   const people = { identifyCaller: accounts?.identifyCaller ?? new IdentifyLocalOwner(), identifyGuest: guests?.identify ?? null };
-  const app = createExpressApp({ ...rest, log, now, backups, people, layeredRoutes });
+  const app = createExpressApp({ ...rest, log, now, backups, people, layeredRoutes, openTradeNews: openTrades.news });
   // status.txt for the server's nightly job (main.ts writes it every five minutes).
   return Object.assign(app, { writeStatusFile: () => admin.writeStatusFile.execute() });
 }
