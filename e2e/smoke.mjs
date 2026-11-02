@@ -2,7 +2,7 @@
 //   DATA_DIR=$(mktemp -d) AUTH=off PRICE_UPDATES=off npm start
 //   BASE_URL=http://localhost:4100/ npm run test:e2e
 // It creates a binder and cards, prices, moves and sells one, finds it with Find ("/" opens Any card; it switches to Your cards), checks live
-// updates between two tabs, the Pricing and Selling views, a backup download, a display case (the
+// updates between two tabs, the Pricing and Selling views, open trades as tabs (kept on the server), a backup download, a display case (the
 // card moved in and back out), editing in the Table, the phone layout, and a guest from the QR
 // code looking through the cards listed for sale on a phone.
 import { chromium } from 'playwright';
@@ -258,6 +258,45 @@ try {
   await p.locator('#svChart svg').waitFor();
   const svOverflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   if (svOverflow > 1) fail(`phone Selling view scrolls sideways by ${svOverflow}px`);
+
+  // Open trades: two at once as tabs, kept on the server (they survive a reload), and the same on a phone.
+  await page.locator('#btnTrade').click();
+  await page.locator('#tr_card').waitFor();
+  await page.locator('#tr_customer').fill('Ash');
+  await page.locator('[data-tradd="dealer"]').click();
+  await page.locator('[data-trf="name"]').first().fill('Pikachu');
+  await page.locator('#tr_new').click();
+  await page.locator('[data-tradd="mine"]').click();
+  await page.locator('[data-trf="name"]').first().fill('Raichu');
+  await page.getByRole('tab', { name: /Ash/ }).waitFor();
+  await page.getByRole('tab', { name: /Trade 2/ }).waitFor();
+  await page.getByRole('tab', { name: /Ash/ }).click();
+  if ((await page.locator('[data-trf="name"]').first().inputValue()) !== 'Pikachu') fail("Ash's trade lost its card when switching tabs");
+  await page.locator('#tr_status', { hasText: 'Saved' }).waitFor();
+  await page.reload();
+  await page.locator('#btnTrade').click();
+  await page.getByRole('tab', { name: /Ash/ }).waitFor();
+  await page.getByRole('tab', { name: /Trade 2/ }).waitFor();
+  await page.getByRole('tab', { name: /Trade 2/ }).click();
+  page.once('dialog', (d) => d.accept()); // it has a card, so discarding it asks first
+  await page.locator('#tr_clear').click();
+  await page.getByRole('tab', { name: /Trade 2/ }).waitFor({ state: 'detached' });
+  await p.getByRole('button', { name: 'Back to binders' }).click();
+  await p.locator('#btnTrade').click();
+  await p.locator('#tr_card').waitFor();
+  await p.getByRole('tab', { name: /Ash/ }).waitFor(); // from the server: the phone never made it
+  const tradeOverflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  if (tradeOverflow > 1) fail(`phone Trade evaluator scrolls sideways by ${tradeOverflow}px`);
+  await p.locator('#tr_new').tap();
+  await p.getByRole('tab', { name: /Trade 2/ }).tap();
+  const small = await p.evaluate(() => [...document.querySelectorAll('.tr-tab, #tr_new')].filter((b) => b.getBoundingClientRect().height < 40).length);
+  if (small) fail('phone trade tabs are smaller than 40px');
+  await p.getByRole('tab', { name: /Ash/ }).tap();
+  p.once('dialog', (d) => d.accept()); // Ash's trade has a card, so discarding it asks first
+  await p.locator('#tr_clear').tap();
+  await p.getByRole('tab', { name: /Ash/ }).waitFor({ state: 'detached' });
+  await p.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
 
   // Guests: list a card for sale, turn guest viewing on, and look at it from the QR code's link on a phone.
   const showBinder = { name: 'Show binder', pockets: 9 };

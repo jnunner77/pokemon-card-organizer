@@ -541,7 +541,7 @@ Closing it with cards typed asks first. View-only accounts don't see it.
 
 **Trade** (at the top, next to *Bulk buy*) works out a trade with a dealer before you agree to it:
 two of your cards for one of theirs and cash, a graded card for a stack of yours, or any mix.
-Nothing in the ledger changes until you record it (step 4).
+Nothing in the ledger changes until you record it (step 4). You can have [several trades open at once](#several-trades-at-once).
 
 1. **Dealer gives** and **I give** each take cards and cash.
    - **Your cards:** type part of a name, set or number under *I give* and pick it (Enter takes the
@@ -589,9 +589,34 @@ Nothing in the ledger changes until you record it (step 4).
      your cards back where they were, removes the cards you got and makes filled placeholders
      placeholders again. A trade where you give only cash is there too, with no sale.
 
-Values are in CAD. The trade being worked out stays in this browser (closing the dialog doesn't lose
-it) until *Start over* or it's recorded; a card of yours sold or traded since is dropped from it.
-View-only accounts can use it too, but can't record it.
+Values are in CAD. A card of yours sold or traded since is dropped from every open trade.
+
+### Several trades at once
+
+While you help one customer, another can be waiting: every open trade is a **tab** above the two
+sides, showing the customer's name (or *Trade 1*, *Trade 2*…) and a short summary (*Empty*,
+*3 cards · $40.00 cash*). **+ New trade** opens another, up to 10 at once. Tabs work with the arrow
+keys (Left and Right wrap round), Home and End, and on a phone they scroll sideways. Each trade keeps
+its own cards, cash, percentages and search.
+
+- **Customer (optional)**, up to 40 characters, names the tab and fills *Traded with* when you
+  record the trade.
+- **Discard trade** (it replaces *Start over*) closes the open trade; it asks first unless the trade
+  is empty. Discarding the last one leaves an empty *Trade 1*.
+- **Record trade…** closes the trade's tab, and the dialog then shows another open trade if there is
+  one.
+- **Saved on the server** for editors and administrators, about a second after each change, so a
+  trade started on one device shows on your others and an open dialog follows changes made there.
+  The line at the bottom says *Saved* or *Saving…*.
+- **If the server can't be reached,** the trade is kept on this device, its tab shows a dot and the
+  line says *Not saved yet*; it saves by itself once the server answers, even after reloading the
+  page.
+- **Changed on another device meanwhile:** the trade shows that device's version with a note and
+  **Keep mine**, which saves your version instead. A trade recorded or discarded on another device
+  closes its tab with a message.
+- **View-only accounts** can work trades out too, but theirs stay in this browser only, and they
+  can't record them.
+- A trade kept in this browser by an earlier version becomes an open trade.
 
 ## Master sets
 
