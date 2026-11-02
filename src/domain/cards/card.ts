@@ -5,6 +5,7 @@ import type { InvalidDocument } from '../ledger/check-document.ts';
 import type { Fields } from '../ledger/document.ts';
 import type { LedgerEvent } from '../ledger/events.ts';
 import { mergedFields, replacedFields } from '../ledger/fields-state.ts';
+import { outOfBinderWhenSold } from './sold.ts';
 import { alertsAfterCheck, offWatchlistWhenPlaced, type WatchSide } from './watch.ts';
 import { applyPriceEntries, checkPriceEntryFields, type PriceEntryChange, type PriceEntryError } from './price-entries.ts';
 
@@ -26,6 +27,9 @@ export type CardError = InvalidDocument | PriceEntryError;
 
 const numberOrNull = (v: unknown) => (typeof v === 'number' ? v : null);
 
+/** The rules every saved card follows: placed means off the watchlist, sold or traded means in no binder. */
+const tidied = <F extends Fields>(f: F) => outOfBinderWhenSold(offWatchlistWhenPlaced(f));
+
 /** One card in the collection: its details, where it is, its price log and sale. */
 export class Card {
   readonly #id: CardId;
@@ -40,7 +44,7 @@ export class Card {
   static create(id: CardId, doc: unknown, at: Date): Result<Card, InvalidDocument> {
     const fields = replacedFields('cards', doc);
     if (!fields.ok) return fields;
-    const card = new Card(id, offWatchlistWhenPlaced(fields.value));
+    const card = new Card(id, tidied(fields.value));
     card.#saved(at);
     return ok(card);
   }
@@ -87,6 +91,13 @@ export class Card {
     if (now.binderId === place.binderId && now.page === place.page && now.slot === place.slot) return ok(false);
     const moved = this.merge({ binderId: place.binderId, page: place.page, slot: place.slot, updatedAt: at.toISOString() }, at);
     return moved.ok ? ok(true) : moved;
+  }
+
+  /** A sold or traded card still in a binder leaves it (its place kept as the sale's `from`); false when it was not in one. */
+  takeOutIfSold(at: Date): Result<boolean, InvalidDocument> {
+    if (outOfBinderWhenSold(this.#fields) === this.#fields) return ok(false);
+    const taken = this.merge({ updatedAt: at.toISOString() }, at);
+    return taken.ok ? ok(true) : taken;
   }
 
   /** Put the card in another pocket of the binder it is in; false when it is already there. */
@@ -139,7 +150,7 @@ export class Card {
 
   #apply(next: Result<Fields, InvalidDocument>, at: Date): Result<void, InvalidDocument> {
     if (!next.ok) return err(next.error);
-    this.#fields = offWatchlistWhenPlaced(next.value);
+    this.#fields = tidied(next.value);
     this.#saved(at);
     return ok(undefined);
   }

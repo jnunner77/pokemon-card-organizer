@@ -5,9 +5,9 @@ import { describe, expect, it } from 'vitest';
 
 // public/sales.js is a plain browser script; load it the way the page does.
 type Split = (total: number, values: (number | null)[], method: 'value' | 'even') => number[];
-const sandbox = { window: {} as { BinderSales: { split: Split; remaining: (total: number, shares: (number | null)[]) => number } } };
+const sandbox = { window: {} as { BinderSales: { split: Split; remaining: (total: number, shares: (number | null)[]) => number; record: (o: Record<string, unknown>) => Record<string, unknown>; onSalesTab: (c: { status?: string }, info: unknown) => boolean; withoutSales: <T extends { status?: string }>(cards: T[], infoOf: (c: T) => unknown) => T[] } } };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public/sales.js'), 'utf8'), sandbox);
-const { split, remaining } = sandbox.window.BinderSales;
+const { split, remaining, record, onSalesTab, withoutSales } = sandbox.window.BinderSales;
 const sum = (a: number[]) => Math.round(a.reduce((x, y) => x + y, 0) * 100) / 100;
 
 describe('splitting a bundle across its cards', () => {
@@ -42,5 +42,41 @@ describe('splitting a bundle across its cards', () => {
     expect(remaining(18, [10, 10])).toBe(-2);
     expect(remaining(17.99, [5.99, 6, 6])).toBe(0);
     expect(remaining(18, [5, null])).toBe(13);
+  });
+});
+
+describe('the record a sale keeps', () => {
+  const sold = { amount: 30, currency: 'USD', soldCAD: 41.256, cost: 20.004, basis: 'paid', date: '2026-10-01', where: 'Show', at: 'x', priceId: 'p', from: { binderId: 'b1', page: 1, slot: 2 } };
+
+  it('rounds the cost and works out the profit to the cent', () => {
+    expect(record(sold)).toEqual({ amount: 30, currency: 'USD', soldCAD: 41.256, cost: 20, basis: 'paid', profit: 21.25, date: '2026-10-01', where: 'Show', at: 'x', priceId: 'p', from: sold.from });
+  });
+
+  it('has no cost and no profit when there was no cost basis', () => {
+    expect(record({ ...sold, cost: null, basis: 'none' })).toMatchObject({ cost: null, profit: null });
+  });
+
+  it('names the bundle only when there is one', () => {
+    expect(record(sold)).not.toHaveProperty('bundle');
+    expect(record({ ...sold, bundle: { id: 'k' } })).toMatchObject({ bundle: { id: 'k' } });
+  });
+});
+
+describe('which cards are only on the Sales tab', () => {
+  const sale = { soldCAD: 5 };
+  it('is a sold or traded card with a sale', () => {
+    expect(onSalesTab({ status: 'sold' }, sale)).toBe(true);
+    expect(onSalesTab({ status: 'traded' }, sale)).toBe(true);
+  });
+  it('is not a held card, or a sold card with no sale', () => {
+    expect(onSalesTab({ status: 'binder' }, sale)).toBe(false);
+    expect(onSalesTab({ status: 'listed' }, sale)).toBe(false);
+    expect(onSalesTab({}, sale)).toBe(false);
+    expect(onSalesTab({ status: 'sold' }, null)).toBe(false);
+  });
+  it('leaves those cards out of the binders and keeps the rest', () => {
+    const cards = [{ id: 'a', status: 'binder' }, { id: 'b', status: 'sold' }, { id: 'c', status: 'sold' }];
+    const kept = withoutSales(cards, c => (c.id === 'b' ? sale : null));
+    expect(kept.map(c => c.id)).toEqual(['a', 'c']);
   });
 });

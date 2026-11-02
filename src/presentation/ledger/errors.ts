@@ -84,6 +84,8 @@ export function placeFailure(e: PlaceError): Failure {
       return badRequest('A card was given twice.');
     case 'CARD_DELETED_MEANWHILE':
       return conflict('A card was deleted meanwhile, so nothing moved. Try again.');
+    case 'CARD_SOLD':
+      return conflict(`${e.name ?? 'A card'} is sold or traded, so it can't go in a binder. Nothing moved.`);
     case 'BINDER_GONE':
       return conflict('That binder no longer exists, so nothing moved.');
     case 'CASE_HAS_NO_POCKETS':

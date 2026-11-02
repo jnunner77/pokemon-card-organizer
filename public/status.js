@@ -13,13 +13,13 @@
   const statusOf = c => c.status || "binder";
 
   /* The cards that change (ids), and how many stay as they are: already that status, placeholders,
-     and cards sold with Quick sell (they keep their sale; undoing it puts them back). Sold is
+     and cards sold with Quick sell, which have a sale price (they keep their sale; undoing it puts them back). Sold is
      recorded by Quick sell, so `change` is then the cards to open it for: a traded card can't be sold. */
   function plan(cards, status) {
     const out = { change: [], same: 0, placeholder: 0, quickSold: 0, traded: 0 };
     for (const c of cards) {
       if (!c) continue;
-      if (c.sale && statusOf(c) === "sold") out.quickSold++;
+      if (c.sale && typeof c.sale.soldCAD === "number" && statusOf(c) === "sold") out.quickSold++;
       else if (statusOf(c) === status) out.same++;
       else if (c.placeholder && NEEDS_CARD.includes(status)) out.placeholder++;
       else if (status === "sold" && statusOf(c) === "traded") out.traded++;

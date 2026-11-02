@@ -110,4 +110,11 @@ describe('which pocket each CSV row goes in', () => {
     expect([bad.page, inCase.page, none.page, good.page]).toEqual([1, null, null, 1]);
     expect(good.errors).toEqual([]);
   });
+
+  it('never has a row in no binder (a Sold or Traded row) replace a ledger card', () => {
+    const sold = row(2, raichu, 1, 1, { bkey: null, auto: false });
+    run([sold], 'replace', ledger([1, 1, [{ id: 'a', name: 'Pikachu' }]]));
+    expect(sold.replaceId).toBeUndefined();
+    expect(sold.errors).toEqual([]);
+  });
 });

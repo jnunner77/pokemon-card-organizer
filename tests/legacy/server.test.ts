@@ -41,6 +41,13 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 describe('documents', () => {
+  it('takes a card out of its pocket when it is marked sold, keeping where it was', async () => {
+    await request(app).put('/api/docs/binders/b1').send({ name: 'IR', pockets: 9, order: 1 }).expect(200);
+    await request(app).put('/api/docs/cards/c1').send(card()).expect(200);
+    const patched = await request(app).patch('/api/docs/cards/c1').send({ status: 'sold' }).expect(200);
+    expect(patched.body).toMatchObject({ status: 'sold', binderId: null, page: null, slot: null, sale: { from: { binderId: 'b1', page: 1, slot: 2 } } });
+  });
+
   it('creates, merges, lists and deletes', async () => {
     await request(app).put('/api/docs/binders/b1').send({ name: 'IR', color: '#F2B705', pockets: 9, order: 1 }).expect(200);
     const put = await request(app).put('/api/docs/cards/c1').send(card()).expect(200);

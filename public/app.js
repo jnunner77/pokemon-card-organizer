@@ -47,6 +47,8 @@ const owned = c => held(c) && !c.placeholder && c.watchlist!==true;
 /* price watches (watch.js): a card only on the watchlist isn't in the collection, so it's left out of its lists and totals */
 const W = window.BinderWatch;
 const ledgerCards = () => S.cards.filter(c => !W.onWatchlist(c));
+/* the cards that are in the collection and not only on the Sales tab */
+const binderCards = () => window.BinderSales.withoutSales(ledgerCards(), saleInfo);
 const watchList = () => W.list(S.cards, valueOf);
 /* sale record: quick sells store a snapshot; cards sold through the price log are worked out on the fly. Paid beats market as the cost basis. */
 function costBasis(c){ const pd = paidOf(c); if(pd!=null) return {cost:pd, basis:"paid"}; const v = valueOf(c); if(v!=null) return {cost:v, basis:"market"}; return {cost:null, basis:"none"}; }
@@ -54,8 +56,10 @@ function saleInfo(c){
   if(c.sale && typeof c.sale.soldCAD === "number") return {...c.sale, quick:true};
   const sd = soldOf(c); if(sd==null) return null;
   const p = latestOf(c,["mysale"]), cb = costBasis(c);
-  return {soldCAD:sd, amount:p.amount, currency:p.currency, date:p.date, where:p.where, at:p.at, cost:cb.cost, basis:cb.basis, profit: cb.cost!=null ? Math.round((sd-cb.cost)*100)/100 : null, quick:false};
+  return {soldCAD:sd, amount:p.amount, currency:p.currency, date:p.date, where:p.where, at:p.at, cost:cb.cost, basis:cb.basis, profit: cb.cost!=null ? Math.round((sd-cb.cost)*100)/100 : null, from:c.sale?.from || null, quick:false};
 }
+/* a sold or traded card with a sale: it is on the Sales tab, in no binder */
+const onSalesTab = c => window.BinderSales.onSalesTab(c, saleInfo(c));
 const salesList = () => S.cards.map(c=>({c, s:saleInfo(c)})).filter(x=>x.s).sort((a,b)=>(b.s.date||"").localeCompare(a.s.date||"") || (b.s.at||"").localeCompare(a.s.at||""));
 function salesTotals(){ const l = salesList(); return {n:l.length, rev:l.reduce((t,x)=>t+x.s.soldCAD,0), cost:l.reduce((t,x)=>t+(x.s.cost??0),0), profit:l.reduce((t,x)=>t+(x.s.profit??0),0), nobasis:l.filter(x=>x.s.profit==null).length}; }
 const signed = n => n==null ? "—" : (n>=0?"+":"−") + money(Math.abs(n));
@@ -68,7 +72,7 @@ const sortedBinders = () => S.binders.slice().sort((a,b)=>(a.order??0)-(b.order?
 const isSpecial = id => id === "__loose" || id === "__sales" || id === "__watch";
 const curBinder = () => isSpecial(S.binderId) ? null : binderById(S.binderId);
 const cardsIn = id => S.cards.filter(c => c.binderId === id);
-const looseCards = () => S.cards.filter(c => (!c.binderId || !binderById(c.binderId)) && !(c.sale && c.status==="sold") && !W.onWatchlist(c));
+const looseCards = () => S.cards.filter(c => (!c.binderId || !binderById(c.binderId)) && !onSalesTab(c) && !W.onWatchlist(c));
 /* a display case (like the one taken to card shows) holds cards with no pages or pockets */
 const isCase = b => b?.kind === "case";
 /* a pocket holds copies of one card (BinderStack): stackAt is all of them, top copy first; cardAt is the top copy */
@@ -475,7 +479,7 @@ const SORTS = {
 };
 function renderList(m){
   const q = S.q.trim().toLowerCase();
-  let list = S.scope==="all" ? ledgerCards() : S.binderId==="__loose" ? looseCards() : cardsIn(S.binderId);
+  let list = S.scope==="all" ? binderCards() : S.binderId==="__loose" ? looseCards() : cardsIn(S.binderId);
   const base = list, nf = window.BinderFilter.count(S.filt);
   if(q) list = list.filter(c => [c.name,c.set,c.setCode,c.number,c.rarity,c.variant,c.artist,c.notes].join(" ").toLowerCase().includes(q));
   if(nf) list = list.filter(c => window.BinderFilter.match(c, S.filt, valueOf(c)));
@@ -819,7 +823,7 @@ async function doQuickSell(card, bundleOpts){
     const pid = rid(), at = nowISO();
     const note = bundle ? `Bundle of ${bundle.count} · ${money(bundle.total, cur)} together` : "Quick sell";
     const price = {id:pid, at, type:"mysale", amount, currency:cur, date, where, note};
-    const sale = {amount, currency:cur, soldCAD, cost: cb.cost!=null ? Math.round(cb.cost*100)/100 : null, basis:cb.basis, profit: cb.cost!=null ? Math.round((soldCAD-cb.cost)*100)/100 : null, date, where, at, priceId:pid, from:{binderId:c.binderId||null, page:c.page||null, slot:c.slot||null}, ...(bundle?{bundle}:{})};
+    const sale = window.BinderSales.record({amount, currency:cur, soldCAD, cost:cb.cost, basis:cb.basis, date, where, at, priceId:pid, from:{binderId:c.binderId||null, page:c.page||null, slot:c.slot||null}, bundle});
     jobs.push({c, sale, ops:{add:[price], fields:{status:"sold", binderId:null, page:null, slot:null, sale, updatedAt:nowISO()}}});
   });
   if(!jobs.length || (bundle && jobs.length!==rowsIn.length)){ go.disabled=false; return; }
@@ -2061,6 +2065,18 @@ async function changePrices(id, ops, fields={}){ return guard(()=> S.db.doc("car
 async function addPrice(){
   const c = selCard(); const p = readPriceFields("n"); if(!p) return;
   p.id = rid(); p.at = nowISO();
+  if(p.type==="mysale" && c.status==="traded") return void toast("A traded card can't be sold.");
+  if(p.type==="mysale" && owned(c)){
+    // Recorded like Quick sell: the sale keeps its price, profit and pocket, and can be undone.
+    const soldCAD = Math.round(toCAD(p)*100)/100, cb = costBasis(c);
+    const sale = window.BinderSales.record({amount:p.amount, currency:p.currency, soldCAD, cost:cb.cost, basis:cb.basis, date:p.date, where:p.where, at:p.at, priceId:p.id, from:{binderId:c.binderId||null, page:c.page||null, slot:c.slot||null}});
+    if(await changePrices(c.id, {add:[p]}, {status:"sold", binderId:null, page:null, slot:null, sale})){
+      S.priceTouched=false; if(S.sel===c.id) closeDrawer();
+      toast(`Sold ${c.name||"card"} for ${money(soldCAD)}${sale.profit!=null?` · profit ${signed(sale.profit)}`:""}`, {label:"Undo", run:()=>void undoSale(c.id)});
+      render();
+    }
+    return;
+  }
   const fields = {};
   if(p.type==="mysale") fields.status="sold";
   if(p.type==="listed" && (c.status||"binder")==="binder") fields.status="listed";
@@ -3388,8 +3404,13 @@ function ciValidate(P, o){
       if(!stRaw) d.status = "sold";
       else if(!["sold","traded"].includes(d.status)){ W(`Sold for is filled in, so Status changes from ${(STATUSES.find(s=>s[0]===d.status)||[,""])[1]} to Sold.`); d.status = "sold"; }
     }
-    const bn = cell("binder"), pg = cell("page"), sl = cell("slot");
-    if(!bn){ if(pg||sl) W("Binder is blank, so Page and Pocket are ignored. The card goes under Not in a binder."); }
+    let bn = cell("binder"), pg = cell("page"), sl = cell("slot");
+    const goneToSales = ["sold","traded"].includes(d.status);
+    if(goneToSales && (bn||pg||sl)){
+      W(`Status is ${d.status==="sold"?"Sold":"Traded"}, so it isn't put in a binder: ${r.prices.some(p=>p.type==="mysale") ? "it goes to the Sales tab" : "it goes under Not in a binder (there's no Sold for price to show it on the Sales tab)"}.`);
+      bn = pg = sl = "";
+    }
+    if(!bn){ if((pg||sl) && !goneToSales) W("Binder is blank, so Page and Pocket are ignored. The card goes under Not in a binder."); }
     else {
       const key = bkeyOf(bn), b = exist.get(key);
       if(b){ r.bkey = "id:"+b.id; r.bname = b.name; }
@@ -3462,7 +3483,7 @@ async function ciLoad(f){
 }
 function ciCheck(){ if(!CI.P) return; CI.res = ciValidate(CI.P, CI.o); ciRenderRes(); }
 function ciWhere(r){
-  if(!r.bkey) return "Not in a binder";
+  if(!r.bkey) return ["sold","traded"].includes(r.data?.status) && r.prices.some(p => p.type === "mysale") ? "Sales tab" : "Not in a binder";
   if(!r.page || !r.slot) return `${r.bname}${r.isNew?" (new)":""}`;
   return `${r.bname}${r.isNew?" (new)":""} · p${r.page} · #${r.slot}${r.auto?" · next empty":""}${r.replaceId?` · replaces ${r.replaceName}`:""}`;
 }
@@ -3853,6 +3874,22 @@ document.addEventListener("change", e => {
   if(e.target.closest("#priceSec")) S.priceTouched=true;
   if(e.target.closest("#moveSec")) S.moveTouched=true;
   if(e.target.id==="f_placeholder" && S.sel!=="__new") return void switchPlaceholder(e.target);
+  if(e.target.id==="f_status" && e.target.value==="sold"){
+    // Sold is recorded with its price by Quick sell, which takes the card out of its binder.
+    const c = selCard();
+    if(c && held(c)){
+      e.target.value = c.status || "binder";
+      if(S.sel==="__new") return void toast("Save the card first, then use Quick sell.");
+      if(c.placeholder) return void toast("A placeholder can't be sold.");
+      if(W.onWatchlist(c)) return void toast("It's on your watchlist: tap I got it when you have it, then sell it.");
+      if(unsaved()) return void toast("Save or discard your changes first, then choose Sold.");
+      return void quickSellModal([c.id]);
+    }
+    if(c && c.status==="traded"){
+      e.target.value = "traded";
+      return void toast("A traded card can't be sold.");
+    }
+  }
   if(e.target.closest("#cardForm")){ S.dirty=true; syncSaveButton(); }
   if(e.target.matches && e.target.matches("input[data-photo]")){ const f=e.target.files && e.target.files[0]; if(f){ takePhotoFile(f); try{ e.target.value=""; }catch(_){} } }
   if(e.target.id==="caseSort"){ S.caseSort = e.target.value; store.set("caseSort", S.caseSort); renderMain(); return; }
@@ -4302,7 +4339,7 @@ function closePricing(){ PV.open = false; PV.hover = null; pvSave(); render(); }
 /* everything the view shows, for the current scope, range and filters */
 function pvData(){
   if(PV.scope!=="all" && PV.scope!=="__loose" && !binderById(PV.scope)) PV.scope = "all";
-  const base = PV.scope==="all" ? ledgerCards() : PV.scope==="__loose" ? looseCards() : cardsIn(PV.scope);
+  const base = PV.scope==="all" ? binderCards() : PV.scope==="__loose" ? looseCards() : cardsIn(PV.scope);
   const P = window.BinderPortfolio;
   const cards = base.filter(owned).filter(c => window.BinderFilter.match(c, PV.filt, valueOf(c)));
   const items = cards.map(c => ({card:c, hist:P.history(c, pvValue)}));
@@ -4479,7 +4516,7 @@ const SV_STATUSES = STATUSES.filter(([k]) => k==="sold" || k==="traded");
 const SV_GROUPS = [["card","Cards"],["occasion","Occasions"],["where","Where"],["set","Sets"],["binder","Binders"],["owner","Owners"],["month","Months"]];
 const SV_SORTS = [["latest","Latest"],["sold","Highest sale"],["profit","Most profit"],["loss","Biggest loss"],["margin","Best margin"],["cards","Most cards"]];
 /* the binder a card was sold from: where a quick sell took it from, or where it still is */
-const svFrom = x => (x.sale.quick ? x.sale.from?.binderId : x.card.binderId) || null;
+const svFrom = x => x.sale.from?.binderId || x.card.binderId || null;
 const SV_KEYS = {
   ...window.BinderSelling.KEYS,
   set: x => window.BinderFilter.setOf(x.card) || "No set",
@@ -4824,14 +4861,14 @@ const tbMatch = c => TBL.matches(c, TB.filt, tbCtx) && (!tbExprOn() || EXPR.test
 const tbLevels = () => TBL.levels(TB.sort);
 /* which cards show, in order */
 function tbApply(){
-  const list = ledgerCards().filter(tbMatch);
+  const list = binderCards().filter(tbMatch);
   TB.rows = TBL.sort(list, TB.sort, tbCtx).map(c=>c.id);
-  TB.known = new Set(ledgerCards().map(c=>c.id));
+  TB.known = new Set(binderCards().map(c=>c.id));
 }
 /* after a change: keep the rows (cards edited out of the filters stay until the filters change),
    drop deleted cards and add new ones that match */
 function tbKeepRows(){
-  const cards = ledgerCards(), ids = new Set(cards.map(c=>c.id));
+  const cards = binderCards(), ids = new Set(cards.map(c=>c.id));
   TB.rows = TB.rows.filter(id => ids.has(id));
   for(const c of cards) if(!TB.known.has(c.id) && tbMatch(c)) TB.rows.push(c.id);
   TB.known = ids;
@@ -4881,13 +4918,13 @@ function tbHead(cols){
 }
 function tbLists(){
   const uniq = a => [...new Set(a.map(x=>String(x??"").trim()).filter(Boolean))].sort((x,y)=>x.localeCompare(y));
-  const from = k => k==="rarity" ? uniq([...RARITIES, ...ledgerCards().map(c=>c.rarity)]) : uniq(ledgerCards().map(c=>c[k]));
+  const from = k => k==="rarity" ? uniq([...RARITIES, ...binderCards().map(c=>c.rarity)]) : uniq(binderCards().map(c=>c[k]));
   return TBL.COLUMNS.filter(c=>c.suggest).map(c => `<datalist id="tdl_${c.k}">${from(c.k).map(v=>`<option value="${esc(v)}">`).join("")}</datalist>`).join("")
     + `<datalist id="tdl__blank"><option value="${TBL.BLANK}"><option value="${TBL.FILLED}"></datalist>`;
 }
 function tbCount(){
   const n = TBL.count(TB.filt), x = tbExprOn(), el = $("#tblCount"), clr = $("#tblClear");
-  const nAll = ledgerCards().length;
+  const nAll = binderCards().length;
   if(el) el.textContent = `${TB.rows.length} of ${nAll} card${nAll===1?"":"s"}${n?` · ${n} filter${n===1?"":"s"}`:""}${x?" · expression":""}`;
   if(clr) clr.disabled = !n && !x;
   const xb = $("#tblExprBtn"); if(xb) xb.classList.toggle("on", x);
@@ -4935,7 +4972,7 @@ function tbSortClick(t){
 /* a dropdown filter's list: tick any number of values, or turn it around to none of them */
 function tbPopHTML(){
   const k = TB.pop.k, col = TBL.BY[k], f = TBL.filterOf(col, TB.filt[k]) || {in:[], not:false};
-  const ch = TBL.choices(ledgerCards(), col, tbCtx);
+  const ch = TBL.choices(binderCards(), col, tbCtx);
   const list = [...ch, ...f.in.filter(v => !ch.some(x=>x.v===v)).map(v => ({v, label: tbPickText(col, {in:[v]}), n:0}))];
   const q = TBL.norm(TB.pop.q || "");
   return `<div class="tfpop" id="tfPop" role="dialog" aria-label="Filter ${esc(col.h)}">
@@ -5030,18 +5067,18 @@ function tbExprPane(){
 function tbxStatus(){
   const st = $("#tbxStatus"); if(!st) return;
   const x = EXPR.editState(TB.expr.text, TB.expr.applied), e = x.error, err = $("#tbxErr");
-  const nAll = ledgerCards().length, of = n => `${n} of ${nAll} card${nAll===1?"":"s"}`;
+  const nAll = binderCards().length, of = n => `${n} of ${nAll} card${nAll===1?"":"s"}`;
   if(e){
     const t = TB.expr.text.trim(), a = Math.min(e.at, t.length), b = Math.max(a + 1, Math.min(e.end, t.length));
     err.hidden = false;
     err.innerHTML = `<code>${esc(t.slice(0, a))}<mark>${esc(t.slice(a, b) || " ")}</mark>${esc(t.slice(b))}</code><span>${esc(e.error)}</span>`;
   } else { err.hidden = true; err.innerHTML = ""; }
   if(x.dirty){
-    const ast = e ? null : EXPR.parse(TB.expr.text).ast, n = ast ? ledgerCards().filter(c => EXPR.test(ast, c, tbCtx)).length : nAll;
+    const ast = e ? null : EXPR.parse(TB.expr.text).ast, n = ast ? binderCards().filter(c => EXPR.test(ast, c, tbCtx)).length : nAll;
     st.className = "tbx-status hint " + (e ? "err" : "pending");
     st.textContent = e ? "Not applied: fix the mistake to apply it." : !ast ? "Not applied yet: Apply to stop filtering with an expression." : `Not applied yet: ${of(n)} would match. Apply, or press Enter.`;
   } else {
-    const n = TB.ast ? ledgerCards().filter(c => EXPR.test(TB.ast, c, tbCtx)).length : 0;
+    const n = TB.ast ? binderCards().filter(c => EXPR.test(TB.ast, c, tbCtx)).length : 0;
     st.className = "tbx-status hint" + (tbExprOn() ? " ok" : "");
     st.textContent = !TB.ast ? "Type an expression, or add conditions below, then Apply." : `${TB.expr.on ? "" : "Off · "}${of(n)} match${n===1?"es":""} it`;
   }
@@ -5053,7 +5090,7 @@ function tbxStatus(){
 /* the suggestions for where the caret is */
 function tbxSuggest(){
   const ta = $("#tbxText"), box = $("#tbxSug"); if(!ta || !box) return;
-  const r = EXPR.suggest(ta.value, ta.selectionStart, ledgerCards(), tbCtx);
+  const r = EXPR.suggest(ta.value, ta.selectionStart, binderCards(), tbCtx);
   TB.sug = r;
   box.innerHTML = r.items.map((x, i) => `<button type="button" class="tbxs${r.kind==="op"||r.kind==="join"?" mono":""}" data-tbxs="${i}" title="${esc(x.hint ? `${x.label}: ${x.hint}` : x.label)}">${esc(x.label)}${x.hint && r.kind!=="value" ? ` <small>${esc(x.hint)}</small>` : ""}</button>`).join("");
 }
@@ -5065,7 +5102,7 @@ function tbxBuildOps(){
   const k = $("#tbxF").value, o = $("#tbxO"), cur = o.value;
   o.innerHTML = EXPR.opsFor(k).map(x => `<option value="${esc(x.v)}">${esc(x.hint)} (${esc(x.v.replace(/ \($/, ""))})</option>`).join("");
   if([...o.options].some(x=>x.value===cur)) o.value = cur;
-  $("#tbxVals").innerHTML = EXPR.values(ledgerCards(), k, tbCtx).slice(0, 200).map(x=>`<option value="${esc(x.v)}">${esc(x.label)} (${x.n})</option>`).join("");
+  $("#tbxVals").innerHTML = EXPR.values(binderCards(), k, tbCtx).slice(0, 200).map(x=>`<option value="${esc(x.v)}">${esc(x.label)} (${x.n})</option>`).join("");
   tbxBuildVal();
 }
 function tbxBuildVal(){

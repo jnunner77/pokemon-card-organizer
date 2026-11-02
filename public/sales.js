@@ -35,5 +35,29 @@
     return (cents(total) - shares.reduce((a, s) => a + cents(s || 0), 0)) / 100;
   }
 
-  root.BinderSales = { split, remaining };
+  /* The sale record a card keeps when it is sold: what was paid, in dollars and in CAD, the cost
+     it is measured against and the profit (none without a cost), where the card was, and the
+     bundle it was sold in (only when it was). */
+  function record(o) {
+    const cost = o.cost != null ? Math.round(o.cost * 100) / 100 : null;
+    return {
+      amount: o.amount, currency: o.currency, soldCAD: o.soldCAD, cost, basis: o.basis,
+      profit: o.cost != null ? Math.round((o.soldCAD - o.cost) * 100) / 100 : null,
+      date: o.date, where: o.where, at: o.at, priceId: o.priceId, from: o.from,
+      ...(o.bundle ? { bundle: o.bundle } : {})
+    };
+  }
+
+  /* A sold or traded card that has a sale (its sale record or a "mysale" price) is on the Sales tab
+     and in no binder; `info` is its sale, or null when it has none. */
+  function onSalesTab(card, info) {
+    return (card.status === "sold" || card.status === "traded") && !!info;
+  }
+
+  /* The cards that are not only on the Sales tab; `infoOf(card)` is a card's sale or null. */
+  function withoutSales(cards, infoOf) {
+    return cards.filter(c => !onSalesTab(c, infoOf(c)));
+  }
+
+  root.BinderSales = { split, remaining, record, onSalesTab, withoutSales };
 })(typeof window !== "undefined" ? window : globalThis);

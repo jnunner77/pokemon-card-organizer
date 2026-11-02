@@ -57,6 +57,22 @@ try {
   const img = await page.request.get(new URL(src, BASE).href);
   if (!img.ok()) fail('photo not served');
 
+  // Add a price, My sale: recorded like Quick sell, with an Undo.
+  await page.locator('#n_type').selectOption('mysale');
+  await page.locator('#n_amount').fill('25');
+  await page.getByRole('button', { name: 'Add entry' }).click();
+  await page.getByText(/Sold Charizard ex for \$25\.00/).waitFor();
+  await page.getByRole('button', { name: 'Undo' }).click();
+  await page.getByText(/back in Trade binder/).waitFor();
+
+  // Choosing Sold in the editor opens Quick sell instead of just setting the status.
+  await page.locator('[data-card]').filter({ hasText: 'Charizard ex' }).first().click();
+  await page.locator('#f_status').selectOption('sold');
+  await page.locator('#qs_go').waitFor();
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await page.locator('[data-card]').filter({ hasText: 'Charizard ex' }).first().click();
+
   // Quick sell.
   await page.locator('#btnQuickSell').click();
   await page.locator('[data-qsamt]').fill('30');

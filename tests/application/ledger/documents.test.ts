@@ -172,4 +172,21 @@ describe('changing a binder’s pockets per page', () => {
     assert.deepEqual(ledger.tables.cards.get('c1'), card({ page: 2, slot: 3 }));
     assert.equal(published.length, 1);
   });
+
+});
+
+describe('saving a sold card', () => {
+  it('stores it with no pocket (PUT and PATCH), and frees the pocket for another card', async () => {
+    const { ledger, deps } = setUp();
+    ledger.seed('cards', 'a', card());
+    ledger.seed('cards', 'b', card({ name: 'Mew', number: '151', slot: 2 }));
+    const put = await new PutDocument(deps).execute({ collection: 'cards', id: 'a', doc: card({ status: 'sold' }) });
+    assert.ok(put.ok);
+    assert.deepEqual([ledger.tables.cards.get('a')?.['binderId'], ledger.tables.cards.get('a')?.['sale']], [null, { from: { binderId: 'b1', page: 1, slot: 1 } }]);
+    const patch = await new MergeDocument(deps).execute({ collection: 'cards', id: 'b', patch: { status: 'sold' } });
+    assert.ok(patch.ok);
+    assert.deepEqual(ledger.tables.cards.get('b')?.['slot'], null);
+    const other = await new PutDocument(deps).execute({ collection: 'cards', id: 'c', doc: card({ name: 'Eevee', number: '133', slot: 1 }) });
+    assert.ok(other.ok);
+  });
 });

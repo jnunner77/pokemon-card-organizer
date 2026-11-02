@@ -1,5 +1,6 @@
 import { isCopyName } from '#domain/backups/copies.ts';
 import { readLedgerCopy } from '#domain/backups/full-backup.ts';
+import { withSoldCardsOutOfBinders } from '#domain/cards/sold.ts';
 import type { InvalidDocument } from '#domain/ledger/check-document.ts';
 import { isPhotoId } from '#domain/photos/photo.ts';
 import { err, ok, type Result } from '#shared/result.ts';
@@ -24,7 +25,7 @@ export class RestoreCopy {
     const parsed: unknown = JSON.parse(text);
     const copy = readLedgerCopy(parsed);
     if (!copy.ok) return copy;
-    await ledger.replace(copy.value);
+    await ledger.replace(withSoldCardsOutOfBinders(copy.value).ledger);
     let recovered = 0;
     for (const id of await ledgerPhotos.referenced()) {
       if (isPhotoId(id) && !(await photos.has(id)) && (await photos.untrash(id))) recovered++;

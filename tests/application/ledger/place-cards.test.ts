@@ -35,4 +35,14 @@ describe('PlaceCards', () => {
     assert.deepEqual(r, { ok: true, value: { moved: 1 } });
     assert.deepEqual([ledger.tables.cards.get('x')?.['slot'], ledger.tables.cards.get('y')?.['slot']], [2, 2]);
   });
+
+  it('refuses a sold card going into a binder, moving nothing', async () => {
+    const { ledger, deps, logged } = setUp();
+    ledger.seed('binders', 'b1', { name: 'One' });
+    ledger.seed('cards', 'x', card({ status: 'sold', binderId: null, page: null, slot: null }));
+    const r = await new PlaceCards(deps).execute({ actor: 'megan', placements: [{ cardId: 'x', binderId: 'b1', page: 1, slot: 1 }] });
+    assert.deepEqual(r, { ok: false, error: { code: 'CARD_SOLD', name: 'Lapras' } });
+    assert.equal(ledger.tables.cards.get('x')?.['binderId'], null);
+    assert.deepEqual(logged, []);
+  });
 });

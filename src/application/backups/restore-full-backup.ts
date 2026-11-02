@@ -1,4 +1,5 @@
 import { checkBackupPhoto, type InvalidBackup, readFullBackup } from '#domain/backups/full-backup.ts';
+import { withSoldCardsOutOfBinders } from '#domain/cards/sold.ts';
 import { isPhotoId, type PhotoId } from '#domain/photos/photo.ts';
 import { err, ok, type Result } from '#shared/result.ts';
 import type { BackupDeps } from './deps.ts';
@@ -42,7 +43,7 @@ export class RestoreFullBackup {
       ready.push({ id: p.id, bytes: p.bytes });
     }
     for (const p of ready) await photos.save(p.id, p.bytes);
-    await ledger.replace(read.value.ledger);
+    await ledger.replace(withSoldCardsOutOfBinders(read.value.ledger).ledger);
     let missing = 0;
     for (const card of Object.values(read.value.ledger.cards)) {
       const imageId = card['imageId'];
