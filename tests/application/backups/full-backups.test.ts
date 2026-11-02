@@ -56,6 +56,8 @@ describe('full backups', () => {
     assert.equal(ledger.resets, 0);
   });
 
+});
+
 describe('restoring a full backup with a sold card', () => {
   it('stores the card out of its pocket, keeping where it was', async () => {
     const { deps, ledger } = setUp();
@@ -64,5 +66,4 @@ describe('restoring a full backup with a sold card', () => {
     assert.ok(r.ok);
     assert.deepEqual(ledger.data.cards['c1'], { name: 'Mew', status: 'traded', binderId: null, page: null, slot: null, sale: { from: { binderId: 'b1', page: 1, slot: 2 } } });
   });
-});
 });

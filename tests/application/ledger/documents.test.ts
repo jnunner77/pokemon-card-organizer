@@ -173,6 +173,8 @@ describe('changing a binder’s pockets per page', () => {
     assert.equal(published.length, 1);
   });
 
+});
+
 describe('saving a sold card', () => {
   it('stores it with no pocket (PUT and PATCH), and frees the pocket for another card', async () => {
     const { ledger, deps } = setUp();
@@ -187,5 +189,4 @@ describe('saving a sold card', () => {
     const other = await new PutDocument(deps).execute({ collection: 'cards', id: 'c', doc: card({ name: 'Eevee', number: '133', slot: 1 }) });
     assert.ok(other.ok);
   });
-});
 });

@@ -97,6 +97,8 @@ describe('backup health', () => {
     assert.deepEqual(await new BackupHealth(deps).execute(), { newestDaily: '2026-10-17T00:00:00.000Z', dailyCopies: 2, snapshots: 1, bytes: 11, retention: { daily: 14, weekly: 8, monthly: 12 } });
   });
 
+});
+
 describe('restoring a copy with a sold card', () => {
   it('stores the card out of its pocket, keeping where it was', async () => {
     const { deps, ledger, copies } = setUp();
@@ -105,5 +107,4 @@ describe('restoring a copy with a sold card', () => {
     await new RestoreCopy(deps).execute({ actor: 'admin', name: 'db-2025-01-31.json' });
     assert.deepEqual(ledger.data.cards['c1'], { name: 'Mew', status: 'sold', binderId: null, page: null, slot: null, sale: { from: { binderId: 'b1', page: 1, slot: 2 } } });
   });
-});
 });

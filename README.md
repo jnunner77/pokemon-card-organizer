@@ -717,8 +717,8 @@ counts pockets (with the number of cards after it when they differ).
   copies, with extra rows added as copies); a different card follows *If a pocket already has a
   different card*.
 - **API:** the server enforces it too. Saving a sold or traded card takes it out of its binder
-  (its pocket is remembered as the sale's `from`), and moving one into a binder answers 409. Saving a card (PUT or PATCH) into a pocket that holds a
-  different card, moving cards (`POST /api/cards/place`), a sale's undo and a sort that would put
+  (its pocket is remembered as the sale's `from`), and moving one into a binder answers 409. Saving
+  a card (PUT or PATCH) into a pocket that holds a different card, moving cards (`POST /api/cards/place`), a sale's undo and a sort that would put
   different cards in one pocket answer 409 (400 for a sort) and change nothing.
 
 ## Display cases
@@ -779,8 +779,9 @@ when you've rearranged the binder and want to keep the new layout instead.
   set number or illustrator, in any combination ("pikachu m22", "base set 2 118", "7/15",
   "pikachu kodama"). Cards with a blank illustrator can be filled in with *Settings → Update all
   cards → Details*. Each match shows
-  where it is; **Show in binder** turns to its binder and page and highlights the pocket (loose cards are
-  highlighted in their list; sold cards open on the Sales tab), and **Full screen** opens it in the photo viewer,
+  where it is; **Show in binder** turns to its binder and page and highlights the pocket (loose
+  cards are highlighted in their list; sold cards open on the Sales tab), and **Full screen** opens
+  it in the photo viewer,
   flipping through all the matches. Arrow keys and Enter (Shift+Enter for full screen) work too.
 - **Look up any card** (*Find a card* → **Any card**, or *Look up … in any card* under your own
   matches): any Pokémon card, yours or not, from the TCGdex card database, by its name with its set
@@ -810,7 +811,8 @@ when you've rearranged the binder and want to keep the new layout instead.
 - **Quick status**, to list cards for sale fast: press and hold a card's status badge (*Listed*,
   *Grading*… on a pocket, or the status in the List view) and tap its new status, or press and hold
   a card, select more, and tap *Status*. It saves straight away, with *Undo*. *Sold* opens Quick
-  sell, so the price is recorded; choosing *Sold* in a card's Status field does the same. Placeholders can't be listed, graded, sold or traded, and cards
+  sell, so the price is recorded; choosing *Sold* in a card's Status field does the same.
+  Placeholders can't be listed, graded, sold or traded, and cards
   sold with Quick sell keep their sale (undo it to change them); it says which were left as they were.
 - **Price for guests**, to sell at your own price: press and hold a card, select more (or *Select
   all*), tap *Price*, type an amount like `3` or `2.50` and *Save*. Guests then see that price (to the
