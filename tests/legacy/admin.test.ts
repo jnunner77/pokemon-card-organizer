@@ -1,5 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import request from 'supertest';
@@ -54,6 +56,28 @@ afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 const makeApp = (extra: Partial<Parameters<typeof createApp>[0]> = {}) =>
   createApp({ store, assets, accounts, log, config, publicDir: path.join(__dirname, '../../public'), envPassword: 'start password 1', now: () => new Date(clock), ...extra });
+
+/** An /api/events stream's data lines as they arrive. */
+async function openEvents(app: ReturnType<typeof createApp>, cookie: string) {
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise((ok) => server.once('listening', ok));
+  const { port } = server.address() as AddressInfo;
+  const res = await new Promise<http.IncomingMessage>((ok, bad) => http.get({ host: '127.0.0.1', port, path: '/api/events', headers: { cookie } }, ok).on('error', bad));
+  let text = '';
+  res.setEncoding('utf8');
+  res.on('data', (chunk: string) => (text += chunk));
+  return {
+    status: res.statusCode,
+    text: () => text,
+    close: () => {
+      res.destroy();
+      server.close();
+    },
+  };
+}
+const waitFor = async (ok: () => boolean) => {
+  for (let i = 0; i < 100 && !ok(); i++) await new Promise((r) => setTimeout(r, 20));
+};
 
 async function signIn(app: ReturnType<typeof makeApp>, username: string, password: string) {
   const agent = request.agent(app);
@@ -113,6 +137,32 @@ describe('people and sign-in', () => {
     await editor.put('/api/docs/settings/pricing').send({ running: false }).expect(403);
     await editor.put('/api/docs/settings/main').send({ usdToCad: 1.4 }).expect(200);
     await viewer.post('/api/restore').send({}).expect(403);
+  });
+
+  it('keeps open trades to editors and administrators, and from viewers\' live updates', async () => {
+    const app = makeApp();
+    const admin = await signIn(app, 'admin', 'start password 1');
+    await addUser(admin, 'misty', 'viewer');
+    const viewer = await signIn(app, 'misty', 'a good password');
+    await viewer.get('/api/open-trades').expect(403);
+    await viewer.put('/api/open-trades/ot1').send({ baseVersion: 0 }).expect(403);
+    await viewer.delete('/api/open-trades/ot1').expect(403);
+    const cookieOf = async (name: string, password: string) => {
+      const r = await request(app).post('/api/auth/login').send({ username: name, password }).expect(200);
+      return String(r.headers['set-cookie']?.[0] ?? '').split(';')[0];
+    };
+    const viewerLive = await openEvents(app, await cookieOf('misty', 'a good password'));
+    const adminLive = await openEvents(app, await cookieOf('admin', 'start password 1'));
+    try {
+      await admin.put('/api/open-trades/ot1').send({ baseVersion: 0, customer: 'Ash' }).expect(200);
+      await waitFor(() => adminLive.text().includes('"type":"openTrade"'));
+      expect(adminLive.text()).toContain('"type":"openTrade"');
+      await new Promise((r) => setTimeout(r, 200));
+      expect(viewerLive.text()).not.toContain('openTrade');
+    } finally {
+      viewerLive.close();
+      adminLive.close();
+    }
   });
 
   it('counts only the callers a backup route serves against the heavy limit', async () => {

@@ -149,4 +149,16 @@ describe('ledger routes', () => {
     assert.equal(badId.status, 400);
     assert.deepEqual(asked, []);
   });
+
+  it('closes the open trade a trade is recorded from, without ever failing the recording', async () => {
+    const closed: unknown[] = [];
+    const trade = { id: 't1', openTradeId: 'ot1', given: [], received: [] };
+    const { base } = await setUp({ discardOpenTrade: { execute: async (input) => (closed.push(input), ok({ discarded: true })) } });
+    assert.equal((await fetch(`${base}/trades`, as('editor', json(trade)))).status, 200);
+    assert.deepEqual(closed, [{ actor: 'justin', id: 'ot1', reason: 'recorded' }]);
+    const failing = await setUp({ discardOpenTrade: { execute: async () => Promise.reject(new Error('disk full')) } });
+    assert.equal((await fetch(`${failing.base}/trades`, as('editor', json(trade)))).status, 200);
+    const without = await setUp();
+    assert.equal((await fetch(`${without.base}/trades`, as('editor', json(trade)))).status, 200);
+  });
 });
