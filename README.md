@@ -547,7 +547,7 @@ Nothing in the ledger changes until you record it (step 4). You can have [severa
    - **Your cards:** type part of a name, set or number under *I give* and pick it (Enter takes the
      first). It comes with its price for guests when you've set one (the note under it shows its
      market value too), otherwise its current value (a graded card's is its grade's price), its grade and
-     where it is. Only cards you own are listed. Several copies of one card (same printing, variant and
+     where it is. Only cards you own are listed. Several copies of one card (same printing, variant, language and
      grade) show once, at the first copy's place, with "· 4 copies"; once you add it to the trade,
      the next copy comes up.
    - **The dealer's cards:** type part of any card's name, set or number under *Dealer gives* (the
@@ -814,7 +814,9 @@ when you've rearranged the binder and want to keep the new layout instead.
   where it is; **Show in binder** turns to its binder and page and highlights the pocket (loose
   cards are highlighted in their list; sold cards open on the Sales tab), and **Full screen** opens
   it in the photo viewer,
-  flipping through all the matches. Arrow keys and Enter (Shift+Enter for full screen) work too.
+  flipping through all the matches. Copies of one card (same printing, variant, language and grade)
+  show once, at the first copy's place, with "· 4 copies"; sold or traded copies and placeholders or
+  watchlist entries are listed apart. Arrow keys and Enter (Shift+Enter for full screen) work too.
 - **Look up any card** (*Find a card* → **Any card**, or *Look up … in any card* under your own
   matches): any Pokémon card, yours or not, from the TCGdex card database, by its name with its set
   or number to narrow it ("charizard base set 4", "pikachu 58/102", "SWSH050"). Choose one to see
