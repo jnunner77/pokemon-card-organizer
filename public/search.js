@@ -46,8 +46,11 @@
   }
 
   /**
-   * The cards matching `query`, best first: [{card, score}].
+   * The cards matching `query`, best first: [{card, score, copies}].
    * options.limit: most results (default 50); options.order(card): tie-break key, smaller first.
+   * options.same(a, b): when given, copies of the same card are listed once, at the first one in
+   * the sorted order, with `copies` counting them (the limit counts distinct cards). Without it
+   * every card is listed with copies 1.
    */
   function search(cards, query, options) {
     const o = options || {};
@@ -66,7 +69,14 @@
     }
     const order = o.order || (() => "");
     out.sort((a, b) => b.score - a.score || String(order(a.card)).localeCompare(String(order(b.card))) || String(a.card.name || "").localeCompare(String(b.card.name || "")));
-    return out.slice(0, o.limit ?? 50);
+    const limit = o.limit ?? 50;
+    if (!o.same) return out.map(r => ({ ...r, copies: 1 })).slice(0, limit);
+    const kept = [];
+    for (const r of out) {
+      const k = kept.find(x => o.same(x.card, r.card));
+      if (k) k.copies++; else kept.push({ ...r, copies: 1 });
+    }
+    return kept.slice(0, limit);
   }
 
   root.BinderSearch = { search, norm };
