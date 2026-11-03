@@ -916,8 +916,8 @@ own phone, without an account:
    even which pockets they're in), its price log or any other card or picture.
 
 A binder's or display case's settings have **Hide from guests**: guests still see its cards for
-sale in their list, but not the binder, its name or where those cards are. Its cards aren't offered under *I give* in the Trade evaluator
-either.
+sale in their list, but not the binder, its name or where those cards are. Its cards aren't
+offered under *I give* in the Trade evaluator either.
 
 Guests are signed out after **15 minutes without use** and can sign in again. Several can look
 at once, but no two at the same time with the same name or the same phone number or email; giving
