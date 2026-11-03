@@ -57,6 +57,21 @@ describe('FileGuestDesk', () => {
     assert.deepEqual(sessions, []);
   });
 
+  it('saves a visit with no name or contact and reads it back unchanged; old files with strings still load', async () => {
+    const dir = tempDir();
+    const anon = { ...visit, name: null, contact: null, contactKind: null, endedAt: NOW.toISOString(), ended: 'signout' as const };
+    const desk = new FileGuestDesk({ dataDir: dir, now: () => NOW, newKey: () => 'k', onDamaged: () => assert.fail('not damaged') });
+    await desk.change((s) => {
+      s.book = { ...s.book, log: [anon, { ...visit, id: 'g2', endedAt: NOW.toISOString(), ended: 'signout' }] };
+      s.bookChanged = true;
+      return ok(undefined);
+    });
+    const again = new FileGuestDesk({ dataDir: dir, now: () => NOW, newKey: () => 'k', onDamaged: () => assert.fail('not damaged') });
+    const { book } = await again.read();
+    assert.deepEqual(book.log[0], anon);
+    assert.equal(book.log[1]?.name, 'Misty');
+  });
+
   it('sets a damaged guests.json aside: guest viewing starts closed', async () => {
     const dir = tempDir();
     fs.writeFileSync(path.join(dir, 'guests.json'), '[1,2');

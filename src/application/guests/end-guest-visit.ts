@@ -18,7 +18,7 @@ export class EndGuestVisit {
       const session = state.sessions.find((s) => s.id === input.id);
       if (!session) return err({ code: 'GUEST_NOT_SIGNED_IN' });
       endSession(state, session, 'admin', now);
-      return ok(session.name);
+      return ok(session.name ?? 'Anonymous');
     });
     if (!ended.ok) return ended;
     this.#deps.adminLog.info(`${input.actor} signed out the guest ${ended.value}`, { by: input.actor, guest: ended.value });

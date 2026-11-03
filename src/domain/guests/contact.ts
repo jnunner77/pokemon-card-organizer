@@ -1,6 +1,6 @@
 import { err, ok, type Result } from '#shared/result.ts';
 
-// Who a guest is: the name and the phone number or email they give at the table.
+// Who a guest is: the name and the phone number or email they may give at the table (both optional).
 
 const MAX_GUEST_NAME = 80;
 const MAX_GUEST_CONTACT = 120;
@@ -18,9 +18,7 @@ export interface Contact {
 }
 
 export type GuestDetailsError =
-  | { readonly code: 'GUEST_NAME_MISSING' }
   | { readonly code: 'GUEST_NAME_TOO_LONG' }
-  | { readonly code: 'GUEST_CONTACT_MISSING' }
   | { readonly code: 'GUEST_CONTACT_TOO_LONG' }
   | { readonly code: 'INVALID_EMAIL' }
   | { readonly code: 'NOT_PHONE_OR_EMAIL' }
@@ -30,9 +28,9 @@ export type GuestDetailsError =
 export const nameKey = (s: string): string => s.normalize('NFKC').trim().replace(/\s+/g, ' ').toLowerCase();
 
 /** The name as the guest gave it: spaces around it dropped, runs of spaces made one. */
-export function readGuestName(raw: string): Result<string, GuestDetailsError> {
+export function readGuestName(raw: string): Result<string | null, GuestDetailsError> {
   const name = raw.trim();
-  if (!name) return err({ code: 'GUEST_NAME_MISSING' });
+  if (!name) return ok(null);
   if (name.length > MAX_GUEST_NAME) return err({ code: 'GUEST_NAME_TOO_LONG' });
   return ok(name.replace(/\s+/g, ' '));
 }
@@ -51,9 +49,9 @@ export function parseContact(raw: string): Result<Contact, GuestDetailsError> {
   return ok({ kind: 'phone', key: digits, display: s.replace(/\s+/g, ' ') });
 }
 
-/** The contact as the guest typed it, present and not too long; parseContact then reads it. */
-export function readContactText(raw: string): Result<string, GuestDetailsError> {
+/** The contact as the guest typed it (null when left blank), not too long; parseContact then reads it. */
+export function readContactText(raw: string): Result<string | null, GuestDetailsError> {
   const text = raw.trim();
-  if (!text) return err({ code: 'GUEST_CONTACT_MISSING' });
+  if (!text) return ok(null);
   return text.length > MAX_GUEST_CONTACT ? err({ code: 'GUEST_CONTACT_TOO_LONG' }) : ok(text);
 }

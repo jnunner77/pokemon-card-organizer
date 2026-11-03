@@ -14,9 +14,9 @@ describe('who a guest is', () => {
   it('compares names without case or extra spaces', () => {
     assert.equal(nameKey('  Ash   KETCHUM '), 'ash ketchum');
     assert.deepEqual(readGuestName('  Ash   Ketchum '), { ok: true, value: 'Ash Ketchum' });
-    assert.deepEqual(readGuestName(' '), { ok: false, error: { code: 'GUEST_NAME_MISSING' } });
+    assert.deepEqual(readGuestName(' '), { ok: true, value: null });
     assert.deepEqual(readGuestName('x'.repeat(81)), { ok: false, error: { code: 'GUEST_NAME_TOO_LONG' } });
-    assert.deepEqual(readContactText(' '), { ok: false, error: { code: 'GUEST_CONTACT_MISSING' } });
+    assert.deepEqual(readContactText(' '), { ok: true, value: null });
     assert.deepEqual(readContactText('x'.repeat(121)), { ok: false, error: { code: 'GUEST_CONTACT_TOO_LONG' } });
   });
 
@@ -123,6 +123,17 @@ describe('guest visits', () => {
     assert.deepEqual(admitGuest([ash], 'ash', { ...contact, key: 'other' }), { ok: false, error: { code: 'GUEST_NAME_TAKEN' } });
     assert.deepEqual(admitGuest([ash], 'gary', { kind: 'email', key: 'ash@pallet.town', display: '' }), { ok: false, error: { code: 'GUEST_CONTACT_TAKEN', kind: 'email' } });
     assert.deepEqual(admitGuest([ash], 'misty', { kind: 'phone', key: '6045550199', display: '' }), { ok: true, value: null });
+  });
+
+  it('admit guests who give no name or contact, and still stop clashes on what is given', () => {
+    const anon = session({ id: 'a1', name: null, nameKey: null, contact: null, contactKey: null, contactKind: null });
+    assert.deepEqual(admitGuest([anon], null, null), { ok: true, value: null });
+    assert.deepEqual(admitGuest([], null, null), { ok: true, value: null });
+    const named = session({ contact: null, contactKey: null, contactKind: null });
+    assert.deepEqual(admitGuest([named], 'ash', null), { ok: true, value: named });
+    assert.deepEqual(admitGuest([session()], 'ash', null), { ok: false, error: { code: 'GUEST_NAME_TAKEN' } });
+    assert.deepEqual(admitGuest([session()], null, contact), { ok: false, error: { code: 'GUEST_CONTACT_TAKEN', kind: 'email' } });
+    assert.deepEqual(admitGuest([anon], 'ash', contact), { ok: true, value: null });
   });
 
   it('end a timed-out visit 15 minutes after its last use', () => {
