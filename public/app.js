@@ -1283,10 +1283,14 @@ window.addEventListener("binder:opentrade", ev => {
 });
 window.addEventListener("binder:reconnected", () => { if(!TRADES.init || !trServer()) return; trSaver.retryAll(); trSendDiscards(); void trSync(false); });
 const trPct = k => window.BinderTrade.percent(TR[k].pct) ?? 100;
-/* My cards to add: the cards I own, each once. */
+/* Copies of one card (same printing, variant and grade, both still held) are listed once, at the first one's place. */
+const sameCopy = (a, b) => window.BinderStack.same(a, b) && window.BinderTrade.gradeLabel(a.grader, a.grade)===window.BinderTrade.gradeLabel(b.grader, b.grade) && held(a)===held(b);
+const copiesNote = n => n>1 ? ` · ${n} copies` : "";
+/* My cards to add: the cards I own, each once (with how many copies): [{card, copies}]. */
 function trCandidates(){
   const taken = new Set(TR.mine.items.map(it => it.cardId).filter(Boolean));
-  return window.BinderSearch.search(S.cards.filter(c => owned(c) && !taken.has(c.id)), TR.q.mine, {limit:6, order:SORTS.loc}).map(r => r.card);
+  const mine = S.cards.filter(c => owned(c) && !taken.has(c.id)).sort(window.BinderStack.order);
+  return window.BinderSearch.search(mine, TR.q.mine, {limit:6, order:SORTS.loc, same:sameCopy});
 }
 const trLookups = () => !!window.ledgerApi && S.mode!=="nodb";
 /* The dealer's side looks for any card in the card database (src/application/catalog/search-any-card.ts), a moment after typing stops. */
@@ -1321,7 +1325,7 @@ function trResults(k){
     return;
   }
   const list = trCandidates();
-  el.innerHTML = list.length ? list.map(c => { const g = window.BinderTrade.gradeLabel(c.grader, c.grade), v = trMyValue(c).value; return `<button class="tr-hit" type="button" data-trpick="${esc(c.id)}">${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="">`:`<span class="thumb"></span>`}<span class="bb-what"><b>${esc(c.name||"Unnamed card")}</b><span class="hint">${esc([metaLine(c), c.variant, g].filter(Boolean).join(" · "))}</span><span class="hint">${esc(locShort(c))}</span></span><span class="mono tr-hitv">${esc(money(v))}</span></button>`; }).join("")
+  el.innerHTML = list.length ? list.map(({card:c, copies}) => { const g = window.BinderTrade.gradeLabel(c.grader, c.grade), v = trMyValue(c).value; return `<button class="tr-hit" type="button" data-trpick="${esc(c.id)}">${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="">`:`<span class="thumb"></span>`}<span class="bb-what"><b>${esc(c.name||"Unnamed card")}</b><span class="hint">${esc([metaLine(c), c.variant, g].filter(Boolean).join(" · "))}</span><span class="hint">${esc(locShort(c) + copiesNote(copies))}</span></span><span class="mono tr-hitv">${esc(money(v))}</span></button>`; }).join("")
     : `<p class="hint tr-none">None of your cards match (cards already in the trade aren't listed).</p>`;
 }
 const trInput = (it, f, label, extra="") => `<input data-trf="${f}" value="${esc(it[f])}" aria-label="${esc(label)}" autocomplete="off" ${extra}>`;
@@ -1510,7 +1514,7 @@ function tradeModal(){
     const k = e.target.dataset?.trq; if(k==null) return;
     if(e.key==="Enter"){
       e.preventDefault();
-      if(k==="mine"){ const first = trCandidates()[0]; if(first) trAddCard(first.id); }
+      if(k==="mine"){ const first = trCandidates()[0]; if(first) trAddCard(first.card.id); }
       else if(!TRS.busy && TRS.q===TR.q.dealer.trim() && TRS.hits[0]) trAddLooked(TRS.hits[0]);
     }
     else if(e.key==="Escape" && TR.q[k]){ e.preventDefault(); e.stopPropagation(); e.target.value = ""; TR.q[k] = ""; if(k==="dealer") trSearch(); else trResults(k); }
@@ -4378,7 +4382,7 @@ function closeFind(restoreFocus=true){
 }
 function findRun(){
   if(FIND.mode==="any") return anyRun();
-  FIND.res = window.BinderSearch ? window.BinderSearch.search(S.cards, FIND.q, {limit:50, order:SORTS.loc}) : [];
+  FIND.res = window.BinderSearch ? window.BinderSearch.search(S.cards.slice().sort(window.BinderStack.order), FIND.q, {limit:50, order:SORTS.loc, same:sameCopy}) : [];
   FIND.i = 0; findRender();
 }
 function findRender(){
@@ -4394,14 +4398,14 @@ function findRender(){
   note.textContent = !q ? (S.cards.length ? `Type a Pokémon name, a set (Base Set), a set code (PBS), a number (7/15) or an illustrator (Arita). ${S.cards.length} cards to look through.` : "No cards yet.")
     : !n ? `No card matches “${q}”. Try fewer words, a set code like PBS, or a number like 7/15.`
     : `${n===50?"The best 50 matches":`${n} match${n===1?"":"es"}`}${keys}`;
-  list.innerHTML = FIND.res.map(({card:c}, k) => {
+  list.innerHTML = FIND.res.map(({card:c, copies}, k) => {
     const w = whereIs(c), pic = shown(c);
     const st = c.status && c.status!=="binder" && c.status!=="sold" ? ` · ${(STATUSES.find(x=>x[0]===c.status)||[,""])[1]}` : "";
     const meta = [c.set, [c.setCode, c.number].filter(Boolean).join(" ")].filter(Boolean).join(" · ") || "No set yet";
     return `<li class="find-item" id="fi${k}" data-fi="${k}">
-      <button type="button" class="find-main" data-find="show" data-fi="${k}" aria-label="${esc(`${c.name||"Unnamed card"}, ${meta}, ${w.label}. ${w.act}`)}">
+      <button type="button" class="find-main" data-find="show" data-fi="${k}" aria-label="${esc(`${c.name||"Unnamed card"}, ${meta}, ${w.label}${copiesNote(copies)}. ${w.act}`)}">
         ${pic?`<img class="thumb" src="${imgURL(pic)}" alt="" loading="lazy">`:`<span class="thumb"></span>`}
-        <span class="find-txt"><b>${esc(c.name||"Unnamed card")}</b><span class="mono">${esc(meta)}</span><span class="find-loc">${esc(w.label + st)}</span></span>
+        <span class="find-txt"><b>${esc(c.name||"Unnamed card")}</b><span class="mono">${esc(meta)}</span><span class="find-loc">${esc(w.label + st + copiesNote(copies))}</span></span>
       </button>
       <span class="find-acts"><button type="button" class="btn sm" data-find="show" data-fi="${k}">${esc(w.act)}</button><button type="button" class="btn sm" data-find="full" data-fi="${k}" ${pic?"":`disabled title="No picture of this card yet"`}>Full screen</button></span>
     </li>`;
