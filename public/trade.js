@@ -386,8 +386,6 @@
     return groups.sort((a, b) => dateOf(b).localeCompare(dateOf(a)));
   }
 
-  /* The value one of my cards comes into the trade at: its price for guests when that is a positive
-     number, else its market value, else none. → {value, from: "guest" | "market" | null} */
   /* Whether a card of mine is offered under "I give": only cards listed for sale (not placeholders,
      watchlist, sold, traded...), and not one in a binder or display case hidden from guests.
      binder is the card's binder, or null/undefined for a loose card or a binder that's gone. */
@@ -397,6 +395,8 @@
     return !(binder && binder.hiddenFromGuests === true);
   }
 
+  /* The value one of my cards comes into the trade at: its price for guests when that is a positive
+     number, else its market value, else none. → {value, from: "guest" | "market" | null} */
   function myCardValue(guestPrice, market) {
     if (typeof guestPrice === "number" && Number.isFinite(guestPrice) && guestPrice > 0) return { value: guestPrice, from: "guest" };
     if (typeof market === "number" && Number.isFinite(market)) return { value: market, from: "market" };
