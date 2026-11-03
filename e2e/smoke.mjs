@@ -2,7 +2,7 @@
 //   DATA_DIR=$(mktemp -d) AUTH=off PRICE_UPDATES=off npm start
 //   BASE_URL=http://localhost:4100/ npm run test:e2e
 // It creates a binder and cards, prices, moves and sells one, finds it with Find ("/" opens Any card; it switches to Your cards), checks live
-// updates between two tabs, the Pricing and Selling views, a backup download, a display case (the
+// updates between two tabs, the Pricing and Selling views, open trades as tabs (kept on the server), a backup download, a display case (the
 // card moved in and back out), editing in the Table, the phone layout, and a guest from the QR
 // code looking through the cards listed for sale on a phone.
 import { chromium } from 'playwright';
@@ -258,6 +258,83 @@ try {
   await p.locator('#svChart svg').waitFor();
   const svOverflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   if (svOverflow > 1) fail(`phone Selling view scrolls sideways by ${svOverflow}px`);
+
+  // Open trades: two at once as tabs, kept on the server (they survive a reload), and the same on a phone.
+  await page.locator('#btnTrade').click();
+  await page.locator('#tr_card').waitFor();
+  await page.locator('#tr_customer').fill('Ash');
+  await page.locator('[data-tradd="dealer"]').click();
+  await page.locator('[data-trf="name"]').first().fill('Pikachu');
+  await page.locator('#tr_new').click();
+  await page.locator('[data-tradd="mine"]').click();
+  await page.locator('[data-trf="name"]').first().fill('Raichu');
+  await page.getByRole('tab', { name: /Ash/ }).waitFor();
+  await page.getByRole('tab', { name: /Trade 2/ }).waitFor();
+  await page.getByRole('tab', { name: /Ash/ }).click();
+  if ((await page.locator('[data-trf="name"]').first().inputValue()) !== 'Pikachu') fail("Ash's trade lost its card when switching tabs");
+  await page.locator('#tr_status', { hasText: 'Saved' }).waitFor();
+  await page.reload();
+  await page.locator('#btnTrade').click();
+  await page.getByRole('tab', { name: /Ash/ }).waitFor();
+  await page.getByRole('tab', { name: /Trade 2/ }).waitFor();
+  await page.getByRole('tab', { name: /Trade 2/ }).click();
+  page.once('dialog', (d) => d.accept()); // it has a card, so discarding it asks first
+  await page.locator('#tr_clear').click();
+  await page.getByRole('tab', { name: /Trade 2/ }).waitFor({ state: 'detached' });
+  // A trade kept unsaved before a reload is sent once the page is up, without the dialog being opened.
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => {
+    const m = JSON.parse(localStorage.getItem('bl:trades'));
+    const ash = m.trades.find((t) => t.customer === 'Ash');
+    m.trades.push({ ...ash, id: 'e2e-offline', n: 9, customer: 'Offline', version: 0 });
+    m.pending = [...(m.pending || []), 'e2e-offline'];
+    localStorage.setItem('bl:trades', JSON.stringify(m));
+  });
+  await page.reload();
+  await page.waitForFunction(async () => (await (await fetch('api/open-trades')).json()).trades.some((t) => t.id === 'e2e-offline'), null, { timeout: 15000 });
+  await page.locator('#btnTrade').click();
+  await page.getByRole('tab', { name: /Offline/ }).waitFor();
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('tab', { name: /Offline/ }).click();
+  await page.locator('#tr_clear').click();
+  await page.getByRole('tab', { name: /Offline/ }).waitFor({ state: 'detached' });
+  // A card of mine sold meanwhile (here a change from elsewhere) leaves the open trade without reopening the dialog.
+  const hidden = { name: 'Trade shelf', pockets: 9, hiddenFromGuests: true };
+  if (!(await page.request.put(new URL('api/docs/binders/e2e-trade', BASE).href, { data: hidden })).ok()) fail('making the trade binder');
+  const bulb = { binderId: 'e2e-trade', page: 1, slot: 1, name: 'Bulbasaur', set: 'Base Set', number: '44/102', condition: 'Near Mint' };
+  if (!(await page.request.put(new URL('api/docs/cards/e2e-bulb', BASE).href, { data: bulb })).ok()) fail('adding a card to give');
+  await page.locator('[data-trq="mine"]').fill('Bulbasaur');
+  await page.locator('[data-trpick]').first().waitFor();
+  // a search keeps its results when another trade was in front meanwhile
+  await page.locator('#tr_new').click();
+  await page.getByRole('tab', { name: /Trade 2/ }).waitFor();
+  await page.getByRole('tab', { name: /Ash/ }).click();
+  if ((await page.locator('[data-trq="mine"]').inputValue()) !== 'Bulbasaur') fail("Ash's trade lost its search when switching tabs");
+  await page.locator('[data-trpick]').first().waitFor({ timeout: 3000 });
+  await page.getByRole('tab', { name: /Trade 2/ }).click();
+  await page.locator('#tr_clear').click(); // empty, so no question
+  await page.getByRole('tab', { name: /Trade 2/ }).waitFor({ state: 'detached' });
+  await page.locator('[data-trpick]').first().click();
+  await page.locator('[data-trlist="mine"] .tr-item').waitFor();
+  if (!(await page.request.put(new URL('api/docs/cards/e2e-bulb', BASE).href, { data: { ...bulb, status: 'sold' } })).ok()) fail('selling the card');
+  await page.locator('[data-trlist="mine"] .tr-item').waitFor({ state: 'detached', timeout: 8000 });
+  await page.keyboard.press('Escape');
+  await p.getByRole('button', { name: 'Back to binders' }).click();
+  await p.locator('#btnTrade').click();
+  await p.locator('#tr_card').waitFor();
+  await p.getByRole('tab', { name: /Ash/ }).waitFor(); // from the server: the phone never made it
+  const tradeOverflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  if (tradeOverflow > 1) fail(`phone Trade evaluator scrolls sideways by ${tradeOverflow}px`);
+  await p.locator('#tr_new').tap();
+  await p.getByRole('tab', { name: /Trade 2/ }).tap();
+  const small = await p.evaluate(() => [...document.querySelectorAll('.tr-tab, #tr_new')].filter((b) => b.getBoundingClientRect().height < 40).length);
+  if (small) fail('phone trade tabs are smaller than 40px');
+  await p.getByRole('tab', { name: /Ash/ }).tap();
+  p.once('dialog', (d) => d.accept()); // Ash's trade has a card, so discarding it asks first
+  await p.locator('#tr_clear').tap();
+  await p.getByRole('tab', { name: /Ash/ }).waitFor({ state: 'detached' });
+  await p.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
 
   // Guests: list a card for sale, turn guest viewing on, and look at it from the QR code's link on a phone.
   const showBinder = { name: 'Show binder', pockets: 9 };

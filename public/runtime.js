@@ -85,11 +85,16 @@
     let es, first = true;
     const open = () => {
       es = new EventSource("api/events");
-      es.addEventListener("hello", () => { if (!first) loadAll().catch(() => {}); first = false; setOnline(true); });
+      es.addEventListener("hello", () => {
+        if (!first) { loadAll().catch(() => {}); window.dispatchEvent(new CustomEvent("binder:reconnected")); }
+        first = false; setOnline(true);
+      });
       es.onmessage = m => {
         let e; try { e = JSON.parse(m.data); } catch (_) { return; }
         if (e.type === "change") apply(e.change.collection, e.change.id, e.change.doc);
         else if (e.type === "reset") loadAll().catch(() => {});
+        // an open trade saved, recorded or discarded on another device: {id, trade: view | null}
+        else if (e.type === "openTrade") window.dispatchEvent(new CustomEvent("binder:opentrade", { detail: e }));
       };
       es.onerror = () => {
         setOnline(false);
