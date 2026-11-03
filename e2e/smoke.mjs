@@ -299,10 +299,20 @@ try {
   await page.locator('#tr_clear').click();
   await page.getByRole('tab', { name: /Offline/ }).waitFor({ state: 'detached' });
   // A card of mine sold meanwhile (here a change from elsewhere) leaves the open trade without reopening the dialog.
-  const hidden = { name: 'Trade shelf', pockets: 9, hiddenFromGuests: true };
+  const hidden = { name: 'Trade shelf', pockets: 9 };
   if (!(await page.request.put(new URL('api/docs/binders/e2e-trade', BASE).href, { data: hidden })).ok()) fail('making the trade binder');
-  const bulb = { binderId: 'e2e-trade', page: 1, slot: 1, name: 'Bulbasaur', set: 'Base Set', number: '44/102', condition: 'Near Mint' };
+  const bulb = { binderId: 'e2e-trade', page: 1, slot: 1, name: 'Bulbasaur', set: 'Base Set', number: '44/102', condition: 'Near Mint', status: 'listed' };
   if (!(await page.request.put(new URL('api/docs/cards/e2e-bulb', BASE).href, { data: bulb })).ok()) fail('adding a card to give');
+  await page.locator('[data-trq="mine"]').fill('Bulbasaur');
+  await page.locator('[data-trpick]').first().waitFor();
+  // hiding the binder from guests takes its cards out of the next search
+  if (!(await page.request.put(new URL('api/docs/binders/e2e-trade', BASE).href, { data: { ...hidden, hiddenFromGuests: true } })).ok()) fail('hiding the trade binder');
+  await page.locator('[data-trq="mine"]').fill('Bulbasau');
+  await page.locator('[data-trq="mine"]').fill('Bulbasaur');
+  await page.locator('.tr-none').waitFor();
+  if (await page.locator('[data-trpick]').count()) fail('a card in a binder hidden from guests was offered in a trade');
+  if (!(await page.request.put(new URL('api/docs/binders/e2e-trade', BASE).href, { data: hidden })).ok()) fail('showing the trade binder');
+  await page.locator('[data-trq="mine"]').fill('Bulbasau');
   await page.locator('[data-trq="mine"]').fill('Bulbasaur');
   await page.locator('[data-trpick]').first().waitFor();
   // a search keeps its results when another trade was in front meanwhile

@@ -388,6 +388,15 @@
 
   /* The value one of my cards comes into the trade at: its price for guests when that is a positive
      number, else its market value, else none. → {value, from: "guest" | "market" | null} */
+  /* Whether a card of mine is offered under "I give": only cards listed for sale (not placeholders,
+     watchlist, sold, traded...), and not one in a binder or display case hidden from guests.
+     binder is the card's binder, or null/undefined for a loose card or a binder that's gone. */
+  function offered(card, binder) {
+    if (!card || typeof card !== "object") return false;
+    if (card.status !== "listed" || card.placeholder || card.watchlist === true) return false;
+    return !(binder && binder.hiddenFromGuests === true);
+  }
+
   function myCardValue(guestPrice, market) {
     if (typeof guestPrice === "number" && Number.isFinite(guestPrice) && guestPrice > 0) return { value: guestPrice, from: "guest" };
     if (typeof market === "number" && Number.isFinite(market)) return { value: market, from: "market" };
@@ -407,5 +416,5 @@
     return "";
   }
 
-  root.BinderTrade = { myCardValue, myCardNote, settle, newCard, recordProblem, recordBody, landings, salesGroups, amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, addCash, restore };
+  root.BinderTrade = { offered, myCardValue, myCardNote, settle, newCard, recordProblem, recordBody, landings, salesGroups, amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, addCash, restore };
 })(typeof window !== "undefined" ? window : globalThis);
