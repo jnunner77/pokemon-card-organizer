@@ -1,4 +1,4 @@
-import { nameKey, parseContact, readContactText, readGuestName, type GuestDetailsError } from '#domain/guests/contact.ts';
+import { type Contact, nameKey, parseContact, readContactText, readGuestName, type GuestDetailsError } from '#domain/guests/contact.ts';
 import { admitGuest, type GuestTaken, logVisit, MAX_GUEST_AGENT } from '#domain/guests/visits.ts';
 import { err, ok, type Result } from '#shared/result.ts';
 import type { GuestDeps } from './deps.ts';
@@ -17,11 +17,11 @@ export interface SignInGuestInput {
 export interface GuestSignedIn {
   /** For the guest's cookie. */
   readonly token: string;
-  readonly guest: { readonly id: string; readonly name: string; readonly contact: string };
+  readonly guest: { readonly id: string; readonly name: string | null; readonly contact: string | null };
 }
 
 /**
- * Sign a guest in from the QR code, while guest viewing is on. Giving the same name and contact
+ * Sign a guest in from the QR code, while guest viewing is on. Name and contact are optional. Giving the same name and contact
  * again carries on as that guest (their other device is signed out).
  */
 export class SignInGuest {
@@ -45,15 +45,20 @@ export class SignInGuest {
       if (!settings.enabled) return err({ code: 'GUESTS_CLOSED' });
       if (!key || !d.secrets.same(key, settings.key)) return err({ code: 'WRONG_GUEST_KEY' });
       sweep(state, now);
-      const contact = parseContact(contactText.value);
-      if (!contact.ok) return contact;
-      const admitted = admitGuest(state.sessions, nameKey(name.value), contact.value);
+      let contact: Contact | null = null;
+      if (contactText.value !== null) {
+        const parsed = parseContact(contactText.value);
+        if (!parsed.ok) return parsed;
+        contact = parsed.value;
+      }
+      const nameK = name.value === null ? null : nameKey(name.value);
+      const admitted = admitGuest(state.sessions, nameK, contact);
       if (!admitted.ok) return admitted;
       // The same guest again (another tab or device, or after closing the page): carry on as them.
       if (admitted.value) endSession(state, admitted.value, 'replaced', now);
       const at = now.getTime();
       const agent = input.agent.slice(0, MAX_GUEST_AGENT);
-      const session = { id: d.secrets.id(), hash: d.secrets.digest(token), name: name.value, nameKey: nameKey(name.value), contact: contact.value.display, contactKey: contact.value.key, contactKind: contact.value.kind, ip: input.ip, agent, createdAt: at, lastSeen: at };
+      const session = { id: d.secrets.id(), hash: d.secrets.digest(token), name: name.value, nameKey: nameK, contact: contact?.display ?? null, contactKey: contact?.key ?? null, contactKind: contact?.kind ?? null, ip: input.ip, agent, createdAt: at, lastSeen: at };
       state.sessions = [...state.sessions, session];
       const iso = now.toISOString();
       logVisit(state.book, { id: session.id, name: session.name, contact: session.contact, contactKind: session.contactKind, ip: input.ip, agent, startedAt: iso, lastSeenAt: iso, endedAt: null, ended: null });
@@ -61,7 +66,7 @@ export class SignInGuest {
       return ok({ guest: { id: session.id, name: session.name, contact: session.contact }, again: admitted.value !== null });
     });
     if (!signedIn.ok) return signedIn;
-    d.authLog.info(`Guest ${name.value} signed in`, { guest: name.value, ip: input.ip, again: signedIn.value.again });
+    d.authLog.info(`Guest ${name.value ?? 'without a name'} signed in`, { guest: name.value, ip: input.ip, again: signedIn.value.again });
     return ok({ token, guest: signedIn.value.guest });
   }
 }

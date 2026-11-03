@@ -546,8 +546,9 @@ Nothing in the ledger changes until you record it (step 4). You can have [severa
 1. **Dealer gives** and **I give** each take cards and cash.
    - **Your cards:** type part of a name, set or number under *I give* and pick it (Enter takes the
      first). It comes with its price for guests when you've set one (the note under it shows its
-     market value too), otherwise its current value (a graded card's is its grade's price), its grade and
-     where it is. Only cards you own are listed. Several copies of one card (same printing, variant, language and
+     market value too), otherwise its current value (a graded card's is its grade's price), its grade
+     and where it is. Only your cards listed for sale are offered, and not ones in a binder or
+     display case hidden from guests. Several copies of one card (same printing, variant, language and
      grade) show once, at the first copy's place, with "· 4 copies"; once you add it to the trade,
      the next copy comes up.
    - **The dealer's cards:** type part of any card's name, set or number under *Dealer gives* (the
@@ -898,7 +899,9 @@ own phone, without an account:
 
 1. *Settings → Administration → Guests*: **Turn guest viewing on** and **Print** the QR code (or
    copy its link).
-2. A guest scans it and gives their **name** and a **phone number or email**, then sees every card
+2. A guest scans it and can give their **name** and a **phone number or email** (both optional: the
+   page says they're only used to follow up if the guest asks about a card, and are never shared),
+   then sees every card
    marked **Listed for sale**: its picture, name, set, number, rarity, variant, language,
    condition or grade, illustrator, release year and **market value rounded up to the dollar**, or
    the price you set for guests (shown to the cent, like $2.50).
@@ -919,14 +922,18 @@ own phone, without an account:
    even which pockets they're in), its price log or any other card or picture.
 
 A binder's or display case's settings have **Hide from guests**: guests still see its cards for
-sale in their list, but not the binder, its name or where those cards are.
+sale in their list, but not the binder, its name or where those cards are. Its cards aren't
+offered under *I give* in the Trade evaluator either.
 
 Guests are signed out after **15 minutes without use** and can sign in again. Several can look
 at once, but no two at the same time with the same name or the same phone number or email; giving
 the same name and contact again carries on where that guest was (another device is signed out).
+Guests who give no details never clash, and show as "Looking as a guest" on their page and
+"Anonymous" in Administration.
 
-The Guests page shows who's looking now (with *End*), and a **guest log** of every visit: name,
-phone or email, when they signed in, were last active and how the visit ended. *New QR code* makes
+The Guests page shows who's looking now (with *End*), and a **guest log** of every visit: name
+(*Anonymous* if none), phone or email, when they signed in, were last active and how the visit ended.
+The log also keeps the guest's IP address and browser. *New QR code* makes
 codes already printed or shared stop working; turning guest viewing off signs every guest out.
 Guests' names and contacts are never in the ledger's copies or full backup downloads; only the
 server's own archives hold them (see *Data*). *Clear the log* deletes them.

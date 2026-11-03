@@ -21,9 +21,9 @@ export interface GuestSettings {
 
 export interface GuestVisit {
   readonly id: string;
-  readonly name: string;
-  readonly contact: string;
-  readonly contactKind: ContactKind;
+  readonly name: string | null;
+  readonly contact: string | null;
+  readonly contactKind: ContactKind | null;
   readonly ip: string;
   readonly agent: string;
   readonly startedAt: string;
@@ -37,11 +37,11 @@ export interface GuestSession {
   readonly id: string;
   /** The hash of the cookie's token. */
   readonly hash: string;
-  readonly name: string;
-  readonly nameKey: string;
-  readonly contact: string;
-  readonly contactKey: string;
-  readonly contactKind: ContactKind;
+  readonly name: string | null;
+  readonly nameKey: string | null;
+  readonly contact: string | null;
+  readonly contactKey: string | null;
+  readonly contactKind: ContactKind | null;
   readonly ip: string;
   readonly agent: string;
   readonly createdAt: number;
@@ -64,13 +64,15 @@ export const guestExpiry = (session: GuestSession): string => new Date(session.l
 /**
  * Whether a guest may sign in alongside those looking now: no two share a name or a contact. The
  * same name and contact again is the same guest (another tab or device): their old session, which
- * the new one replaces, is returned.
+ * the new one replaces, is returned. A guest who gave neither is always a new guest.
  */
-export function admitGuest(active: readonly GuestSession[], nameKey: string, contact: Contact): Result<GuestSession | null, GuestTaken> {
-  const same = active.find((s) => s.nameKey === nameKey && s.contactKey === contact.key);
+export function admitGuest(active: readonly GuestSession[], nameKey: string | null, contact: Contact | null): Result<GuestSession | null, GuestTaken> {
+  if (nameKey === null && contact === null) return ok(null);
+  const contactKey = contact?.key ?? null;
+  const same = active.find((s) => s.nameKey === nameKey && s.contactKey === contactKey);
   if (same) return ok(same);
-  if (active.some((s) => s.nameKey === nameKey)) return err({ code: 'GUEST_NAME_TAKEN' });
-  if (active.some((s) => s.contactKey === contact.key)) return err({ code: 'GUEST_CONTACT_TAKEN', kind: contact.kind });
+  if (nameKey !== null && active.some((s) => s.nameKey === nameKey)) return err({ code: 'GUEST_NAME_TAKEN' });
+  if (contact !== null && active.some((s) => s.contactKey === contact.key)) return err({ code: 'GUEST_CONTACT_TAKEN', kind: contact.kind });
   return ok(null);
 }
 

@@ -20,6 +20,7 @@ type Result = {
 };
 type Settled = { missing: number; forTheirs: number; forMine: number; paid: number[]; sold: number[]; gaveCash: number; gotCash: number };
 type Trade = {
+  offered: (card: unknown, binder?: { hiddenFromGuests?: boolean } | null) => boolean;
   myCardValue: (guest: unknown, market: unknown) => { value: number | null; from: 'guest' | 'market' | null };
   myCardNote: (typed: number | null, guest: unknown, market: number | null, fmt: (n: number) => string) => string;
   settle: (t: { dealer?: Side; mine?: Side }) => Settled;
@@ -52,7 +53,7 @@ type SavedSide = { pct: string; cash: string; items: SavedItem[] };
 const sandbox = { window: {} as { BinderTrade: Trade } };
 // bulkbuy.js comes first, as on the page: trade.js shares amounts out with its allocate.
 for (const f of ['bulkbuy.js', 'trade.js']) vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public', f), 'utf8'), sandbox);
-const { myCardValue, myCardNote, settle, newCard, recordProblem, recordBody, landings, salesGroups, amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, addCash, restore } = sandbox.window.BinderTrade;
+const { offered, myCardValue, myCardNote, settle, newCard, recordProblem, recordBody, landings, salesGroups, amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, addCash, restore } = sandbox.window.BinderTrade;
 
 describe('reading what was typed', () => {
   it('reads amounts with or without a dollar sign and commas', () => {
@@ -86,6 +87,28 @@ describe('reading what was typed', () => {
     expect(pctText(87.345)).toBe('87.3');
     expect(pctText(80)).toBe('80');
     expect(pctText(null)).toBe('');
+  });
+});
+
+describe('my cards a trade offers', () => {
+  const listed = { status: 'listed' };
+  it('offers a listed card in a visible binder, or loose', () => {
+    expect(offered(listed, { hiddenFromGuests: false })).toBe(true);
+    expect(offered(listed, {})).toBe(true);
+    expect(offered(listed, null)).toBe(true);
+    expect(offered(listed, undefined)).toBe(true);
+  });
+  it('leaves out cards in a binder hidden from guests', () => {
+    expect(offered(listed, { hiddenFromGuests: true })).toBe(false);
+  });
+  it('offers only listed cards', () => {
+    for (const status of ['binder', undefined, 'grading', 'sold', 'traded']) expect(offered({ status }, null)).toBe(false);
+    expect(offered({ ...listed, placeholder: true }, null)).toBe(false);
+    expect(offered({ ...listed, watchlist: true }, null)).toBe(false);
+  });
+  it('offers no card that is not there', () => {
+    expect(offered(null, null)).toBe(false);
+    expect(offered(undefined, null)).toBe(false);
   });
 });
 

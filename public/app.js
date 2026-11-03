@@ -1286,10 +1286,11 @@ const trPct = k => window.BinderTrade.percent(TR[k].pct) ?? 100;
 /* Copies of one card (same printing, variant and grade, both still held) are listed once, at the first one's place. */
 const sameCopy = window.BinderCopies.sameCopy({same:window.BinderStack.same, gradeLabel:(g, n) => window.BinderTrade.gradeLabel(g, n), held, owned});
 const copiesNote = window.BinderCopies.note;
-/* My cards to add: the cards I own, each once (with how many copies): [{card, copies}]. */
+/* My cards to add: the ones I own and have listed for sale, outside binders hidden from guests, each once
+   (with how many copies): [{card, copies}]. */
 function trCandidates(){
   const taken = new Set(TR.mine.items.map(it => it.cardId).filter(Boolean));
-  const mine = S.cards.filter(c => owned(c) && !taken.has(c.id)).sort(window.BinderStack.order);
+  const mine = S.cards.filter(c => owned(c) && window.BinderTrade.offered(c, c.binderId ? binderById(c.binderId) : null) && !taken.has(c.id)).sort(window.BinderStack.order);
   return window.BinderSearch.search(mine, TR.q.mine, {limit:6, order:SORTS.loc, same:sameCopy});
 }
 const trLookups = () => !!window.ledgerApi && S.mode!=="nodb";
@@ -1326,7 +1327,7 @@ function trResults(k){
   }
   const list = trCandidates();
   el.innerHTML = list.length ? list.map(({card:c, copies}) => { const g = window.BinderTrade.gradeLabel(c.grader, c.grade), v = trMyValue(c).value; return `<button class="tr-hit" type="button" data-trpick="${esc(c.id)}">${shown(c)?`<img class="thumb" src="${imgURL(shown(c))}" alt="">`:`<span class="thumb"></span>`}<span class="bb-what"><b>${esc(c.name||"Unnamed card")}</b><span class="hint">${esc([metaLine(c), c.variant, g].filter(Boolean).join(" · "))}</span><span class="hint">${esc(locShort(c) + copiesNote(copies))}</span></span><span class="mono tr-hitv">${esc(money(v))}</span></button>`; }).join("")
-    : `<p class="hint tr-none">None of your cards match (cards already in the trade aren't listed).</p>`;
+    : `<p class="hint tr-none">None of your cards for sale match. Only cards listed for sale are offered, and not ones in binders hidden from guests (cards already in the trade aren't listed either).</p>`;
 }
 const trInput = (it, f, label, extra="") => `<input data-trf="${f}" value="${esc(it[f])}" aria-label="${esc(label)}" autocomplete="off" ${extra}>`;
 function trItemHTML(k, it, i){
@@ -1368,7 +1369,7 @@ function trSideHTML(k){
   return `<section class="tr-side" data-trside="${k}" aria-labelledby="tr_h_${k}">
     <h3 id="tr_h_${k}">${TR_NAME[k]} <span class="hint" data-trhead></span></h3>
     <div class="tr-add">
-      <input type="search" data-trq="${k}" value="${esc(TR.q[k])}" placeholder="${mine ? "Add one of your cards: name, set or number" : "Find any card: name, set or number"}" aria-label="${mine ? "Find one of your cards to give" : "Find the dealer's card in the card database"}" autocomplete="off" spellcheck="false" enterkeyhint="done">
+      <input type="search" data-trq="${k}" value="${esc(TR.q[k])}" placeholder="${mine ? "Add one of your cards for sale: name, set or number" : "Find any card: name, set or number"}" aria-label="${mine ? "Find one of your cards for sale to give" : "Find the dealer's card in the card database"}" autocomplete="off" spellcheck="false" enterkeyhint="done">
       <button class="btn sm" type="button" data-tradd="${k}">+ Type in a card</button>
       <div class="tr-res" data-trres="${k}"></div>
     </div>
@@ -2769,7 +2770,7 @@ function binderModal(id){
       <div class="field"><label for="b_name">Name</label><input id="b_name" value="${esc(b.name)}" maxlength="40" placeholder="e.g. Vintage holos" autocomplete="off"></div>
       <div class="field"><label>Colour</label><div class="swatches" id="b_colors">${BINDER_COLORS.map(c=>`<button type="button" style="--c:${c}" data-color="${c}" aria-pressed="${(b.color||BINDER_COLORS[0])===c}" aria-label="Colour ${c}"></button>`).join("")}</div></div>
       <div class="field"><label for="b_owner">Owner</label><select id="b_owner">${opt(OWNERS, b.owner||"")}</select><span class="hint" id="b_ownerHint"></span></div>
-      <div class="field"><label class="phswitch"><input type="checkbox" id="b_guestHidden" role="switch" ${b.hiddenFromGuests?"checked":""}><span><b>Hide from guests</b> <span class="hint">Guests from the QR code don't see this <span id="b_guestWhat">${what()}</span> or where its cards are. Its cards listed for sale still show in their list.</span></span></label></div>
+      <div class="field"><label class="phswitch"><input type="checkbox" id="b_guestHidden" role="switch" ${b.hiddenFromGuests?"checked":""}><span><b>Hide from guests</b> <span class="hint">Guests from the QR code don't see this <span id="b_guestWhat">${what()}</span> or where its cards are. Its cards listed for sale still show in their list, but aren't offered in trades.</span></span></label></div>
       <div class="field" id="b_pocketsF"><label for="b_pockets">Pockets per page</label><select id="b_pockets">${[4,9,12,16].map(p=>`<option value="${p}" ${p===n?"selected":""}>${p}-pocket</option>`).join("")}</select><span class="hint">Cards keep their order: changing this moves them onto pages of the new size, empty pockets too (9 to 4: pockets 5–9 of page 1 go to pages 2 and 3).</span></div>
     </div>
     <div class="mfoot" style="justify-content:space-between"><span id="bDelZone"></span>

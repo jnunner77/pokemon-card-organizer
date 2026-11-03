@@ -6,9 +6,9 @@ import { sweep } from './state.ts';
 
 export interface ActiveGuest {
   readonly id: string;
-  readonly name: string;
-  readonly contact: string;
-  readonly contactKind: string;
+  readonly name: string | null;
+  readonly contact: string | null;
+  readonly contactKind: string | null;
   readonly ip: string;
   readonly agent: string;
   readonly startedAt: string;

@@ -1,4 +1,4 @@
-// Guest page: people who scan the QR code sign in with their name and a phone number or email,
+// Guest page: people who scan the QR code may give a name and a phone number or email (both optional),
 // then look through the cards listed for sale: search, sort, and flip through them full screen.
 // The server decides what guests see (src/domain/guests/guest-card.ts, through
 // src/application/guests/list-guest-cards.ts); this page only shows it.
@@ -55,7 +55,7 @@
     $("gMain").hidden = name !== "main";
     if (name === "closed") $("gClosedText").textContent = text;
     if (name === "signin") {
-      $("gLead").textContent = text || "Look through every card we have for sale. Tell us who you are to start.";
+      $("gLead").textContent = text || "Look through every card we have for sale.";
       const who = store.get("who", {});
       if (!$("gName").value) $("gName").value = who.name || "";
       if (!$("gContact").value) $("gContact").value = who.contact || "";
@@ -80,7 +80,7 @@
 
   async function start(guest) {
     G.me = guest;
-    $("gWho").textContent = `Signed in as ${guest.name}`;
+    $("gWho").textContent = guest.name ? `Signed in as ${guest.name}` : "Looking as a guest";
     $("gSort").value = G.sort;
     setView(G.view, true);
     screen("main");
@@ -107,8 +107,6 @@
     e.preventDefault();
     const btn = e.target.querySelector("button[type=submit]");
     const name = $("gName").value.trim(), contact = $("gContact").value.trim();
-    if (!name) return msg("Enter your name."), $("gName").focus();
-    if (!contact) return msg("Enter your phone number or email."), $("gContact").focus();
     btn.disabled = true; msg("");
     try {
       const r = await api("POST", "login", { key: key(), name, contact });
