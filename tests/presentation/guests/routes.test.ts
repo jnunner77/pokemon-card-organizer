@@ -65,12 +65,24 @@ describe('the guest page', () => {
     assert.deepEqual(await after.json(), { error: 'Your guest visit ended. Sign in again to keep looking.', code: 'guest_signin' });
   });
 
+  it('lets a guest in with no name or contact', async () => {
+    const { t, base } = await setUp();
+    await t.use.setViewing.execute({ actor: 'admin', enabled: true });
+    const res = await fetch(`${base}/guest/login`, json({ key: 'the-key', name: '', contact: '' }));
+    assert.equal(res.status, 200);
+    const cookie = (res.headers.get('set-cookie') ?? '').split(';')[0] ?? '';
+    const signedIn = await body(res);
+    assert.deepEqual(signedIn.guest, { name: null, contact: null });
+    const me = await body(await fetch(`${base}/guest/me`, { headers: { cookie } }));
+    assert.equal(me.guest.name, null);
+  });
+
   it('answers sign-in problems as before', async () => {
     const { t, base, signIn } = await setUp();
     await t.use.setViewing.execute({ actor: 'admin', enabled: true });
     const answer = async (body: unknown) => (await fetch(`${base}/guest/login`, json(body))).json();
     assert.deepEqual(await answer({ key: 'old', name: 'Ash', contact: 'ash@pallet.town' }), { error: 'This QR code no longer works. Scan the one at the table.', code: 'guest_key' });
-    assert.deepEqual(await answer({ key: 'the-key', name: ' ', contact: 'ash@pallet.town' }), { error: 'Enter your name', code: 'invalid_argument' });
+    assert.deepEqual(await answer({ key: 'the-key', name: 'x'.repeat(81), contact: '' }), { error: 'Names can be at most 80 characters', code: 'invalid_argument' });
     assert.deepEqual(await answer({ key: 'the-key', name: 'Ash', contact: 'ash@' }), { error: "That email doesn't look right.", code: 'invalid_argument' });
     assert.deepEqual(await answer({ name: 'Ash', contact: 'ash@pallet.town' }), { error: 'key: Required', code: 'invalid_argument' });
     await signIn('Ash', '604 555 0199');

@@ -26,9 +26,24 @@ describe('guests signing in', () => {
   it('checks the name and contact', async () => {
     const t = setUpGuests();
     await t.use.setViewing.execute({ actor: 'admin', enabled: true });
-    assert.deepEqual(await t.visit(' ', 'ash@pallet.town'), { ok: false, error: { code: 'GUEST_NAME_MISSING' } });
-    assert.deepEqual(await t.visit('Ash', ''), { ok: false, error: { code: 'GUEST_CONTACT_MISSING' } });
+    const ash = await t.visit('Ash', '');
+    assert.ok(ash.ok);
+    assert.deepEqual(ash.value.guest, { id: ash.value.guest.id, name: 'Ash', contact: null });
     assert.deepEqual(await t.visit('Ash', 'call me'), { ok: false, error: { code: 'NOT_PHONE_OR_EMAIL' } });
+  });
+
+  it('lets a guest in with no details, and any number of them at once', async () => {
+    const t = setUpGuests();
+    await t.use.setViewing.execute({ actor: 'admin', enabled: true });
+    const r = await t.visit('', '');
+    assert.ok(r.ok);
+    assert.deepEqual(r.value.guest, { id: r.value.guest.id, name: null, contact: null });
+    assert.deepEqual(t.logged.auth, ['Guest without a name signed in']);
+    const second = await t.visit(' ', ' ');
+    assert.ok(second.ok);
+    const seen = await t.overview();
+    assert.deepEqual(seen.active.map((g) => [g.name, g.contact, g.contactKind]), [[null, null, null], [null, null, null]]);
+    assert.deepEqual(seen.log.map((v) => [v.name, v.contact, v.contactKind]), [[null, null, null], [null, null, null]]);
   });
 
   it('lets several guests in, each with their own name and contact; the same guest again carries on', async () => {

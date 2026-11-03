@@ -21,10 +21,10 @@
 <main class="signin" id="gStart">
   <form class="mcard narrow" id="gSignin" hidden novalidate>
     <h1>Cards for sale</h1>
-    <p class="lead" id="gLead">Look through every card we have for sale. Tell us who you are to start.</p>
-    <div class="field"><label for="gName">Your name</label><input id="gName" name="name" autocomplete="name" maxlength="80" required></div>
-    <div class="field"><label for="gContact">Phone number or email</label><input id="gContact" name="contact" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="120" required></div>
-    <p class="hint">We keep your name and phone number or email in our visitor list, so we know who looked and can follow up if you ask about a card. We don't share it. You're signed out after <span data-idle>15</span> minutes without use.</p>
+    <p class="lead" id="gLead">Look through every card we have for sale.</p>
+    <div class="field"><label for="gName">Your name <span class="opt">(optional)</span></label><input id="gName" name="name" autocomplete="name" maxlength="80"></div>
+    <div class="field"><label for="gContact">Phone number or email <span class="opt">(optional)</span></label><input id="gContact" name="contact" autocomplete="email" autocapitalize="none" spellcheck="false" maxlength="120"></div>
+    <p class="hint">Your name and phone number or email are optional: leave them blank to just look. If you give them, we only use them to follow up if you ask about a card, and we never share them. Like any website, we note when you visited and from which device. You're signed out after <span data-idle>15</span> minutes without use.</p>
     <p class="hint msg" role="alert"></p>
     <div class="mfoot"><button class="btn primary" type="submit">See the cards</button></div>
   </form>

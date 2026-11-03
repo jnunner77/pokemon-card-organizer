@@ -143,9 +143,9 @@
   let guestData = null;
   async function guests() {
     const g = guestData = await api("GET", "admin/guests?base=" + encodeURIComponent(location.href));
-    const contact = v => `<a href="${v.contactKind === "email" ? "mailto:" : "tel:"}${esc(v.contact)}">${esc(v.contact)}</a>`;
-    const active = g.active.map(v => `<tr><td><b>${esc(v.name)}</b></td><td>${contact(v)}</td><td class="mono">${when(v.startedAt)}</td><td class="mono">${when(v.lastSeenAt)}</td><td class="mono">${esc(v.ip)}</td><td><button class="btn sm" type="button" data-gend="${esc(v.id)}">End</button></td></tr>`).join("");
-    const visits = g.log.map(v => `<tr><td><b>${esc(v.name)}</b></td><td>${contact(v)}</td><td class="mono">${when(v.startedAt)}</td><td class="mono">${when(v.lastSeenAt)}</td><td>${v.ended ? esc(ENDED[v.ended] || v.ended) : chip("pass", "Looking now")}</td></tr>`).join("");
+    const contact = v => !v.contact ? "—" : `<a href="${v.contactKind === "email" ? "mailto:" : "tel:"}${esc(v.contact)}">${esc(v.contact)}</a>`;
+    const active = g.active.map(v => `<tr><td><b>${esc(v.name || "Anonymous")}</b></td><td>${contact(v)}</td><td class="mono">${when(v.startedAt)}</td><td class="mono">${when(v.lastSeenAt)}</td><td class="mono">${esc(v.ip)}</td><td><button class="btn sm" type="button" data-gend="${esc(v.id)}">End</button></td></tr>`).join("");
+    const visits = g.log.map(v => `<tr><td><b>${esc(v.name || "Anonymous")}</b></td><td>${contact(v)}</td><td class="mono">${when(v.startedAt)}</td><td class="mono">${when(v.lastSeenAt)}</td><td>${v.ended ? esc(ENDED[v.ended] || v.ended) : chip("pass", "Looking now")}</td></tr>`).join("");
     return `<div class="adminhead"><div class="stats">
         <div class="stat"><span class="k">Guest viewing</span><span class="v ${g.enabled ? "pos" : ""}">${g.enabled ? "On" : "Off"}</span></div>
         <div class="stat"><span class="k">Listed for sale</span><span class="v">${g.listed} <small>card${g.listed === 1 ? "" : "s"}</small></span></div>
@@ -155,7 +155,7 @@
       <div class="adminform"><h3>QR code</h3>
         <div class="qrbox"><div class="qrcode" aria-label="QR code for the guest page" role="img">${g.qr}</div>
           <div class="qrinfo">
-            <p class="hint">Guests scan this to look through every card marked <b>Listed for sale</b>. They give their name and a phone number or email, see only those cards (details, picture, and market value rounded up to the dollar, nothing else in the ledger), and are signed out after ${g.idleMinutes} minutes without use. No two guests at once share a name or a phone number or email.</p>
+            <p class="hint">Guests scan this to look through every card marked <b>Listed for sale</b>. They may give a name and a phone number or email (optional), see only those cards (details, picture, and market value rounded up to the dollar, nothing else in the ledger), and are signed out after ${g.idleMinutes} minutes without use. No two guests at once share a name or a phone number or email; guests who give none never clash.</p>
             ${g.enabled ? "" : `<p>${chip("warn", "Guest viewing is off")} <span class="hint">The code says guest viewing is closed until you turn it on.</span></p>`}
             <span class="qrlink" id="guestUrl">${esc(g.url)}</span>
             <div class="tokenrow"><button class="btn primary" type="button" id="qrPrint">Print</button><a class="btn" href="${esc(g.url)}" target="_blank" rel="noopener">Open the guest page</a><button class="btn" type="button" id="qrCopy">Copy link</button><button class="btn danger" type="button" id="qrNew">New QR code</button></div>

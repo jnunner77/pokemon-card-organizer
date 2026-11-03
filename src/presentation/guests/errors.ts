@@ -11,12 +11,8 @@ export const NO_PICTURE: Failure = { status: 404, code: 'not_found', message: 'N
 
 export function guestFailure(e: GuestSignInError | GuestNotSignedIn): Failure {
   switch (e.code) {
-    case 'GUEST_NAME_MISSING':
-      return badRequest('Enter your name');
     case 'GUEST_NAME_TOO_LONG':
       return badRequest('Names can be at most 80 characters');
-    case 'GUEST_CONTACT_MISSING':
-      return badRequest('Enter your phone number or email');
     case 'GUEST_CONTACT_TOO_LONG':
       return badRequest('That is too long for a phone number or email');
     case 'INVALID_EMAIL':

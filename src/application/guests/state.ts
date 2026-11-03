@@ -18,8 +18,8 @@ export function sweep(state: GuestState, now: Date): void {
 /** A signed-in guest as their page sees them. */
 export interface SignedInGuest {
   readonly id: string;
-  readonly name: string;
-  readonly contact: string;
+  readonly name: string | null;
+  readonly contact: string | null;
   /** When the visit ends if they don't use the page again. */
   readonly expiresAt: string;
 }

@@ -894,7 +894,9 @@ own phone, without an account:
 
 1. *Settings → Administration → Guests*: **Turn guest viewing on** and **Print** the QR code (or
    copy its link).
-2. A guest scans it and gives their **name** and a **phone number or email**, then sees every card
+2. A guest scans it and can give their **name** and a **phone number or email** (both optional: the
+   page says they're only used to follow up if the guest asks about a card, and are never shared),
+   then sees every card
    marked **Listed for sale**: its picture, name, set, number, rarity, variant, language,
    condition or grade, illustrator, release year and **market value rounded up to the dollar**, or
    the price you set for guests (shown to the cent, like $2.50).
@@ -920,9 +922,12 @@ sale in their list, but not the binder, its name or where those cards are.
 Guests are signed out after **15 minutes without use** and can sign in again. Several can look
 at once, but no two at the same time with the same name or the same phone number or email; giving
 the same name and contact again carries on where that guest was (another device is signed out).
+Guests who give no details never clash, and show as "Looking as a guest" on their page and
+"Anonymous" in Administration.
 
-The Guests page shows who's looking now (with *End*), and a **guest log** of every visit: name,
-phone or email, when they signed in, were last active and how the visit ended. *New QR code* makes
+The Guests page shows who's looking now (with *End*), and a **guest log** of every visit: name
+(*Anonymous* if none), phone or email, when they signed in, were last active and how the visit ended.
+The log also keeps the guest's IP address and browser. *New QR code* makes
 codes already printed or shared stop working; turning guest viewing off signs every guest out.
 Guests' names and contacts are never in the ledger's copies or full backup downloads; only the
 server's own archives hold them (see *Data*). *Clear the log* deletes them.

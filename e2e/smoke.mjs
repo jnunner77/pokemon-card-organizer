@@ -380,6 +380,13 @@ try {
   if ((await g.locator('#lbCap .loc').count()) !== 0) fail('a hidden binder still shows where the card is');
   await g.getByRole('button', { name: 'Close full screen' }).click();
   if ((await g.request.get(new URL('api/guest/cards', BASE).href)).status() !== 200) fail('guest card list');
+  // Details are optional: sign out, then look with both fields empty.
+  await g.locator('#gSignout').click();
+  await g.locator('#gName').fill('');
+  await g.locator('#gContact').fill('');
+  await g.getByRole('button', { name: 'See the cards' }).click();
+  await g.locator('.gcard').first().waitFor();
+  if ((await g.locator('#gWho').textContent()) !== 'Looking as a guest') fail('a guest with no details is not shown as a guest');
 
   if (errors.length) fail(`page errors:\n${errors.join('\n')}`);
   console.log('Binder smoke test passed');
