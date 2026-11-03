@@ -46,14 +46,22 @@
   }
 
   /**
-   * The cards matching `query`, best first: [{card, score}].
+   * The cards matching `query`, best first: [{card, score, copies}].
    * options.limit: most results (default 50); options.order(card): tie-break key, smaller first.
+   * options.same(a, b): when given, copies of the same card are listed once, at the first copy in
+   * `order` (whether or not that copy matches the query), with `score` the best copy's and `copies`
+   * counting every copy in `cards`; the limit counts distinct cards. Without it every matching card is
+   * listed with copies 1. same(a, b) must imply the names match, ignoring case, accents and punctuation.
    */
   function search(cards, query, options) {
     const o = options || {};
     const q = words(query);
     if (!q.length) return [];
-    const out = [];
+    const order = o.order || (() => "");
+    const byOrder = (a, b) => String(order(a.card)).localeCompare(String(order(b.card))) || String(a.card.name || "").localeCompare(String(b.card.name || ""));
+    const limit = o.limit ?? 50;
+    const scored = [];
+    let i = 0;
     for (const card of cards || []) {
       const f = fields(card);
       let score = 0;
@@ -62,11 +70,30 @@
         if (!s) { score = 0; break; }
         score += s;
       }
-      if (score) out.push({ card, score });
+      scored.push({ card, score, key: f.nameCompact, i: i++ });
     }
-    const order = o.order || (() => "");
-    out.sort((a, b) => b.score - a.score || String(order(a.card)).localeCompare(String(order(b.card))) || String(a.card.name || "").localeCompare(String(b.card.name || "")));
-    return out.slice(0, o.limit ?? 50);
+    if (!o.same) {
+      return scored.filter(r => r.score).map(r => ({ card: r.card, score: r.score, copies: 1 }))
+        .sort((a, b) => b.score - a.score || byOrder(a, b)).slice(0, limit);
+    }
+    const buckets = new Map();
+    for (const r of scored) {
+      if (!buckets.has(r.key)) buckets.set(r.key, []);
+      buckets.get(r.key).push(r);
+    }
+    const groups = [];
+    for (const list of buckets.values()) {
+      if (!list.some(r => r.score)) continue;
+      list.sort((a, b) => byOrder(a, b) || a.i - b.i);
+      const mine = [];
+      for (const e of list) {
+        const g = mine.find(x => o.same(x.card, e.card));
+        if (g) { g.copies++; g.score = Math.max(g.score, e.score); }
+        else mine.push({ card: e.card, score: e.score, copies: 1 });
+      }
+      groups.push(...mine.filter(g => g.score));
+    }
+    return groups.sort((a, b) => b.score - a.score || byOrder(a, b)).slice(0, limit);
   }
 
   root.BinderSearch = { search, norm };

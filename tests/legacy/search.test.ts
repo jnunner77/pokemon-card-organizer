@@ -4,8 +4,11 @@ import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
 
 // public/search.js is a plain browser script; load it the way the page does.
-interface Card { id: string; name?: string; set?: string; setCode?: string; number?: string; artist?: string; page?: number }
-const sandbox = { window: {} as { BinderSearch: { search: (cards: Card[], q: string, o?: { limit?: number; order?: (c: Card) => string }) => { card: Card; score: number }[]; norm: (s: string) => string } } };
+interface Card { id: string; name?: string; set?: string; setCode?: string; number?: string; artist?: string; page?: number; slot?: number; variant?: string }
+const stackBox = { window: {} as { BinderStack: { same: (a: Card, b: Card) => boolean } } };
+vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public/stack.js'), 'utf8'), stackBox);
+const real = (a: Card, b: Card) => stackBox.window.BinderStack.same(a, b);
+const sandbox = { window: {} as { BinderSearch: { search: (cards: Card[], q: string, o?: { limit?: number; order?: (c: Card) => string; same?: (a: Card, b: Card) => boolean }) => { card: Card; score: number; copies: number }[]; norm: (s: string) => string } } };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public/search.js'), 'utf8'), sandbox);
 const { search, norm } = sandbox.window.BinderSearch;
 
@@ -108,5 +111,73 @@ describe('finding a card', () => {
     expect(ids('')).toEqual([]);
     expect(ids('  -  ')).toEqual([]);
     expect(ids('pikachu', { limit: 2 })).toHaveLength(2);
+  });
+});
+
+describe('copies', () => {
+  const pika = (id: string, page: number, slot: number, extra: Partial<Card> = {}): Card =>
+    ({ id, name: 'Pikachu', set: "McDonald's Collection 2022", setCode: 'M22', number: '7/15', page, slot, ...extra });
+  const pos = (c: Card) => `${String(c.page).padStart(3, '0')}-${String(c.slot).padStart(3, '0')}`;
+  const same = (a: Card, b: Card) => a.setCode === b.setCode && a.number === b.number && a.variant === b.variant;
+  const copies = [pika('c3', 1, 3), pika('c5', 2, 1), pika('c1', 1, 1), pika('c4', 1, 4), pika('c2', 1, 2)];
+
+  it('lists copies once, at the first place, with how many', () => {
+    const r = search(copies, 'pikachu', { order: pos, same });
+    expect(r.map((x) => x.card.id)).toEqual(['c1']);
+    expect(r[0].copies).toBe(5);
+  });
+
+  it('keeps a different number or variant separate', () => {
+    const more = [...copies, pika('o', 1, 5, { number: '8/15' }), pika('v', 1, 6, { variant: 'holo' })];
+    const r = search(more, 'pikachu', { order: pos, same });
+    expect(r.map((x) => [x.card.id, x.copies])).toEqual([['c1', 5], ['o', 1], ['v', 1]]);
+  });
+
+  it('counts the limit in distinct cards', () => {
+    const many: Card[] = [];
+    ['a', 'b', 'c'].forEach((n, i) => { for (let s = 1; s <= 3; s++) many.push(pika(`${n}${s}`, 1, i * 3 + s, { number: `${i + 1}/15` })); });
+    const r = search(many, 'pikachu', { order: pos, same, limit: 2 });
+    expect(r.map((x) => [x.card.id, x.copies])).toEqual([['a1', 3], ['b1', 3]]);
+  });
+
+  it('lists every copy with copies 1 without `same`', () => {
+    const r = search(copies, 'pikachu', { order: pos });
+    expect(r).toHaveLength(5);
+    expect(r.every((x) => x.copies === 1)).toBe(true);
+  });
+
+  it('groups greedily when `same` is not transitive', () => {
+    const near = (a: Card, b: Card) => Math.abs(Number(a.slot) - Number(b.slot)) <= 1;
+    const chain = [pika('s3', 1, 3), pika('s1', 1, 1), pika('s2', 1, 2)];
+    const r = search(chain, 'pikachu', { order: pos, same: near });
+    expect(r.map((x) => [x.card.id, x.copies])).toEqual([['s1', 2], ['s3', 1]]);
+  });
+
+  describe('grouping before matching', () => {
+    const mk = (id: string, page: number, slot: number, extra: Partial<Card>): Card => ({ id, name: 'Pikachu', page, slot, ...extra });
+    const blank = mk('p1', 1, 1, { number: '58/102' });
+    const based = mk('p4', 1, 4, { number: '58/102', set: 'Base Set', setCode: 'BS' });
+    const run = (list: Card[], q: string) => search(list, q, { order: pos, same: real }).map((x) => [x.card.id, x.copies]);
+
+    it('is the same for any wording of the query', () => {
+      expect(run([based, blank], 'pikachu')).toEqual([['p1', 2]]);
+      expect(run([based, blank], 'pikachu base')).toEqual([['p1', 2]]);
+    });
+
+    it('is the same whether the number has leading zeros', () => {
+      const a = mk('q1', 1, 1, { number: '031/162' }), b = mk('q5', 1, 5, { number: '31/162' });
+      expect(run([b, a], 'pikachu 31/162')).toEqual([['q1', 2]]);
+      expect(run([b, a], 'pikachu 031/162')).toEqual([['q1', 2]]);
+    });
+
+    it('lists only the copies given (a picker without the first one)', () => {
+      expect(run([based], 'pikachu base')).toEqual([['p4', 1]]);
+    });
+
+    it('ranks a group by its best copy', () => {
+      const other = mk('o1', 1, 1, { number: '1/9', set: 'Basement' });
+      const lead = mk('g1', 2, 1, { number: '58/102' }), best = mk('g2', 3, 1, { number: '58/102', set: 'Base Set' });
+      expect(run([other, best, lead], 'pikachu base')).toEqual([['g1', 2], ['o1', 1]]);
+    });
   });
 });
