@@ -1284,7 +1284,7 @@ window.addEventListener("binder:opentrade", ev => {
 window.addEventListener("binder:reconnected", () => { if(!TRADES.init || !trServer()) return; trSaver.retryAll(); trSendDiscards(); void trSync(false); });
 const trPct = k => window.BinderTrade.percent(TR[k].pct) ?? 100;
 /* Copies of one card (same printing, variant and grade, both still held) are listed once, at the first one's place. */
-const sameCopy = window.BinderCopies.sameCopy({same:(a, b) => window.BinderStack.same(a, b), gradeLabel:(g, n) => window.BinderTrade.gradeLabel(g, n), held, owned});
+const sameCopy = window.BinderCopies.sameCopy({same:window.BinderStack.same, gradeLabel:(g, n) => window.BinderTrade.gradeLabel(g, n), held, owned});
 const copiesNote = window.BinderCopies.note;
 /* My cards to add: the cards I own, each once (with how many copies): [{card, copies}]. */
 function trCandidates(){
