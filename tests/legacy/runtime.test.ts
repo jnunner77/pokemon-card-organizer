@@ -214,4 +214,48 @@ describe('the page\'s live updates while it loads', () => {
     await p.settle();
     expect(p.loads).toHaveLength(3);
   });
+
+  it('shows an open trade at once, even while a load is in flight', async () => {
+    const p = startPage();
+    const ready = p.claude.use('db');
+    p.es()[0].emit('hello');
+    await p.settle();
+    p.es()[0].message({ type: 'openTrade', id: 't1', trade: null });
+    expect(p.events).toContain('binder:opentrade');
+    p.loads[0].resolve([]);
+    await ready;
+  });
+
+  it('loads once more, after the first has finished, for a hello that arrives during a load', async () => {
+    const p = startPage();
+    const ready = p.claude.use('db');
+    p.es()[0].emit('hello');
+    await p.settle();
+    p.es()[0].emit('hello');
+    await p.settle();
+    expect(p.loads).toHaveLength(1);
+    p.loads[0].resolve([]);
+    await ready;
+    await p.settle();
+    expect(p.loads).toHaveLength(2);
+    p.loads[1].resolve([]);
+    await p.settle();
+    expect(p.loads).toHaveLength(2);
+  });
+
+  it('serves several hellos during one load with a single further load', async () => {
+    const p = startPage();
+    const ready = p.claude.use('db');
+    p.es()[0].emit('hello');
+    await p.settle();
+    p.es()[0].emit('hello');
+    p.es()[0].emit('hello');
+    p.loads[0].resolve([]);
+    await ready;
+    await p.settle();
+    expect(p.loads).toHaveLength(2);
+    p.loads[1].resolve([]);
+    await p.settle();
+    expect(p.loads).toHaveLength(2);
+  });
 });

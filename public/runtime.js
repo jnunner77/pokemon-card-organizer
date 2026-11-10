@@ -92,9 +92,13 @@
     // an open trade saved, recorded or discarded on another device: {id, trade: view | null}
     else if (e.type === "openTrade") window.dispatchEvent(new CustomEvent("binder:opentrade", { detail: e }));
   }
-  /** One load at a time; `fresh` (a load that must start after now) waits for the one in flight, then loads again. */
+  /**
+   * One load at a time. `fresh` (a load that must start after now) waits for the one in flight, then
+   * loads again; every fresh caller waiting on the same load shares that one follow-up.
+   */
+  let next = null;
   function reload(fresh) {
-    if (loading) return fresh ? loading.catch(() => {}).then(() => reload(true)) : loading;
+    if (loading) return fresh ? (next ??= loading.catch(() => {}).then(() => { next = null; return reload(); })) : loading;
     return (loading = (async () => {
       held = [];
       try { await loadAll(); }
