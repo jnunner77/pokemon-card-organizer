@@ -88,6 +88,13 @@ describe('documents', () => {
     expect((await request(app).get('/api/data')).body.cards).toEqual([]);
   });
 
+  it('treats ids like constructor as ordinary ids', async () => {
+    await request(app).put('/api/docs/cards/constructor').send(card()).expect(200);
+    expect((await request(app).get('/api/data')).body.cards.map((c: { id: string }) => c.id)).toEqual(['constructor']);
+    await request(app).delete('/api/docs/cards/toString').expect(204);
+    expect((await request(app).get('/api/data')).body.cards.map((c: { id: string }) => c.id)).toEqual(['constructor']);
+  });
+
   it('keeps changes across restarts', async () => {
     await request(app).put('/api/docs/settings/main').send({ usdToCad: 1.41 }).expect(200);
     const again = new Store(dir);
@@ -122,6 +129,8 @@ describe('documents', () => {
     await request(app).put('/api/docs/users/u1').send({}).expect(404);
     await request(app).put('/api/docs/cards/bad%20id').send(card()).expect(400);
     await request(app).patch('/api/docs/cards/missing').send({ name: 'x' }).expect(404);
+    await request(app).put('/api/docs/cards/__proto__').send(card()).expect(400);
+    await request(app).patch('/api/docs/cards/constructor').send({ name: 'x' }).expect(404);
     await request(app).put('/api/docs/cards/c1').send(card({ placeholder: 'yes' })).expect(400);
     const r = await request(app).put('/api/docs/cards/c1').set('Content-Type', 'application/json').send('[1,2]').expect(400);
     expect(r.body.code).toBe('invalid_argument');

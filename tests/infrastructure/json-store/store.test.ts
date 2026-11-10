@@ -24,6 +24,19 @@ describe('Store', () => {
     );
   });
 
+  it('finds only the documents it holds, whatever their id', () => {
+    const store = tempStore();
+    assert.equal(store.get('cards', 'constructor'), undefined);
+    assert.equal(store.get('cards', 'toString'), undefined);
+    assert.throws(() => store.update('cards', 'hasOwnProperty', { name: 'x' }), NotFound);
+    const v = store.version;
+    store.delete('cards', 'constructor');
+    assert.equal(store.version, v);
+    store.set('cards', 'constructor', { name: 'A' });
+    assert.equal(store.get('cards', 'constructor')?.['name'], 'A');
+    assert.deepEqual((readFile(store) as { cards: Record<string, { name: string }> }).cards.constructor, { name: 'A' });
+  });
+
   it('changes nothing for an empty change', () => {
     const store = tempStore();
     const before = store.version;

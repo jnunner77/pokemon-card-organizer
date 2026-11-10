@@ -2,7 +2,8 @@ import { err, ok, type Result } from '#shared/result.ts';
 
 // Every binder, card and setting has an id the page chooses: letters, digits, - and _.
 
-export const DOCUMENT_ID = /^[A-Za-z0-9_-]{1,64}$/;
+// __proto__ is refused: the ledger is kept in plain objects keyed by id.
+export const DOCUMENT_ID = /^(?!__proto__$)[A-Za-z0-9_-]{1,64}$/;
 export const DOCUMENT_ID_RULE = 'Ids are letters, digits, - and _ (at most 64)';
 
 export type InvalidId = { readonly code: 'INVALID_ID'; readonly id: string };

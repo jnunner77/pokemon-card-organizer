@@ -37,6 +37,11 @@ describe('full backups', () => {
     assert.equal(refused(valid({ assets: { [photoId]: { type: 'image/jpeg' } } })), `assets.${photoId}.data: Expected text`);
   });
 
+  it('refuse a document called __proto__', () => {
+    const backup = JSON.parse(`{"format":"${BACKUP_FORMAT}","version":1,"binders":{},"cards":{"c1":{"name":"Mew"},"__proto__":{"name":"Evil"}},"settings":{}}`);
+    assert.ok(refused(backup).startsWith('cards.__proto__'));
+  });
+
   it('check each photo once decoded', () => {
     assert.deepEqual(checkBackupPhoto(photoId, new Uint8Array([0xff, 0xd8, 0xff, 0])), { ok: true, value: 'image/jpeg' });
     assert.deepEqual(checkBackupPhoto(photoId, new Uint8Array()), { ok: false, error: { code: 'INVALID_BACKUP', message: `assets.${photoId}: the photo is empty` } });
