@@ -9,6 +9,7 @@
  *   assets     upload(blob) -> {id}, delete(id); photos are served at blob/<id>
  *   downloads  save({filename, data}) saves a file in the browser
  *
+ * The live-update stream opens first and the ledger loads after it, so nothing saved during a load is missed.
  * Every URL is relative, so the app works at the site root or under a path like /binder/.
  */
 (() => {
@@ -80,29 +81,60 @@
     notifyAll();
   }
 
-  /** Live updates from other tabs and devices; on reconnect, reload in case anything was missed. */
-  function connect() {
-    let es, first = true;
+  /*
+   * Stream changes that arrive while a load is in flight are held and applied after it, in order, so an
+   * older snapshot never overwrites them. A reset (restore) among them loads again.
+   */
+  let held = null, loading = null;
+  function handle(e) {
+    if (e.type === "change") apply(e.change.collection, e.change.id, e.change.doc);
+    else if (e.type === "reset") reload().catch(() => {});
+    // an open trade saved, recorded or discarded on another device: {id, trade: view | null}
+    else if (e.type === "openTrade") window.dispatchEvent(new CustomEvent("binder:opentrade", { detail: e }));
+  }
+  /** One load at a time; `fresh` (a load that must start after now) waits for the one in flight, then loads again. */
+  function reload(fresh) {
+    if (loading) return fresh ? loading.catch(() => {}).then(() => reload(true)) : loading;
+    return (loading = (async () => {
+      held = [];
+      try { await loadAll(); }
+      finally {
+        const queue = held; held = null; loading = null;
+        for (const e of queue) { if (e.type === "reset") { reload().catch(() => {}); break; } handle(e); }
+      }
+    })());
+  }
+
+  /**
+   * Live updates from other tabs and devices. `onFirst` runs once, at the first hello or the first
+   * error (a blocked stream mustn't stop the page loading); on a later hello, reload in case anything
+   * was missed. Returns close(), which ends the stream for good.
+   */
+  function connect(onFirst) {
+    let es, closed = false;
+    const first = () => { if (onFirst) { const f = onFirst; onFirst = null; f(); return true; } return false; };
     const open = () => {
+      if (closed) return;
       es = new EventSource("api/events");
       es.addEventListener("hello", () => {
-        if (!first) { loadAll().catch(() => {}); window.dispatchEvent(new CustomEvent("binder:reconnected")); }
-        first = false; setOnline(true);
+        if (!first()) { reload(true).catch(() => {}); window.dispatchEvent(new CustomEvent("binder:reconnected")); }
+        setOnline(true);
       });
       es.onmessage = m => {
         let e; try { e = JSON.parse(m.data); } catch (_) { return; }
-        if (e.type === "change") apply(e.change.collection, e.change.id, e.change.doc);
-        else if (e.type === "reset") loadAll().catch(() => {});
-        // an open trade saved, recorded or discarded on another device: {id, trade: view | null}
-        else if (e.type === "openTrade") window.dispatchEvent(new CustomEvent("binder:opentrade", { detail: e }));
+        // open trades don't touch the cache, so they never wait
+        if (held && e.type !== "openTrade") held.push(e); else handle(e);
       };
       es.onerror = () => {
+        if (closed) return;
+        first();
         setOnline(false);
         // A signed-out stream fails for good; check once whether that's why.
         if (es.readyState === EventSource.CLOSED) { fetch("api/data", { method: "HEAD" }).then(r => { if (r.status === 401) signIn(); else setTimeout(open, 3000); }, () => setTimeout(open, 3000)); }
       };
     };
     open();
+    return () => { closed = true; es?.close(); };
   }
 
   let offlineEl = null;
@@ -172,7 +204,7 @@
     download() { location.assign("api/backup"); },
     async restore(file) {
       const r = await call("POST", "api/restore", await file.text(), "application/json");
-      await loadAll();
+      await reload(true);
       return r;
     },
   };
@@ -181,7 +213,8 @@
   // page shows its "saving isn't available" banner instead of an empty ledger.
   let ready = null;
   function start() {
-    return (ready ??= loadAll().then(() => { connect(); return db; }, e => { console.error(e); return null; }));
+    return (ready ??= new Promise(resolve => { const close = connect(() => resolve(close)); })
+      .then(close => reload().then(() => db, e => { close(); console.error(e); return null; })));
   }
 
   window.claude = {
