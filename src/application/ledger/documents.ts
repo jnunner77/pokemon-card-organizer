@@ -4,13 +4,13 @@ import type { InvalidDocument } from '#domain/ledger/check-document.ts';
 import { type Collection, type Fields, isCollection } from '#domain/ledger/document.ts';
 import type { LedgerEvent } from '#domain/ledger/events.ts';
 import { documentId, type InvalidId } from '#domain/ledger/ids.ts';
-import type { PocketHoldsAnotherCard } from '#domain/ledger/pockets.ts';
+import type { BinderGone, PocketHoldsAnotherCard } from '#domain/ledger/pockets.ts';
 import { repageBinder } from '#domain/ledger/repage.ts';
 import { Setting, type SettingId } from '#domain/settings/setting.ts';
 import { pageMayWrite } from '#domain/settings/setting-fields.ts';
 import { err, ok, type Result } from '#shared/result.ts';
 import type { LedgerDeps } from './deps.ts';
-import { checkPocket } from './pocket-check.ts';
+import { checkBinder, checkPocket } from './pocket-check.ts';
 
 // What the three document use cases (put, merge, delete) share: finding a binder, card or setting
 // by its collection and id, whichever it is, and saving or deleting it. Saving a binder whose
@@ -32,12 +32,12 @@ export interface LedgerDocument {
 export interface Held {
   readonly doc: LedgerDocument;
   /** Save it, and what changes with it (a binder's cards); the events of those others. */
-  save(at: Date): Promise<Result<readonly LedgerEvent[], InvalidDocument | PocketHoldsAnotherCard>>;
+  save(at: Date): Promise<Result<readonly LedgerEvent[], InvalidDocument | PocketHoldsAnotherCard | BinderGone>>;
   delete(): Promise<void>;
 }
 
 /** What else is saved (or checked) with a document, made when it is found (before it changes) or created (`fresh`). */
-type Alongside<A> = (doc: A, fresh: boolean) => (at: Date) => Promise<Result<readonly LedgerEvent[], InvalidDocument | PocketHoldsAnotherCard>>;
+type Alongside<A> = (doc: A, fresh: boolean) => (at: Date) => Promise<Result<readonly LedgerEvent[], InvalidDocument | PocketHoldsAnotherCard | BinderGone>>;
 
 export interface DocumentTable {
   find(): Promise<Held | undefined>;
@@ -57,7 +57,7 @@ export function address(deps: LedgerDeps, collection: string, rawId: string): Re
     case 'cards': {
       const id = documentId<CardId>(rawId);
       if (!id.ok) return id;
-      return ok({ collection, id: id.value, table: table(deps.cards, id.value, (doc, at) => Card.create(id.value, doc, at), cardPocket(deps)) });
+      return ok({ collection, id: id.value, table: table(deps.cards, id.value, (doc, at) => Card.create(id.value, doc, at), cardPlace(deps)) });
     }
     case 'binders': {
       const id = documentId<BinderId>(rawId);
@@ -93,12 +93,14 @@ const binderCards =
     };
   };
 
-/** A card that is new or moved must fit its pocket: a pocket only holds copies of one card. */
-const cardPocket =
+/** A card that is new or moved into a binder needs that binder to exist, and must fit its pocket: a pocket only holds copies of one card. */
+const cardPlace =
   (deps: LedgerDeps): Alongside<Card> =>
   (card, fresh) => {
     const before = fresh ? null : card.place;
     return async () => {
+      const there = await checkBinder(deps.binders, card, before);
+      if (!there.ok) return there;
       const fits = await checkPocket(deps.cards, card, before);
       return fits.ok ? ok([]) : fits;
     };

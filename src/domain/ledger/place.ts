@@ -4,7 +4,7 @@ import type { Card, CardPlace } from '../cards/card.ts';
 import { soldOrTraded } from '../cards/sold.ts';
 import { sameCard } from '../cards/identity.ts';
 import type { InvalidDocument } from './check-document.ts';
-import { type PocketHoldsAnotherCard, pocketKey } from './pockets.ts';
+import { type BinderGone, type PocketHoldsAnotherCard, pocketKey } from './pockets.ts';
 
 // Moving cards to another binder (or anywhere): each card goes to the binder, page and pocket
 // given, all together. The pockets they leave stay empty. Refused if a card would land in a
@@ -19,7 +19,7 @@ export type PlaceError =
   | { readonly code: 'CARD_GIVEN_TWICE' }
   | { readonly code: 'CARD_DELETED_MEANWHILE' }
   | { readonly code: 'CARD_SOLD'; readonly name: string | null }
-  | { readonly code: 'BINDER_GONE' }
+  | BinderGone
   | { readonly code: 'CASE_HAS_NO_POCKETS'; readonly binderName: string | null }
   | { readonly code: 'POCKET_REQUIRED' }
   | { readonly code: 'POCKET_PAST_PAGE' }

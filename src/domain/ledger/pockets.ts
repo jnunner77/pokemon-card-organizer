@@ -10,6 +10,17 @@ export interface PocketHoldsAnotherCard {
   readonly name: string | null;
 }
 
+/** The binder a card is saved into does not exist. */
+export interface BinderGone {
+  readonly code: 'BINDER_GONE';
+}
+
+/** The binder a card is being put in: new with a binder, or moved to another one; null otherwise (kept, or out of every binder). */
+export function binderEntered(card: Card, before: CardPlace | null): string | null {
+  const to = card.place.binderId;
+  return to !== null && (before === null || before.binderId !== to) ? to : null;
+}
+
 /** The pocket a place is, or null for a case or no binder. */
 export const pocketKey = (p: CardPlace): string | null => (p.binderId === null || p.page === null || p.slot === null ? null : `${p.binderId}/${p.page}/${p.slot}`);
 

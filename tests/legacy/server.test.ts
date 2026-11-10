@@ -61,6 +61,7 @@ beforeEach(() => {
   store = new Store(dir);
   assets = new Assets(dir);
   app = createApp({ store, assets, publicDir: path.join(__dirname, '../../public') });
+  store.set('binders', 'b1', { name: 'IR', pockets: 9, order: 1 });
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
@@ -325,6 +326,27 @@ describe('moving cards to another binder', () => {
     await request(app).put('/api/docs/binders/m').send({ name: "Maiya's", owner: 'Maiya' }).expect(200);
     await request(app).patch('/api/docs/binders/m').send({ owner: '' }).expect(200);
     await request(app).patch('/api/docs/binders/m').send({ owner: 'Someone' }).expect(400);
+  });
+});
+
+describe('a card can only be put in a binder that exists', () => {
+  it('refuses a card saved or moved into a missing binder with a 409, and saves nothing', async () => {
+    store.set('cards', 'c1', card());
+    const before = (await request(app).get('/api/data').expect(200)).body;
+    const put = await request(app).put('/api/docs/cards/c9').send(card({ binderId: 'nob' })).expect(409);
+    expect(put.body.code).toBe('conflict');
+    await request(app).patch('/api/docs/cards/c1').send({ binderId: 'nob', page: 1, slot: 2 }).expect(409);
+    const prices = await request(app).post('/api/cards/c1/prices').send({ fields: { binderId: 'nob', page: 1, slot: 1 } }).expect(409);
+    expect(prices.body.code).toBe('conflict');
+    expect((await request(app).get('/api/data').expect(200)).body).toEqual(before);
+  });
+
+  it('still edits and moves a card that already points at a missing binder', async () => {
+    store.set('cards', 'c1', card({ binderId: 'gone' }));
+    await request(app).patch('/api/docs/cards/c1').send({ name: 'Lapras ex' }).expect(200);
+    await request(app).patch('/api/docs/cards/c1').send({ binderId: 'b1', page: 1, slot: 1 }).expect(200);
+    store.set('cards', 'c2', card({ binderId: 'gone' }));
+    await request(app).patch('/api/docs/cards/c2').send({ binderId: null, page: null, slot: null }).expect(200);
   });
 });
 

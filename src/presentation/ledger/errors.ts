@@ -31,6 +31,8 @@ export function documentFailure(e: AddressError | PutDocumentError | MergeDocume
       return badRequest(e.message);
     case 'DOCUMENT_NOT_FOUND':
       return notFound(`No ${singular(e.collection)} with id ${e.id}`);
+    case 'BINDER_GONE':
+      return conflict("That binder no longer exists, so the card wasn't saved.");
     case 'POCKET_HOLDS_ANOTHER_CARD':
       return conflict(holdsAnother(e.name));
     default:
@@ -48,6 +50,8 @@ export function priceEntriesFailure(e: ChangePriceEntriesError): Failure {
       return notFound('That card no longer exists.');
     case 'PRICE_ENTRY_GONE':
       return conflict('A price entry was changed or removed meanwhile, so nothing was saved. Try again.');
+    case 'BINDER_GONE':
+      return conflict("That binder no longer exists, so the card wasn't saved.");
     case 'POCKET_HOLDS_ANOTHER_CARD':
       return conflict(holdsAnother(e.name));
     case 'INVALID_DOCUMENT':

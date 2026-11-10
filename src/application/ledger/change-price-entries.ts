@@ -3,11 +3,11 @@ import { checkPriceEntryFields, type PriceEntry, type PriceEntryError } from '#d
 import type { InvalidDocument } from '#domain/ledger/check-document.ts';
 import type { Fields } from '#domain/ledger/document.ts';
 import { documentId, type InvalidId } from '#domain/ledger/ids.ts';
-import type { PocketHoldsAnotherCard } from '#domain/ledger/pockets.ts';
+import type { BinderGone, PocketHoldsAnotherCard } from '#domain/ledger/pockets.ts';
 import { err, ok, type Result } from '#shared/result.ts';
 import { commit } from './commit.ts';
 import type { LedgerDeps } from './deps.ts';
-import { checkPocket } from './pocket-check.ts';
+import { checkBinder, checkPocket } from './pocket-check.ts';
 import { type DocumentView, viewOf } from './ledger-reader.ts';
 
 export interface ChangePriceEntriesInput {
@@ -18,7 +18,7 @@ export interface ChangePriceEntriesInput {
   readonly fields?: Fields | undefined;
 }
 
-export type ChangePriceEntriesError = InvalidId | PriceEntryError | InvalidDocument | PocketHoldsAnotherCard | { readonly code: 'CARD_NOT_FOUND' };
+export type ChangePriceEntriesError = InvalidId | PriceEntryError | InvalidDocument | PocketHoldsAnotherCard | BinderGone | { readonly code: 'CARD_NOT_FOUND' };
 
 /**
  * Add, change or remove a card's price entries by id, with other fields that change with them
@@ -43,6 +43,8 @@ export class ChangePriceEntries {
       const before = card.place;
       const changed = card.changePriceEntries({ add: input.add, update: input.update, remove: input.remove, fields: input.fields }, now);
       if (!changed.ok) return changed;
+      const there = await checkBinder(this.#deps.binders, card, before);
+      if (!there.ok) return there;
       const fits = await checkPocket(this.#deps.cards, card, before);
       if (!fits.ok) return fits;
       await this.#deps.cards.save(card);

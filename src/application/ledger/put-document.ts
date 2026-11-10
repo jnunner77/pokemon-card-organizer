@@ -1,5 +1,5 @@
 import type { InvalidDocument } from '#domain/ledger/check-document.ts';
-import type { PocketHoldsAnotherCard } from '#domain/ledger/pockets.ts';
+import type { BinderGone, PocketHoldsAnotherCard } from '#domain/ledger/pockets.ts';
 import { ok, type Result } from '#shared/result.ts';
 import { commit } from './commit.ts';
 import type { LedgerDeps } from './deps.ts';
@@ -13,7 +13,7 @@ export interface PutDocumentInput {
   readonly doc: unknown;
 }
 
-export type PutDocumentError = AddressError | InvalidDocument | PocketHoldsAnotherCard;
+export type PutDocumentError = AddressError | InvalidDocument | PocketHoldsAnotherCard | BinderGone;
 
 /** Create a binder, card or setting, or replace it whole. */
 export class PutDocument {

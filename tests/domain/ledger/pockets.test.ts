@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { pocketKey, pocketRefusal } from '#domain/ledger/pockets.ts';
+import { binderEntered, pocketKey, pocketRefusal } from '#domain/ledger/pockets.ts';
 import { card } from '../fixtures.ts';
 
 const at = (binderId: string | null, page: number | null, slot: number | null) => ({ binderId, page, slot });
@@ -30,5 +30,16 @@ describe('a pocket holds copies of one card', () => {
   it('names the different card in the pocket', () => {
     const mine = pikachu('a');
     assert.deepEqual(pocketRefusal(mine, [pikachu('b'), card('c', { name: 'Charizard', number: '4/102', binderId: 'b1', page: 1, slot: 1 })]), { code: 'POCKET_HOLDS_ANOTHER_CARD', name: 'Charizard' });
+  });
+});
+
+describe('the binder a card is put in', () => {
+  it('is the new binder of a new card or a card that moved to another binder, and nothing otherwise', () => {
+    assert.equal(binderEntered(pikachu('a'), null), 'b1');
+    assert.equal(binderEntered(pikachu('a', at(null, null, null)), null), null);
+    assert.equal(binderEntered(pikachu('a', at('b1', 1, 2)), at('b1', 1, 1)), null);
+    assert.equal(binderEntered(pikachu('a', at('b2', 1, 1)), at('b1', 1, 1)), 'b2');
+    assert.equal(binderEntered(pikachu('a', at(null, null, null)), at('b1', 1, 1)), null);
+    assert.equal(binderEntered(pikachu('a'), at(null, null, null)), 'b1');
   });
 });

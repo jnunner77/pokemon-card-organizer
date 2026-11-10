@@ -9,6 +9,7 @@ import { card, NOW, setUp } from '../fixtures.ts';
 describe('PutDocument', () => {
   it('creates a card and publishes that it was saved', async () => {
     const { ledger, deps, published } = setUp();
+    ledger.seed('binders', 'b1', { name: 'IR', pockets: 9 });
     const r = await new PutDocument(deps).execute({ collection: 'cards', id: 'c1', doc: card() });
     assert.deepEqual(r, { ok: true, value: { id: 'c1', ...card() } });
     assert.deepEqual(ledger.tables.cards.get('c1'), card());
@@ -17,6 +18,7 @@ describe('PutDocument', () => {
 
   it('refuses a new card in a pocket holding a different card, and saves nothing', async () => {
     const { ledger, deps, published } = setUp();
+    ledger.seed('binders', 'b1', { name: 'IR', pockets: 9 });
     ledger.seed('cards', 'c1', card({ name: 'Charizard', number: '4/102' }));
     const r = await new PutDocument(deps).execute({ collection: 'cards', id: 'c2', doc: card() });
     assert.deepEqual(r, { ok: false, error: { code: 'POCKET_HOLDS_ANOTHER_CARD', name: 'Charizard' } });
@@ -27,6 +29,7 @@ describe('PutDocument', () => {
 
   it('puts a copy of the same card in the pocket, and saves a card again without checking its pocket', async () => {
     const { ledger, deps } = setUp();
+    ledger.seed('binders', 'b1', { name: 'IR', pockets: 9 });
     ledger.seed('cards', 'c1', card({ condition: 'NM' }));
     const put = new PutDocument(deps);
     assert.equal((await put.execute({ collection: 'cards', id: 'c2', doc: card({ condition: 'LP', owner: 'Megan' }) })).ok, true);
@@ -178,6 +181,7 @@ describe('changing a binder’s pockets per page', () => {
 describe('saving a sold card', () => {
   it('stores it with no pocket (PUT and PATCH), and frees the pocket for another card', async () => {
     const { ledger, deps } = setUp();
+    ledger.seed('binders', 'b1', { name: 'IR', pockets: 9 });
     ledger.seed('cards', 'a', card());
     ledger.seed('cards', 'b', card({ name: 'Mew', number: '151', slot: 2 }));
     const put = await new PutDocument(deps).execute({ collection: 'cards', id: 'a', doc: card({ status: 'sold' }) });
@@ -188,5 +192,42 @@ describe('saving a sold card', () => {
     assert.deepEqual(ledger.tables.cards.get('b')?.['slot'], null);
     const other = await new PutDocument(deps).execute({ collection: 'cards', id: 'c', doc: card({ name: 'Eevee', number: '133', slot: 1 }) });
     assert.ok(other.ok);
+  });
+});
+
+describe('a card can only be put in a binder that exists', () => {
+  it('refuses a new card in a missing binder (PUT), saving and publishing nothing', async () => {
+    const { ledger, deps, published } = setUp();
+    const r = await new PutDocument(deps).execute({ collection: 'cards', id: 'c1', doc: card({ binderId: 'nob' }) });
+    assert.deepEqual(r, { ok: false, error: { code: 'BINDER_GONE' } });
+    assert.equal(ledger.tables.cards.size, 0);
+    assert.deepEqual(published, []);
+    assert.deepEqual(ledger.runs, [{ committed: false }]);
+  });
+
+  it('refuses a card moved to a missing binder (PUT and PATCH), leaving it where it was', async () => {
+    const { ledger, deps } = setUp();
+    ledger.seed('binders', 'b1', { name: 'IR', pockets: 9 });
+    ledger.seed('cards', 'c1', card());
+    const gone = { ok: false, error: { code: 'BINDER_GONE' } };
+    assert.deepEqual(await new MergeDocument(deps).execute({ collection: 'cards', id: 'c1', patch: { binderId: 'nob', page: 1, slot: 2 } }), gone);
+    assert.deepEqual(await new PutDocument(deps).execute({ collection: 'cards', id: 'c1', doc: card({ binderId: 'nob' }) }), gone);
+    assert.deepEqual(ledger.tables.cards.get('c1'), card());
+  });
+
+  it('still edits, moves and releases a card already in a missing binder', async () => {
+    const { ledger, deps } = setUp();
+    ledger.seed('binders', 'b2', { name: 'Other', pockets: 9 });
+    ledger.seed('cards', 'c1', card({ binderId: 'gone' }));
+    const merge = new MergeDocument(deps);
+    const put = new PutDocument(deps);
+    assert.ok((await merge.execute({ collection: 'cards', id: 'c1', patch: { name: 'Lapras ex' } })).ok);
+    assert.ok((await put.execute({ collection: 'cards', id: 'c1', doc: card({ binderId: 'gone', notes: 'kept' }) })).ok);
+    assert.equal(ledger.tables.cards.get('c1')?.['binderId'], 'gone');
+    assert.ok((await merge.execute({ collection: 'cards', id: 'c1', patch: { binderId: 'b2', page: 1, slot: 1 } })).ok);
+    assert.equal(ledger.tables.cards.get('c1')?.['binderId'], 'b2');
+    ledger.seed('cards', 'c2', card({ binderId: 'gone' }));
+    assert.ok((await merge.execute({ collection: 'cards', id: 'c2', patch: { binderId: null, page: null, slot: null } })).ok);
+    assert.equal(ledger.tables.cards.get('c2')?.['binderId'], null);
   });
 });

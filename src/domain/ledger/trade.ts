@@ -7,6 +7,7 @@ import { onWatchlist } from '../cards/watch.ts';
 import type { InvalidDocument } from './check-document.ts';
 import { type Fields, isRecord } from './document.ts';
 import { documentId, type InvalidId } from './ids.ts';
+import type { BinderGone } from './pockets.ts';
 
 // A trade with a dealer, recorded all at once: the cards I give are traded away (out of their
 // binders, with a sale record of what they went for), and the cards I get come in, each as a new
@@ -42,7 +43,7 @@ export type TradeError =
   | { readonly code: 'CARD_NOT_HELD'; readonly name: string | null }
   | { readonly code: 'NOT_A_PLACEHOLDER'; readonly name: string | null }
   | { readonly code: 'CARD_ID_TAKEN' }
-  | { readonly code: 'BINDER_GONE' }
+  | BinderGone
   | { readonly code: 'TRADE_NOT_FOUND' }
   | { readonly code: 'TRADED_CARD_GONE_ON'; readonly name: string | null }
   | InvalidId
