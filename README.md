@@ -753,6 +753,10 @@ counts pockets (with the number of cards after it when they differ).
   a card (PUT or PATCH) into a pocket that holds a different card, moving cards
   (`POST /api/cards/place`), a sale's undo and a sort that would put different cards in one
   pocket answer 409 (400 for a sort) and change nothing.
+  A card can only be put in a binder that exists: saving a new card, or moving one (PUT, PATCH or
+  the fields of `POST /api/cards/:id/prices`), into a binder that isn't there answers 409 and saves
+  nothing. A card already pointing at a missing binder still loads and can be edited, moved to an
+  existing binder or taken out of every binder.
 
 ## Display cases
 

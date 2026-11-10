@@ -56,4 +56,15 @@ describe('ChangePriceEntries', () => {
     assert.deepEqual([r.value['binderId'], r.value['page'], r.value['slot']], [null, null, null]);
     assert.deepEqual(r.value['sale'], { from: { binderId: 'b1', page: 1, slot: 1 } });
   });
+
+  it('refuses fields that put the card in a binder that does not exist, saving nothing; a card already in one can still get entries', async () => {
+    const { ledger, deps, published } = setUp();
+    ledger.seed('cards', 'c1', card({ prices: [entry('a')] }));
+    const change = new ChangePriceEntries(deps);
+    assert.deepEqual(await change.execute({ cardId: 'c1', add: [entry('b')], fields: { binderId: 'gone', page: 1, slot: 1 } }), { ok: false, error: { code: 'BINDER_GONE' } });
+    assert.deepEqual(ledger.tables.cards.get('c1'), card({ prices: [entry('a')] }));
+    assert.deepEqual(published, []);
+    ledger.seed('cards', 'c2', card({ binderId: 'gone', slot: 2 }));
+    assert.equal((await change.execute({ cardId: 'c2', add: [entry('c')] })).ok, true);
+  });
 });
