@@ -41,6 +41,9 @@ export function validateDoc(collection: Collection, doc: unknown): Doc {
 
 const notFound = (collection: Collection, id: string) => new NotFound(`No ${singular(collection)} with id ${id}`);
 
+/** The document under this id, never a member every object inherits ("constructor"). */
+const own = (docs: Record<string, Doc>, id: string): Doc | undefined => (Object.hasOwn(docs, id) ? docs[id] : undefined);
+
 export class Store {
   readonly dataDir: string;
   readonly file: string;
@@ -114,7 +117,7 @@ export class Store {
   }
 
   get(collection: Collection, id: string): Doc | undefined {
-    return this.data[collection][id];
+    return own(this.data[collection], id);
   }
 
   /** Create or replace a document. */
@@ -126,7 +129,7 @@ export class Store {
 
   /** Merge top-level fields into an existing document. */
   update(collection: Collection, id: string, patch: Doc): Doc {
-    const cur = this.data[collection][id];
+    const cur = own(this.data[collection], id);
     if (!cur) throw notFound(collection, id);
     const next = validateDoc(collection, { ...cur, ...patch });
     this.commit([{ collection, id, doc: next }]);
@@ -139,7 +142,7 @@ export class Store {
    */
   updateMany(collection: Collection, patches: { id: string; patch: Doc }[]): number {
     const next = patches.map(({ id, patch }): Change => {
-      const cur = this.data[collection][id];
+      const cur = own(this.data[collection], id);
       if (!cur) throw notFound(collection, id);
       return { collection, id, doc: validateDoc(collection, { ...cur, ...patch }) };
     });
@@ -155,7 +158,7 @@ export class Store {
   }
 
   delete(collection: Collection, id: string): void {
-    if (!this.data[collection][id]) return;
+    if (!own(this.data[collection], id)) return;
     this.commit([{ collection, id, doc: null }]);
   }
 
@@ -197,7 +200,7 @@ export class Store {
   /** Make changes; if they can't be saved, they're undone (memory never differs from the file) and SaveFailed thrown. */
   private commit(changes: readonly Change[]) {
     if (!changes.length) return;
-    const before = changes.map(({ collection, id }) => ({ collection, id, doc: this.data[collection][id] }));
+    const before = changes.map(({ collection, id }) => ({ collection, id, doc: own(this.data[collection], id) }));
     for (const { collection, id, doc } of changes) {
       if (doc) this.data[collection][id] = doc;
       else delete this.data[collection][id];
