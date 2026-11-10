@@ -59,13 +59,14 @@ function startPage() {
   FakeEventSource.instances = [];
   const loads: { resolve(cards: Doc[]): void; reject(e: Error): void }[] = [];
   const events: string[] = [];
+  const notices = new Set<object>();
   const window: Record<string, unknown> = { dispatchEvent: (e: { type: string }) => { events.push(e.type); }, reportError: (e: unknown) => { throw e; } };
   const sandbox = {
     window, console: { error() {}, log() {} },
     CustomEvent: class { constructor(public type: string, public init?: unknown) {} },
     EventSource: FakeEventSource,
     location: { assign() {} },
-    document: { createElement: () => ({ setAttribute() {}, remove() {} }), body: { appendChild() {} } },
+    document: { createElement: () => { const el = { setAttribute() {}, remove() { notices.delete(el); } }; return el; }, body: { appendChild: (el: object) => { notices.add(el); } } },
     setTimeout: () => 0,
     fetch: (url: string) => {
       if (url !== 'api/data') return Promise.reject(new Error('unexpected ' + url));
@@ -80,7 +81,7 @@ function startPage() {
   const names = (db: Db) => { let seen: string[] = []; db.collection('cards').onSnapshot(s => { seen = s.docs.map(d => d.data().name).sort(); }); return () => seen; };
   const change = (id: string, name: string) => ({ type: 'change', change: { collection: 'cards', id, doc: { id, name } } });
   const settle = () => new Promise(r => setTimeout(r, 0));
-  return { claude, loads, events, es: () => FakeEventSource.instances, change, names, settle };
+  return { claude, loads, events, notices, es: () => FakeEventSource.instances, change, names, settle };
 }
 
 describe('the page\'s live updates while it loads', () => {
@@ -166,6 +167,18 @@ describe('the page\'s live updates while it loads', () => {
     expect(p.es()[0].closed).toBe(true);
     p.es()[0].fail();
     expect(p.es()).toHaveLength(1);
+  });
+
+  it('takes the reconnecting notice down when the stream failed first and the load fails too', async () => {
+    const p = startPage();
+    const ready = p.claude.use('db');
+    p.es()[0].fail();
+    await p.settle();
+    expect(p.notices.size).toBe(1);
+    p.loads[0].reject(new Error('down'));
+    expect(await ready).toBeNull();
+    expect(p.es()[0].closed).toBe(true);
+    expect(p.notices.size).toBe(0);
   });
 
   it('still loads the ledger when the stream fails before any hello, and once a hello follows it loads again', async () => {

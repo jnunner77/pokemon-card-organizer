@@ -134,7 +134,7 @@
       };
     };
     open();
-    return () => { closed = true; es?.close(); };
+    return () => { closed = true; es?.close(); setOnline(true); };
   }
 
   let offlineEl = null;
