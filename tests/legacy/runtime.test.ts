@@ -60,6 +60,8 @@ function startPage() {
   const loads: { resolve(cards: Doc[]): void; reject(e: Error): void }[] = [];
   const events: string[] = [];
   const notices = new Set<object>();
+  const timers = new Map<number, { fn(): void; ms: number }>();
+  let tid = 0;
   const window: Record<string, unknown> = { dispatchEvent: (e: { type: string }) => { events.push(e.type); }, reportError: (e: unknown) => { throw e; } };
   const sandbox = {
     window, console: { error() {}, log() {} },
@@ -67,7 +69,8 @@ function startPage() {
     EventSource: FakeEventSource,
     location: { assign() {} },
     document: { createElement: () => { const el = { setAttribute() {}, remove() { notices.delete(el); } }; return el; }, body: { appendChild: (el: object) => { notices.add(el); } } },
-    setTimeout: () => 0,
+    setTimeout: (fn: () => void, ms: number) => { timers.set(++tid, { fn, ms }); return tid; },
+    clearTimeout: (id: number) => { timers.delete(id); },
     fetch: (url: string) => {
       if (url !== 'api/data') return Promise.reject(new Error('unexpected ' + url));
       return new Promise(resolve => loads.push({
@@ -80,8 +83,10 @@ function startPage() {
   const claude = window['claude'] as { use(n: string): Promise<Db | null> };
   const names = (db: Db) => { let seen: string[] = []; db.collection('cards').onSnapshot(s => { seen = s.docs.map(d => d.data().name).sort(); }); return () => seen; };
   const change = (id: string, name: string) => ({ type: 'change', change: { collection: 'cards', id, doc: { id, name } } });
+  const fire = (ms: number) => { for (const [id, t] of [...timers]) if (t.ms === ms) { timers.delete(id); t.fn(); } };
+  const pending = (ms: number) => [...timers.values()].filter(t => t.ms === ms).length;
   const settle = () => new Promise(r => setTimeout(r, 0));
-  return { claude, loads, events, notices, es: () => FakeEventSource.instances, change, names, settle };
+  return { claude, loads, events, notices, fire, pending, es: () => FakeEventSource.instances, change, names, settle };
 }
 
 describe('the page\'s live updates while it loads', () => {
@@ -257,5 +262,62 @@ describe('the page\'s live updates while it loads', () => {
     p.loads[1].resolve([]);
     await p.settle();
     expect(p.loads).toHaveLength(2);
+  });
+
+  it('loads anyway when the stream neither says hello nor fails within 5 seconds', async () => {
+    const p = startPage();
+    const ready = p.claude.use('db');
+    await p.settle();
+    expect(p.loads).toHaveLength(0);
+    p.fire(5000);
+    await p.settle();
+    expect(p.loads).toHaveLength(1);
+    p.loads[0].resolve([]);
+    expect(await ready).not.toBeNull();
+    p.fire(5000);
+    await p.settle();
+    expect(p.loads).toHaveLength(1);
+  });
+
+  it('loads again when the hello comes after the fallback, holding changes the same way', async () => {
+    const p = startPage();
+    const ready = p.claude.use('db');
+    p.fire(5000);
+    await p.settle();
+    p.loads[0].resolve([{ id: 'c1', name: 'Old' }]);
+    const names = p.names((await ready)!);
+    p.es()[0].emit('hello');
+    await p.settle();
+    expect(p.loads).toHaveLength(2);
+    p.es()[0].message(p.change('c1', 'New'));
+    p.loads[1].resolve([{ id: 'c1', name: 'Stale' }]);
+    await p.settle();
+    expect(names()).toEqual(['New']);
+  });
+
+  it('clears the fallback timer on a hello or an error before 5 seconds', async () => {
+    for (const how of ['hello', 'error']) {
+      const p = startPage();
+      const ready = p.claude.use('db');
+      expect(p.pending(5000)).toBe(1);
+      if (how === 'hello') p.es()[0].emit('hello'); else p.es()[0].fail();
+      await p.settle();
+      expect(p.pending(5000)).toBe(0);
+      p.fire(5000);
+      p.loads[0].resolve([]);
+      await ready;
+      await p.settle();
+      expect(p.loads).toHaveLength(1);
+    }
+  });
+
+  it('clears the fallback timer when the stream is closed', async () => {
+    const p = startPage();
+    const ready = p.claude.use('db');
+    p.es()[0].fail();
+    await p.settle();
+    p.loads[0].reject(new Error('down'));
+    expect(await ready).toBeNull();
+    expect(p.pending(5000)).toBe(0);
   });
 });

@@ -109,14 +109,17 @@
     })());
   }
 
+  /* A stream that hasn't said hello or failed by then (a proxy holding it back) mustn't keep the ledger from loading; a later hello loads again. */
+  const FIRST_WAIT_MS = 5000;
+
   /**
    * Live updates from other tabs and devices. `onFirst` runs once, at the first hello or the first
    * error (a blocked stream mustn't stop the page loading); on a later hello, reload in case anything
    * was missed. Returns close(), which ends the stream for good.
    */
   function connect(onFirst) {
-    let es, closed = false;
-    const first = () => { if (onFirst) { const f = onFirst; onFirst = null; f(); return true; } return false; };
+    let es, closed = false, firstTimer = null;
+    const first = () => { clearTimeout(firstTimer); firstTimer = null; if (onFirst) { const f = onFirst; onFirst = null; f(); return true; } return false; };
     const open = () => {
       if (closed) return;
       es = new EventSource("api/events");
@@ -138,7 +141,8 @@
       };
     };
     open();
-    return () => { closed = true; es?.close(); setOnline(true); };
+    if (onFirst) firstTimer = setTimeout(first, FIRST_WAIT_MS);
+    return () => { clearTimeout(firstTimer); firstTimer = null; closed = true; es?.close(); setOnline(true); };
   }
 
   let offlineEl = null;
