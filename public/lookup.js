@@ -1,6 +1,6 @@
 /* Find a card → Any card: a card from the card database (src/application/catalog/show-any-card.ts)
    as the page shows it and adds it. Its number as printed ("4/102"), which printing to show first (and which once prices arrive),
-   and the new card's fields for Add to a binder (and, from inside a binder, the whole card for its next empty pocket).
+   and the new card's fields for Add to a binder (and the whole card for the next empty pocket of the binder chosen, the open one to start with).
    A plain script: the page uses window.BinderLookup, and the tests load it the same way. */
 (function (root) {
   "use strict";
@@ -51,5 +51,15 @@
     return (binders || []).find(b => b.id === openId) || null;
   }
 
-  root.BinderLookup = { cardNo, firstPrinting, printingAfterPrices, draftFields, binderCard, addTarget };
+  /* The binder Add puts the card in: the one chosen in Any card's chooser, if it's still there; else the one open (addTarget).
+     "" (New card form) or none: null, and Add opens the new card form. */
+  function addTo(binders, openId, overlayOpen, chosenId) {
+    if (typeof chosenId === "string" && chosenId) {
+      const b = (binders || []).find(x => x.id === chosenId);
+      if (b) return b;
+    }
+    return addTarget(binders, openId, overlayOpen);
+  }
+
+  root.BinderLookup = { cardNo, firstPrinting, printingAfterPrices, draftFields, binderCard, addTarget, addTo };
 })(typeof window !== "undefined" ? window : globalThis);

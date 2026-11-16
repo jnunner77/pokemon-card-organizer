@@ -833,10 +833,12 @@ when you've rearranged the binder and want to keep the new layout instead.
   the daily update would price it (see *How a card's daily price is worked out*), for each of its
   printings (regular, reverse holo, patterns, stamps, 1st Edition…), with TCGplayer's
   and PriceCharting's prices, PriceCharting's graded prices, and links to its products. Nothing is
-  added to the ledger; with a binder open, **Add to `<binder>`** puts it, in the printing chosen,
-  in that binder's next empty pocket (a display case just takes it) and shows it there, with
-  *Edit* in the message to change its condition and the rest; outside a binder, **Add to a
-  binder** opens a new card filled in with it. Each card looked at is one PriceCharting call;
+  added to the ledger. A chooser beside **Add** starts on the binder or display case you have open
+  and lists the others in the sidebar's order: **Add to `<binder>`** puts the card, in the printing
+  chosen, in the chosen binder's next empty pocket (a display case just takes it) and shows it
+  there, with *Edit* in the message to change its condition and the rest. Outside a binder the
+  chooser starts on *New card form*, and **Add to a binder** opens a new card filled in with it;
+  choosing a binder adds the card straight into it. Each card starts on the default again. Each card looked at is one PriceCharting call;
   once the day's calls pass three quarters of its budget, lookups leave PriceCharting out (and
   say so), keeping the rest for the daily update. While the results show, the top one's card (and,
   for a printing TCGdex has no TCGplayer price for, its TCGplayer set) is fetched ahead, never
