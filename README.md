@@ -357,7 +357,10 @@ on this device until *Clear filters*.
 
 To change many cards at once, filter, press and hold a row, *Select all*, then use the selection's
 buttons. *Owner* sets the owner of every selected card; for example, to make everything that isn't
-*Both* Justin's, tick Megan and Not set, select all, and choose Justin.
+*Both* Justin's, tick Megan and Not set, select all, and choose Justin. The selection bar shows the
+selected cards' total value (CAD, each copy counted) next to the count, updating as you select and
+deselect, and says how many selected cards are unpriced and how many aren't counted (placeholders,
+sold or traded cards and watchlist-only cards, as in *Est. value held*).
 
 ## Table
 
