@@ -4608,7 +4608,8 @@ const lookTarget = L => window.BinderLookup.addTo(S.binders, S.binderId, PV.open
 async function lookAdd(){
   const look = FIND.look, c = look?.card; if(!c || !canEdit()) return;
   const p = c.printings[look.pi];
-  if(unsaved()) return toast("Save or discard the card you're editing first.");
+  const wasHeld = look.held; look.held = false;
+  if(unsaved()){ if(wasHeld) lookRefresh(look); return toast("Save or discard the card you're editing first."); }
   const b = lookTarget(look);
   if(!b){
     closeFind(false);
@@ -4650,9 +4651,12 @@ $("#findRoot").addEventListener("change", e => {
 });
 $("#findRoot").addEventListener("focusout", e => {
   const look = FIND.look;
-  if(e.target.id!=="lk_bin" || !look?.held) return;
+  if(!look?.held) return;
+  const fromAdd = e.target.dataset?.find==="add";
+  if(e.target.id!=="lk_bin" && !fromAdd) return;
+  // Focus moving from the chooser to Add keeps the wait (a re-render would swallow the click); leaving Add shows what arrived.
+  if(!fromAdd && e.relatedTarget?.dataset?.find==="add") return;
   look.held = false;
-  if(e.relatedTarget?.dataset?.find==="add") return;
   setTimeout(() => lookRefresh(look), 0);
 });
 $("#findRoot").addEventListener("keydown", e => { if(e.key==="Enter" && e.target.id==="lw_buy"){ e.preventDefault(); void lookWatch(); } });
