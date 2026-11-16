@@ -4546,7 +4546,7 @@ async function lookPrices(look){
 }
 function lookRefresh(look){
   if(FIND.look!==look) return;
-  if(document.activeElement?.id=="lk_bin"){ look.held = true; return; }
+  if(window.BinderLookup.shouldHold(document.activeElement?.id, look.held)){ look.held = true; return; }
   const ae = document.activeElement, back = ae?.dataset?.find==="back", keep = ae?.dataset?.find==="watch" || ae?.dataset?.find==="watchsave" || ae?.dataset?.find==="watchcancel" ? ae.dataset.find : "";
   // A Watch threshold being typed survives an answer arriving: its text, focus and caret.
   const buy = ae?.id==="lw_buy" ? {v:ae.value, s:ae.selectionStart, e:ae.selectionEnd} : null;
@@ -4630,6 +4630,8 @@ async function lookAdd(){
 }
 $("#findRoot").addEventListener("click", e => {
   e.stopPropagation();
+  const hl = FIND.look;
+  if(hl?.held && !window.BinderLookup.keepOnClick(holdKindOf(e.target.closest("[data-find], #lk_bin") || e.target))){ hl.held = false; setTimeout(() => lookRefresh(hl), 0); }
   const a = e.target.closest("[data-find]"); if(!a) return;
   const k = a.dataset.find;
   if(k==="backdrop"){ if(e.target===a) closeFind(); return; }
@@ -4649,13 +4651,14 @@ $("#findRoot").addEventListener("change", e => {
   if(e.target.id!=="lk_bin" || !FIND.look) return;
   FIND.look.addTo = e.target.value; FIND.look.held = false; findRender(); $("#lk_bin")?.focus();
 });
+const holdKindOf = el => window.BinderLookup.holdKind(el?.id, el?.dataset?.find);
 $("#findRoot").addEventListener("focusout", e => {
   const look = FIND.look;
   if(!look?.held) return;
-  const fromAdd = e.target.dataset?.find==="add";
-  if(e.target.id!=="lk_bin" && !fromAdd) return;
-  // Focus moving from the chooser to Add keeps the wait (a re-render would swallow the click); leaving Add shows what arrived.
-  if(!fromAdd && e.relatedTarget?.dataset?.find==="add") return;
+  const from = holdKindOf(e.target);
+  if(from==="other") return;
+  // Chooser to Add (or to nothing, as a tap on Add is on iOS) keeps the wait: a re-render would swallow the tap. The next click elsewhere, or leaving Add, shows what arrived.
+  if(window.BinderLookup.keepAfterBlur(from, e.relatedTarget ? holdKindOf(e.relatedTarget) : "none")) return;
   look.held = false;
   setTimeout(() => lookRefresh(look), 0);
 });
