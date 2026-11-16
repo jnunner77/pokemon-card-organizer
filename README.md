@@ -838,11 +838,11 @@ when you've rearranged the binder and want to keep the new layout instead.
   chosen, in the chosen binder's next empty pocket (a display case just takes it) and shows it
   there, with *Edit* in the message to change its condition and the rest. Outside a binder the
   chooser starts on *New card form*, and **Add to a binder** opens a new card filled in with it;
-  choosing a binder adds the card straight into it. Each card starts on the default again. Each
-  card looked at is one PriceCharting call; once the day's calls pass three quarters of its budget, lookups leave PriceCharting out (and
-  say so), keeping the rest for the daily update. While the results show, the top one's card (and,
-  for a printing TCGdex has no TCGplayer price for, its TCGplayer set) is fetched ahead, never
-  PriceCharting, so choosing it is quicker.
+  choosing a binder adds the card straight into it. Each card starts on the default again. Each card
+  looked at is one PriceCharting call; once the day's calls pass three quarters of its budget,
+  lookups leave PriceCharting out (and say so), keeping the rest for the daily update. While the
+  results show, the top one's card (and, for a printing TCGdex has no TCGplayer price for, its
+  TCGplayer set) is fetched ahead, never PriceCharting, so choosing it is quicker.
   When TCGplayer's own catalog (tcgcsv.com) doesn't answer, the card says which printings have no
   TCGplayer price because of it. Turned off with `CARD_LOOKUPS=off`.
 - **Your photos**: choose, take, browse, paste or drop one; or photograph a whole binder page
