@@ -8,11 +8,11 @@ interface Card { name: string; set: string; setCode: string | null; number: stri
 interface Printing { variant: string; price: { cad: number } | null }
 const sandbox = {
   window: {} as {
-    BinderLookup: { cardNo: (c: Partial<Card>) => string; firstPrinting: (p: (Printing | null)[] | null) => number; printingAfterPrices: (p: (Printing | null)[] | null, pi: number, picked: boolean) => number; draftFields: (c: Partial<Card>, p?: Printing) => Record<string, string>; addTarget: (binders: { id: string }[], openId: string | null, overlayOpen: boolean) => { id: string } | null; binderCard: (c: Partial<Card>, p: Printing | undefined, loc: { binderId: string; page?: number | null; slot?: number | null }, owner: string, at: string) => Record<string, unknown> };
+    BinderLookup: { cardNo: (c: Partial<Card>) => string; firstPrinting: (p: (Printing | null)[] | null) => number; printingAfterPrices: (p: (Printing | null)[] | null, pi: number, picked: boolean) => number; draftFields: (c: Partial<Card>, p?: Printing) => Record<string, string>; addTarget: (binders: { id: string }[], openId: string | null, overlayOpen: boolean) => { id: string } | null; addTo: (binders: { id: string }[], openId: string | null, overlayOpen: boolean, chosenId?: string | null) => { id: string } | null; holdKind: (id?: string, find?: string) => string; shouldHold: (activeId?: string, held?: boolean) => boolean; keepAfterBlur: (from: string, to: string) => boolean; keepOnClick: (kind: string) => boolean; binderCard: (c: Partial<Card>, p: Printing | undefined, loc: { binderId: string; page?: number | null; slot?: number | null }, owner: string, at: string) => Record<string, unknown> };
   },
 };
 vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public/lookup.js'), 'utf8'), sandbox);
-const { cardNo, firstPrinting, printingAfterPrices, draftFields, binderCard, addTarget } = sandbox.window.BinderLookup;
+const { cardNo, firstPrinting, printingAfterPrices, draftFields, binderCard, addTarget, addTo, holdKind, shouldHold, keepAfterBlur, keepOnClick } = sandbox.window.BinderLookup;
 
 const charizard: Card = { name: 'Charizard', set: 'Base Set', setCode: 'BS', number: '4', total: 102, rarity: 'Rare', artist: 'Mitsuhiro Arita' };
 
@@ -89,5 +89,54 @@ describe('which binder Add to <binder> puts the card in', () => {
   });
   it('is none for Not in a binder, Sales and Watchlist, or a binder that is gone', () => {
     for (const id of ['__loose', '__sales', '__watch', 'gone', null]) expect(addTarget(binders, id, false)).toBeNull();
+  });
+});
+
+describe('which binder Add puts the card in, with the chooser', () => {
+  const binders = [{ id: 'b1' }, { id: 'c1' }];
+  it('is the open binder when nothing was chosen', () => {
+    expect(addTo(binders, 'b1', false)).toBe(binders[0]);
+    expect(addTo(binders, 'b1', false, null)).toBe(addTarget(binders, 'b1', false));
+    expect(addTo(binders, 'c1', false, undefined)).toBe(binders[1]);
+  });
+  it('is the one chosen, over the open one', () => {
+    expect(addTo(binders, 'b1', false, 'c1')).toBe(binders[1]);
+  });
+  it('works with no binder open, or Pricing or Selling on top', () => {
+    for (const id of ['__loose', '__sales', '__watch', null]) expect(addTo(binders, id, false, 'b1')).toBe(binders[0]);
+    expect(addTo(binders, 'b1', true, 'c1')).toBe(binders[1]);
+  });
+  it('treats the New card form choice as the default', () => {
+    expect(addTo(binders, 'b1', false, '')).toBe(binders[0]);
+    expect(addTo(binders, '__watch', false, '')).toBeNull();
+  });
+  it('falls back when the chosen binder is gone', () => {
+    expect(addTo(binders, 'b1', false, 'gone')).toBe(binders[0]);
+    expect(addTo(binders, null, false, 'gone')).toBeNull();
+  });
+});
+
+describe('the binder chooser hold', () => {
+  it('names the chooser, Add and anything else', () => {
+    expect(holdKind('lk_bin', undefined)).toBe('chooser');
+    expect(holdKind('', 'add')).toBe('add');
+    expect(holdKind('', 'pr')).toBe('other');
+  });
+  it('holds an arriving answer while the chooser has focus or a hold is on', () => {
+    expect(shouldHold('lk_bin', false)).toBe(true);
+    expect(shouldHold('', true)).toBe(true);
+    expect(shouldHold('', false)).toBe(false);
+  });
+  it('keeps the hold from the chooser to Add or to no target (a touch tap), not to another control', () => {
+    expect(keepAfterBlur('chooser', 'add')).toBe(true);
+    expect(keepAfterBlur('chooser', 'none')).toBe(true);
+    expect(keepAfterBlur('chooser', 'other')).toBe(false);
+    expect(keepAfterBlur('add', 'none')).toBe(false);
+    expect(keepAfterBlur('add', 'other')).toBe(false);
+  });
+  it('keeps the hold on a click or tap on the chooser or Add only', () => {
+    expect(keepOnClick('chooser')).toBe(true);
+    expect(keepOnClick('add')).toBe(true);
+    expect(keepOnClick('other')).toBe(false);
   });
 });

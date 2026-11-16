@@ -4546,6 +4546,7 @@ async function lookPrices(look){
 }
 function lookRefresh(look){
   if(FIND.look!==look) return;
+  if(window.BinderLookup.shouldHold(document.activeElement?.id, look.held)){ look.held = true; return; }
   const ae = document.activeElement, back = ae?.dataset?.find==="back", keep = ae?.dataset?.find==="watch" || ae?.dataset?.find==="watchsave" || ae?.dataset?.find==="watchcancel" ? ae.dataset.find : "";
   // A Watch threshold being typed survives an answer arriving: its text, focus and caret.
   const buy = ae?.id==="lw_buy" ? {v:ae.value, s:ae.selectionStart, e:ae.selectionEnd} : null;
@@ -4574,8 +4575,9 @@ function lookRender(){
     return;
   }
   const p = c.printings[L.pi] || c.printings[0];
-  const lb = lookBinder();
-  const addBtn = lb ? `<button type="button" class="btn primary sm look-add" data-find="add" title="${esc(isCase(lb) ? `Adds it to ${lb.name}` : `Adds it to the next empty pocket of ${lb.name}`)}"${L.adding?" disabled":""}>+ Add to ${esc(lb.name)}</button>` : `<button type="button" class="btn primary sm" data-find="add">+ Add to a binder</button>`;
+  const lb = lookBinder(), tb = lookTarget(L);
+  const addBtn = tb ? `<button type="button" class="btn primary sm look-add" data-find="add" title="${esc(isCase(tb) ? `Adds it to ${tb.name}` : `Adds it to the next empty pocket of ${tb.name}`)}"${L.adding?" disabled":""}>+ Add to ${esc(tb.name)}</button>` : `<button type="button" class="btn primary sm" data-find="add">+ Add to a binder</button>`;
+  const addPick = S.binders.length ? `<span class="look-addto"><label for="lk_bin" class="sr-only">Binder to add it to</label><select id="lk_bin"${L.adding?" disabled":""}>${lb?"":`<option value=""${tb?"":" selected"}>New card form</option>`}${sortedBinders().map(b=>binderOpt(b, tb?.id)).join("")}</select>${addBtn}</span>` : addBtn;
   const srcs = x => [x.tcgplayer && `TCGplayer ${money(x.tcgplayer.usd,"USD")}`, x.pricecharting && x.pricecharting.usd!=null && `PriceCharting ${money(x.pricecharting.usd,"USD")}`].filter(Boolean).join(" · ") || "No prices";
   const meta = [c.set, c.setCode, cardNo(c)].filter(Boolean).join(" · ");
   const about = [c.rarity, c.artist && `Illus. ${c.artist}`, c.released && `Released ${dLabel(c.released)}`].filter(Boolean).join(" · ");
@@ -4589,7 +4591,7 @@ function lookRender(){
         ${priced ? `<div class="look-price"><span class="hint">Worth today${c.printings.length>1?` · ${esc(p.label)}`:""}</span><b>${p?.price ? money(p.price.cad) : "No price"}</b>${p?.price?`<span class="hint">${esc(p.price.summary)}</span>`:""}</div>`
           : `<div class="look-price">${L.priceError ? `<span class="hint err" role="status">${esc(`Couldn't get today's prices: ${L.priceError}`)}</span><button type="button" class="btn sm" data-find="lookprices">Try again</button>` : `<span class="hint" role="status">Getting today's prices…</span>`}</div>`}
         ${p?.leftOut?`<p class="hint">TCGplayer's price isn't counted: ${esc(p.leftOut)}.</p>`:""}
-        <div class="look-acts">${canEdit()?`${addBtn}<button type="button" class="btn sm" data-find="watch" aria-expanded="${!!L.watch}">Watch price</button>`:""}<span class="look-links">${links}</span></div>
+        <div class="look-acts">${canEdit()?`${addPick}<button type="button" class="btn sm" data-find="watch" aria-expanded="${!!L.watch}">Watch price</button>`:""}<span class="look-links">${links}</span></div>
         ${L.watch && canEdit() ? `<div class="look-watch"><label for="lw_buy">Email me when it's at or below (CAD)</label><span class="look-watchrow"><input id="lw_buy" class="mono" inputmode="decimal" autocomplete="off" placeholder="${p?.price ? `now ${esc(money(p.price.cad))}` : "e.g. 5.00"}"><button type="button" class="btn sm primary" data-find="watchsave">Watch</button><button type="button" class="btn sm ghost" data-find="watchcancel">Cancel</button></span><span class="hint">${c.printings.length>1?`The ${esc(p.label)} printing goes`:"It goes"} on your Watchlist, not in a binder, and gets a price every day.</span></div>` : ""}
       </div>
     </div>
@@ -4601,11 +4603,14 @@ function lookRender(){
 }
 /* The binder Add puts the card in: the one open, unless Pricing or the Selling view is on top of it. */
 const lookBinder = () => window.BinderLookup.addTarget(S.binders, S.binderId, PV.open || SV.open);
+/* The binder Add uses for this card: the one chosen in the chooser, else the default above. */
+const lookTarget = L => window.BinderLookup.addTo(S.binders, S.binderId, PV.open || SV.open, L?.addTo);
 async function lookAdd(){
   const look = FIND.look, c = look?.card; if(!c || !canEdit()) return;
   const p = c.printings[look.pi];
-  if(unsaved()) return toast("Save or discard the card you're editing first.");
-  const b = lookBinder();
+  const wasHeld = look.held; look.held = false;
+  if(unsaved()){ if(wasHeld) lookRefresh(look); return toast("Save or discard the card you're editing first."); }
+  const b = lookTarget(look);
   if(!b){
     closeFind(false);
     openNew();
@@ -4625,6 +4630,8 @@ async function lookAdd(){
 }
 $("#findRoot").addEventListener("click", e => {
   e.stopPropagation();
+  const hl = FIND.look;
+  if(hl?.held && !window.BinderLookup.keepOnClick(holdKindOf(e.target.closest("[data-find], #lk_bin") || e.target))){ hl.held = false; setTimeout(() => lookRefresh(hl), 0); }
   const a = e.target.closest("[data-find]"); if(!a) return;
   const k = a.dataset.find;
   if(k==="backdrop"){ if(e.target===a) closeFind(); return; }
@@ -4638,6 +4645,22 @@ $("#findRoot").addEventListener("click", e => {
   if(k==="add") return lookAdd();
   if(k==="watch" || k==="watchcancel"){ if(FIND.look){ FIND.look.watch = k==="watch" && !FIND.look.watch; findRender(); if(FIND.look.watch) $("#lw_buy")?.focus(); else $("#findLook [data-find=watch]")?.focus(); } return; }
   if(k==="watchsave") return void lookWatch();
+});
+/* The binder chooser: a choice re-renders the button; prices arriving while it has focus wait until it's left. */
+$("#findRoot").addEventListener("change", e => {
+  if(e.target.id!=="lk_bin" || !FIND.look) return;
+  FIND.look.addTo = e.target.value; FIND.look.held = false; findRender(); $("#lk_bin")?.focus();
+});
+const holdKindOf = el => window.BinderLookup.holdKind(el?.id, el?.dataset?.find);
+$("#findRoot").addEventListener("focusout", e => {
+  const look = FIND.look;
+  if(!look?.held) return;
+  const from = holdKindOf(e.target);
+  if(from==="other") return;
+  // Chooser to Add (or to nothing, as a tap on Add is on iOS) keeps the wait: a re-render would swallow the tap. The next click elsewhere, or leaving Add, shows what arrived.
+  if(window.BinderLookup.keepAfterBlur(from, e.relatedTarget ? holdKindOf(e.relatedTarget) : "none")) return;
+  look.held = false;
+  setTimeout(() => lookRefresh(look), 0);
 });
 $("#findRoot").addEventListener("keydown", e => { if(e.key==="Enter" && e.target.id==="lw_buy"){ e.preventDefault(); void lookWatch(); } });
 /* Any card → Watch price: the card (in the printing chosen) goes on the watchlist, watched to buy */
