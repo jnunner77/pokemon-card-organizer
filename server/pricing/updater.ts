@@ -341,8 +341,10 @@ export class PriceUpdater {
   private readonly stallMs: number;
   /** During a run: when the last card started, what it's doing now, and whether it's been flagged as stalled. */
   private progressAt = 0;
-  /** During a run: the progress to show (saved at most every PROGRESS_SAVE_MS, and always before the run ends or is flagged) and when it was last saved. */
+  /** During a run: the progress to show (saved at most every PROGRESS_SAVE_MS (progress held back by that is written on the watchdog's next tick), and always before the run ends or is flagged) and when it was last saved. */
   private shownAt = 0;
+  /** During a run: progress the throttle held back, written by the watchdog's next tick. */
+  private unsaved = false;
   private shown: { done: number; current: { card: string; since: string } | null } | null = null;
   private step: string | null = null;
   private stalled = false;
@@ -508,9 +510,13 @@ export class PriceUpdater {
     this.progressAt = this.now().getTime();
     this.shownAt = 0;
     this.shown = null;
+    this.unsaved = false;
     this.stalled = false;
     this.step = scope === 'pictures' ? null : 'getting the exchange rate from the Bank of Canada';
-    const watchdog = (this.watchdog = setInterval(() => live() && safely(this.log, 'pricing', `Checking the ${name} for progress`, () => this.checkStall()), Math.min(30_000, Math.max(1000, this.stallMs / 4))));
+    const watchdog = (this.watchdog = setInterval(() => live() && safely(this.log, 'pricing', `Checking the ${name} for progress`, () => {
+      if (this.unsaved) this.saveProgress(false);
+      this.checkStall();
+    }), Math.min(30_000, Math.max(1000, this.stallMs / 4))));
     watchdog.unref();
     const { rate, rateDate } = scope === 'pictures' ? this.savedRate() : await this.rate();
     const counts = zeroCounts();
@@ -580,6 +586,7 @@ export class PriceUpdater {
     if (!live()) return { ...summary, ended: 'stopped', done, total: ids.length };
     this.saveProgress(true);
     this.shown = null;
+    this.unsaved = false;
     this.run = null;
     this.counts = null;
     const st = this.status();
@@ -637,6 +644,7 @@ export class PriceUpdater {
         this.log.info('pricing', `Price update moved on after stalling on ${p.card ?? 'a card'}`);
         this.setStatus({ ...this.shown, problem: { ...p, recoveredAt: this.now().toISOString(), message: `${p.message} It moved on by itself afterwards.` } });
         this.shownAt = this.now().getTime();
+        this.unsaved = false;
         return;
       }
     }
@@ -651,9 +659,13 @@ export class PriceUpdater {
     if (!shown) return;
     if (done !== undefined) shown.done = done;
     const at = this.now().getTime();
-    if (!force && at - this.shownAt < PROGRESS_SAVE_MS) return;
+    if (!force && at - this.shownAt < PROGRESS_SAVE_MS) {
+      this.unsaved = true;
+      return;
+    }
     this.shownAt = at;
     this.setStatus({ done: shown.done, current: shown.current });
+    this.unsaved = false;
   }
 
   /**
@@ -794,6 +806,7 @@ export class PriceUpdater {
   private endRun(ended: RunSummary['ended']) {
     this.saveProgress(true);
     this.shown = null;
+    this.unsaved = false;
     const st = this.status();
     const history = this.historyEntry(st, ended);
     this.gen++;

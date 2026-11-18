@@ -261,6 +261,35 @@ describe('how often a running update saves its progress', () => {
     waiting.forEach((r) => r());
     await run;
   });
+
+  it('writes progress the 15 seconds held back on the watchdog’s next tick, without another card starting', async () => {
+    const { vi } = await import('vitest');
+    vi.useFakeTimers({ toFake: ['setInterval'] });
+    try {
+      five();
+      let calls = 0;
+      const waiting: (() => void)[] = [];
+      const u = updaterWith(guideless(() => (++calls === 2 ? new Promise<void>((r) => waiting.push(r)) : undefined)));
+      const run = u.runAll('manual');
+      await until(() => waiting.length > 0);
+      // Lapras was saved when it started; done=1 and the start of Mew were held back.
+      expect(status()).toMatchObject({ done: 0, current: { card: expect.stringContaining('Lapras') } });
+      clock += 16_000;
+      vi.advanceTimersByTime(30_000);
+      expect(status()).toMatchObject({ done: 1, current: { card: expect.stringContaining('Mew') } });
+      expect(status().problem ?? null).toBeNull();
+      // Nothing new to show: no write.
+      const writes = countStatusWrites();
+      clock += 16_000;
+      vi.advanceTimersByTime(30_000);
+      expect(writes.n).toBe(0);
+      waiting.forEach((r) => r());
+      await run;
+      expect(status()).toMatchObject({ running: false, done: 5, current: null });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('the daily update’s first check', () => {
