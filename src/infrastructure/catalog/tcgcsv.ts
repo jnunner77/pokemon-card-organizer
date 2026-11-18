@@ -12,7 +12,7 @@ import { type Fetcher, get, SourceError } from '../http/get.ts';
 // reset().
 
 /** tcgcsv.com's Pokémon categories: English cards' catalog and the Japanese one. */
-export const TCGCSV_ENGLISH = 3;
+const TCGCSV_ENGLISH = 3;
 export const TCGCSV_JAPANESE = 85;
 
 export interface TcgCsvOptions {

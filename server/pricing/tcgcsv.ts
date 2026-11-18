@@ -20,7 +20,7 @@ import { releaseDate } from './sources.ts';
 // its sets and products the domain's (src/domain/catalog/tcgplayer.ts).
 export { ownNumber, productName, setName, type TcgGroup, type TcgPrice, type TcgProduct } from '#domain/catalog/tcgplayer.ts';
 export type { TcgCsvOptions } from '#infrastructure/catalog/tcgcsv.ts';
-export { TCGCSV_ENGLISH, TCGCSV_JAPANESE } from '#infrastructure/catalog/tcgcsv.ts';
+export { TCGCSV_JAPANESE } from '#infrastructure/catalog/tcgcsv.ts';
 
 /** What TCGplayer's catalog says about a card: its product, set, price for its printing, rarity and release date. */
 export interface TcgCsvQuote {
