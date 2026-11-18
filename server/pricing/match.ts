@@ -6,7 +6,8 @@ import type { Candidate, ProductInfo } from './sources.ts';
 // Deciding which product on a price site is the card in the binder. A card is linked
 // automatically only when exactly one product in its language (English, or Japanese for a
 // Japanese card) has the same number, the same name and the same set (and the same variant, or
-// none). Anything less certain is left for the person to pick from a short list, because a wrong match quietly gives a wrong value.
+// none). Anything less certain is left for the person to pick from a short list, because a wrong
+// match quietly gives a wrong value.
 
 export interface CardForMatch {
   name?: string | null;
@@ -14,7 +15,7 @@ export interface CardForMatch {
   setCode?: string | null;
   number?: string | null;
   variant?: string | null;
-  /** The card's language; blank or English is English, and Japanese is matched to Japanese products. */
+  /** The card's language; blank or English is English, Japanese is matched to Japanese products. */
   language?: string | null;
 }
 

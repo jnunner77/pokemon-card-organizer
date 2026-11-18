@@ -83,7 +83,10 @@ export interface UpdaterOptions {
   catalog?: Catalog | undefined;
   /** TCGplayer's own catalog (tcgcsv.ts), for what TCGdex doesn't have. */
   tcgcsv?: TcgCsv | undefined;
-  /** The same for Japanese cards: tcgcsv.com's Japanese catalog (category 85). Without it, Japanese cards get nothing from TCGplayer's catalog. */
+  /**
+   * The same for Japanese cards: tcgcsv.com's Japanese catalog (category 85). Without it,
+   * Japanese cards get nothing from TCGplayer's catalog.
+   */
   tcgcsvJapanese?: TcgCsv | undefined;
   /** PriceCharting's API (pricecharting.ts); without it, or without its token, PriceCharting isn't asked. */
   pricecharting?: PriceCharting | undefined;
@@ -1195,8 +1198,8 @@ export class PriceUpdater {
 
   /**
    * What TCGplayer's own catalog (tcgcsv.ts) says about an English or Japanese card (each in its
-   * own catalog; other languages aren't priced), when the card databases
-   * left something for it to fill: a TCGplayer price, a picture, or a blank rarity or release date.
+   * own catalog; other languages aren't priced), when the card databases left something for it to
+   * fill: a TCGplayer price, a picture, or a blank rarity or release date.
    * Null when it isn't certain which product the card is, or tcgcsv.com didn't answer.
    */
   private async tcgcsvQuote(card: Card, cat: CatalogQuote | null): Promise<TcgCsvQuote | null> {

@@ -13,7 +13,7 @@ retryPolicy.baseMs = 1;
 
 const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('a card image')]);
 
-/** tcgcsv.com with an English and a Japanese 151 set that both have a Charizard ex numbered 201/165. */
+/** tcgcsv.com with an English and a Japanese 151 set, both with a Charizard ex numbered 201/165. */
 const CATALOG: Record<string, Record<string, unknown[]>> = {
   '3': {
     groups: [{ groupId: 1, name: 'SV: Scarlet & Violet 151', abbreviation: 'MEW', publishedOn: '2023-09-22T00:00:00' }],
