@@ -1066,6 +1066,16 @@ const TR_SIDES = ["dealer","mine"];
 const TR_NAME = {dealer:"Dealer gives", mine:"I give"};
 /* The open trades, and which one is in front. TR is that trade, so what works on one trade works on the open one. */
 const TRADES = {list:[], active:null, init:false};
+/* Any card and the Trade dealer's search look in TCGdex's English catalog or TCGplayer's Japanese one; the choice is kept and shared by both. */
+const FL = {v: store.get("findLang","en")==="ja" ? "ja" : "en"};
+const findLangHTML = where => `<div class="seg find-lang" role="group" aria-label="Look in which language" data-flang-in="${where}"><button type="button" data-flang="en"${where==="find" ? ' data-find="lang"' : ""} aria-pressed="${FL.v==="en"}">English</button><button type="button" data-flang="ja"${where==="find" ? ' data-find="lang"' : ""} aria-pressed="${FL.v==="ja"}">Japanese</button></div>`;
+function setFindLang(v){
+  if(v===FL.v) return;
+  FL.v = v; store.set("findLang", v);
+  document.querySelectorAll("[data-flang]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.flang===FL.v)));
+  if(FIND.open && FIND.mode==="any"){ FIND.any.q = null; anyRun(); }
+  if(TR && $("#tr_card")){ TRS = {...TRS, q:"", hits:[], error:""}; if(TR.q.dealer.trim()) trSearch(); else trResults("dealer"); }
+}
 let TR = null;
 const TRP = new Set();    // trades with changes the server hasn't got yet
 const TRDISC = new Set(); // trades discarded here that the server hasn't been told about yet
@@ -1304,7 +1314,7 @@ function trSearch(){
   const seq = TRS.seq;
   TRS.t = setTimeout(async () => {
     try{
-      const r = await window.ledgerApi.call("GET", "api/lookup/search?q=" + encodeURIComponent(q));
+      const r = await window.ledgerApi.call("GET", "api/lookup/search?q=" + encodeURIComponent(q) + "&lang=" + FL.v);
       if(seq!==TRS.seq) return;
       TRS = {...TRS, q, busy:false, error:"", hits:(r.hits || []).slice(0, 8)};
     }catch(err){
@@ -1322,7 +1332,7 @@ function trResults(k){
     el.innerHTML = !trLookups() ? `<p class="hint tr-none">Card lookups aren't available here. Type the card in instead.</p>`
       : TRS.busy && !hits.length ? `<p class="hint tr-none">Looking it up…</p>`
       : TRS.error ? `<p class="hint tr-none warn-text">${esc(TRS.error)} Type the card in instead.</p>`
-      : !hits.length ? `<p class="hint tr-none">No card by that name in the card database. Check the spelling, try just the Pokémon's name, or type it in.</p>`
+      : !hits.length ? `<p class="hint tr-none">No ${FL.v==="ja" ? "Japanese card" : "card"} by that name in ${FL.v==="ja" ? "TCGplayer's Japanese catalog" : "the card database"}. Check the spelling, try just the Pokémon's name, or type it in.</p>`
       : hits.map((h, i) => `<button class="tr-hit" type="button" data-trlook="${i}">${h.thumb?`<img class="thumb" src="${esc(h.thumb)}" alt="" loading="lazy">`:`<span class="thumb"></span>`}<span class="bb-what"><b>${esc(h.name)}</b><span class="hint">${esc(`${h.set} · ${cardNo(h)}`)}</span></span></button>`).join("");
     return;
   }
@@ -1371,6 +1381,7 @@ function trSideHTML(k){
     <h3 id="tr_h_${k}">${TR_NAME[k]} <span class="hint" data-trhead></span></h3>
     <div class="tr-add">
       <input type="search" data-trq="${k}" value="${esc(TR.q[k])}" placeholder="${mine ? "Add one of your cards for sale: name, set or number" : "Find any card: name, set or number"}" aria-label="${mine ? "Find one of your cards for sale to give" : "Find the dealer's card in the card database"}" autocomplete="off" spellcheck="false" enterkeyhint="done">
+      ${mine ? "" : findLangHTML("trade")}
       <button class="btn sm" type="button" data-tradd="${k}">+ Type in a card</button>
       <div class="tr-res" data-trres="${k}"></div>
     </div>
@@ -1493,6 +1504,7 @@ function tradeModal(){
       if(n){ TR.customer = n.mine.customer; TR.dealer = n.mine.dealer; TR.mine = n.mine.mine; trChanged(); trShow(); }
       return;
     }
+    const fl = t.closest("[data-flang]"); if(fl) return setFindLang(fl.dataset.flang);
     const pk = t.closest("[data-trpick]"); if(pk) return trAddCard(pk.dataset.trpick);
     const lk = t.closest("[data-trlook]"); if(lk) return trAddLooked(TRS.hits[+lk.dataset.trlook]);
     const ra = t.closest("[data-trretry]"); if(ra){ const it = trItemOf(ra); if(it){ it.lookState = null; void trLookLoad(it); } return; }
@@ -2216,25 +2228,26 @@ function scheduleLookup(){
   DL.t = setTimeout(runLookup, 650);
 }
 async function runLookup(){
-  const name = fieldVal("f_name"), number = fieldVal("f_number");
-  if(!name || !number || !DETAIL_FIELDS.some(lookupOwns)) return;
+  const name = fieldVal("f_name"), number = fieldVal("f_number"), language = fieldVal("f_language");
+  if(!name || !number || !DETAIL_FIELDS.some(lookupOwns) || !window.BinderLanguage.looksUp(language)) return;
+  const lang = window.BinderLanguage.param(language);
   const set = lookupOwns("set") ? "" : fieldVal("f_set"), setCode = lookupOwns("setCode") ? "" : fieldVal("f_setCode");
-  const key = [name, number, set, setCode].join("|").toLowerCase(); if(key===DL.key) return;
+  const key = [name, number, set, setCode, lang].join("|").toLowerCase(); if(key===DL.key) return;
   DL.key = key; const seq = ++DL.seq;
   detailsHint(`<span class="hint">Looking up ${esc(name)} ${esc(number)}…</span>`);
   try{
-    const q = new URLSearchParams({name, number}); if(set) q.set("set", set); if(setCode) q.set("setCode", setCode);
+    const q = new URLSearchParams({name, number, lang}); if(set) q.set("set", set); if(setCode) q.set("setCode", setCode);
     const r = await window.ledgerApi.call("GET", "api/cards/lookup?"+q);
     if(seq!==DL.seq || !$("#cardForm")) return;
     DL.res = Array.isArray(r?.matches) ? r.matches : [];
     if(DL.res.length===1) return applyDetails(DL.res[0]);
-    if(!DL.res.length) return detailsHint(`<span class="hint">${esc(name)} ${esc(number)} isn't in the card database (TCGdex). Fill in the rest by hand; brand-new and some promo cards take a while to appear.</span>`);
+    if(!DL.res.length) return detailsHint(`<span class="hint">${esc(name)} ${esc(number)} isn't in ${lang==="ja" ? "TCGplayer's Japanese catalog" : "the card database (TCGdex)"}. Fill in the rest by hand; brand-new and some promo cards take a while to appear.</span>`);
     detailsHint(`<p class="hint" style="margin:0 0 6px">${DL.res.length} cards are ${esc(name)} ${esc(number)}. Which one is yours?</p>
       <div class="dchoices">${DL.res.map((m,i)=>`<button type="button" class="dchoice" data-dpick="${i}">${m.thumb?`<img src="${esc(m.thumb)}" alt="" loading="lazy">`:`<span class="thumb"></span>`}<span class="dtxt"><b>${esc(m.set)}</b><span class="mono">${esc([m.setCode, m.number+(m.total?`/${m.total}`:"")].filter(Boolean).join(" "))}</span><span class="hint">${esc([m.rarity, m.artist].filter(Boolean).join(" · "))}</span></span></button>`).join("")}</div>
       <p class="hint" style="margin:6px 0 0">Or add the set size to the number (like 51/162), or type the set code.</p>`);
   }catch(e){
     if(seq!==DL.seq) return; DL.key = "";
-    detailsHint(`<span class="hint">${e?.code==="upstream_error" || e?.code==="unavailable" ? "The card database didn't answer. Fill in the rest by hand, or change the number to try again." : esc(e?.message || "Couldn't look the card up.")}</span>`);
+    detailsHint(`<span class="hint">${e?.code==="unavailable" && lang==="ja" ? esc(e.message) : e?.code==="upstream_error" || e?.code==="unavailable" ? "The card database didn't answer. Fill in the rest by hand, or change the number to try again." : esc(e?.message || "Couldn't look the card up.")}</span>`);
   }
 }
 function applyDetails(m){
@@ -2244,8 +2257,8 @@ function applyDetails(m){
     el.value = vals[f]; DL.auto[f] = vals[f]; el.classList.add("autofilled"); filled.push(f);
   }
   if(filled.length){ S.dirty = true; syncSaveButton(); }
-  const what = [m.set, m.setCode, m.rarity, m.artist].filter(Boolean).join(" · ");
-  detailsHint(`<span class="dok">${filled.length?"Filled in from TCGdex":"Matches TCGdex"}: <b>${esc(what)}</b></span>${filled.length?` <button type="button" class="btn sm ghost" data-dundo>Undo</button>`:""}`);
+  const what = [m.set, m.setCode, m.rarity, m.artist].filter(Boolean).join(" · "), src = window.BinderLanguage.ofId(m.id)==="ja" ? "TCGplayer's Japanese catalog" : "TCGdex";
+  detailsHint(`<span class="dok">${filled.length?"Filled in from "+src:"Matches "+src}: <b>${esc(what)}</b></span>${filled.length?` <button type="button" class="btn sm ghost" data-dundo>Undo</button>`:""}`);
 }
 function undoDetails(){
   for(const f of DETAIL_FIELDS){ const el=$("#"+DETAIL_INPUTS[f]); if(el && DL.auto[f] && el.value===DL.auto[f]){ el.value=""; el.classList.remove("autofilled"); } }
@@ -2256,7 +2269,7 @@ const lookedUpThisWeek = c => c.details?.checkedAt && Date.now()-Date.parse(c.de
 /* cards looked up before the current checks are looked up again straight away (same rule as the server) */
 const DETAILS_VERSION = 3;
 const detailsOutdated = c => { const d = c.details; return !!d?.checkedAt && d.v!==DETAILS_VERSION && (!!d.id || d.result==="notFound" || d.result==="several"); };
-const wantsDetails = c => c.name && c.number && (!c.language || /^en/i.test(c.language)) && (detailsOutdated(c) || [...DETAIL_FIELDS,"released"].some(f=>!String(c[f]??"").trim()) && !lookedUpThisWeek(c));
+const wantsDetails = c => c.name && c.number && window.BinderLanguage.looksUp(c.language) && (detailsOutdated(c) || [...DETAIL_FIELDS,"released"].some(f=>!String(c[f]??"").trim()) && !lookedUpThisWeek(c));
 function detailsSettingsHTML(){
   const st = S.detailsRun || {}, last = st.lastRun, n = S.cards.filter(wantsDetails).length;
   return `<div class="sec" style="margin-top:18px;border-top:1px solid var(--line-2);padding-top:14px" id="sDetails">
@@ -2267,7 +2280,7 @@ function detailsSettingsHTML(){
   </div>`;
 }
 /* Settings → Update all cards: everything, or only prices, pictures or details, for every card now */
-const wantsDetailsNow = c => c.name && c.number && (!c.language || /^en/i.test(c.language)) && (detailsOutdated(c) || [...DETAIL_FIELDS,"released"].some(f=>!String(c[f]??"").trim()));
+const wantsDetailsNow = c => c.name && c.number && window.BinderLanguage.looksUp(c.language) && (detailsOutdated(c) || [...DETAIL_FIELDS,"released"].some(f=>!String(c[f]??"").trim()));
 function updateAllHTML(){
   const U = window.BinderUpdateAll, st = pricingStatus(), dr = S.detailsRun || {};
   const n = {all:S.cards.length, prices:S.cards.filter(held).length, pictures:S.cards.filter(U.needsPicture).length, details:S.cards.filter(wantsDetailsNow).length};
@@ -4193,7 +4206,7 @@ document.addEventListener("input", e => {
   if(e.target.id==="f_placeholder" && S.sel!=="__new") return;
   if(e.target.closest("#cardForm")){ S.dirty=true; syncSaveButton(); if(e.target.id==="f_name") $("#dTitle").textContent = e.target.value || "New card";
     if(e.target.classList.contains("autofilled")) e.target.classList.remove("autofilled");
-    if(/^f_(name|number|set|setCode)$/.test(e.target.id)) scheduleLookup(); }
+    if(/^f_(name|number|set|setCode|language)$/.test(e.target.id)) scheduleLookup(); }
   if(e.target.id==="q"){ S.q=e.target.value; clearTimeout(S._qt); S._qt=setTimeout(renderMain,120); }
   if(e.target.id==="ff_vMin" || e.target.id==="ff_vMax"){ readFilters(); clearTimeout(S._qt); S._qt=setTimeout(renderMain,250); }
   if(e.target.id==="findQ"){ FIND.q=e.target.value; findRun(); }
@@ -4367,7 +4380,7 @@ function openFind(mode){
       <div class="find-modes"><div class="seg" role="group" aria-label="Look in">
         <button type="button" data-find="mode" data-mode="mine" title="The cards in your ledger">Your cards</button>
         <button type="button" data-find="mode" data-mode="any" title="Any Pokémon card, from the card database: its picture and today's prices, without adding it">Any card</button>
-      </div></div>
+      </div>${findLangHTML("find")}</div>
       <p class="find-note hint" id="findNote" aria-live="polite"></p>
       <ul class="find-list" id="findList" aria-label="Matching cards"></ul>
       <div class="find-look" id="findLook" hidden></div>
@@ -4390,6 +4403,7 @@ function findRun(){
 function findRender(){
   const list = $("#findList"), note = $("#findNote"); if(!list) return;
   document.querySelectorAll("#findRoot [data-mode]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.mode===FIND.mode)));
+  const fl = document.querySelector("#findRoot [data-flang-in=find]"); if(fl) fl.hidden = FIND.mode!=="any";
   $("#findQ").placeholder = FIND.mode==="any" ? "Any card: name, set or number" : "Name, set, set code, number or illustrator";
   list.setAttribute("aria-label", FIND.mode==="any" ? "Cards in the card database" : "Matching cards");
   list.hidden = !!FIND.look; note.hidden = !!FIND.look; $("#findLook").hidden = !FIND.look;
@@ -4488,7 +4502,7 @@ async function anySearch(){
   if(!q) return;
   FIND.any.busy = true; findRender();
   try{
-    const r = await window.ledgerApi.call("GET", "api/lookup/search?q=" + encodeURIComponent(q));
+    const r = await window.ledgerApi.call("GET", "api/lookup/search?q=" + encodeURIComponent(q) + "&lang=" + FL.v);
     if(seq!==FIND.any.seq || !FIND.open || FIND.mode!=="any") return;
     FIND.any = {...FIND.any, q, busy:false, error:"", more:!!r.more}; FIND.res = r.hits || []; FIND.i = 0;
   }catch(err){
@@ -4504,7 +4518,7 @@ function anyRender(){
   note.textContent = !q ? "Look up any Pokémon card, yours or not: type its name, and its set or number to narrow it (charizard base set 4, pikachu 58/102). You'll see its picture and today's prices; nothing is added to your ledger."
     : a.busy && !n ? "Looking it up…"
     : a.error ? a.error
-    : !n ? `No card named “${q}” in the card database. Check the spelling, or try just the Pokémon's name.`
+    : !n ? `No ${FL.v==="ja" ? "Japanese " : ""}card named “${q}” in ${FL.v==="ja" ? "TCGplayer's Japanese catalog" : "the card database"}. Check the spelling, or try just the Pokémon's name.`
     : `${a.more ? `The first ${n} cards` : `${n} card${n===1?"":"s"}`}${a.busy ? " · looking up…" : ""}. Choose one for its prices.`;
   list.innerHTML = FIND.res.map((c, k) => `<li class="find-item" id="fi${k}" data-fi="${k}">
       <button type="button" class="find-main" data-find="look" data-fi="${k}" aria-label="${esc(`${c.name}, ${c.set} ${cardNo(c)}. Show its prices`)}">
@@ -4615,14 +4629,14 @@ async function lookAdd(){
     closeFind(false);
     openNew();
     if(S.sel!=="__new" || !S.draft) return;
-    S.draft = {...S.draft, ...window.BinderLookup.draftFields(c, p)};
+    S.draft = {...S.draft, ...window.BinderLookup.draftFields(c, p), language:window.BinderLanguage.label(c.id)};
     renderDrawer(true);
     return;
   }
   if(look.adding) return;
   look.adding = true; findRender();
   const spot = firstFree(b.id) || {page:null, slot:null}, id = rid();
-  const ok = await guard(() => S.db.collection("cards").doc(id).set(window.BinderLookup.binderCard(c, p, {binderId:b.id, page:spot.page, slot:spot.slot}, newCardOwner(b.id), nowISO())));
+  const ok = await guard(() => S.db.collection("cards").doc(id).set(window.BinderLookup.binderCard(c, p, {binderId:b.id, page:spot.page, slot:spot.slot}, newCardOwner(b.id), nowISO(), window.BinderLanguage.label(c.id))));
   if(!ok){ look.adding = false; if(FIND.look===look) findRender(); return; }
   closeFind(false);
   showCard(id);
@@ -4638,6 +4652,7 @@ $("#findRoot").addEventListener("click", e => {
   if(k==="close") return closeFind();
   if(k==="show" || k==="full") return findAct(k, +a.dataset.fi);
   if(k==="mode") return findMode(a.dataset.mode);
+  if(k==="lang") return setFindLang(a.dataset.flang);
   if(k==="look") return lookOpen(+a.dataset.fi);
   if(k==="back") return lookBack();
   if(k==="lookprices"){ if(FIND.look && !FIND.look.priced){ FIND.look.priceError = ""; void lookPrices(FIND.look); findRender(); } return; }
@@ -4669,7 +4684,7 @@ async function lookWatch(){
   const buy = W.parsePrice($("#lw_buy")?.value);
   if(buy==null || Number.isNaN(buy)){ toast("Type the price you'd buy it at, like 5 or 4.50."); $("#lw_buy")?.focus(); return; }
   if(unsaved()) return toast("Save or discard the card you're editing first.");
-  const fields = {...window.BinderLookup.draftFields(c, c.printings[L.pi]), language:"English", condition:"Near Mint", grader:"Raw"};
+  const fields = {...window.BinderLookup.draftFields(c, c.printings[L.pi]), language:window.BinderLanguage.label(c.id), condition:"Near Mint", grader:"Raw"};
   const id = rid();
   if(!(await guard(() => S.db.collection("cards").doc(id).set(W.watchlistCard(fields, buy, nowISO()))))) return;
   closeFind(false);

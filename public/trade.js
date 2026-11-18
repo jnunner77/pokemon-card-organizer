@@ -341,7 +341,7 @@
       const entries = [entry("paid", s.paid[i]), ...(value == null ? [] : [entry("market", value, { note: it.valueFrom ? `Value in the trade: ${it.valueFrom}` : "Value in the trade" })])];
       if (land.startsWith("ph:")) return { id: land.slice(3), placeholder: true, grader: card.grader, grade: card.grade, entries };
       const binderId = land.startsWith("b:") ? land.slice(2) : null;
-      return { id: o.newId(), binderId, entries, doc: { ...card, setCode: "", rarity: "", artist: "", language: "English", condition: "Near Mint", notes: "", owner: o.owner(binderId), imageId: null } };
+      return { id: o.newId(), binderId, entries, doc: { ...card, setCode: "", rarity: "", artist: "", language: root.BinderLanguage ? root.BinderLanguage.label(it.look?.id) : "English", condition: "Near Mint", notes: "", owner: o.owner(binderId), imageId: null } };
     });
     const summary = { date: o.date, gaveCash: s.gaveCash, gotCash: s.gotCash, gave, got, ...(o.who ? { with: o.who } : {}) };
     return { id: o.id, summary, given, received };

@@ -34,10 +34,10 @@
 
   /* The card Add to <binder> saves: draftFields plus what the new card form starts with and sends,
      at loc ({binderId, page, slot}; a display case has no page or pocket). */
-  function binderCard(card, printing, loc, owner, at) {
+  function binderCard(card, printing, loc, owner, at, language) {
     return {
       ...draftFields(card, printing),
-      language: "English", condition: "Near Mint", grader: "Raw", grade: "", notes: "",
+      language: language || "English", condition: "Near Mint", grader: "Raw", grade: "", notes: "",
       status: "binder", owner, placeholder: false, imageId: null, prices: [],
       binderId: loc.binderId, page: loc.page ?? null, slot: loc.slot ?? null,
       createdAt: at, updatedAt: at,
