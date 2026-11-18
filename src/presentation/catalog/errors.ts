@@ -46,7 +46,8 @@ export function chooseFailure(e: ChooseMatchError): Failure {
     case 'WRONG_LANGUAGE':
       return badRequest("That card is from another language's catalog than this card.");
     case 'JAPANESE_LOOKUPS_OFF':
-      return JAPANESE_OFF;
+    case 'JAPANESE_CATALOG_NOT_READY':
+      return lookupFailure(e);
     case 'LOOKUP_FAILED':
       return { status: 502, code: 'upstream_error', message: "The card database didn't answer. Try again." };
     default:

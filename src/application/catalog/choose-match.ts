@@ -4,6 +4,7 @@ import type { Fields } from '#domain/ledger/document.ts';
 import { err, ok, type Result } from '#shared/result.ts';
 import { readCard } from './cards.ts';
 import type { CatalogDeps } from './deps.ts';
+import { stillBuilding, type JapaneseUnavailable } from './errors.ts';
 import type { FillCardDetails, FillResult } from './fill-card-details.ts';
 
 export interface ChooseMatchInput {
@@ -17,7 +18,7 @@ export type ChooseMatchError =
   | { readonly code: 'INVALID_MATCH' }
   /** A Japanese card can't be given an English match, nor an English card a Japanese one. */
   | { readonly code: 'WRONG_LANGUAGE' }
-  | { readonly code: 'JAPANESE_LOOKUPS_OFF' }
+  | JapaneseUnavailable
   | { readonly code: 'LOOKUP_FAILED' };
 
 /**
@@ -42,6 +43,7 @@ export class ChooseMatch {
     if (japanese && !this.#deps.japanese) return err({ code: 'JAPANESE_LOOKUPS_OFF' });
     const result = await this.#fill.execute({ cardId: input.cardId, force: true, chosen: input.matchId });
     const card = await readCard(this.#deps, input.cardId);
+    if (result === 'skipped' && japanese && this.#deps.japanese) return err(stillBuilding(this.#deps.japanese.catalog));
     if (result === 'error') return err({ code: 'LOOKUP_FAILED' });
     const pricing = this.#deps.pricing;
     if (pricing?.canPriceNow()) void pricing.updateCard(input.cardId).catch(() => undefined);
