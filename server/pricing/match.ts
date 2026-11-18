@@ -4,9 +4,9 @@ import { printingOf } from './catalog.ts';
 import type { Candidate, ProductInfo } from './sources.ts';
 
 // Deciding which product on a price site is the card in the binder. A card is linked
-// automatically only when exactly one product in its language (English, or Japanese for a Japanese card) has the same number, the same name
-// and the same set (and the same variant, or none). Anything less certain is left for the
-// person to pick from a short list, because a wrong match quietly gives a wrong value.
+// automatically only when exactly one product in its language (English, or Japanese for a
+// Japanese card) has the same number, the same name and the same set (and the same variant, or
+// none). Anything less certain is left for the person to pick from a short list, because a wrong match quietly gives a wrong value.
 
 export interface CardForMatch {
   name?: string | null;
@@ -191,7 +191,8 @@ export function chooseMatch(card: CardForMatch, all: Candidate[]): MatchResult {
   const num = cardNumber(card.number);
   const name = nameKey(card.name);
   const variant = norm(card.variant);
-  // A Japanese card is only matched to PriceCharting's "Pokemon Japanese …" consoles, and any other card never to them.
+  // A Japanese card is only matched to PriceCharting's "Pokemon Japanese …" consoles, and any
+  // other card never to them.
   const japanese = languageOf(card.language) === 'japanese';
   const plain = !variant || (PLAIN_BRACKET.test(String(card.variant).trim()) && !isReverse(String(card.variant)));
   const scored = all

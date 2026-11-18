@@ -5,10 +5,11 @@ import { type Fetcher, get, SourceError } from '../http/get.ts';
 // TCGplayer's own catalog, from tcgcsv.com: a free public copy of TCGplayer's catalog API (sets,
 // products and prices as JSON, no key), refreshed every day around 20:00 UTC. Pokémon is category
 // 3 (English) and Pokémon Japan is category 85 (the same shapes, English product names); a client
-// downloads one category, chosen when it's made. Each set is a "group" with its products (cards and sealed products) and their prices by
-// printing ("Normal", "Holofoil", "Reverse Holofoil"…). Only the sets asked for are downloaded,
-// each at most once a day, one at a time and a quarter second apart, and after failing three times in a row it
-// isn't asked again until reset().
+// downloads one category, chosen when it's made. Each set is a "group" with its products (cards
+// and sealed products) and their prices by printing ("Normal", "Holofoil", "Reverse
+// Holofoil"…). Only the sets asked for are downloaded, each at most once a day, one at a time
+// and a quarter second apart, and after failing three times in a row it isn't asked again until
+// reset().
 
 /** tcgcsv.com's Pokémon categories: English cards' catalog and the Japanese one. */
 export const TCGCSV_ENGLISH = 3;

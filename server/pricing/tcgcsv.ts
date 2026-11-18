@@ -2,8 +2,9 @@
 // products and prices as JSON, no key), refreshed every day around 20:00 UTC. It's the fallback
 // for what the card databases (catalog.ts) don't have: a card TCGdex has no TCGplayer price for
 // (Lost Origin's Trainer Gallery Snorlax), a card TCGdex doesn't know at all, its picture, and its
-// blank rarity and release date. Pokémon is category 3 and Pokémon Japan category 85 (a TcgCsv asks one of them, so a Japanese card is only ever looked for among Japanese products, and an English one among English); each set is a "group" with its products
-// (cards and sealed products) and their prices by printing ("Normal", "Holofoil", "Reverse
+// blank rarity and release date. Pokémon is category 3 and Pokémon Japan category 85 (a TcgCsv asks one of them, so a
+// Japanese card is only ever looked for among Japanese products, and an English one among
+// English); each set is a "group" with its products (cards and sealed products) and their prices by printing ("Normal", "Holofoil", "Reverse
 // Holofoil"…). The binder downloads the list of sets and only the sets its cards need, each at
 // most once a day, a quarter second apart, and stops asking for the rest of an update after
 // failing three times in a row.

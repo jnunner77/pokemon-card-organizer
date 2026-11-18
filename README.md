@@ -157,7 +157,8 @@ No site's pages are read: every price comes from an API.
   ever matched to Japanese products (on TCGplayer and on PriceCharting's *Pokemon Japanese …*
   sets), and an English card (or one with no language) never is, even when the numbers agree.
   There are no Cardmarket prices for them and no Japanese master sets. Cards in Korean,
-  Chinese or other languages are still skipped by the price update. When the Japanese catalog
+  Chinese or other languages aren't looked up in TCGplayer's catalog; PriceCharting matching
+  for them is unchanged (it can still match the English product). When the Japanese catalog
   doesn't answer, the update logs it and carries on with the other cards.
 - **TCGdex** is a free public API with no key. When tcgcsv.com is busy and asks for more than a
   few seconds' wait, it's left for that card until the next update rather than holding it up.
