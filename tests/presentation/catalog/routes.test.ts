@@ -131,6 +131,8 @@ describe('Japanese lookups', () => {
     assert.deepEqual(await answer(await fetch(`${base}/cards/lookup?name=Pikachu&number=25&lang=ja`, as('editor'))), [503, { error: "TCGplayer's Japanese catalog is still being downloaded (120 of 462 sets). Try again in a few minutes.", code: 'unavailable' }]);
     assert.deepEqual(await answer(await fetch(`${base}/lookup/search?q=pikachu&lang=ja`, as('viewer'))), [503, { error: 'Japanese card lookups are turned off on this server.', code: 'unavailable' }]);
     assert.equal((await fetch(`${base}/lookup/cards/ja-2-222`, as('viewer'))).status, 503);
+    const soon = await setUp({ lookUpCard: { execute: async () => err({ code: 'JAPANESE_CATALOG_NOT_READY', done: 0, total: 0 }) } });
+    assert.deepEqual(await answer(await fetch(`${soon.base}/cards/lookup?name=Pikachu&number=25&lang=ja`, as('editor'))), [503, { error: "TCGplayer's Japanese catalog is about to be downloaded. Try again in a few minutes.", code: 'unavailable' }]);
   });
 
   it('answer 400 for a match from the other language, and take the language from a card id', async () => {

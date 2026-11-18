@@ -24,7 +24,14 @@ export function lookupFailure(e: CardDatabaseUnavailable | JapaneseUnavailable):
     case 'JAPANESE_LOOKUPS_OFF':
       return JAPANESE_OFF;
     case 'JAPANESE_CATALOG_NOT_READY':
-      return { status: 503, code: 'unavailable', message: `TCGplayer's Japanese catalog is still being downloaded (${e.done} of ${e.total} sets). Try again in a few minutes.` };
+      return {
+        status: 503,
+        code: 'unavailable',
+        message:
+          e.total === 0
+            ? "TCGplayer's Japanese catalog is about to be downloaded. Try again in a few minutes."
+            : `TCGplayer's Japanese catalog is still being downloaded (${e.done} of ${e.total} sets). Try again in a few minutes.`,
+      };
     default:
       return assertNever(e);
   }
