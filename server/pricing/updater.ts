@@ -218,6 +218,8 @@ export type CardOutcome = 'updated' | 'needsMatch' | 'noPrice' | 'noPicture' | '
 export type RunScope = 'all' | 'prices' | 'pictures';
 const RUN_NAME: Record<RunScope, string> = { all: 'price update', prices: 'price update', pictures: 'picture update' };
 const runName = (scope: unknown) => RUN_NAME[(scope as RunScope) in RUN_NAME ? (scope as RunScope) : 'all'];
+/** The run's progress (done, current card) is saved at most this often while it runs. */
+const PROGRESS_SAVE_MS = 15_000;
 const capital = (s: string) => s[0].toUpperCase() + s.slice(1);
 const zeroCounts = (): Record<CardOutcome, number> => ({ updated: 0, needsMatch: 0, noPrice: 0, noPicture: 0, failed: 0, skipped: 0, off: 0 });
 
@@ -339,6 +341,11 @@ export class PriceUpdater {
   private readonly stallMs: number;
   /** During a run: when the last card started, what it's doing now, and whether it's been flagged as stalled. */
   private progressAt = 0;
+  /** During a run: the progress to show (saved at most every PROGRESS_SAVE_MS (progress held back by that is written on the watchdog's next tick), and always before the run ends or is flagged) and when it was last saved. */
+  private shownAt = 0;
+  /** During a run: progress the throttle held back, written by the watchdog's next tick. */
+  private unsaved = false;
+  private shown: { done: number; current: { card: string; since: string } | null } | null = null;
   private step: string | null = null;
   private stalled = false;
   private counts: Record<CardOutcome, number> | null = null;
@@ -355,7 +362,7 @@ export class PriceUpdater {
     // A short breath between cards: each source keeps its own pace (PriceCharting 1.25 s between
     // calls, tcgcsv.com ¼ s), and the price guide spares most
     // PriceCharting calls.
-    this.delayMs = o.delayMs ?? 250;
+    this.delayMs = o.delayMs ?? 1000;
     this.log = o.log ?? quietLogger();
     this.config = o.config;
     this.breakerAfter = o.breakerAfter ?? 5;
@@ -429,8 +436,11 @@ export class PriceUpdater {
 
   // ---- schedule --------------------------------------------------------------------
 
-  /** Check every few minutes; run once a day after `hour`, including a day missed while the server was off. */
-  startScheduler(everyMs = 10 * 60_000) {
+  /**
+   * Check every few minutes (the first time `firstMs` after the start, so a catch-up never begins
+   * while the host is still coming up); run once a day after `hour`, including a day missed while the server was off.
+   */
+  startScheduler(everyMs = 10 * 60_000, firstMs = 10 * 60_000) {
     const tick = () => {
       const sch = this.schedule();
       if (!sch.enabled || this.running || this.localHour() < sch.hour) return;
@@ -440,7 +450,7 @@ export class PriceUpdater {
     const guarded = () => safely(this.log, 'pricing', 'Checking whether the daily price update is due', tick);
     this.timer = setInterval(guarded, everyMs);
     this.timer.unref();
-    setTimeout(guarded, 30_000).unref();
+    setTimeout(guarded, firstMs).unref();
   }
 
   /**
@@ -498,9 +508,15 @@ export class PriceUpdater {
       .map((c) => c.id);
     this.setStatus({ running: true, startedAt, reason, scope, ...(scope === 'pictures' ? {} : { pricesStartedAt: startedAt }), done: 0, total: ids.length, current: null });
     this.progressAt = this.now().getTime();
+    this.shownAt = 0;
+    this.shown = null;
+    this.unsaved = false;
     this.stalled = false;
     this.step = scope === 'pictures' ? null : 'getting the exchange rate from the Bank of Canada';
-    const watchdog = (this.watchdog = setInterval(() => live() && safely(this.log, 'pricing', `Checking the ${name} for progress`, () => this.checkStall()), Math.min(30_000, Math.max(1000, this.stallMs / 4))));
+    const watchdog = (this.watchdog = setInterval(() => live() && safely(this.log, 'pricing', `Checking the ${name} for progress`, () => {
+      if (this.unsaved) this.saveProgress(false);
+      this.checkStall();
+    }), Math.min(30_000, Math.max(1000, this.stallMs / 4))));
     watchdog.unref();
     const { rate, rateDate } = scope === 'pictures' ? this.savedRate() : await this.rate();
     const counts = zeroCounts();
@@ -551,7 +567,8 @@ export class PriceUpdater {
           if (outcome === 'noPicture') errors.push({ card: label(card), error: 'No picture found in the card databases or on TCGplayer.' });
         }
         counts[outcome]++;
-        this.setStatus({ done: ++done });
+        ++done;
+        this.saveProgress(false, done);
         if (outcome !== 'skipped' && outcome !== 'off') {
           this.step = 'pausing between cards';
           await this.pause();
@@ -567,6 +584,9 @@ export class PriceUpdater {
     const summary: RunSummary = { reason, scope, date, startedAt, finishedAt: this.now().toISOString(), rate, rateDate, counts, errors: errors.slice(0, 30), ...(Object.keys(sitesOut).length ? { sitesOut } : {}) };
     // Stopped (or the server shutting down): stop() or shutdown() already wrote down how far it got.
     if (!live()) return { ...summary, ended: 'stopped', done, total: ids.length };
+    this.saveProgress(true);
+    this.shown = null;
+    this.unsaved = false;
     this.run = null;
     this.counts = null;
     const st = this.status();
@@ -589,14 +609,14 @@ export class PriceUpdater {
       // A price update is written as the day's update so the daily run doesn't start it again and
       // again; the banner says what happened.
       const failed: RunSummary = { ...summary, ended: 'failed', done, total: ids.length };
-      this.setStatus({ running: false, current: null, [scope === 'pictures' ? 'lastPictureRun' : 'lastRun']: failed, problem, history: this.withHistory(failed) });
+      this.setStatus({ running: false, done, current: null, [scope === 'pictures' ? 'lastPictureRun' : 'lastRun']: failed, problem, history: this.withHistory(failed) });
       this.step = null;
       return failed;
     }
     const prior = st.problem as RunProblem | null | undefined;
     // An earlier problem stays shown (until dismissed), saying that this update went through.
     const problem = prior && !prior.recoveredAt ? { ...prior, recoveredAt: summary.finishedAt } : (prior ?? null);
-    this.setStatus({ running: false, current: null, [scope === 'pictures' ? 'lastPictureRun' : 'lastRun']: summary, problem, history: this.withHistory(summary) });
+    this.setStatus({ running: false, done, current: null, [scope === 'pictures' ? 'lastPictureRun' : 'lastRun']: summary, problem, history: this.withHistory(summary) });
     this.step = null;
     const lvl = counts.failed ? 'warn' : 'info';
     if (scope === 'pictures') this.log[lvl]('pricing', `Picture update finished: ${counts.updated} pictured, ${counts.noPicture} without a picture, ${counts.failed} failed`, { ...counts });
@@ -616,16 +636,36 @@ export class PriceUpdater {
   /** A card started: progress, so the run isn't stalled (and if it had been, it moved on). */
   private progress(card: string) {
     this.progressAt = this.now().getTime();
-    const patch: Doc = { current: { card, since: this.now().toISOString() } };
+    this.shown = { done: this.shown?.done ?? (Number(this.status().done) || 0), current: { card, since: this.now().toISOString() } };
     if (this.stalled) {
       this.stalled = false;
       const p = this.status().problem as RunProblem | null | undefined;
       if (p?.kind === 'stalled' && p.startedAt === this.status().startedAt) {
-        patch.problem = { ...p, recoveredAt: this.now().toISOString(), message: `${p.message} It moved on by itself afterwards.` };
         this.log.info('pricing', `Price update moved on after stalling on ${p.card ?? 'a card'}`);
+        this.setStatus({ ...this.shown, problem: { ...p, recoveredAt: this.now().toISOString(), message: `${p.message} It moved on by itself afterwards.` } });
+        this.shownAt = this.now().getTime();
+        this.unsaved = false;
+        return;
       }
     }
-    this.setStatus(patch);
+    this.saveProgress(false);
+  }
+
+  /** Save the run's progress (done, current card) when `force`d or when it hasn't been saved for PROGRESS_SAVE_MS. */
+  private saveProgress(force: boolean, done?: number) {
+    // A skipped card (gone from the store) counts before any card has started: keep its count too.
+    if (!this.shown && done !== undefined) this.shown = { done, current: null };
+    const shown = this.shown;
+    if (!shown) return;
+    if (done !== undefined) shown.done = done;
+    const at = this.now().getTime();
+    if (!force && at - this.shownAt < PROGRESS_SAVE_MS) {
+      this.unsaved = true;
+      return;
+    }
+    this.shownAt = at;
+    this.setStatus({ done: shown.done, current: shown.current });
+    this.unsaved = false;
   }
 
   /**
@@ -637,6 +677,7 @@ export class PriceUpdater {
     if (!this.current || this.stalled) return null;
     const idleMs = this.now().getTime() - this.progressAt;
     if (idleMs < this.stallMs) return null;
+    this.saveProgress(true);
     const st = this.status();
     const done = Number(st.done) || 0;
     const total = Number(st.total) || 0;
@@ -667,6 +708,7 @@ export class PriceUpdater {
    */
   stop(by: string): boolean {
     if (!this.current) return false;
+    this.saveProgress(true);
     const st = this.status();
     const p = st.problem as RunProblem | null | undefined;
     const wasStalled = this.stalled && p?.kind === 'stalled' && p.startedAt === st.startedAt;
@@ -709,6 +751,7 @@ export class PriceUpdater {
   }
 
   private interrupted(why: string, graceful: boolean): RunProblem {
+    this.saveProgress(true);
     const st = this.status();
     const problem = this.problemFor('interrupted', st, why, graceful);
     this.endRun('interrupted');
@@ -761,6 +804,9 @@ export class PriceUpdater {
 
   /** End the running update now: its loop sees the change and ends without writing anything. */
   private endRun(ended: RunSummary['ended']) {
+    this.saveProgress(true);
+    this.shown = null;
+    this.unsaved = false;
     const st = this.status();
     const history = this.historyEntry(st, ended);
     this.gen++;

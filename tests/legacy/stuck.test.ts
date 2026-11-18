@@ -177,6 +177,150 @@ describe('a price update that stops partway', () => {
   });
 });
 
+describe('how often a running update saves its progress', () => {
+  /** Counts the saves of the update's status. */
+  function countStatusWrites() {
+    const writes = { n: 0 };
+    const set = store.set.bind(store);
+    store.set = ((kind: string, id: string, doc: never) => {
+      if (kind === 'settings' && id === 'pricing') writes.n++;
+      return set(kind as never, id, doc);
+    }) as typeof store.set;
+    return writes;
+  }
+  // Each card has its own PriceCharting product (a product asked about once a day is kept).
+  const names = ['Lapras', 'Mew', 'Eevee', 'Snorlax', 'Ditto'];
+  const five = () => names.forEach((name, i) => store.set('cards', `c${i}`, { ...card(name), pricing: { source: 'pricecharting', id: String(100 + i) } }));
+  /** PriceCharting answers each product by its id; `onAsk` runs before each answer (and may hold it). */
+  const guideless = (onAsk: () => Promise<void> | void): Fetcher => async (url, init) => {
+    const id = new URLSearchParams(String(init?.body ?? '')).get('id') ?? '';
+    if (String(url).includes('bankofcanada')) return Response.json(BOC);
+    if (String(url).includes('price-guide')) return new Response('not found', { status: 404 });
+    await onAsk();
+    return Response.json({ status: 'success', id, 'product-name': names[Number(id) - 100], 'console-name': 'Pokemon 30th Celebration', 'loose-price': 1000 });
+  };
+  const updaterWith = (fetcher: Fetcher) => new PriceUpdater({ store, assets, log, fetcher, now: () => new Date(clock), delayMs: 0, timeZone: 'America/Vancouver', pricecharting: new PriceCharting({ token: () => 'test-token', fetcher, gapMs: 0 }) });
+
+  it('saves it far less than twice a card, and the end says how many were done', async () => {
+    five();
+    const u = updaterWith(guideless(() => {}));
+    const writes = countStatusWrites();
+    await u.runAll('manual');
+    // The start, the first card, and the end: not one or two per card.
+    expect(writes.n).toBeLessThanOrEqual(4);
+    expect(status()).toMatchObject({ running: false, done: 5, total: 5, current: null });
+    // Every card was still priced.
+    expect(status().lastRun?.counts).toMatchObject({ updated: 5, failed: 0 });
+  });
+
+  it('saves it mid-run once 15 seconds have passed', async () => {
+    five();
+    const seen: number[] = [];
+    const u = updaterWith(
+      guideless(() => {
+        seen.push(status().done);
+        clock += 16_000;
+      }),
+    );
+    await u.runAll('manual');
+    expect(seen).toEqual([0, 1, 2, 3, 4]);
+    expect(status().done).toBe(5);
+  });
+
+  it('counts a card that left the store before it was reached, even the first one', async () => {
+    five();
+    const seen: number[] = [];
+    const inner = guideless(() => {
+      seen.push(status().done);
+      clock += 16_000;
+    });
+    // The first card is removed while the run gets the exchange rate, before it is reached.
+    const fetcher: Fetcher = async (url, init) => {
+      if (String(url).includes('bankofcanada')) store.delete('cards', 'c0');
+      return inner(url, init);
+    };
+    await updaterWith(fetcher).runAll('manual');
+    // The skipped card is already counted while the second one runs.
+    expect(seen).toEqual([1, 2, 3, 4]);
+    expect(status()).toMatchObject({ running: false, done: 5, total: 5, current: null });
+    expect(status().lastRun?.counts).toMatchObject({ updated: 4, skipped: 1 });
+  });
+
+  it('shutting down mid-run records the exact count and card', async () => {
+    five();
+    let calls = 0;
+    const waiting: (() => void)[] = [];
+    const u = updaterWith(guideless(() => (++calls === 3 ? new Promise<void>((r) => waiting.push(r)) : undefined)));
+    const run = u.runAll('manual');
+    await until(() => waiting.length > 0);
+    // Two cards are done but the clock hasn't moved: only the first card's progress was saved.
+    expect(status().done).toBeLessThan(2);
+    const p = u.shutdown()!;
+    expect(p).toMatchObject({ kind: 'interrupted', done: 2, total: 5, card: expect.stringContaining('Eevee') });
+    expect(status()).toMatchObject({ running: false, history: [{ ended: 'interrupted', done: 2 }] });
+    waiting.forEach((r) => r());
+    await run;
+  });
+
+  it('writes progress the 15 seconds held back on the watchdog’s next tick, without another card starting', async () => {
+    const { vi } = await import('vitest');
+    vi.useFakeTimers({ toFake: ['setInterval'] });
+    try {
+      five();
+      let calls = 0;
+      const waiting: (() => void)[] = [];
+      const u = updaterWith(guideless(() => (++calls === 2 ? new Promise<void>((r) => waiting.push(r)) : undefined)));
+      const run = u.runAll('manual');
+      await until(() => waiting.length > 0);
+      // Lapras was saved when it started; done=1 and the start of Mew were held back.
+      expect(status()).toMatchObject({ done: 0, current: { card: expect.stringContaining('Lapras') } });
+      clock += 16_000;
+      vi.advanceTimersByTime(30_000);
+      expect(status()).toMatchObject({ done: 1, current: { card: expect.stringContaining('Mew') } });
+      expect(status().problem ?? null).toBeNull();
+      // Nothing new to show: no write.
+      const writes = countStatusWrites();
+      clock += 16_000;
+      vi.advanceTimersByTime(30_000);
+      expect(writes.n).toBe(0);
+      waiting.forEach((r) => r());
+      await run;
+      expect(status()).toMatchObject({ running: false, done: 5, current: null });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('the daily update’s first check', () => {
+  it('doesn’t check before firstMs (10 minutes by default) after the start', async () => {
+    const { vi } = await import('vitest');
+    vi.useFakeTimers();
+    try {
+      const u = updater(net());
+      let checks = 0;
+      const sch = u as unknown as { schedule: () => unknown };
+      sch.schedule = () => (checks++, { enabled: false, hour: 0 });
+      u.startScheduler(3_600_000, 600_000);
+      vi.advanceTimersByTime(599_999);
+      expect(checks).toBe(0);
+      vi.advanceTimersByTime(1);
+      expect(checks).toBe(1);
+      u.stopScheduler();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('the update’s pace', () => {
+  it('waits one second between cards unless told otherwise', () => {
+    const n = net();
+    const u = new PriceUpdater({ store, assets, log, fetcher: n.fetcher, now: () => new Date(clock), timeZone: 'America/Vancouver' });
+    expect((u as unknown as { delayMs: number }).delayMs).toBe(1000);
+  });
+});
+
 describe('the update’s log', () => {
   it('is read from the daily files, so it outlasts a restart', () => {
     log.info('pricing', 'Price update started (schedule) for 40 cards');

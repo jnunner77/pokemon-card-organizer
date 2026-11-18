@@ -9,7 +9,7 @@ import { createBackups } from '../../src/compose.ts';
 import { AdminFile as Config } from '../../src/infrastructure/admin/admin-file.ts';
 import { Catalog, chooseVariant, printingOf, variantPrices, tcgdexTcgplayer, type TcgdexCard } from '../../server/pricing/catalog.ts';
 import { catalogMismatch, chooseMatch, detailsFromProduct, otherBall, searchQuery, variantFromProduct } from '../../server/pricing/match.ts';
-import { PriceCharting, PriceGuide, gradedPrice, oldAddress, parseCsv, parseProduct } from '../../server/pricing/pricecharting.ts';
+import { PriceCharting, PriceGuide, csvRows, gradedPrice, oldAddress, parseCsv, parseProduct } from '../../server/pricing/pricecharting.ts';
 import { type Candidate, type Fetcher, retryPolicy, releaseDate } from '../../server/pricing/sources.ts';
 import { PriceUpdater, pricesDisagree, thinAutoPrices } from '../../server/pricing/updater.ts';
 import { TcgCsv } from '../../server/pricing/tcgcsv.ts';
@@ -337,6 +337,29 @@ describe('the daily update with PriceCharting', () => {
     // A token PriceCharting doesn't know: refused, like the API.
     const bad = fakeNet({ 'price-guide/download-custom': () => new Response('Unknown access token', { status: 404 }) });
     await expect(pcApi(bad).priceGuide()).rejects.toThrow(/didn't accept the API token/);
+  });
+
+  it('reads the price guide one row at a time, with the same rows as parseCsv', () => {
+    const text = 'id,console-name,product-name,loose-price\r\n1,Pokemon Base Set,Charizard #4,"$1,250.00"\n2,Pokemon 1999 Topps Movie,"C\'Mon, ""We"" Need Help #53",$2.50\n\n3,Pokemon Base Set,"Charizard [1st Edition] #4",\n\n';
+    expect([...csvRows(text)]).toEqual(parseCsv(text));
+    expect([...csvRows(text)]).toEqual([
+      { id: '1', 'console-name': 'Pokemon Base Set', 'product-name': 'Charizard #4', 'loose-price': '$1,250.00' },
+      { id: '2', 'console-name': 'Pokemon 1999 Topps Movie', 'product-name': 'C\'Mon, "We" Need Help #53', 'loose-price': '$2.50' },
+      { id: '3', 'console-name': 'Pokemon Base Set', 'product-name': 'Charizard [1st Edition] #4', 'loose-price': '' },
+    ]);
+    expect([...csvRows('')]).toEqual([]);
+    const g = new PriceGuide(csvRows(text));
+    expect(g.size).toBe(3);
+    expect(g.get('1')).toMatchObject({ title: 'Charizard', number: '4', usd: 1250 });
+    expect(g.candidates({ name: 'Charizard', number: '004/102' }).map((p) => p.id)).toEqual(['1', '3']);
+  });
+
+  it('keeps every product that shares a card number in the guide', () => {
+    const rows = ['id,console-name,product-name,loose-price'];
+    for (let i = 1; i <= 500; i++) rows.push(`${i},Pokemon Base Set,Pikachu #1,$1.00`);
+    const g = new PriceGuide(csvRows(rows.join('\n')));
+    expect(g.size).toBe(500);
+    expect(g.candidates({ name: 'Pikachu', number: '1/102' })).toHaveLength(500);
   });
 
   it('keeps one automatic price a day for 30 days, one a week before that, and never touches the person’s own entries', async () => {

@@ -166,7 +166,7 @@ No site's pages are read: every price comes from an API.
   (500 and 502 answers, often asking for a minute's wait), and only added slightly larger pictures
   (733×1024 against TCGplayer's 717×1000), a few blank details and TCGplayer prices that TCGdex and
   TCGplayer's own catalog already give.
-- **Pace:** an update moves to the next card after a quarter of a second; each source keeps its
+- **Pace:** an update moves to the next card after one second; each source keeps its
   own pace on top (PriceCharting 1.25 s between calls, tcgcsv.com ¼ s), and the price guide spares
   most PriceCharting calls.
 - Links saved before PriceCharting was read through its API (by page address) are moved to their
