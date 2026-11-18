@@ -104,6 +104,18 @@ export function japaneseSetOf(g: TcgGroup, fetchedAt: string): JapaneseSet {
   return { groupId: g.groupId, name: setName(g), fullName: g.name, code: code || null, released: releasedOfGroup(g), modifiedOn: g.modifiedOn ?? '', fetchedAt };
 }
 
+/**
+ * A product's name without its number and brackets, and what the brackets say: "Bulbasaur - 001/165
+ * (Poke Ball Pattern)" → Bulbasaur, "Poke Ball Pattern". The number is also the product's Number.
+ */
+function cardName(raw: string, number: string): { base: string; variant: string } {
+  const variant = [...raw.matchAll(/\(([^)]*)\)|\[([^\]]*)\]/g)].map((m) => m[1] ?? m[2]).join(' ');
+  const plain = raw.replace(/\s*(\([^)]*\)|\[[^\]]*\])\s*/g, ' ').trim();
+  const suffix = ` - ${number}`;
+  const base = plain.endsWith(suffix) ? plain.slice(0, -suffix.length).trim() : productName(plain).base;
+  return { base, variant };
+}
+
 /** The cards among a set's products (those with a Number; sealed products have none). */
 export function japaneseCardsOf(products: readonly TcgProduct[]): JapaneseCard[] {
   const seen = new Set<number>();
@@ -112,7 +124,7 @@ export function japaneseCardsOf(products: readonly TcgProduct[]): JapaneseCard[]
     const number = extended(p, 'Number')?.trim();
     if (!number || seen.has(p.productId)) continue;
     seen.add(p.productId);
-    const { base, variant } = productName(p.name);
+    const { base, variant } = cardName(p.name, number);
     cards.push({ productId: p.productId, name: base, variant, number, rarity: extended(p, 'Rarity')?.trim() || null });
     if (cards.length >= MAX_CARDS_PER_SET) break;
   }
