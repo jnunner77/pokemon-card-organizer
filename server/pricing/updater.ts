@@ -1267,7 +1267,7 @@ export class PriceUpdater {
     try {
       return await source.quote(
         { name: card.name, set: card.set, setCode: card.setCode, number: card.number, variant: card.variant, rarity: card.rarity, tcgdexSet: cat?.set ?? (d as { set?: string } | null | undefined)?.set ?? null },
-        own ?? cat?.tcgplayerProduct ?? japaneseProductOf(d?.id),
+        own ?? cat?.tcgplayerProduct ?? (lang === 'japanese' ? japaneseProductOf(d?.id) : null),
       );
     } catch (err) {
       this.log[this.run ? 'info' : 'warn']('pricing', `${label(card)}: tcgcsv.com${lang === 'japanese' ? ' (Japanese)' : ''}: ${message(err)}`);

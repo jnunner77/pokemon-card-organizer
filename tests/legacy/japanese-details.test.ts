@@ -60,7 +60,7 @@ describe('Japanese card details over HTTP', () => {
     const tcgcsvJapanese = new TcgCsv({ fetcher: n.fetcher, gapMs: 0, category: TCGCSV_JAPANESE });
     const early = createApp({ store, assets: new Assets(dir), publicDir: path.join(__dirname, '../../public'), cardLookups: createCardLookups({ store, database: new TcgdexCardDatabase({ fetcher: n.fetcher }), tcgcsvJapanese, now: () => NOW }) });
     const wait = await request(early).get('/api/cards/lookup').query({ name: 'Charizard ex', number: '201/165', lang: 'ja' }).expect(503);
-    expect(wait.body.error).toMatch(/still being downloaded \(0 of 0 sets\)/);
+    expect(wait.body.error).toMatch(/about to be downloaded/);
     const { app: built } = await app();
     const r = await request(built).get('/api/cards/lookup').query({ name: 'Charizard ex', number: '201/165', lang: 'ja' }).expect(200);
     expect(r.body.matches).toEqual([expect.objectContaining({ id: 'ja-2-222', set: 'Pokemon Card 151', setCode: 'SV2a', rarity: 'Special Art Rare', artist: 'miki kudo', released: '2023-06-16' })]);
@@ -98,5 +98,16 @@ describe('Japanese card details over HTTP', () => {
     n.urls.length = 0;
     await updater.runAll('manual');
     expect(n.urls.some((u) => u.includes('sv03.5-006'))).toBe(false);
+  });
+
+  it("doesn't hand an English card's old Japanese match to the English TCGplayer catalog as its product", async () => {
+    const n = net();
+    const asked: unknown[] = [];
+    const tcgcsv = { reset: () => undefined, quote: async (_card: unknown, product: unknown) => (asked.push(product), null) } as unknown as TcgCsv;
+    store.set('cards', 'en', { name: 'Charizard ex', number: '201/165', set: 'Pokemon Card 151', setCode: 'SV2a', language: 'English', status: 'binder', prices: [], binderId: 'b1', page: 1, slot: 1, details: { source: 'tcgdex', result: 'filled', v: 3, id: 'ja-2-222', checkedAt: NOW.toISOString() } });
+    const updater = new PriceUpdater({ store, assets: new Assets(dir), fetcher: n.fetcher, now: () => NOW, delayMs: 0, timeZone: 'America/Vancouver', catalog: new Catalog({ fetcher: n.fetcher }), tcgcsv });
+    await updater.runAll('manual');
+    expect(asked.length).toBeGreaterThan(0);
+    expect(asked.every((p) => p == null)).toBe(true);
   });
 });
