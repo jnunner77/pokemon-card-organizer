@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { BackfillDetails } from '#application/catalog/backfill-details.ts';
+import { FillEveryCard } from '#application/catalog/fill-every-card.ts';
 import { ChooseMatch } from '#application/catalog/choose-match.ts';
 import { FillCardDetails } from '#application/catalog/fill-card-details.ts';
 import { LookUpCard } from '#application/catalog/look-up-card.ts';
@@ -303,5 +305,45 @@ describe('Find a card for Japanese cards', () => {
     assert.equal(shown.value.rates.usd, 1.37);
     assert.equal(shown.value.notes.length, 1);
     assert.deepEqual(await new ShowAnyCard(t.deps).execute({ id: 'ja-2-999', language: 'ja' }), { ok: false, error: { code: 'NO_SUCH_CARD' } });
+  });
+});
+
+describe('a Japanese card holding an English match', () => {
+  const full = { name: 'Pikachu', number: '025/165', language: 'Japanese', set: 'Pokemon Card 151', setCode: 'SV2a', rarity: 'Common', artist: 'Atsuko Nishida', released: '2023-06-16' };
+  const english = { source: 'tcgdex', result: 'complete', v: 3, id: 'sv05-051', checkedAt: NOW.toISOString() };
+
+  it('is skipped during the first build, then picked up by the backfill and the daily run', async () => {
+    const t = japanese();
+    t.ledger.seed('cards', 'a', { ...full, details: english });
+    const fillCard = new FillCardDetails(t.deps);
+    assert.equal(await fillCard.execute({ cardId: 'a' }), 'skipped');
+    matches(cardOf(t.ledger, 'a'), { details: { id: 'sv05-051' } });
+    await refresher(t).execute();
+    const fillEvery = new FillEveryCard({ ...t.deps, fillCard });
+    const backfill = new BackfillDetails({ ...t.deps, fillEvery });
+    assert.equal(await backfill.execute(), 1);
+    await fillEvery.finished();
+    matches(cardOf(t.ledger, 'a'), { details: { id: 'ja-2-223' } });
+    assert.equal((await fillEvery.execute()).cards, 0);
+  });
+
+  it('is selected by the daily run without force', async () => {
+    const t = await built(japanese());
+    t.ledger.seed('cards', 'a', { ...full, details: english });
+    const fillEvery = new FillEveryCard({ ...t.deps, fillCard: new FillCardDetails(t.deps) });
+    assert.equal((await fillEvery.execute()).cards, 1);
+    await fillEvery.finished();
+    matches(cardOf(t.ledger, 'a'), { details: { id: 'ja-2-223' } });
+  });
+});
+
+describe('choosing a match for a Japanese card before the catalog is ready', () => {
+  it('answers not ready, applying nothing; other skips stay ok', async () => {
+    const t = japanese();
+    t.ledger.seed('cards', 'j', { name: 'Pikachu', number: '025/165', language: 'Japanese' });
+    const choose = new ChooseMatch({ ...t.deps, fillCard: new FillCardDetails(t.deps) });
+    const r = await choose.execute({ cardId: 'j', matchId: 'ja-2-223' });
+    assert.ok(!r.ok && r.error.code === 'JAPANESE_CATALOG_NOT_READY');
+    assert.equal(cardOf(t.ledger, 'j')['details'], undefined);
   });
 });

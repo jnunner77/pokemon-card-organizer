@@ -1,4 +1,5 @@
 import { wantsDetails } from '#domain/catalog/details.ts';
+import { matchedOtherCatalog } from '#domain/catalog/japanese.ts';
 import { documentId } from '#domain/ledger/ids.ts';
 import { Setting, type SettingId } from '#domain/settings/setting.ts';
 import { ok } from '#shared/result.ts';
@@ -46,7 +47,7 @@ export class FillEveryCard {
     const force = input.force ?? false;
     const now = this.#deps.clock.now();
     // Claimed before anything is read, so a second start meanwhile joins this run.
-    const ids = readCards(this.#deps).then((cards) => cards.filter((c) => wantsDetails(c.fields, now, force)).map((c) => c.id));
+    const ids = readCards(this.#deps).then((cards) => cards.filter((c) => wantsDetails(c.fields, now, force) || matchedOtherCatalog(c.fields)).map((c) => c.id));
     const done = ids
       .then((list) => this.#fillAll(list, force))
       .catch((error: unknown) => this.#deps.log.error(`Filling in missing details stopped: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`))

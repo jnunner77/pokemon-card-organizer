@@ -1,4 +1,5 @@
 import { lookedUp, outdated, wantsDetails } from '#domain/catalog/details.ts';
+import { matchedOtherCatalog } from '#domain/catalog/japanese.ts';
 import { readCards } from './cards.ts';
 import type { CatalogDeps } from './deps.ts';
 import type { FillEveryCard } from './fill-every-card.ts';
@@ -20,7 +21,7 @@ export class BackfillDetails {
 
   async execute(): Promise<number> {
     const now = this.#deps.clock.now();
-    const need = (await readCards(this.#deps)).filter((c) => wantsDetails(c.fields, now) && (outdated(c.fields) || !lookedUp(c.fields))).length;
+    const need = (await readCards(this.#deps)).filter((c) => (wantsDetails(c.fields, now) && (outdated(c.fields) || !lookedUp(c.fields))) || matchedOtherCatalog(c.fields)).length;
     if (!need || this.#fillEvery.running) return 0;
     this.#deps.log.info(`${need} cards to look up or check again after an update`);
     return (await this.#fillEvery.execute({ force: false })).cards;
