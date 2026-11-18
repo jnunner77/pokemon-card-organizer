@@ -141,37 +141,64 @@ export function oldAddress(id: string): { query: string; is: (p: Candidate) => b
 
 // ---- the price guide download ----------------------------------------------------------
 
-/** A CSV file's rows, by its header's column names (quoted fields with commas and "" in them included). */
-export function parseCsv(text: string): Record<string, string>[] {
-  const rows: string[][] = [];
+/**
+ * A CSV file's rows, by its header's column names (quoted fields with commas and "" in them
+ * included), one at a time: the file's rows are never all held as arrays at once.
+ */
+export function* csvRows(text: string): Generator<Record<string, string>> {
+  let head: string[] | null = null;
   let row: string[] = [];
   let field = '';
   let quoted = false;
+  let start = 0; // where the unquoted run of the current field began, or -1 while building it in `field`
+  const endRow = function* (): Generator<Record<string, string>> {
+    if (row.some((f) => f !== '')) {
+      if (!head) head = row.map((h) => h.trim());
+      else {
+        const cols = head;
+        const r = row;
+        yield Object.fromEntries(cols.map((h, i) => [h, r[i] ?? '']));
+      }
+    }
+    row = [];
+  };
+  // Closes the field ending before `end`: what was built so far, plus the unquoted run since `start`.
+  const take = (end: number) => {
+    const f = start >= 0 ? field + text.slice(start, end) : field;
+    field = '';
+    return f;
+  };
   for (let i = 0; i < text.length; i++) {
     const ch = text[i];
     if (quoted) {
       if (ch === '"' && text[i + 1] === '"') {
         field += '"';
         i++;
-      } else if (ch === '"') quoted = false;
-      else field += ch;
-    } else if (ch === '"') quoted = true;
-    else if (ch === ',') {
-      row.push(field);
-      field = '';
+      } else if (ch === '"') {
+        quoted = false;
+        start = i + 1;
+      } else field += ch;
+    } else if (ch === '"') {
+      field += text.slice(start, i);
+      start = -1;
+      quoted = true;
+    } else if (ch === ',') {
+      row.push(take(i));
+      start = i + 1;
     } else if (ch === '\n' || ch === '\r') {
+      row.push(take(i));
       if (ch === '\r' && text[i + 1] === '\n') i++;
-      row.push(field);
-      field = '';
-      if (row.some((f) => f !== '')) rows.push(row);
-      row = [];
-    } else field += ch;
+      start = i + 1;
+      yield* endRow();
+    }
   }
-  row.push(field);
-  if (row.some((f) => f !== '')) rows.push(row);
-  const [head, ...body] = rows;
-  if (!head) return [];
-  return body.map((r) => Object.fromEntries(head.map((h, i) => [h.trim(), r[i] ?? ''])));
+  row.push(take(text.length));
+  yield* endRow();
+}
+
+/** A CSV file's rows, by its header's column names. */
+export function parseCsv(text: string): Record<string, string>[] {
+  return [...csvRows(text)];
 }
 
 /** "051/165" and "#51" → "51", "TG03/TG30" → "tg3": a card number to compare. */
@@ -191,15 +218,19 @@ const pennies = (v: string) => {
 export class PriceGuide {
   private readonly byId = new Map<string, PcProduct>();
   private readonly byNumber = new Map<string, PcProduct[]>();
-  constructor(rows: Record<string, string>[]) {
+  constructor(rows: Iterable<Record<string, string>>) {
     for (const row of rows) {
-      const p: Record<string, unknown> = { ...row };
-      for (const k of Object.keys(row)) if (k.endsWith('-price')) p[k] = pennies(row[k]);
+      const p: Record<string, unknown> = {};
+      for (const k of Object.keys(row)) p[k] = k.endsWith('-price') ? pennies(row[k] ?? '') : row[k];
       try {
         const product = parseProduct(p);
         this.byId.set(product.id, product);
         const n = numKey(product.number);
-        if (n) this.byNumber.set(n, [...(this.byNumber.get(n) ?? []), product]);
+        if (n) {
+          const list = this.byNumber.get(n);
+          if (list) list.push(product);
+          else this.byNumber.set(n, [product]);
+        }
       } catch {
         // a row without an id
       }
@@ -536,8 +567,10 @@ export class PriceCharting {
   async priceGuide(): Promise<PriceGuide> {
     const day = this.day();
     if (this.guide?.day === day) return this.guide.guide;
-    const text = (await this.request('/price-guide/download-custom', { category: 'pokemon-cards' }, this.o.token(), '', true)) as string;
-    const guide = new PriceGuide(parseCsv(text));
+    // Read in one pass: the text is dropped as soon as its rows are in the guide.
+    let text: string | null = (await this.request('/price-guide/download-custom', { category: 'pokemon-cards' }, this.o.token(), '', true)) as string;
+    const guide = new PriceGuide(csvRows(text));
+    text = null;
     if (!guide.size) throw new SourceError("PriceCharting's price guide was empty");
     this.guide = { day, guide };
     this.log.info('pricing', `Downloaded PriceCharting's Pokémon price guide: ${guide.size} products`, { products: guide.size });
