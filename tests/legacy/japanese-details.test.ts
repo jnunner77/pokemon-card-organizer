@@ -89,4 +89,14 @@ describe('Japanese card details over HTTP', () => {
     expect(store.get('cards', 'ja')?.pricing).toMatchObject({ source: 'tcgplayer', id: '222' });
     expect(store.get('cards', 'ja')?.prices).toEqual([expect.objectContaining({ usd: 50, currency: 'CAD' })]);
   });
+
+  it('does not price or picture a Japanese card from the English TCGdex card it was once matched to', async () => {
+    const n = net();
+    const { tcgcsvJapanese } = await app(n);
+    store.set('cards', 'ja', { name: 'Charizard ex', number: '201/165', language: 'Japanese', status: 'binder', prices: [], binderId: 'b1', page: 1, slot: 1, details: { source: 'tcgdex', result: 'complete', v: 3, id: 'sv03.5-006', checkedAt: NOW.toISOString() } });
+    const updater = new PriceUpdater({ store, assets: new Assets(dir), fetcher: n.fetcher, now: () => NOW, delayMs: 0, timeZone: 'America/Vancouver', catalog: new Catalog({ fetcher: n.fetcher }), tcgcsvJapanese });
+    n.urls.length = 0;
+    await updater.runAll('manual');
+    expect(n.urls.some((u) => u.includes('sv03.5-006'))).toBe(false);
+  });
 });

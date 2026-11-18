@@ -4,6 +4,7 @@ import { AutofillCard } from '#application/catalog/autofill-card.ts';
 import { BackfillDetails } from '#application/catalog/backfill-details.ts';
 import { FillCardDetails } from '#application/catalog/fill-card-details.ts';
 import { FillEveryCard } from '#application/catalog/fill-every-card.ts';
+import { RefreshJapaneseCatalog } from '#application/catalog/refresh-japanese-catalog.ts';
 import { WatchNewCards } from '#application/catalog/watch-new-cards.ts';
 import { DETAILS_VERSION } from '#domain/cards/attention.ts';
 import { cardOf, matches, setUp } from './fixtures.ts';
@@ -99,6 +100,18 @@ describe('new cards fill themselves in', () => {
     matches(cardOf(t.ledger, 'auto'), { set: 'Temporal Forces', artist: 'kodama', setCode: 'XYZ', officialImageId: null, details: { result: 'filled' } });
     assert.equal(cardOf(t.ledger, 'mine')['officialImageId'], 'img');
     assert.equal(t.pricing.priced.length, 4);
+  });
+
+  it('fills in an existing English card as soon as its language is changed to Japanese', async () => {
+    const t = setUp({ japanese: { groups: [{ groupId: 2, name: 'SV2a: Pokemon Card 151', abbreviation: 'SV2a', publishedOn: '2023-06-16T00:00:00', modifiedOn: 'm1' }], contents: new Map([[2, { products: [{ productId: 223, groupId: 2, name: 'Pikachu - 025/165', extendedData: [{ name: 'Number', value: '025/165' }, { name: 'Rarity', value: 'Common' }] }], prices: [] }]]), answers: new Map() } });
+    await new RefreshJapaneseCatalog(t.deps).execute();
+    t.ledger.seed('cards', 'c', { name: 'Pikachu', number: '025/165', language: 'English' });
+    const { watch } = autofill(t);
+    watch.execute();
+    update(t, 'c', { language: 'Japanese' });
+    await watch.idle();
+    matches(cardOf(t.ledger, 'c'), { setCode: 'SV2a', details: { id: 'ja-2-223' } });
+    watch.stop();
   });
 
   it('fills details only when automatic prices are off, and leaves pricing to a daily run in progress', async () => {

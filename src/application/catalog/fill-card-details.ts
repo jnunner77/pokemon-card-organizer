@@ -1,5 +1,5 @@
 import { type DetailsMatch, type LookupFound, type LookupResult, lastMatch, wantsDetails } from '#domain/catalog/details.ts';
-import { catalogLanguage, matchLanguage } from '#domain/catalog/japanese.ts';
+import { catalogLanguage, matchedOtherCatalog, matchLanguage } from '#domain/catalog/japanese.ts';
 import { changeCard, readCard } from './cards.ts';
 import type { CatalogDeps } from './deps.ts';
 import { JapaneseNotReady, messageOf } from './errors.ts';
@@ -42,7 +42,7 @@ export class FillCardDetails {
     const deps = this.#deps;
     const now = deps.clock.now();
     const card = await readCard(deps, input.cardId);
-    if (!card || (!input.chosen && !wantsDetails(card, now, input.force ?? false))) return 'skipped';
+    if (!card || (!input.chosen && !wantsDetails(card, now, input.force ?? false) && !matchedOtherCatalog(card))) return 'skipped';
     // English (or no language) cards are looked up in TCGdex, Japanese ones in the Japanese index;
     // other languages aren't, unless the person chose a TCGdex card for it.
     const catalog = catalogLanguage(card['language']);

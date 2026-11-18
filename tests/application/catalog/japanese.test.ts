@@ -137,6 +137,13 @@ describe('looking up a Japanese card', () => {
     assert.ok(r.ok && r.value.matches.length === 1);
   });
 
+  it('does not look a card up in a partial index, but says how far the build is', async () => {
+    const t = await built(japanese());
+    jp(t).catalog.completedAt = null;
+    jp(t).catalog.progress = { running: true, done: 1, total: 2 };
+    assert.deepEqual(await new LookUpCard(t.deps).execute({ name: 'Pikachu', number: '25/165', language: 'ja' }), { ok: false, error: { code: 'JAPANESE_CATALOG_NOT_READY', done: 1, total: 2 } });
+  });
+
   it('is off without a Japanese catalog', async () => {
     const t = setUp();
     assert.deepEqual(await new LookUpCard(t.deps).execute({ name: 'Pikachu', number: '25', language: 'ja' }), { ok: false, error: { code: 'JAPANESE_LOOKUPS_OFF' } });
@@ -164,12 +171,31 @@ describe('filling in a Japanese card', () => {
     });
   });
 
+  it('looks a card up again when its recorded match is an English one, even if nothing is blank', async () => {
+    const t = await built(japanese());
+    const full = { ...card, set: 'Pokemon Card 151', setCode: 'SV2a', rarity: 'Common', artist: 'Atsuko Nishida', released: '2023-06-16' };
+    t.ledger.seed('cards', 'a', { ...full, details: { source: 'tcgdex', result: 'complete', v: 3, id: 'sv05-051', checkedAt: NOW.toISOString() } });
+    assert.equal(await new FillCardDetails(t.deps).execute({ cardId: 'a' }), 'complete');
+    matches(cardOf(t.ledger, 'a'), { details: { id: 'ja-2-223' } });
+  });
+
   it('skips a card, recording nothing, while the first build has not finished', async () => {
     const t = japanese();
     t.ledger.seed('cards', 'a', card);
     assert.equal(await new FillCardDetails(t.deps).execute({ cardId: 'a' }), 'skipped');
     assert.equal(cardOf(t.ledger, 'a')['details'], undefined);
     assert.deepEqual(t.published, []);
+  });
+
+  it('skips a card, recording nothing, while the index is only partly built', async () => {
+    const t = await built(japanese());
+    jp(t).catalog.completedAt = null;
+    t.ledger.seed('cards', 'a', card);
+    assert.equal(await new FillCardDetails(t.deps).execute({ cardId: 'a' }), 'skipped');
+    assert.equal(cardOf(t.ledger, 'a')['details'], undefined);
+    assert.deepEqual(t.published, []);
+    jp(t).catalog.completedAt = NOW.toISOString();
+    assert.equal(await new FillCardDetails(t.deps).execute({ cardId: 'a' }), 'filled');
   });
 
   it('leaves English cards as they were, and skips other languages', async () => {
@@ -204,6 +230,14 @@ describe('Find a card for Japanese cards', () => {
     const narrow = await search.execute({ query: 'pikachu sv2a', language: 'ja' });
     assert.ok(narrow.ok);
     assert.deepEqual(narrow.value.hits.map((h) => h.id), ['ja-2-223']);
+  });
+
+  it('searches a partial index so people can browse while the first build runs', async () => {
+    const t = await built(japanese());
+    jp(t).catalog.completedAt = null;
+    const r = await new SearchAnyCard(t.deps).execute({ query: 'pikachu', language: 'ja' });
+    assert.ok(r.ok);
+    assert.deepEqual(r.value.hits.map((h) => h.id), ['ja-3-333', 'ja-2-223']);
   });
 
   it('answers not ready or off like a lookup', async () => {

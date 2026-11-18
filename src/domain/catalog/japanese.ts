@@ -1,6 +1,7 @@
+import type { Fields } from '../ledger/document.ts';
 import { type LookupHit, MAX_HITS } from './any-card.ts';
-import { type DetailsMatch, MAX_MATCHES, type NamedSet, SIMILAR, type SetHints } from './details.ts';
-import { isBlank, norm, setSize, similarity, withoutBrackets, words } from './names.ts';
+import { type DetailsMatch, lastMatch, MAX_MATCHES, type NamedSet, SIMILAR, type SetHints } from './details.ts';
+import { catalogLanguage, isBlank, norm, setSize, similarity, withoutBrackets, words } from './names.ts';
 import { mapRarity } from './rarity.ts';
 import { extended, ownNumber, productName, setName, type TcgGroup, type TcgPrice, type TcgProduct, tcgImage } from './tcgplayer.ts';
 
@@ -84,6 +85,16 @@ export function parseJapaneseMatchId(id: unknown): { readonly groupId: number; r
 
 /** Which catalog a match id is from: Japanese ids start "ja-<group>-<product>", TCGdex's don't. */
 export const matchLanguage = (id: string): 'en' | 'ja' => (parseJapaneseMatchId(id) ? 'ja' : 'en');
+
+/**
+ * Whether a card's recorded match is from the other language's catalog than its language uses
+ * (an English card that was set to Japanese afterwards, or the reverse): it's looked up again.
+ */
+export function matchedOtherCatalog(card: Fields): boolean {
+  const { id } = lastMatch(card);
+  const language = catalogLanguage(card['language']);
+  return !!id && language !== null && matchLanguage(id) !== language;
+}
 
 /** A Japanese match id's TCGplayer product, as a string; null for any other id. */
 export const japaneseProductOf = (id: unknown): string | null => {

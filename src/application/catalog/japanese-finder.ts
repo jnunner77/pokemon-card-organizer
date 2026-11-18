@@ -18,8 +18,8 @@ export async function japaneseArtist(database: CardDatabase, e: JapaneseEntry): 
 
 /**
  * Finding a Japanese card in the Japanese index by its English name and number, narrowed by the
- * set. Answers straight away from memory; before the index's first build is done, it throws
- * JapaneseNotReady rather than say that a card isn't there. The illustrator is TCGdex's.
+ * set. Answers straight away from memory; before the index's first build is done, lookups throw
+ * JapaneseNotReady rather than match from a partial index. The illustrator is TCGdex's.
  */
 export class JapaneseCardFinder implements CardFinder {
   readonly #catalog: JapaneseCatalog;
@@ -31,10 +31,10 @@ export class JapaneseCardFinder implements CardFinder {
   }
 
   async lookup(name: string, number: string, hints: SetHints = {}): Promise<readonly DetailsMatch[]> {
-    if (!this.#catalog.readiness().ready) throw new JapaneseNotReady();
+    // Matching (what a lookup records or applies) waits for the first build to finish: a partial
+    // index could hold only some of the sets a card number is in. Searching may use a partial one.
+    if (this.#catalog.completedAt === null) throw new JapaneseNotReady();
     const found = lookupJapanese(this.#catalog.entries(), name, number, hints);
-    // A first build that hasn't finished may not have the card's set yet.
-    if (!found.length && this.#catalog.completedAt === null) throw new JapaneseNotReady();
     const [only] = found;
     if (only && found.length === 1) return [japaneseMatch(only, await japaneseArtist(this.#database, only))];
     return found.map((e) => japaneseMatch(e, null));

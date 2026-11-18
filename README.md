@@ -164,7 +164,8 @@ No site's pages are read: every price comes from an API.
   match, nor an English card a Japanese one. The server keeps a compact index of TCGplayer's
   Japanese catalog (about 460 sets and 40,000 cards) in `japanese-cards.json`: it's built once,
   about ten minutes of downloads, one set a second, after the first start (until then Japanese
-  lookups say how far it is, "120 of 462 sets", and English ones are unaffected), and then refreshed
+  lookups, fill-ins and the Add card form's lookup wait and say how far it is, "120 of 462 sets"; Any card search
+  already works on the sets indexed so far; English ones are unaffected), and then refreshed
   once a day around 21:00 UTC, downloading only the sets whose *modifiedOn* changed plus ten of the
   oldest as a safety net. The illustrator comes from TCGdex's Japanese catalog. Japanese Any card
   prices are TCGplayer's only (PriceCharting isn't asked there); the daily update still prices

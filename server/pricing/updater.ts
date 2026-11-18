@@ -4,7 +4,7 @@ import type { AdminSettingsStore as Config } from '#application/admin/ports.ts';
 import type { FillCardDetails } from '#application/catalog/fill-card-details.ts';
 import { checkIdentity } from '#domain/cards/attention.ts';
 import type { DetailsStatus } from '#domain/catalog/details.ts';
-import { japaneseProductOf, matchLanguage } from '#domain/catalog/japanese.ts';
+import { catalogLanguage, japaneseProductOf, matchLanguage } from '#domain/catalog/japanese.ts';
 import type { ServerLog as Logger } from '#application/logging.ts';
 import { quietLogger } from '#infrastructure/logging/logger.ts';
 import { type BlendSettings, blend } from '../blend.ts';
@@ -1281,6 +1281,8 @@ export class PriceUpdater {
     const tcgdexId = d?.id;
     // A Japanese match (from TCGplayer's Japanese catalog) isn't a TCGdex English card: TCGdex English isn't asked about it.
     if (!this.catalog || !tcgdexId || matchLanguage(tcgdexId) === 'ja') return null;
+    // And a Japanese card that still holds an English match (made before its language was set) isn't priced or pictured from it.
+    if (catalogLanguage(card.language) === 'ja') return null;
     // A TCGdex match from another set than the one the card is filed under (flagged in Cards to
     // check) gives no prices or picture until the person files it there, chooses it, or ignores the
     // check: a card that only shares a number would otherwise be priced as this one.

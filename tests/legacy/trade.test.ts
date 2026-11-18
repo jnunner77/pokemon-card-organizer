@@ -51,8 +51,8 @@ type Look = { id: string; name: string; set: string; number: string; thumb: stri
 type SavedItem = { cardId: string | null; look: Look | null; name: string; grader: string; grade: string; value: string; valueFrom: string; pct: string };
 type SavedSide = { pct: string; cash: string; items: SavedItem[] };
 const sandbox = { window: {} as { BinderTrade: Trade } };
-// bulkbuy.js comes first, as on the page: trade.js shares amounts out with its allocate.
-for (const f of ['bulkbuy.js', 'trade.js']) vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public', f), 'utf8'), sandbox);
+// bulkbuy.js and language.js come first, as on the page: trade.js shares amounts out with its allocate and labels cards' languages.
+for (const f of ['bulkbuy.js', 'language.js', 'trade.js']) vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public', f), 'utf8'), sandbox);
 const { offered, myCardValue, myCardNote, settle, newCard, recordProblem, recordBody, landings, salesGroups, amount, percent, evaluate, cardTrade, gradeLabel, pctText, pctCell, warnings, missingGradeNote, gradePrice, lookFrom, lookValue, followLook, addCash, restore } = sandbox.window.BinderTrade;
 
 describe('reading what was typed', () => {

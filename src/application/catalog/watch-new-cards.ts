@@ -1,4 +1,5 @@
 import { cardIdentity } from '#domain/catalog/details.ts';
+import { catalogLanguage } from '#domain/catalog/names.ts';
 import type { AutofillCard } from './autofill-card.ts';
 import type { BackfillDetails } from './backfill-details.ts';
 import type { CatalogDeps } from './deps.ts';
@@ -9,9 +10,13 @@ export interface WatchNewCardsOptions {
   readonly backfillAfterMs: number | null;
 }
 
+/** What makes a card the card to look up: its name and number, and which card database its language uses. */
+const lookupKey = (card: Record<string, unknown>): string => `${cardIdentity(card)}\u0000${catalogLanguage(card['language']) ?? ''}`;
+
 /**
  * New cards fill themselves in: as soon as a card is added (the form, a CSV import, the API) or
- * becomes a different card (a CSV row replacing it, or its name or number edited), it's queued
+ * becomes a different card (a CSV row replacing it, or its name, number or language edited: English
+ * and Japanese cards come from different catalogs), it's queued
  * and filled in (AutofillCard), one at a time with a pause between, so a big import doesn't
  * hammer the sites. Cards already there, or brought back by a restore, aren't new. Shortly after
  * it starts, cards looked up before the current checks are looked up again (BackfillDetails).
@@ -41,7 +46,7 @@ export class WatchNewCards {
   execute(): void {
     if (this.#unsubscribe) return;
     const { changes, scheduler, log } = this.#deps;
-    const snapshot = () => new Map(changes.current().map((c) => [c.id, cardIdentity(c.card)]));
+    const snapshot = () => new Map(changes.current().map((c) => [c.id, lookupKey(c.card)]));
     this.#known = snapshot();
     this.#unsubscribe = changes.subscribe((change) => {
       if (change.kind === 'replaced') {
@@ -53,7 +58,7 @@ export class WatchNewCards {
         this.#known.delete(id);
         return;
       }
-      const now = cardIdentity(card);
+      const now = lookupKey(card);
       const before = this.#known.get(id);
       if (before === now) return;
       this.#known.set(id, now);
