@@ -189,14 +189,15 @@ describe('how often a running update saves its progress', () => {
     return writes;
   }
   // Each card has its own PriceCharting product (a product asked about once a day is kept).
-  const five = () => ['Lapras', 'Mew', 'Eevee', 'Snorlax', 'Ditto'].forEach((name, i) => store.set('cards', `c${i}`, { ...card(name), pricing: { source: 'pricecharting', id: String(100 + i) } }));
+  const names = ['Lapras', 'Mew', 'Eevee', 'Snorlax', 'Ditto'];
+  const five = () => names.forEach((name, i) => store.set('cards', `c${i}`, { ...card(name), pricing: { source: 'pricecharting', id: String(100 + i) } }));
   /** PriceCharting answers each product by its id; `onAsk` runs before each answer (and may hold it). */
-  const guideless = (onAsk: () => Promise<void> | void): Fetcher => async (url) => {
-    const u = new URL(String(url));
+  const guideless = (onAsk: () => Promise<void> | void): Fetcher => async (url, init) => {
+    const id = new URLSearchParams(String(init?.body ?? '')).get('id') ?? '';
     if (String(url).includes('bankofcanada')) return Response.json(BOC);
     if (String(url).includes('price-guide')) return new Response('not found', { status: 404 });
     await onAsk();
-    return Response.json({ status: 'success', id: u.searchParams.get('id'), 'product-name': 'Lapras', 'console-name': 'Pokemon 30th Celebration', 'loose-price': 1000 });
+    return Response.json({ status: 'success', id, 'product-name': names[Number(id) - 100], 'console-name': 'Pokemon 30th Celebration', 'loose-price': 1000 });
   };
   const updaterWith = (fetcher: Fetcher) => new PriceUpdater({ store, assets, log, fetcher, now: () => new Date(clock), delayMs: 0, timeZone: 'America/Vancouver', pricecharting: new PriceCharting({ token: () => 'test-token', fetcher, gapMs: 0 }) });
 
@@ -208,6 +209,8 @@ describe('how often a running update saves its progress', () => {
     // The start, the first card, and the end: not one or two per card.
     expect(writes.n).toBeLessThanOrEqual(4);
     expect(status()).toMatchObject({ running: false, done: 5, total: 5, current: null });
+    // Every card was still priced.
+    expect(status().lastRun?.counts).toMatchObject({ updated: 5, failed: 0 });
   });
 
   it('saves it mid-run once 15 seconds have passed', async () => {
