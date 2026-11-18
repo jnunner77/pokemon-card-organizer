@@ -284,6 +284,14 @@ describe('the daily update’s first check', () => {
   });
 });
 
+describe('the update’s pace', () => {
+  it('waits one second between cards unless told otherwise', () => {
+    const n = net();
+    const u = new PriceUpdater({ store, assets, log, fetcher: n.fetcher, now: () => new Date(clock), timeZone: 'America/Vancouver' });
+    expect((u as unknown as { delayMs: number }).delayMs).toBe(1000);
+  });
+});
+
 describe('the update’s log', () => {
   it('is read from the daily files, so it outlasts a restart', () => {
     log.info('pricing', 'Price update started (schedule) for 40 cards');
