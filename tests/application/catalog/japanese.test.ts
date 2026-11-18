@@ -8,6 +8,7 @@ import { SearchAnyCard } from '#application/catalog/search-any-card.ts';
 import { ShowAnyCard } from '#application/catalog/show-any-card.ts';
 import { ShowAnyCardDetails } from '#application/catalog/show-any-card-details.ts';
 import type { TcgGroup, TcgGroupContents } from '#domain/catalog/tcgplayer.ts';
+import { SourceUnavailable } from '#application/catalog/ports.ts';
 import { MemoryTcgplayerCatalog } from '#infrastructure/memory/catalog.ts';
 import { cardOf, matches, NOW, setUp } from './fixtures.ts';
 
@@ -91,6 +92,50 @@ describe('building the Japanese card index', () => {
     assert.equal((await r.execute()).failed, true);
     assert.deepEqual(jp(t).catalog.data(), old);
     assert.match(t.logged.warn.join('\n'), /Japanese card index: tcgcsv\.com answered 503|503/);
+    assert.deepEqual(t.scheduler.waiting.at(-1), RefreshJapaneseCatalog.retryAfterMs);
+  });
+
+  it('skips a set whose products fail, stores the others, completes, and fetches the skipped set at the next run', async () => {
+    const t = japanese();
+    const tcgplayer = t.japaneseTcgplayer;
+    if (!tcgplayer) throw new Error('no catalog');
+    const real = tcgplayer.products.bind(tcgplayer);
+    let broken = true;
+    tcgplayer.products = async (id: number) => {
+      if (broken && id === 3) throw new SourceUnavailable('tcgcsv.com sent no results');
+      return real(id);
+    };
+    const r = refresher(t);
+    assert.deepEqual(await r.execute(), { fetched: 1, dropped: 0, failed: false });
+    assert.equal(jp(t).catalog.completedAt, NOW.toISOString());
+    assert.deepEqual(jp(t).catalog.sets().map((s) => s.groupId), [2]);
+    assert.match(t.logged.warn.join('\n'), /1 sets skipped/);
+    broken = false;
+    assert.deepEqual(await r.execute(), { fetched: 1, dropped: 0, failed: false });
+    assert.deepEqual(jp(t).catalog.sets().map((s) => s.groupId).sort(), [2, 3]);
+  });
+
+  it('fails the run when several sets in a row fail, as when the source is down', async () => {
+    const t = japanese();
+    const tcgplayer = t.japaneseTcgplayer;
+    if (!tcgplayer) throw new Error('no catalog');
+    const groups = [1, 2, 3, 4].map((id) => ({ groupId: id, name: `S${id}`, modifiedOn: 'm' }));
+    const down = new MemoryTcgplayerCatalog(groups, new Map());
+    down.products = async () => {
+      throw new SourceUnavailable('Skipped: tcgcsv.com kept failing');
+    };
+    const r = new RefreshJapaneseCatalog({ ...t.deps, japanese: { ...jp(t), tcgplayer: down } });
+    assert.equal((await r.execute()).failed, true);
+    assert.equal(jp(t).catalog.completedAt, null);
+  });
+
+  it('keeps the index when the list of sets comes back empty', async () => {
+    const t = await built(japanese());
+    const old = jp(t).catalog.data();
+    const empty = new MemoryTcgplayerCatalog([], new Map());
+    const r = new RefreshJapaneseCatalog({ ...t.deps, japanese: { ...jp(t), tcgplayer: empty } });
+    assert.deepEqual(await r.execute(), { fetched: 0, dropped: 0, failed: true });
+    assert.deepEqual(jp(t).catalog.data(), old);
     assert.deepEqual(t.scheduler.waiting.at(-1), RefreshJapaneseCatalog.retryAfterMs);
   });
 

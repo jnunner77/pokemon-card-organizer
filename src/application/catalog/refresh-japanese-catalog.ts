@@ -21,6 +21,8 @@ export class RefreshJapaneseCatalog {
   static readonly saveEvery = 25;
   /** How long after the server starts the first build or a missed refresh begins. */
   static readonly firstRunAfterMs = 2 * 60_000;
+  /** Sets in a row that fail before the source counts as down and the run stops. */
+  static readonly giveUpAfter = 3;
   /** How long after a failed run the next one is tried. */
   static readonly retryAfterMs = 60 * 60_000;
 
@@ -92,6 +94,8 @@ export class RefreshJapaneseCatalog {
       const now = clock.now();
       tcgplayer.reset();
       const groups = await tcgplayer.groupList();
+      // An empty list with sets stored is a bad answer, not TCGplayer dropping everything.
+      if (groups.length === 0 && catalog.sets().length > 0) throw new Error('tcgcsv.com listed no sets, so the index is kept as it is');
       const plan = refreshPlan(catalog.sets(), groups, now);
       for (const id of plan.drop) catalog.drop(id);
       dropped = plan.drop.length;
@@ -99,11 +103,25 @@ export class RefreshJapaneseCatalog {
       catalog.progress = { running: true, done: 0, total: plan.fetch.length };
       const byId = new Map(groups.map((g) => [g.groupId, g]));
       let full = false;
+      let skipped = 0;
+      let inARow = 0;
       for (const id of plan.fetch) {
         if (this.#stopped) break;
         const group = byId.get(id);
         if (!group) continue;
-        const products = await tcgplayer.products(id);
+        let products;
+        try {
+          products = await tcgplayer.products(id);
+          inARow = 0;
+        } catch (error) {
+          // One set's bad answer leaves that set out (it isn't stored, so the next run fetches it again);
+          // several in a row (or the client's breaker) mean the source is down, which fails the run.
+          skipped++;
+          inARow++;
+          log.warn(`Japanese card index: set ${id} skipped: ${messageOf(error)}`);
+          if (inARow >= RefreshJapaneseCatalog.giveUpAfter) throw error;
+          continue;
+        }
         if (!catalog.put(japaneseSetOf(group, now.toISOString()), japaneseCardsOf(products)) && !full) {
           full = true;
           log.error(`Japanese card index is full (${MAX_CARDS} cards); later sets are left out`);
@@ -114,6 +132,7 @@ export class RefreshJapaneseCatalog {
         await scheduler.pause(RefreshJapaneseCatalog.gapMs);
       }
       if (!this.#stopped) catalog.completedAt = now.toISOString();
+      if (skipped > 0) log.warn(`Japanese card index: ${skipped} sets skipped, to be tried again at the next run`);
       log.info(`Japanese card index: ${fetched} sets downloaded (${plan.fetch.length} changed), ${catalog.cardCount()} cards`);
     } catch (error) {
       failed = true;
