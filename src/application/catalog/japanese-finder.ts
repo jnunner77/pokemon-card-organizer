@@ -41,12 +41,12 @@ export class JapaneseCardFinder implements CardFinder {
   }
 
   async match(id: string): Promise<DetailsMatch> {
+    // A match is recorded on the card, so it waits for the first build like lookup() does. Showing
+    // a card (readJapaneseCard) doesn't come through here and may use a partial index.
+    if (this.#catalog.completedAt === null) throw new JapaneseNotReady();
     const p = parseJapaneseMatchId(id);
     const e = p ? this.#catalog.entry(p.groupId, p.productId) : null;
-    if (!e) {
-      if (p && !this.#catalog.readiness().ready) throw new JapaneseNotReady();
-      throw new SourceUnavailable("That card isn't in TCGplayer's Japanese catalog any more.", 404);
-    }
+    if (!e) throw new SourceUnavailable("That card isn't in TCGplayer's Japanese catalog any more.", 404);
     return japaneseMatch(e, await japaneseArtist(this.#database, e));
   }
 

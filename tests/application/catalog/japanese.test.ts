@@ -357,4 +357,20 @@ describe('choosing a match for a Japanese card before the catalog is ready', () 
     assert.ok(!r.ok && r.error.code === 'JAPANESE_CATALOG_NOT_READY');
     assert.equal(cardOf(t.ledger, 'j')['details'], undefined);
   });
+
+  it('answers not ready for a card found in a partly built index, recording nothing; its details still show', async () => {
+    const t = await built(japanese());
+    jp(t).catalog.completedAt = null;
+    jp(t).catalog.progress = { running: true, done: 1, total: 2 };
+    t.ledger.seed('cards', 'j', { name: 'Pikachu', number: '025/165', language: 'Japanese' });
+    const choose = new ChooseMatch({ ...t.deps, fillCard: new FillCardDetails(t.deps) });
+    assert.deepEqual(await choose.execute({ cardId: 'j', matchId: 'ja-2-223' }), { ok: false, error: { code: 'JAPANESE_CATALOG_NOT_READY', done: 1, total: 2 } });
+    assert.equal(cardOf(t.ledger, 'j')['details'], undefined);
+    assert.deepEqual(t.published, []);
+    const shown = await new ShowAnyCardDetails(t.deps).execute({ id: 'ja-2-223', language: 'ja' });
+    assert.ok(shown.ok && shown.value.id === 'ja-2-223');
+    jp(t).catalog.completedAt = NOW.toISOString();
+    assert.ok((await choose.execute({ cardId: 'j', matchId: 'ja-2-223' })).ok);
+    matches(cardOf(t.ledger, 'j'), { details: { id: 'ja-2-223' } });
+  });
 });
