@@ -19,11 +19,21 @@
   /* The lang= the server is asked with: "ja" or "en". */
   const param = lang => (catalogLanguage(lang) === "ja" ? "ja" : "en");
 
-  /* The catalog a looked-up card's id is from. */
-  const ofId = id => (/^ja-\d+-\d+$/.test(String(id == null ? "" : id)) ? "ja" : "en");
+  /* The catalog a looked-up card's id is from (the server's JAPANESE_MATCH). */
+  const ofId = id => (/^ja-(\d{1,9})-(\d{1,12})$/.test(String(id == null ? "" : id)) ? "ja" : "en");
 
   /* The language to give a card made from a looked-up card, by its id. */
   const label = id => (ofId(id) === "ja" ? "Japanese" : "English");
 
-  root.BinderLanguage = { catalogLanguage, looksUp, param, ofId, label };
+  /* Whether a card's recorded match (card.details.id) is from the other catalog than its language uses (an English
+     card set to Japanese afterwards, or the reverse): the server looks it up again, complete or not.
+     Mirrors matchedOtherCatalog in src/domain/catalog/japanese.ts. */
+  function matchedOtherCatalog(card) {
+    const d = card && card.details;
+    const id = d && typeof d === "object" && !Array.isArray(d) && typeof d.id === "string" ? d.id : "";
+    const language = catalogLanguage(card && card.language);
+    return !!id && language !== null && ofId(id) !== language;
+  }
+
+  root.BinderLanguage = { catalogLanguage, looksUp, param, ofId, label, matchedOtherCatalog };
 })(typeof window !== "undefined" ? window : globalThis);

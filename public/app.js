@@ -2269,7 +2269,8 @@ const lookedUpThisWeek = c => c.details?.checkedAt && Date.now()-Date.parse(c.de
 /* cards looked up before the current checks are looked up again straight away (same rule as the server) */
 const DETAILS_VERSION = 3;
 const detailsOutdated = c => { const d = c.details; return !!d?.checkedAt && d.v!==DETAILS_VERSION && (!!d.id || d.result==="notFound" || d.result==="several"); };
-const wantsDetails = c => c.name && c.number && window.BinderLanguage.looksUp(c.language) && (detailsOutdated(c) || [...DETAIL_FIELDS,"released"].some(f=>!String(c[f]??"").trim()) && !lookedUpThisWeek(c));
+/* also a card whose match is from the other language's catalog (same rule as the server) */
+const wantsDetails = c => !!(c.name && c.number && window.BinderLanguage.looksUp(c.language) && (detailsOutdated(c) || [...DETAIL_FIELDS,"released"].some(f=>!String(c[f]??"").trim()) && !lookedUpThisWeek(c))) || window.BinderLanguage.matchedOtherCatalog(c);
 function detailsSettingsHTML(){
   const st = S.detailsRun || {}, last = st.lastRun, n = S.cards.filter(wantsDetails).length;
   return `<div class="sec" style="margin-top:18px;border-top:1px solid var(--line-2);padding-top:14px" id="sDetails">
@@ -2280,7 +2281,7 @@ function detailsSettingsHTML(){
   </div>`;
 }
 /* Settings → Update all cards: everything, or only prices, pictures or details, for every card now */
-const wantsDetailsNow = c => c.name && c.number && window.BinderLanguage.looksUp(c.language) && (detailsOutdated(c) || [...DETAIL_FIELDS,"released"].some(f=>!String(c[f]??"").trim()));
+const wantsDetailsNow = c => !!(c.name && c.number && window.BinderLanguage.looksUp(c.language) && (detailsOutdated(c) || [...DETAIL_FIELDS,"released"].some(f=>!String(c[f]??"").trim()))) || window.BinderLanguage.matchedOtherCatalog(c);
 function updateAllHTML(){
   const U = window.BinderUpdateAll, st = pricingStatus(), dr = S.detailsRun || {};
   const n = {all:S.cards.length, prices:S.cards.filter(held).length, pictures:S.cards.filter(U.needsPicture).length, details:S.cards.filter(wantsDetailsNow).length};
