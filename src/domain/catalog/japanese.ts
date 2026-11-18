@@ -59,6 +59,8 @@ export interface JapaneseEntry {
   readonly own: string;
   /** The set size after the slash: 165. */
   readonly size: number | null;
+  /** The set's name's words ("scarlet violet 151"), one string shared by all the set's cards. */
+  readonly setWords: string;
 }
 
 /** Most cards one set may add to the index. */
@@ -143,7 +145,8 @@ export function japaneseCardsOf(products: readonly TcgProduct[]): JapaneseCard[]
 }
 
 export function entriesOf(set: JapaneseSet, cards: readonly JapaneseCard[]): JapaneseEntry[] {
-  return cards.map((card) => ({ card, set, key: words(card.name).join(' '), own: ownNumber(card.number), size: setSize(card.number) }));
+  const setWords = words(set.name).join(' ');
+  return cards.map((card) => ({ card, set, key: words(card.name).join(' '), own: ownNumber(card.number), size: setSize(card.number), setWords }));
 }
 
 // ---- refreshing the index ----------------------------------------------------------------------
@@ -227,6 +230,7 @@ export function lookupJapanese(entries: readonly JapaneseEntry[], name: string, 
   return [...out].sort(releasedFirst).slice(0, MAX_MATCHES);
 }
 
+const byNumber = new Intl.Collator(undefined, { numeric: true });
 const NUMBER_TOKEN = /^[a-z-]*\d+[a-z]*(\/[a-z0-9-]+)?$/i;
 
 /**
@@ -247,14 +251,16 @@ export function searchJapanese(entries: readonly JapaneseEntry[], query: string,
     else textTokens.push(t);
   }
   const wanted = words(textTokens.join(' ')).join(' ');
+  const textWords = textTokens.map((t) => words(t));
+  const numbers = numberTokens.map((n) => ({ own: ownNumber(n), size: setSize(n) }));
   const found = entries.filter((e) => {
     if (!codeTokens.every((c) => (e.set.code ?? '').toLowerCase() === c)) return false;
-    if (!numberTokens.every((n) => ownNumber(n) === e.own && (setSize(n) == null || setSize(n) === e.size))) return false;
-    const hay = `${e.key} ${words(e.set.name).join(' ')}`;
-    return textTokens.every((t) => words(t).every((w) => hay.includes(w)));
+    if (!numbers.every((n) => n.own === e.own && (n.size == null || n.size === e.size))) return false;
+    const hay = `${e.key} ${e.setWords}`;
+    return textWords.every((ws) => ws.every((w) => hay.includes(w)));
   });
   const rank = (e: JapaneseEntry): number => (!wanted || e.key === wanted ? 0 : e.key.startsWith(wanted) ? 1 : 2);
-  const sorted = found.sort((a, b) => rank(a) - rank(b) || releasedFirst(a, b) || a.own.localeCompare(b.own, undefined, { numeric: true }));
+  const sorted = found.sort((a, b) => rank(a) - rank(b) || releasedFirst(a, b) || byNumber.compare(a.own, b.own));
   return { entries: sorted.slice(0, MAX_HITS), more: sorted.length > MAX_HITS };
 }
 
