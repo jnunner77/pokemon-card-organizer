@@ -807,9 +807,10 @@ view, filters, totals, Find (*Show in case*), quick sell, Pricing and Selling.
 *Sort* (next to *Rename / edit binder*) puts every card of the binder in order, from page 1,
 pocket 1 with no gaps, so you can rearrange the real binder to match:
 
-- **Release date**, oldest or newest first. Each card gets its set's release date from TCGdex
-  along with its other details (shown read-only as *Released* in the card drawer, and as a sortable
-  column in the List view). A promo filed under a set by name, like *Crown Zenith*, takes that
+- **Release date**, oldest or newest first. Each card gets its set's release date along with
+  its other details, from TCGdex for English cards and from TCGplayer's Japanese catalog for
+  Japanese cards (shown read-only as *Released* in the card drawer, and as a sortable column in the
+  List view). A promo filed under a set by name, like *Crown Zenith*, takes that
   set's date rather than the start of its promo series. The update that added release dates
   backfills them by itself a minute after the server starts; the daily run and *Fill in missing
   details* fill any still missing.

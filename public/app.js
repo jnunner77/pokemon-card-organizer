@@ -2275,9 +2275,9 @@ function detailsSettingsHTML(){
   const st = S.detailsRun || {}, last = st.lastRun, n = S.cards.filter(wantsDetails).length;
   return `<div class="sec" style="margin-top:18px;border-top:1px solid var(--line-2);padding-top:14px" id="sDetails">
     <h3>Card details</h3>
-    <p class="hint" style="margin:0 0 8px">New cards get their set, set code, rarity, illustrator and release date from TCGdex, a free card database, and then their price and picture, as soon as they're added. Only empty fields are filled; what you type always stays.</p>
+    <p class="hint" style="margin:0 0 8px">New cards get their set, set code, rarity, illustrator and release date as soon as they're added: English cards from TCGdex, a free card database, and Japanese cards from TCGplayer's Japanese catalog (the illustrator from TCGdex's Japanese cards). Then they get their price and picture. Only empty fields are filled; what you type always stays.</p>
     ${st.running?`<p><b>Filling in now:</b> ${st.done||0} of ${st.total||0} cards…</p>`:last?`<p style="margin:0 0 6px">Last fill-in: ${last.filled||0} card${last.filled===1?"":"s"} filled${last.several?` · ${last.several} with several matches (open them to choose)`:""}${last.notFound?` · ${last.notFound} not in the database`:""}${last.error?` · ${last.error} failed`:""}</p>`:""}
-    ${n?`<p class="hint" style="margin:0">${n} card${n===1?" has":"s have"} blank details: Update all cards → Details looks ${n===1?"it":"them"} up again.</p>`:""}
+    ${n?`<p class="hint" style="margin:0">${n} card${n===1?"":"s"} need${n===1?"s":""} ${n===1?"its":"their"} details looked up or filled in: Update all cards → Details looks ${n===1?"it":"them"} up again.</p>`:""}
   </div>`;
 }
 /* Settings → Update all cards: everything, or only prices, pictures or details, for every card now */
