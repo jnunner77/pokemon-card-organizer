@@ -3,8 +3,6 @@ import type { TcgdexBrief, TcgdexCard, TcgdexSet, TcgdexSetBrief } from '#domain
 import type { Clock } from '#application/ports.ts';
 import { type Fetcher, get } from '../http/get.ts';
 
-const API = 'https://api.tcgdex.net/v2/en';
-
 /** What each question asks TCGdex's API for, after its address. */
 export const tcgdexPaths = {
   cardsNamed: (name: string) => `/cards?name=${encodeURIComponent(name)}`,
@@ -25,6 +23,8 @@ const MAX_REMEMBERED = 2000;
 export interface TcgdexOptions {
   readonly fetcher?: Fetcher | undefined;
   readonly clock?: Clock | undefined;
+  /** Which language's catalog to ask: English (the default) or Japanese. */
+  readonly language?: 'en' | 'ja' | undefined;
 }
 
 // Raw JSON from TCGdex, read loosely (typed at this boundary; the domain reads it field by field).
@@ -43,12 +43,14 @@ export const setFrom = (raw: unknown, id: string): TcgdexSet => {
 export class TcgdexCardDatabase implements CardDatabase {
   readonly #fetcher: Fetcher;
   readonly #clock: Clock;
+  readonly #api: string;
   readonly #cache = new Map<string, { readonly at: number; readonly value: Promise<unknown> }>();
   #pocket: { readonly at: number; readonly ids: ReadonlySet<string> } | null = null;
 
   constructor(o: TcgdexOptions = {}) {
     this.#fetcher = o.fetcher ?? fetch;
     this.#clock = o.clock ?? { now: () => new Date() };
+    this.#api = `https://api.tcgdex.net/v2/${o.language ?? 'en'}`;
   }
 
   async cardsNamed(name: string): Promise<readonly TcgdexBrief[]> {
@@ -90,7 +92,7 @@ export class TcgdexCardDatabase implements CardDatabase {
     const now = this.#clock.now().getTime();
     const hit = this.#cache.get(path);
     if (hit && now - hit.at < ttl) return hit.value;
-    const value = get(this.#fetcher, API + path, { headers: { Accept: 'application/json' } }).then((r) => r.json() as Promise<unknown>);
+    const value = get(this.#fetcher, this.#api + path, { headers: { Accept: 'application/json' } }).then((r) => r.json() as Promise<unknown>);
     value.catch(() => this.#cache.delete(path));
     this.#cache.set(path, { at: now, value });
     if (this.#cache.size > MAX_REMEMBERED) {

@@ -2,6 +2,7 @@
 
 import path from 'node:path';
 import { AdminFile } from '#infrastructure/admin/admin-file.ts';
+import { JapaneseIndexFile } from '#infrastructure/catalog/japanese-index-file.ts';
 import { TcgdexCardDatabase } from '#infrastructure/catalog/tcgdex.ts';
 import { FileSecret } from '#infrastructure/admin/file-secret.ts';
 import { LocalEventBus } from '#infrastructure/local-event-bus.ts';
@@ -84,7 +85,7 @@ const tcgcsv = catalog ? new TcgCsv() : undefined;
 const tcgcsvJapanese = catalog ? new TcgCsv({ category: TCGCSV_JAPANESE }) : undefined;
 // Card details, new cards filling themselves in (details, then price and picture), Any card and
 // master sets. The price update is made next: it fills cards' details with these too.
-const cardLookups = cardDatabase ? createCardLookups({ store, database: cardDatabase, tcgcsv, updater: () => updater, log, events }) : undefined;
+const cardLookups = cardDatabase ? createCardLookups({ store, database: cardDatabase, tcgcsv, tcgcsvJapanese, japaneseIndex: new JapaneseIndexFile(dataDir), updater: () => updater, log, events }) : undefined;
 // Price watches: buy and sell alert emails through Gmail, with the app password administrators
 // enter under Administration → Alerts (a file of its own in SECRETS_DIR).
 const alerts = createAlerts({ store, config, password: new FileSecret(secretsDir, 'gmail-app-password'), log, events });
@@ -109,6 +110,8 @@ process.on('uncaughtException', crash('uncaught exception'));
 process.on('unhandledRejection', crash('unhandled promise rejection'));
 // New cards: details, then price and picture, straight away.
 cardLookups?.watchNewCards.execute();
+// TCGplayer's Japanese catalog, kept as a compact index: built once, then refreshed daily.
+cardLookups?.refreshJapaneseCatalog.start();
 
 const app = createApp({
   events,

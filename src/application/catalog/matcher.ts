@@ -21,6 +21,7 @@ import {
 } from '#domain/catalog/details.ts';
 import { isBlank, ownNumber, setLabel } from '#domain/catalog/names.ts';
 import { isSubSet, type TcgdexBrief } from '#domain/catalog/tcgdex.ts';
+import type { CardFinder } from './finder.ts';
 import type { CardDatabase } from './ports.ts';
 
 /**
@@ -28,7 +29,7 @@ import type { CardDatabase } from './ports.ts';
  * the set size ("51/162") and whatever set or set code they typed. Shared by looking a card up
  * and filling one in. The card database's failures are thrown (SourceUnavailable).
  */
-export class CardMatcher {
+export class CardMatcher implements CardFinder {
   readonly #db: CardDatabase;
 
   constructor(db: CardDatabase) {

@@ -74,6 +74,18 @@ export class TcgCsvClient implements TcgplayerCatalog {
     return s;
   }
 
+  /**
+   * A set's products without prices, for the Japanese index: a set already downloaded today (by the
+   * price update) is reused; otherwise only its products are downloaded, in the same queue and
+   * under the same breaker, and not kept, so downloading every set doesn't fill memory.
+   */
+  async products(groupId: number): Promise<readonly TcgProduct[]> {
+    this.#fresh();
+    const today = this.#sets.get(groupId);
+    if (today) return (await today).products;
+    return this.#json<TcgProduct>(`/${groupId}/products`);
+  }
+
   #fresh(): void {
     const day = this.#now().toISOString().slice(0, 10);
     if (day !== this.#day) {

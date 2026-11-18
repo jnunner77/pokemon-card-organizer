@@ -1,6 +1,6 @@
 import { DETAILS_VERSION } from '../cards/attention.ts';
 import { type Fields, isRecord } from '../ledger/document.ts';
-import { isBlank, isoDate, norm, ownNumber, searchWord, setLabel, setSize, similarity, withoutBrackets } from './names.ts';
+import { catalogLanguage, isBlank, isoDate, norm, ownNumber, searchWord, setLabel, setSize, similarity, withoutBrackets } from './names.ts';
 import { mapRarity } from './rarity.ts';
 import { isPocketSet, isSubSet, officialCount, releasedOf, setCodeOf, setOfCard, type TcgdexBrief, type TcgdexCard, type TcgdexSet, type TcgdexSetBrief, thumbOf } from './tcgdex.ts';
 
@@ -167,7 +167,8 @@ export const MAX_MATCHES = 8;
 /** The set with exactly this name (however it's written), of those TCGdex found by it. */
 export const setNamedExactly = (sets: readonly TcgdexSetBrief[], name: string): TcgdexSetBrief | null => sets.find((x) => norm(x.name) === norm(name)) ?? null;
 
-const SIMILAR = 0.8;
+/** How alike two names have to be to be offered as a misspelling. */
+export const SIMILAR = 0.8;
 
 /** Cards with the card's number whose names are close to the one typed (a misspelling such as "Eelktross"), closest first. */
 export function closeNames(list: readonly TcgdexBrief[], name: string, own: string): TcgdexBrief[] {
@@ -275,15 +276,13 @@ export function outdated(card: Fields): boolean {
   return !!last?.['id'] || last?.['result'] === 'notFound' || last?.['result'] === 'several';
 }
 
-const englishOrUnset = (lang: unknown) => isBlank(lang) || /^en/i.test(String(lang));
-
 /**
  * Whether a card has blanks a lookup could fill and hasn't been looked up recently (`force`: even
  * then). A card looked up before the current checks is wanted straight away, complete or not (a
  * matched one is one quick fetch by its id).
  */
 export function wantsDetails(card: Fields | undefined, now: Date, force = false): boolean {
-  if (!card || isBlank(card['name']) || isBlank(card['number']) || !englishOrUnset(card['language'])) return false;
+  if (!card || isBlank(card['name']) || isBlank(card['number']) || catalogLanguage(card['language']) === null) return false;
   if (outdated(card)) return true;
   if (!DETAIL_FIELDS.some((f) => isBlank(card[f]))) return false;
   const checkedAt = text(lastLookup(card)?.['checkedAt']);

@@ -1,6 +1,7 @@
 import type { CardPrinting } from '#domain/catalog/any-card.ts';
 import type { TcgdexBrief, TcgdexCard, TcgdexSet, TcgdexSetBrief } from '#domain/catalog/tcgdex.ts';
-import type { TcgGroup, TcgGroupContents } from '#domain/catalog/tcgplayer.ts';
+import type { JapaneseIndexData } from '#domain/catalog/japanese.ts';
+import type { TcgGroup, TcgGroupContents, TcgProduct } from '#domain/catalog/tcgplayer.ts';
 import type { Fields } from '#domain/ledger/document.ts';
 import type { ActivityLog } from '../ports.ts';
 
@@ -46,6 +47,16 @@ export interface TcgplayerCatalog {
   reset(): void;
   groupList(): Promise<readonly TcgGroup[]>;
   group(groupId: number): Promise<TcgGroupContents>;
+  /** A set's products without prices; a set already downloaded today is reused, otherwise it's downloaded alone and not kept. */
+  products(groupId: number): Promise<readonly TcgProduct[]>;
+}
+
+/** Where the Japanese card index is kept between runs. */
+export interface JapaneseIndexStore {
+  /** The saved index; null when there is none or it can't be read, so it gets rebuilt. */
+  load(): Promise<JapaneseIndexData | null>;
+  /** Replace the saved index, atomically: a crash leaves the old one. */
+  save(data: JapaneseIndexData): Promise<void>;
 }
 
 /** The daily price update, as new cards and chosen matches use it. */
@@ -98,6 +109,8 @@ export interface AnyCardPrices {
 /** Today's prices for a card that isn't in the ledger, worked out as the daily update would. Nothing is saved. */
 export interface AnyCardPricing {
   price(card: AnyCardToPrice): Promise<AnyCardPrices>;
+  /** CAD per US dollar, as the daily update has it. */
+  rates(): { readonly usd: number };
   /** Fetch now what price() will need from TCGplayer's catalog for this card (never PriceCharting), so pricing it soon after is quicker; resolves, never rejects. */
   warm(card: AnyCardToPrice): Promise<void>;
 }

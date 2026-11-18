@@ -54,9 +54,9 @@ describe('card lookup routes', () => {
   it('look a card up for the Add card form', async () => {
     const { base, asked } = await setUp();
     assert.deepEqual(await answer(await fetch(`${base}/cards/lookup?name=%20Pikachu%20&number=51&set=&setCode=TEF`, as('editor'))), [200, { matches: [{ id: 'sv05-051' }] }]);
-    assert.deepEqual(asked, [{ name: 'Pikachu', number: '51', set: '', setCode: 'TEF' }]);
+    assert.deepEqual(asked, [{ name: 'Pikachu', number: '51', set: '', setCode: 'TEF', language: 'en' }]);
     for (const q of ['name=Pikachu', 'number=51', 'name=%20&number=51', 'name=a&name=b&number=1', `name=Pikachu&number=51&setCode=${'x'.repeat(41)}`])
-      assert.deepEqual(await answer(await fetch(`${base}/cards/lookup?${q}`, as('editor'))), [400, { error: 'Give the card name and number.', code: 'invalid_argument' }], q);
+      assert.deepEqual(await answer(await fetch(`${base}/cards/lookup?${q}`, as('editor'))), [400, { error: 'Give the card name and number; lang is en or ja.', code: 'invalid_argument' }], q);
   });
 
   it("answer 502 in the card database's words when it doesn't answer", async () => {
@@ -103,11 +103,46 @@ describe('card lookup routes', () => {
   it('search and show any card, and say when the card database has no such card', async () => {
     const { base, asked } = await setUp({ showAnyCard: { execute: async () => err({ code: 'NO_SUCH_CARD' }) } });
     assert.deepEqual(await answer(await fetch(`${base}/lookup/search?q=%20charizard%204/102%20`, as('viewer'))), [200, { hits: [], more: false }]);
-    assert.deepEqual(asked, [{ query: 'charizard 4/102' }]);
-    assert.deepEqual(await answer(await fetch(`${base}/lookup/search?q=%20`, as('viewer'))), [400, { error: 'Type a card name, set or number.', code: 'invalid_argument' }]);
+    assert.deepEqual(asked, [{ query: 'charizard 4/102', language: 'en' }]);
+    assert.deepEqual(await answer(await fetch(`${base}/lookup/search?q=%20`, as('viewer'))), [400, { error: 'Type a card name, set or number; lang is en or ja.', code: 'invalid_argument' }]);
     const missing = [404, { error: 'No such card in the card database.', code: 'not_found' }];
     assert.deepEqual(await answer(await fetch(`${base}/lookup/cards/no-such-card`, as('viewer'))), missing);
     assert.deepEqual(await answer(await fetch(`${base}/lookup/cards/bad%20id`, as('viewer'))), missing);
+  });
+});
+
+describe('Japanese lookups', () => {
+  it('pass lang=ja on, and answer 400 for any other language', async () => {
+    const { base, asked } = await setUp();
+    await fetch(`${base}/cards/lookup?name=Pikachu&number=25&lang=ja`, as('editor'));
+    await fetch(`${base}/lookup/search?q=pikachu&lang=ja`, as('viewer'));
+    assert.deepEqual(asked, [
+      { name: 'Pikachu', number: '25', language: 'ja' },
+      { query: 'pikachu', language: 'ja' },
+    ]);
+    for (const url of ['/cards/lookup?name=Pikachu&number=25&lang=xx', '/cards/lookup?name=Pikachu&number=25&lang=ja&lang=en', '/lookup/search?q=pikachu&lang=xx'])
+      assert.equal((await fetch(`${base}${url}`, as('editor'))).status, 400, url);
+  });
+
+  it("say what is wrong when Japanese cards can't be found yet", async () => {
+    const off = { code: 'JAPANESE_LOOKUPS_OFF' } as const;
+    const wait = { code: 'JAPANESE_CATALOG_NOT_READY', done: 120, total: 462 } as const;
+    const { base } = await setUp({ lookUpCard: { execute: async () => err(wait) }, searchAnyCard: { execute: async () => err(off) }, showAnyCard: { execute: async () => err(wait) } });
+    assert.deepEqual(await answer(await fetch(`${base}/cards/lookup?name=Pikachu&number=25&lang=ja`, as('editor'))), [503, { error: "TCGplayer's Japanese catalog is still being downloaded (120 of 462 sets). Try again in a few minutes.", code: 'unavailable' }]);
+    assert.deepEqual(await answer(await fetch(`${base}/lookup/search?q=pikachu&lang=ja`, as('viewer'))), [503, { error: 'Japanese card lookups are turned off on this server.', code: 'unavailable' }]);
+    assert.equal((await fetch(`${base}/lookup/cards/ja-2-222`, as('viewer'))).status, 503);
+  });
+
+  it('answer 400 for a match from the other language, and take the language from a card id', async () => {
+    const { base } = await setUp({ chooseMatch: { execute: async () => err({ code: 'WRONG_LANGUAGE' }) } });
+    assert.deepEqual(await answer(await fetch(`${base}/cards/c1/details`, as('editor', json({ id: 'ja-2-222' })))), [400, { error: "That card is from another language's catalog than this card.", code: 'invalid_argument' }]);
+    const t = await setUp();
+    await fetch(`${t.base}/lookup/cards/ja-2-222`, as('viewer'));
+    await fetch(`${t.base}/lookup/cards/ja-2-222/details`, as('viewer'));
+    assert.deepEqual(t.asked, [
+      { id: 'ja-2-222', language: 'ja' },
+      { id: 'ja-2-222', language: 'ja' },
+    ]);
   });
 });
 
@@ -117,7 +152,7 @@ describe("a card's details before its prices", () => {
     assert.deepEqual(await answer(await fetch(`${base}/lookup/cards/base1-4/details`)), [401, { error: 'Please sign in', code: 'signin' }]);
     assert.deepEqual(asked, []);
     assert.deepEqual(await answer(await fetch(`${base}/lookup/cards/base1-4/details`, as('viewer'))), [200, { id: 'base1-4' }]);
-    assert.deepEqual(asked, [{ id: 'base1-4' }]);
+    assert.deepEqual(asked, [{ id: 'base1-4', language: 'en' }]);
   });
 
   it('say when there is no such card, or the id cannot be one', async () => {

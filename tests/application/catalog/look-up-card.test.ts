@@ -5,7 +5,7 @@ import { matches, setUp } from './fixtures.ts';
 
 /** The matches for a card, from the recorded TCGdex answers. */
 async function lookUp(name: string, number: string, hints: { set?: string; setCode?: string } = {}, t = setUp()) {
-  const r = await new LookUpCard(t.deps).execute({ name, number, ...hints });
+  const r = await new LookUpCard(t.deps).execute({ name, number, language: 'en', ...hints });
   assert.ok(r.ok);
   return r.value.matches;
 }
@@ -73,7 +73,7 @@ describe('looking up a card by name and number', () => {
   it("says when the card database didn't answer", async () => {
     const t = setUp();
     t.database.down = true;
-    assert.deepEqual(await new LookUpCard(t.deps).execute({ name: 'Pikachu', number: '51' }), {
+    assert.deepEqual(await new LookUpCard(t.deps).execute({ name: 'Pikachu', number: '51', language: 'en' }), {
       ok: false,
       error: { code: 'CARD_DATABASE_UNAVAILABLE', message: "Couldn't reach api.tcgdex.net: getaddrinfo ENOTFOUND api.tcgdex.net" },
     });

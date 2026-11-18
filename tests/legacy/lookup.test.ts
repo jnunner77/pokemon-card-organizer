@@ -81,18 +81,18 @@ class CardLookup {
   private readonly showing: ShowAnyCard;
 
   constructor(o: { details: CardDetails; updater?: PriceUpdater }) {
-    this.searching = new SearchAnyCard({ database: o.details, tcgplayer: null, clock: { now: () => new Date() }, anyCardPricing: new TodaysPrices(o.updater) });
-    this.showing = new ShowAnyCard({ database: o.details, anyCardPricing: new TodaysPrices(o.updater) });
+    this.searching = new SearchAnyCard({ database: o.details, japanese: null, tcgplayer: null, clock: { now: () => new Date() }, anyCardPricing: new TodaysPrices(o.updater) });
+    this.showing = new ShowAnyCard({ database: o.details, japanese: null, anyCardPricing: new TodaysPrices(o.updater) });
   }
 
   async search(query: string) {
-    const r = await this.searching.execute({ query });
-    if (!r.ok) throw new Error(r.error.message);
+    const r = await this.searching.execute({ query, language: 'en' });
+    if (!r.ok) throw new Error('message' in r.error ? r.error.message : r.error.code);
     return r.value;
   }
 
   async card(id: string) {
-    const r = await this.showing.execute({ id });
+    const r = await this.showing.execute({ id, language: 'en' });
     if (!r.ok) throw new Error(r.error.code);
     return r.value;
   }

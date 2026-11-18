@@ -50,6 +50,10 @@ export class TodaysPrices implements AnyCardPricing {
     }
   }
 
+  rates(): { readonly usd: number } {
+    return this.updater?.savedRates() ?? { usd: 1.37 };
+  }
+
   async price(o: AnyCardToPrice): Promise<AnyCardPrices> {
     const { card: td, setCode, total, parentSet } = o;
     const notes: string[] = [];

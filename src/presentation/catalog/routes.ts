@@ -9,6 +9,7 @@ import type { PreviewMasterSet } from '#application/catalog/preview-master-set.t
 import type { SearchAnyCard } from '#application/catalog/search-any-card.ts';
 import type { ShowAnyCard } from '#application/catalog/show-any-card.ts';
 import type { ShowAnyCardDetails } from '#application/catalog/show-any-card-details.ts';
+import { matchLanguage } from '#domain/catalog/japanese.ts';
 import { isCardDatabaseId } from '#domain/catalog/tcgdex.ts';
 import { isDocumentId } from '#domain/ledger/ids.ts';
 import { readJsonBody } from '../http/body.ts';
@@ -78,7 +79,7 @@ export function catalogRoutes(deps: CatalogRouteDeps): Router {
         if (!allowed(req, res, 'editor')) return;
         if (!catalog) return sendFailure(res, LOOKUPS_OFF);
         const q = lookupQuery(queryOf(req));
-        if (!q) return sendFailure(res, badRequest('Give the card name and number.'));
+        if (!q) return sendFailure(res, badRequest('Give the card name and number; lang is en or ja.'));
         const r = await catalog.lookUpCard.execute(q);
         if (r.ok) sendJson(res, 200, r.value);
         else sendFailure(res, lookupFailure(r.error));
@@ -114,9 +115,9 @@ export function catalogRoutes(deps: CatalogRouteDeps): Router {
       .add('GET', '/lookup/search', async (req, res) => {
         if (!allowed(req, res, 'viewer')) return;
         const q = searchQuery(queryOf(req));
-        if (q === null) return sendFailure(res, badRequest('Type a card name, set or number.'));
+        if (q === null) return sendFailure(res, badRequest('Type a card name, set or number; lang is en or ja.'));
         if (!catalog) return sendFailure(res, ANY_CARD_OFF);
-        const r = await catalog.searchAnyCard.execute({ query: q });
+        const r = await catalog.searchAnyCard.execute(q);
         if (r.ok) sendJson(res, 200, r.value);
         else sendFailure(res, lookupFailure(r.error));
       })
@@ -125,7 +126,7 @@ export function catalogRoutes(deps: CatalogRouteDeps): Router {
         const id = p['id'] ?? '';
         if (!isCardDatabaseId(id)) return sendFailure(res, NOT_IN_DATABASE);
         if (!catalog) return sendFailure(res, ANY_CARD_OFF);
-        const r = await catalog.showAnyCard.execute({ id });
+        const r = await catalog.showAnyCard.execute({ id, language: matchLanguage(id) });
         if (r.ok) sendJson(res, 200, r.value);
         else sendFailure(res, anyCardFailure(r.error));
       })
@@ -134,7 +135,7 @@ export function catalogRoutes(deps: CatalogRouteDeps): Router {
         const id = p['id'] ?? '';
         if (!isCardDatabaseId(id)) return sendFailure(res, NOT_IN_DATABASE);
         if (!catalog) return sendFailure(res, ANY_CARD_OFF);
-        const r = await catalog.showAnyCardDetails.execute({ id });
+        const r = await catalog.showAnyCardDetails.execute({ id, language: matchLanguage(id) });
         if (r.ok) sendJson(res, 200, r.value);
         else sendFailure(res, anyCardFailure(r.error));
       })

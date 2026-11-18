@@ -12,18 +12,30 @@ function queryText(query: URLSearchParams, key: string, min: number, max: number
   return v.length >= min && v.length <= max ? v : null;
 }
 
-/** GET /api/cards/lookup?name=&number=&set=&setCode= */
-export function lookupQuery(query: URLSearchParams): { name: string; number: string; set?: string; setCode?: string } | null {
+/** The catalog a query asks (lang=en or ja, English by default); null when it says anything else. */
+function langQuery(query: URLSearchParams): 'en' | 'ja' | null {
+  const lang = queryText(query, 'lang', 2, 2);
+  if (lang === undefined) return 'en';
+  return lang === 'en' || lang === 'ja' ? lang : null;
+}
+
+/** GET /api/cards/lookup?name=&number=&set=&setCode=&lang= */
+export function lookupQuery(query: URLSearchParams): { name: string; number: string; set?: string; setCode?: string; language: 'en' | 'ja' } | null {
   const name = queryText(query, 'name', 1, 200);
   const number = queryText(query, 'number', 1, 40);
   const set = queryText(query, 'set', 0, 200);
   const setCode = queryText(query, 'setCode', 0, 40);
-  if (!name || !number || set === null || setCode === null) return null;
-  return { name, number, ...(set !== undefined ? { set } : {}), ...(setCode !== undefined ? { setCode } : {}) };
+  const language = langQuery(query);
+  if (!name || !number || set === null || setCode === null || !language) return null;
+  return { name, number, language, ...(set !== undefined ? { set } : {}), ...(setCode !== undefined ? { setCode } : {}) };
 }
 
-/** GET /api/lookup/search?q= */
-export const searchQuery = (query: URLSearchParams): string | null => queryText(query, 'q', 1, 120) ?? null;
+/** GET /api/lookup/search?q=&lang= */
+export function searchQuery(query: URLSearchParams): { query: string; language: 'en' | 'ja' } | null {
+  const q = queryText(query, 'q', 1, 120);
+  const language = langQuery(query);
+  return q && language ? { query: q, language } : null;
+}
 
 /** GET /api/master-sets/preview?set= */
 export const setQuery = (query: URLSearchParams): string | null => queryText(query, 'set', 1, 80) ?? null;

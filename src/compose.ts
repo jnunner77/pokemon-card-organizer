@@ -56,9 +56,11 @@ import type { CatalogDeps } from '#application/catalog/deps.ts';
 import { FillCardDetails } from '#application/catalog/fill-card-details.ts';
 import { FillEveryCard } from '#application/catalog/fill-every-card.ts';
 import { ListMasterSetSets } from '#application/catalog/list-master-set-sets.ts';
+import { JapaneseCatalog } from '#application/catalog/japanese-catalog.ts';
 import { LookUpCard } from '#application/catalog/look-up-card.ts';
-import type { CardDatabase, CardPricing, JobLog, TcgplayerCatalog } from '#application/catalog/ports.ts';
+import type { CardDatabase, CardPricing, JapaneseIndexStore, JobLog, TcgplayerCatalog } from '#application/catalog/ports.ts';
 import { PreviewMasterSet } from '#application/catalog/preview-master-set.ts';
+import { RefreshJapaneseCatalog } from '#application/catalog/refresh-japanese-catalog.ts';
 import { SearchAnyCard } from '#application/catalog/search-any-card.ts';
 import { ShowAnyCard } from '#application/catalog/show-any-card.ts';
 import { ShowAnyCardDetails } from '#application/catalog/show-any-card-details.ts';
@@ -109,7 +111,9 @@ import { FileAccountStore } from '#infrastructure/accounts/auth-file.ts';
 import { AdminFile } from '#infrastructure/admin/admin-file.ts';
 import { FileSecret } from '#infrastructure/admin/file-secret.ts';
 import { SmtpMailer } from '#infrastructure/alerts/smtp-mailer.ts';
+import { TcgdexCardDatabase } from '#infrastructure/catalog/tcgdex.ts';
 import { MemoryAlertHistory } from '#infrastructure/memory/alerts.ts';
+import { MemoryJapaneseIndexStore } from '#infrastructure/memory/catalog.ts';
 import { NodeDiskUsage, NodeRuntime } from '#infrastructure/admin/node-server.ts';
 import { FileOffsiteRecord, FileStatusFile } from '#infrastructure/admin/status-files.ts';
 import { ScryptHasher } from '#infrastructure/accounts/scrypt-hasher.ts';
@@ -398,6 +402,12 @@ export interface CreateCardLookupsOptions {
   readonly database: CardDatabase;
   /** TCGplayer's own catalog (tcgcsv.com), which master sets are checked against. */
   readonly tcgcsv?: TcgplayerCatalog | undefined;
+  /** TCGplayer's Japanese catalog (category 85); without it there are no Japanese lookups. */
+  readonly tcgcsvJapanese?: TcgplayerCatalog | undefined;
+  /** TCGdex's Japanese catalog, for Japanese cards' illustrators (made if omitted). */
+  readonly japaneseDatabase?: CardDatabase | undefined;
+  /** Where the Japanese card index is kept (in memory if omitted). */
+  readonly japaneseIndex?: JapaneseIndexStore | undefined;
   /**
    * The daily price update, which prices new cards and any card looked up; read when it's used, as
    * the update is made after these (it fills cards' details with them).
@@ -424,7 +434,8 @@ export function createCardLookups(o: CreateCardLookupsOptions) {
     database: o.database,
     tcgplayer: o.tcgcsv ?? null,
     pricing: cardPricing(updater),
-    anyCardPricing: { price: (card) => new TodaysPrices(updater()).price(card), warm: (card) => new TodaysPrices(updater()).warm(card) },
+    anyCardPricing: { price: (card) => new TodaysPrices(updater()).price(card), warm: (card) => new TodaysPrices(updater()).warm(card), rates: () => new TodaysPrices(updater()).rates() },
+    japanese: o.tcgcsvJapanese ? { tcgplayer: o.tcgcsvJapanese, database: o.japaneseDatabase ?? new TcgdexCardDatabase({ language: 'ja' }), catalog: new JapaneseCatalog(), store: o.japaneseIndex ?? new MemoryJapaneseIndexStore() } : null,
     cards: new JsonCardRepository(unitOfWork),
     binders: new JsonBinderRepository(unitOfWork),
     settings: new JsonSettingRepository(unitOfWork),
@@ -443,6 +454,7 @@ export function createCardLookups(o: CreateCardLookupsOptions) {
   const backfill = new BackfillDetails({ ...deps, fillEvery: fillEveryCard });
   const autofillCard = new AutofillCard({ ...deps, fillCard });
   const watchNewCards = new WatchNewCards({ ...deps, autofill: autofillCard, backfill }, { backfillAfterMs: o.backfillAfterMs === undefined ? 60_000 : o.backfillAfterMs });
+  const refreshJapaneseCatalog = new RefreshJapaneseCatalog({ ...deps, afterFirstBuild: () => void backfill.execute().catch(() => undefined) });
   return {
     lookUpCard: new LookUpCard(deps),
     fillCard,
@@ -451,6 +463,8 @@ export function createCardLookups(o: CreateCardLookupsOptions) {
     backfill,
     autofillCard,
     watchNewCards,
+    /** Builds and refreshes the Japanese card index; started by main.ts. */
+    refreshJapaneseCatalog,
     searchAnyCard: new SearchAnyCard(deps),
     showAnyCard: new ShowAnyCard(deps),
     showAnyCardDetails: new ShowAnyCardDetails(deps),
@@ -461,6 +475,7 @@ export function createCardLookups(o: CreateCardLookupsOptions) {
     stop: () => {
       watchNewCards.stop();
       fillEveryCard.stop();
+      refreshJapaneseCatalog.stop();
     },
   };
 }
@@ -606,6 +621,8 @@ export interface CreateAppOptions extends Omit<AppOptions, 'layeredRoutes' | 'ba
   readonly cardDatabase?: CardDatabase | undefined;
   /** TCGplayer's own catalog (tcgcsv.com), which master sets are checked against. */
   readonly tcgcsv?: TcgplayerCatalog | undefined;
+  /** TCGplayer's Japanese catalog (category 85), for Japanese lookups. */
+  readonly tcgcsvJapanese?: TcgplayerCatalog | undefined;
   /** Price watches and alert emails; made with the app password in <data>/secrets if omitted. */
   readonly alerts?: Alerts | undefined;
   /** Open trades; made over open-trades.json in the data directory if omitted. */
@@ -614,12 +631,12 @@ export interface CreateAppOptions extends Omit<AppOptions, 'layeredRoutes' | 'ba
 
 /** The whole app: the layered slices plugged into the Express server that still hosts the rest. */
 export function createApp(options: CreateAppOptions) {
-  const { events = new LocalEventBus(), accounts, guests, config: given, envPassword, cardLookups: givenLookups, cardDatabase, tcgcsv, alerts: givenAlerts, openTrades: givenOpenTrades, ...rest } = options;
+  const { events = new LocalEventBus(), accounts, guests, config: given, envPassword, cardLookups: givenLookups, cardDatabase, tcgcsv, tcgcsvJapanese, alerts: givenAlerts, openTrades: givenOpenTrades, ...rest } = options;
   const log = options.log ?? quietLogger();
   const config = given ?? new AdminFile(options.store.dataDir);
   const now = options.now ?? (() => new Date());
   const backups = options.backups ?? createBackups({ store: options.store, assets: options.assets, config, log, now });
-  const lookups = givenLookups ?? (cardDatabase ? createCardLookups({ store: options.store, database: cardDatabase, tcgcsv, updater: () => options.updater, log, events, now }) : null);
+  const lookups = givenLookups ?? (cardDatabase ? createCardLookups({ store: options.store, database: cardDatabase, tcgcsv, tcgcsvJapanese, updater: () => options.updater, log, events, now }) : null);
   const alerts = givenAlerts ?? createAlerts({ store: options.store, config, password: new FileSecret(`${options.store.dataDir}/secrets`, 'gmail-app-password'), log, events, now });
   const openTrades = givenOpenTrades ?? createOpenTrades({ dataDir: options.store.dataDir, log, now });
   const admin = createAdmin({ store: options.store, assets: options.assets, config, log, now, backups, accounts, envPassword, security: options.security, updater: options.updater, pricecharting: options.pricecharting });
