@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { beforeEach, describe, it } from 'node:test';
 import { SourceUnavailable } from '#application/catalog/ports.ts';
-import { TcgCsvClient } from '#infrastructure/catalog/tcgcsv.ts';
+import { TCGCSV_JAPANESE, TcgCsvClient } from '#infrastructure/catalog/tcgcsv.ts';
 import { type Fetcher, retryPolicy } from '#infrastructure/http/get.ts';
 
 const BASE = 'https://tcgcsv.com/tcgplayer/3';
@@ -33,6 +33,22 @@ describe("TCGplayer's catalog from tcgcsv.com", () => {
     at = new Date('2026-10-04T12:00:00Z');
     await client.groupList();
     assert.equal(client.downloads, 4);
+  });
+
+  it('downloads the Japanese category (85) when asked, and the English one (3) otherwise', async () => {
+    const asked: string[] = [];
+    const fetcher: Fetcher = async (url) => {
+      asked.push(url);
+      return Response.json({ success: true, results: [] });
+    };
+    await new TcgCsvClient({ fetcher, gapMs: 0, category: TCGCSV_JAPANESE }).groupList();
+    await new TcgCsvClient({ fetcher, gapMs: 0 }).groupList();
+    assert.deepEqual(asked, ['https://tcgcsv.com/tcgplayer/85/groups', 'https://tcgcsv.com/tcgplayer/3/groups']);
+  });
+
+  it('says the Japanese catalog is unavailable when it fails', async () => {
+    const client = new TcgCsvClient({ fetcher: async () => new Response('', { status: 503 }), gapMs: 0, category: TCGCSV_JAPANESE });
+    await assert.rejects(client.groupList(), SourceUnavailable);
   });
 
   it("stops asking after failing three times in a row, until it's reset", async () => {

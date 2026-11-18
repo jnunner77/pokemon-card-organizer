@@ -11,7 +11,7 @@ import { safely } from '../recover.ts';
 import type { Doc } from '../schema.ts';
 import type { Store } from '#infrastructure/json-store/store.ts';
 import { Catalog, type CatalogQuote } from './catalog.ts';
-import { catalogMismatch, chooseMatch, detailsFromProduct, norm, otherBall, otherPrinting, searchQuery, variantFromProduct, type CardForMatch, type MatchResult } from './match.ts';
+import { catalogMismatch, chooseMatch, detailsFromProduct, norm, otherBall, otherPrinting, languageOf, searchQuery, variantFromProduct, type CardForMatch, type MatchResult } from './match.ts';
 import { type PcProduct, type PriceCharting, type PriceGuide, gradedPrice, oldAddress, quoteOf } from './pricecharting.ts';
 import { type TcgCsv, type TcgCsvCard, type TcgCsvQuote } from './tcgcsv.ts';
 import { type Candidate, type Fetcher, ProductGone, type Quote, Refused, type Source, SourceError, get, exchangeRates, tcgImage } from './sources.ts';
@@ -83,6 +83,11 @@ export interface UpdaterOptions {
   catalog?: Catalog | undefined;
   /** TCGplayer's own catalog (tcgcsv.ts), for what TCGdex doesn't have. */
   tcgcsv?: TcgCsv | undefined;
+  /**
+   * The same for Japanese cards: tcgcsv.com's Japanese catalog (category 85). Without it,
+   * Japanese cards get nothing from TCGplayer's catalog.
+   */
+  tcgcsvJapanese?: TcgCsv | undefined;
   /** PriceCharting's API (pricecharting.ts); without it, or without its token, PriceCharting isn't asked. */
   pricecharting?: PriceCharting | undefined;
   /** How long a run may go without finishing a card before it's flagged as stalled. */
@@ -323,6 +328,7 @@ export class PriceUpdater {
   private readonly details?: Pick<FillCardDetails, 'execute'>;
   private readonly catalog?: Catalog;
   private readonly tcgcsv?: TcgCsv;
+  private readonly tcgcsvJapanese?: TcgCsv;
   private readonly pc?: PriceCharting;
   private readonly afterPrices?: () => unknown;
   /** During a run: each site's failures in a row, and the sites left alone for the rest of it (with why). */
@@ -356,6 +362,7 @@ export class PriceUpdater {
     this.details = o.details;
     this.catalog = o.catalog;
     this.tcgcsv = o.tcgcsv;
+    this.tcgcsvJapanese = o.tcgcsvJapanese;
     this.pc = o.pricecharting;
     this.stallMs = o.stallMs ?? 10 * 60_000;
     if (o.afterPrices) this.afterPrices = o.afterPrices;
@@ -504,6 +511,7 @@ export class PriceUpdater {
     // A site that keeps failing (down, or refusing the token) is left alone for the rest of the run.
     this.catalog?.reset();
     this.tcgcsv?.reset();
+    this.tcgcsvJapanese?.reset();
     const run = (this.run = { streak: { pricecharting: 0, tcgplayer: 0 }, tripped: new Map<Source, string>(), scope, force, guide: null as PriceGuide | null });
     // PriceCharting's whole price guide in one call, instead of one call per card.
     if (scope !== 'pictures' && this.pc?.ready && !this.siteOut('pricecharting')) {
@@ -1189,12 +1197,15 @@ export class PriceUpdater {
   }
 
   /**
-   * What TCGplayer's own catalog (tcgcsv.ts) says about an English card, when the card databases
-   * left something for it to fill: a TCGplayer price, a picture, or a blank rarity or release date.
+   * What TCGplayer's own catalog (tcgcsv.ts) says about an English or Japanese card (each in its
+   * own catalog; other languages aren't priced), when the card databases left something for it to
+   * fill: a TCGplayer price, a picture, or a blank rarity or release date.
    * Null when it isn't certain which product the card is, or tcgcsv.com didn't answer.
    */
   private async tcgcsvQuote(card: Card, cat: CatalogQuote | null): Promise<TcgCsvQuote | null> {
-    if (!this.tcgcsv || (!blank(card.language) && !/^en/i.test(String(card.language)))) return null;
+    const lang = languageOf(card.language);
+    const source = lang === 'english' ? this.tcgcsv : lang === 'japanese' ? this.tcgcsvJapanese : undefined;
+    if (!source) return null;
     const l = card.pricing;
     const tcgOff = l?.pair?.source === 'tcgplayer' && !!l.pair.off;
     const own = l?.source === 'tcgplayer' && l.id ? l.id : l?.pair?.source === 'tcgplayer' && l.pair.id && !l.pair.off ? l.pair.id : null;
@@ -1207,12 +1218,12 @@ export class PriceUpdater {
     if (!needPrice && !needPicture && !needDetails) return null;
     const d = card.details as DetailsStatus | null | undefined;
     try {
-      return await this.tcgcsv.quote(
+      return await source.quote(
         { name: card.name, set: card.set, setCode: card.setCode, number: card.number, variant: card.variant, rarity: card.rarity, tcgdexSet: cat?.set ?? (d as { set?: string } | null | undefined)?.set ?? null },
         own ?? cat?.tcgplayerProduct ?? null,
       );
     } catch (err) {
-      this.log[this.run ? 'info' : 'warn']('pricing', `${label(card)}: tcgcsv.com: ${message(err)}`);
+      this.log[this.run ? 'info' : 'warn']('pricing', `${label(card)}: tcgcsv.com${lang === 'japanese' ? ' (Japanese)' : ''}: ${message(err)}`);
       return null;
     }
   }

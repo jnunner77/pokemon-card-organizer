@@ -4,9 +4,10 @@ import { printingOf } from './catalog.ts';
 import type { Candidate, ProductInfo } from './sources.ts';
 
 // Deciding which product on a price site is the card in the binder. A card is linked
-// automatically only when exactly one English product has the same number, the same name
-// and the same set (and the same variant, or none). Anything less certain is left for the
-// person to pick from a short list, because a wrong match quietly gives a wrong value.
+// automatically only when exactly one product in its language (English, or Japanese for a
+// Japanese card) has the same number, the same name and the same set (and the same variant, or
+// none). Anything less certain is left for the person to pick from a short list, because a wrong
+// match quietly gives a wrong value.
 
 export interface CardForMatch {
   name?: string | null;
@@ -14,6 +15,19 @@ export interface CardForMatch {
   setCode?: string | null;
   number?: string | null;
   variant?: string | null;
+  /** The card's language; blank or English is English, Japanese is matched to Japanese products. */
+  language?: string | null;
+}
+
+/**
+ * Which catalog a card is priced from: English (or no language), Japanese, or another language,
+ * which isn't priced.
+ */
+export function languageOf(language: unknown): 'english' | 'japanese' | 'other' {
+  const l = String(language ?? '').trim();
+  if (!l || /^en/i.test(l)) return 'english';
+  if (/^(ja|jp|japan)/i.test(l)) return 'japanese';
+  return 'other';
 }
 
 export const norm = (s: unknown) =>
@@ -79,6 +93,8 @@ export function otherBall(variant: unknown, title: unknown): boolean {
 }
 
 const OTHER_LANGUAGES = /japanese|chinese|korean|thai|indonesian|german|french|italian|spanish|portuguese/i;
+const NOT_JAPANESE = /chinese|korean|thai|indonesian|german|french|italian|spanish|portuguese/i;
+const JAPANESE = /japanese/i;
 const PROMO_CODES = new Set(['mep', 'svp', 'swshp', 'smp', 'xyp', 'bwp', 'pr']);
 
 /** A set name's words, without TCGplayer's prefixes ("SV01: ", "ME: ") or words that say nothing about the set. */
@@ -90,7 +106,7 @@ const setWords = (s: unknown) => {
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/['’]/g, '')
     .split(/[^a-z0-9]+/)
-    .filter((w) => w && !['pokemon', 'tcg', 'english', 'the'].includes(w));
+    .filter((w) => w && !['pokemon', 'tcg', 'english', 'japanese', 'the'].includes(w));
   // "Scarlet & Violet Base Set" is "Scarlet & Violet", but "Base Set" is a set of its own.
   const rest = words.filter((w) => w !== 'base' && w !== 'set');
   return rest.length ? rest : words;
@@ -176,9 +192,12 @@ export function chooseMatch(card: CardForMatch, all: Candidate[]): MatchResult {
   const num = cardNumber(card.number);
   const name = nameKey(card.name);
   const variant = norm(card.variant);
+  // A Japanese card is only matched to PriceCharting's "Pokemon Japanese …" consoles, and any
+  // other card never to them.
+  const japanese = languageOf(card.language) === 'japanese';
   const plain = !variant || (PLAIN_BRACKET.test(String(card.variant).trim()) && !isReverse(String(card.variant)));
   const scored = all
-    .filter((c) => !OTHER_LANGUAGES.test(c.set) && !OTHER_LANGUAGES.test(c.title))
+    .filter((c) => (japanese ? JAPANESE.test(c.set) && !NOT_JAPANESE.test(c.set) && !NOT_JAPANESE.test(c.title) : !OTHER_LANGUAGES.test(c.set) && !OTHER_LANGUAGES.test(c.title)))
     .map((c) => {
       const numOk = !!num && cardNumber(c.number) === num;
       const n = nameKey(c.title);
@@ -234,5 +253,5 @@ export function catalogMismatch(card: CardForMatch, pc: { title?: string | null;
 
 /** What to type into a site's search box for this card. */
 export function searchQuery(card: CardForMatch) {
-  return `${searchName(card)} ${cardNumber(card.number)}`.trim();
+  return `${searchName(card)} ${cardNumber(card.number)}${languageOf(card.language) === 'japanese' ? ' Japanese' : ''}`.trim();
 }

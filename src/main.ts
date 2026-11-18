@@ -12,7 +12,7 @@ import { Catalog } from '../server/pricing/catalog.ts';
 import { PriceCharting } from '../server/pricing/pricecharting.ts';
 import { PriceUpdater } from '../server/pricing/updater.ts';
 import { Security } from '../server/security.ts';
-import { TcgCsv } from '../server/pricing/tcgcsv.ts';
+import { TCGCSV_JAPANESE, TcgCsv } from '../server/pricing/tcgcsv.ts';
 import { every } from '../server/recover.ts';
 import { createAccounts, createAlerts, createApp, createBackups, createCardLookups, createGuests, createLedgerUpkeep } from './compose.ts';
 
@@ -80,6 +80,8 @@ const pcToken = new FileSecret(secretsDir, 'pricecharting-token');
 const pricecharting = new PriceCharting({ token: () => pcToken.read(), log, dailyLimit: Number(env['PRICECHARTING_DAILY_LIMIT']) || undefined, usageFile: path.join(dataDir, 'pricecharting-usage.json') });
 // TCGplayer's own catalog from tcgcsv.com (free, no key), for what TCGdex lacks.
 const tcgcsv = catalog ? new TcgCsv() : undefined;
+// Its Japanese catalog (category 85), for Japanese cards' prices and pictures.
+const tcgcsvJapanese = catalog ? new TcgCsv({ category: TCGCSV_JAPANESE }) : undefined;
 // Card details, new cards filling themselves in (details, then price and picture), Any card and
 // master sets. The price update is made next: it fills cards' details with these too.
 const cardLookups = cardDatabase ? createCardLookups({ store, database: cardDatabase, tcgcsv, updater: () => updater, log, events }) : undefined;
@@ -87,7 +89,7 @@ const cardLookups = cardDatabase ? createCardLookups({ store, database: cardData
 // enter under Administration → Alerts (a file of its own in SECRETS_DIR).
 const alerts = createAlerts({ store, config, password: new FileSecret(secretsDir, 'gmail-app-password'), log, events });
 const checkWatches = () => alerts.checkWatches.execute().catch((err: unknown) => log.error('pricing', `Checking the price watches failed: ${err instanceof Error ? err.message : String(err)}`));
-const updater = new PriceUpdater({ store, assets, log, config, details: cardLookups?.fillCard, catalog, tcgcsv, pricecharting, timeZone: env['TZ'] || 'America/Vancouver', afterPrices: checkWatches });
+const updater = new PriceUpdater({ store, assets, log, config, details: cardLookups?.fillCard, catalog, tcgcsv, tcgcsvJapanese, pricecharting, timeZone: env['TZ'] || 'America/Vancouver', afterPrices: checkWatches });
 updater.noteToken();
 // An update the saved status says is running stopped with the server: say so (a red banner) and let it start again.
 updater.recover();

@@ -4,14 +4,20 @@ import { type Fetcher, get, SourceError } from '../http/get.ts';
 
 // TCGplayer's own catalog, from tcgcsv.com: a free public copy of TCGplayer's catalog API (sets,
 // products and prices as JSON, no key), refreshed every day around 20:00 UTC. Pokémon is category
-// 3; each set is a "group" with its products (cards and sealed products) and their prices by
-// printing ("Normal", "Holofoil", "Reverse Holofoil"…). Only the sets asked for are downloaded,
-// each at most once a day, one at a time and a quarter second apart, and after failing three times in a row it
-// isn't asked again until reset().
+// 3 (English) and Pokémon Japan is category 85 (the same shapes, English product names); a client
+// downloads one category, chosen when it's made. Each set is a "group" with its products (cards
+// and sealed products) and their prices by printing ("Normal", "Holofoil", "Reverse
+// Holofoil"…). Only the sets asked for are downloaded, each at most once a day, one at a time
+// and a quarter second apart, and after failing three times in a row it isn't asked again until
+// reset().
 
-const TCGCSV = 'https://tcgcsv.com/tcgplayer/3';
+/** tcgcsv.com's Pokémon categories: English cards' catalog and the Japanese one. */
+const TCGCSV_ENGLISH = 3;
+export const TCGCSV_JAPANESE = 85;
 
 export interface TcgCsvOptions {
+  /** Which category to download: TCGCSV_ENGLISH (the default) or TCGCSV_JAPANESE. */
+  readonly category?: number | undefined;
   readonly fetcher?: Fetcher | undefined;
   readonly now?: (() => Date) | undefined;
   /** Pause between downloads (tcgcsv.com is one person's hobby). */
@@ -24,6 +30,7 @@ export class TcgCsvClient implements TcgplayerCatalog {
   readonly #fetcher: Fetcher;
   readonly #now: () => Date;
   readonly #gapMs: number;
+  readonly #base: string;
   #day = '';
   #groups: Promise<readonly TcgGroup[]> | null = null;
   readonly #sets = new Map<number, Promise<TcgGroupContents>>();
@@ -37,6 +44,7 @@ export class TcgCsvClient implements TcgplayerCatalog {
     this.#fetcher = o.fetcher ?? fetch;
     this.#now = o.now ?? (() => new Date());
     this.#gapMs = o.gapMs ?? 250;
+    this.#base = `https://tcgcsv.com/tcgplayer/${o.category ?? TCGCSV_ENGLISH}`;
   }
 
   /** Start of an update, or someone asking now: ask again even if it kept failing. */
@@ -88,7 +96,7 @@ export class TcgCsvClient implements TcgplayerCatalog {
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     try {
       this.downloads++;
-      const res = await get(this.#fetcher, `${TCGCSV}${path}`, { headers: { Accept: 'application/json' } }, { timeoutMs: 20_000, attempts: 2, maxWaitMs: 5_000 });
+      const res = await get(this.#fetcher, `${this.#base}${path}`, { headers: { Accept: 'application/json' } }, { timeoutMs: 20_000, attempts: 2, maxWaitMs: 5_000 });
       // Raw JSON from tcgcsv.com, typed at this boundary.
       const body = (await res.json()) as { success?: boolean; results?: unknown };
       if (!Array.isArray(body.results)) throw new SourceError('tcgcsv.com sent no results');

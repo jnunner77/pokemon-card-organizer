@@ -14,8 +14,9 @@ Every morning (after 5:00 in your time zone, catching up if the server was off) 
 1. **Matches each card** to its product on [PriceCharting](https://www.pricecharting.com), through
    its official API, and to the [TCGplayer](https://www.tcgplayer.com) product the
    [TCGdex](https://tcgdex.dev) card database names for it (see *New cards fill themselves in*). A
-   card is linked to a PriceCharting product on its own only when exactly one English product has
-   the same number, name, set and variant; otherwise its drawer lists the likely products for you to
+   card is linked to a PriceCharting product on its own only when exactly one product in its
+   language (English, or "Pokemon Japanese …" for a Japanese card) has the same number, name, set
+   and variant; otherwise its drawer lists the likely products for you to
    pick (or search for). Typos, "VSTAR"/"V Star" spellings and promos filed under other sets are
    handled, and a variant (a pattern, stamp, 1st Edition…) is matched to its own product
    (*Lapras [Master Ball]*). A *Holo* card is the product without a bracket (PriceCharting lists holo
@@ -149,6 +150,16 @@ No site's pages are read: every price comes from an API.
   downloaded, each at most once a day, one at a time and a quarter second apart; after failing
   three times in a row it isn't asked again until the next update. A new card whose regular
   TCGplayer product TCGdex names isn't looked for there just for its picture.
+  **Japanese cards** (language *Japanese*) are priced and pictured the same way from TCGplayer's
+  Japanese catalog (tcgcsv.com's *Pokemon Japan*, with English product names, like *Pokemon Card
+  151* for set code *SV2a*): the US$ price is converted to CAD at the Bank of Canada's rate, and
+  only blank fields are filled, so prices and pictures you entered stay. A Japanese card is only
+  ever matched to Japanese products (on TCGplayer and on PriceCharting's *Pokemon Japanese …*
+  sets), and an English card (or one with no language) never is, even when the numbers agree.
+  There are no Cardmarket prices for them and no Japanese master sets. Cards in Korean,
+  Chinese or other languages aren't looked up in TCGplayer's catalog; PriceCharting matching
+  for them is unchanged (it can still match the English product). When the Japanese catalog
+  doesn't answer, the update logs it and carries on with the other cards.
 - **TCGdex** is a free public API with no key. When tcgcsv.com is busy and asks for more than a
   few seconds' wait, it's left for that card until the next update rather than holding it up.
 - **pokemontcg.io is no longer used** (since October 2026): it failed about one request in three
