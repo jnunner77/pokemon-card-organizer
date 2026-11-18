@@ -645,6 +645,8 @@ export class PriceUpdater {
 
   /** Save the run's progress (done, current card) when `force`d or when it hasn't been saved for PROGRESS_SAVE_MS. */
   private saveProgress(force: boolean, done?: number) {
+    // A skipped card (gone from the store) counts before any card has started: keep its count too.
+    if (!this.shown && done !== undefined) this.shown = { done, current: null };
     const shown = this.shown;
     if (!shown) return;
     if (done !== undefined) shown.done = done;

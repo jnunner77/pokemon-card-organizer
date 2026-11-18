@@ -227,6 +227,25 @@ describe('how often a running update saves its progress', () => {
     expect(status().done).toBe(5);
   });
 
+  it('counts a card that left the store before it was reached, even the first one', async () => {
+    five();
+    const seen: number[] = [];
+    const inner = guideless(() => {
+      seen.push(status().done);
+      clock += 16_000;
+    });
+    // The first card is removed while the run gets the exchange rate, before it is reached.
+    const fetcher: Fetcher = async (url, init) => {
+      if (String(url).includes('bankofcanada')) store.delete('cards', 'c0');
+      return inner(url, init);
+    };
+    await updaterWith(fetcher).runAll('manual');
+    // The skipped card is already counted while the second one runs.
+    expect(seen).toEqual([1, 2, 3, 4]);
+    expect(status()).toMatchObject({ running: false, done: 5, total: 5, current: null });
+    expect(status().lastRun?.counts).toMatchObject({ updated: 4, skipped: 1 });
+  });
+
   it('shutting down mid-run records the exact count and card', async () => {
     five();
     let calls = 0;
