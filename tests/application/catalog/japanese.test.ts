@@ -141,6 +141,17 @@ describe('building the Japanese card index', () => {
     assert.deepEqual(t.scheduler.waiting.at(-1), RefreshJapaneseCatalog.retryAfterMs);
   });
 
+  it('fails a first build when the list of sets comes back empty, and tries again later', async () => {
+    const t = japanese();
+    let built = 0;
+    const empty = new MemoryTcgplayerCatalog([], new Map());
+    const r = new RefreshJapaneseCatalog({ ...t.deps, japanese: { ...jp(t), tcgplayer: empty }, afterFirstBuild: () => built++ });
+    assert.deepEqual(await r.execute(), { fetched: 0, dropped: 0, failed: true });
+    assert.equal(jp(t).catalog.completedAt, null);
+    assert.equal(built, 0);
+    assert.deepEqual(t.scheduler.waiting.at(-1), RefreshJapaneseCatalog.retryAfterMs);
+  });
+
   it('rebuilds when the saved index is missing or damaged, and loads one that is there', async () => {
     const t = japanese();
     t.japaneseStore.failLoad = true;

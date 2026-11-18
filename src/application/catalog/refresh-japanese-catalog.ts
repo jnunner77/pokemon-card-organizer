@@ -94,8 +94,8 @@ export class RefreshJapaneseCatalog {
       const now = clock.now();
       tcgplayer.reset();
       const groups = await tcgplayer.groupList();
-      // An empty list with sets stored is a bad answer, not TCGplayer dropping everything.
-      if (groups.length === 0 && catalog.sets().length > 0) throw new Error('tcgcsv.com listed no sets, so the index is kept as it is');
+      // An empty list is a bad answer, not TCGplayer dropping everything: keep what's stored, and a first build tries again.
+      if (groups.length === 0) throw new Error('tcgcsv.com listed no sets, so the index is kept as it is');
       const plan = refreshPlan(catalog.sets(), groups, now);
       for (const id of plan.drop) catalog.drop(id);
       dropped = plan.drop.length;
