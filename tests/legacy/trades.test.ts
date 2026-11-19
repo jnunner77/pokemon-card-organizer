@@ -47,7 +47,7 @@ type Trades = {
   createSaver: (o: SaverOptions) => Saver;
 };
 const sandbox = { window: {} as { BinderTrades: Trades } };
-for (const f of ['bulkbuy.js', 'trade.js', 'trades.js']) vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public', f), 'utf8'), sandbox);
+for (const f of ['bulkbuy.js', 'language.js', 'trade.js', 'trades.js']) vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../public', f), 'utf8'), sandbox);
 const B = sandbox.window.BinderTrades;
 
 const item = (extra: Record<string, unknown> = {}) => ({ key: 'k1', cardId: null, look: null, name: 'Pikachu', grader: 'Raw', grade: '', value: '5', valueFrom: '', pct: '', ...extra });

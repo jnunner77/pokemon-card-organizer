@@ -1,10 +1,11 @@
 import { type LookupHit, printingsOf, type SearchTry, searchHits, searchPlan } from '#domain/catalog/any-card.ts';
+import { japaneseHit, searchJapanese } from '#domain/catalog/japanese.ts';
 import { err, ok, type Result } from '#shared/result.ts';
 import type { CatalogDeps } from './deps.ts';
-import { type CardDatabaseUnavailable, unavailable } from './errors.ts';
+import { type CardDatabaseUnavailable, type JapaneseUnavailable, notReady, unavailable } from './errors.ts';
 import { readAnyCard } from './read-any-card.ts';
 
-type Deps = Pick<CatalogDeps, 'database' | 'tcgplayer' | 'clock' | 'anyCardPricing'>;
+type Deps = Pick<CatalogDeps, 'database' | 'japanese' | 'tcgplayer' | 'clock' | 'anyCardPricing'>;
 
 /**
  * Find a card → Any card: cards in the card database matching a query, best first, whether or not
@@ -23,7 +24,16 @@ export class SearchAnyCard {
     this.#deps = deps;
   }
 
-  async execute(input: { readonly query: string }): Promise<Result<{ readonly hits: readonly LookupHit[]; readonly more: boolean }, CardDatabaseUnavailable>> {
+  async execute(input: { readonly query: string; readonly language: 'en' | 'ja' }): Promise<Result<{ readonly hits: readonly LookupHit[]; readonly more: boolean }, CardDatabaseUnavailable | JapaneseUnavailable>> {
+    if (input.language === 'ja') {
+      const japanese = this.#deps.japanese;
+      if (!japanese) return err({ code: 'JAPANESE_LOOKUPS_OFF' });
+      // Searched in memory, never waiting for the index's refresh; a partly built index is searched too.
+      const waiting = notReady(japanese.catalog);
+      if (waiting) return err(waiting);
+      const found = searchJapanese(japanese.catalog.entries(), input.query, japanese.catalog.codes());
+      return ok({ hits: (found?.entries ?? []).map(japaneseHit), more: found?.more ?? false });
+    }
     const plan = searchPlan(input.query);
     if (!plan) return ok({ hits: [], more: false });
     const db = this.#deps.database;

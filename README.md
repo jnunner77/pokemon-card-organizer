@@ -156,6 +156,20 @@ No site's pages are read: every price comes from an API.
   only blank fields are filled, so prices and pictures you entered stay. A Japanese card is only
   ever matched to Japanese products (on TCGplayer and on PriceCharting's *Pokemon Japanese …*
   sets), and an English card (or one with no language) never is, even when the numbers agree.
+  **Japanese cards also get their details** (set, set code, rarity, illustrator and release date)
+  filled in like English ones, and can be looked up by their English name alone ("Pikachu"; a
+  number like 25/165 or a set code like SV2a narrows it): the *Add card* form does it when the
+  card's Language is Japanese, and *Find a card* → **Any card** and the Trade dealer's side have an
+  **English / Japanese** choice (kept in the browser). A Japanese card is never given an English
+  match, nor an English card a Japanese one. The server keeps a compact index of TCGplayer's
+  Japanese catalog (about 460 sets and 40,000 cards) in `japanese-cards.json`: it's built once,
+  about ten minutes of downloads, one set a second, after the first start (until then Japanese
+  lookups, fill-ins and the Add card form's lookup wait and say how far it is, "120 of 462 sets"; Any card search
+  already works on the sets indexed so far; English ones are unaffected), and then refreshed
+  once a day around 21:00 UTC, downloading only the sets whose *modifiedOn* changed plus ten of the
+  oldest as a safety net. The illustrator comes from TCGdex's Japanese catalog. Japanese Any card
+  prices are TCGplayer's only (PriceCharting isn't asked there); the daily update still prices
+  Japanese ledger cards as above.
   There are no Cardmarket prices for them and no Japanese master sets. Cards in Korean,
   Chinese or other languages aren't looked up in TCGplayer's catalog; PriceCharting matching
   for them is unchanged (it can still match the English product). When the Japanese catalog
@@ -793,9 +807,10 @@ view, filters, totals, Find (*Show in case*), quick sell, Pricing and Selling.
 *Sort* (next to *Rename / edit binder*) puts every card of the binder in order, from page 1,
 pocket 1 with no gaps, so you can rearrange the real binder to match:
 
-- **Release date**, oldest or newest first. Each card gets its set's release date from TCGdex
-  along with its other details (shown read-only as *Released* in the card drawer, and as a sortable
-  column in the List view). A promo filed under a set by name, like *Crown Zenith*, takes that
+- **Release date**, oldest or newest first. Each card gets its set's release date along with
+  its other details, from TCGdex for English cards and from TCGplayer's Japanese catalog for
+  Japanese cards (shown read-only as *Released* in the card drawer, and as a sortable column in the
+  List view). A promo filed under a set by name, like *Crown Zenith*, takes that
   set's date rather than the start of its promo series. The update that added release dates
   backfills them by itself a minute after the server starts; the daily run and *Fill in missing
   details* fill any still missing.
@@ -837,7 +852,7 @@ when you've rearranged the binder and want to keep the new layout instead.
   show once, at the first copy's place, with "· 4 copies"; sold or traded copies and placeholders or
   watchlist entries are listed apart. Arrow keys and Enter (Shift+Enter for full screen) work too.
 - **Look up any card** (*Find a card* → **Any card**, or *Look up … in any card* under your own
-  matches): any Pokémon card, yours or not, from the TCGdex card database, by its name with its set
+  matches): any Pokémon card, yours or not, from the TCGdex card database (or, with **Japanese** chosen beside the search box, TCGplayer's Japanese catalog), by its name with its set
   or number to narrow it ("charizard base set 4", "pikachu 58/102", "SWSH050"). Choose one to see
   its picture, set, number, rarity and illustrator at once, with **Add** and **Watch price** ready;
   what it's worth today in CAD fills in a moment later (a printing chosen meanwhile stays), worked out as
@@ -1093,7 +1108,7 @@ any kept copy refers to them), `backups/`
 file per day, two weeks), `admin.json` (backup retention, price schedule, where price alerts are
 emailed from and to), `auth.json` and
 `sessions.json` (people, password hashes, API token hashes and sessions; never in responses),
-`guests.json` (guest viewing on/off, the QR code's key and the guest log), `open-trades.json` (trades
+`guests.json` (guest viewing on/off, the QR code's key and the guest log), `japanese-cards.json` (the index of TCGplayer's Japanese catalog, about 2-3 MB; rebuilt if it's deleted or damaged, and not part of backups), `open-trades.json` (trades
 being put together, with their customers' names; readable only by the server), `status.txt` (the
 Overview's checks and the cards that need a person, rewritten every five minutes for the server's
 nightly job) and `offsite.json` (written by that job after it copies a backup off the server). The Gmail app password for price

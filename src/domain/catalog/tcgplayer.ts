@@ -7,6 +7,8 @@ export interface TcgGroup {
   readonly name: string;
   readonly abbreviation?: string | null | undefined;
   readonly publishedOn?: string | null | undefined;
+  /** When TCGplayer last changed the set's products; a set is downloaded again when this changes. */
+  readonly modifiedOn?: string | null | undefined;
 }
 
 export interface TcgProduct {

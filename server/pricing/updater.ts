@@ -4,6 +4,7 @@ import type { AdminSettingsStore as Config } from '#application/admin/ports.ts';
 import type { FillCardDetails } from '#application/catalog/fill-card-details.ts';
 import { checkIdentity } from '#domain/cards/attention.ts';
 import type { DetailsStatus } from '#domain/catalog/details.ts';
+import { catalogLanguage, japaneseProductOf, matchLanguage } from '#domain/catalog/japanese.ts';
 import type { ServerLog as Logger } from '#application/logging.ts';
 import { quietLogger } from '#infrastructure/logging/logger.ts';
 import { type BlendSettings, blend } from '../blend.ts';
@@ -1266,7 +1267,7 @@ export class PriceUpdater {
     try {
       return await source.quote(
         { name: card.name, set: card.set, setCode: card.setCode, number: card.number, variant: card.variant, rarity: card.rarity, tcgdexSet: cat?.set ?? (d as { set?: string } | null | undefined)?.set ?? null },
-        own ?? cat?.tcgplayerProduct ?? null,
+        own ?? cat?.tcgplayerProduct ?? (lang === 'japanese' ? japaneseProductOf(d?.id) : null),
       );
     } catch (err) {
       this.log[this.run ? 'info' : 'warn']('pricing', `${label(card)}: tcgcsv.com${lang === 'japanese' ? ' (Japanese)' : ''}: ${message(err)}`);
@@ -1278,7 +1279,10 @@ export class PriceUpdater {
   private async catalogQuote(card: Card): Promise<CatalogQuote | null> {
     const d = card.details as DetailsStatus | null | undefined;
     const tcgdexId = d?.id;
-    if (!this.catalog || !tcgdexId) return null;
+    // A Japanese match (from TCGplayer's Japanese catalog) isn't a TCGdex English card: TCGdex English isn't asked about it.
+    if (!this.catalog || !tcgdexId || matchLanguage(tcgdexId) === 'ja') return null;
+    // And a Japanese card that still holds an English match (made before its language was set) isn't priced or pictured from it.
+    if (catalogLanguage(card.language) === 'ja') return null;
     // A TCGdex match from another set than the one the card is filed under (flagged in Cards to
     // check) gives no prices or picture until the person files it there, chooses it, or ignores the
     // check: a card that only shares a number would otherwise be priced as this one.

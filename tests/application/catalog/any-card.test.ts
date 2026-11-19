@@ -50,7 +50,7 @@ function tcgdex(p: string): unknown {
 }
 
 const search = async (query: string, t = setUp({ answers: tcgdex })) => {
-  const r = await new SearchAnyCard(t.deps).execute({ query });
+  const r = await new SearchAnyCard(t.deps).execute({ query, language: 'en' });
   assert.ok(r.ok);
   return r.value;
 };
@@ -109,7 +109,7 @@ describe('searching for any card', () => {
   it("says when the card database didn't answer", async () => {
     const t = setUp({ answers: tcgdex });
     t.database.down = true;
-    assert.deepEqual(await new SearchAnyCard(t.deps).execute({ query: 'pikachu' }), { ok: false, error: { code: 'CARD_DATABASE_UNAVAILABLE', message: "Couldn't reach api.tcgdex.net: getaddrinfo ENOTFOUND api.tcgdex.net" } });
+    assert.deepEqual(await new SearchAnyCard(t.deps).execute({ query: 'pikachu', language: 'en' }), { ok: false, error: { code: 'CARD_DATABASE_UNAVAILABLE', message: "Couldn't reach api.tcgdex.net: getaddrinfo ENOTFOUND api.tcgdex.net" } });
   });
 });
 
@@ -120,7 +120,7 @@ describe('searching for any card warms the TCGplayer set list', () => {
   it('asks for it once when a search finds cards, and again only after ten minutes', async () => {
     const t = warm();
     const searching = new SearchAnyCard(t.deps);
-    const found = async () => assert.ok((await searching.execute({ query: 'charizard' })).ok);
+    const found = async () => assert.ok((await searching.execute({ query: 'charizard', language: 'en' })).ok);
     await found();
     assert.equal(lists(t), 1);
     await found();
@@ -148,7 +148,7 @@ describe('searching for any card warms the TCGplayer set list', () => {
 });
 
 describe("one card's details and printings", () => {
-  const show = async (id: string, t = setUp({ answers: tcgdex })) => new ShowAnyCard(t.deps).execute({ id });
+  const show = async (id: string, t = setUp({ answers: tcgdex })) => new ShowAnyCard(t.deps).execute({ id, language: 'en' });
 
   it('gives its details, and its printings priced the way the daily update would', async () => {
     const t = setUp({ answers: tcgdex });
@@ -199,14 +199,14 @@ describe("one card's details and printings", () => {
 });
 
 describe("one card's details, before its prices", () => {
-  const details = async (id: string, t = setUp({ answers: tcgdex })) => new ShowAnyCardDetails(t.deps).execute({ id });
+  const details = async (id: string, t = setUp({ answers: tcgdex })) => new ShowAnyCardDetails(t.deps).execute({ id, language: 'en' });
 
   it('gives the same details and printings as the full answer, without prices', async () => {
     const t = setUp({ answers: tcgdex });
     const r = await details('base1-4', t);
     assert.ok(r.ok);
     matches(r.value, { id: 'base1-4', name: 'Charizard', number: '4', total: 102, set: 'Base Set', setCode: 'BS', rarity: 'Rare', artist: 'Mitsuhiro Arita', released: '1999-01-09', image: 'https://assets.tcgdex.net/en/base/base1/4/high.webp' });
-    const full = await new ShowAnyCard(setUp({ answers: tcgdex }).deps).execute({ id: 'base1-4' });
+    const full = await new ShowAnyCard(setUp({ answers: tcgdex }).deps).execute({ id: 'base1-4', language: 'en' });
     assert.ok(full.ok);
     assert.deepEqual(
       r.value.printings,
@@ -244,7 +244,7 @@ describe('searching for any card fetches its top result ahead', () => {
   };
   const ahead = () => setUp({ answers });
   const searchFor = async (searching: SearchAnyCard, query: string) => {
-    const r = await searching.execute({ query });
+    const r = await searching.execute({ query, language: 'en' });
     assert.ok(r.ok);
     await searching.idle();
     return r.value;
@@ -308,7 +308,7 @@ describe('searching for any card fetches its top result ahead', () => {
   it('answers without waiting for it', async () => {
     const t = ahead();
     t.anyCardPricing.hold = new Promise(() => undefined);
-    const r = await new SearchAnyCard(t.deps).execute({ query: 'charizard base set 4' });
+    const r = await new SearchAnyCard(t.deps).execute({ query: 'charizard base set 4', language: 'en' });
     assert.ok(r.ok && r.value.hits.length > 0);
   });
 
@@ -331,7 +331,7 @@ describe('searching for any card fetches its top result ahead', () => {
       setsNamed: (n) => db.setsNamed(n),
       pocketSets: () => db.pocketSets(),
     };
-    const pending = new SearchAnyCard({ ...t.deps, database: gated }).execute({ query: 'charizard' });
+    const pending = new SearchAnyCard({ ...t.deps, database: gated }).execute({ query: 'charizard', language: 'en' });
     await new Promise((resolve) => setImmediate(resolve));
     assert.ok(t.database.asked.some((p) => p.startsWith('/cards?name=')));
     assert.ok(!t.database.asked.includes('/sets'));

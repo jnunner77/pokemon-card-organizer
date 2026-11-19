@@ -1,6 +1,7 @@
-import { type AnyCardPrices, type AnyCardPricing, type AnyCardToPrice, type CardChange, type CardChanges, type CardDatabase, type CardPricing, type Scheduler, SourceUnavailable, type TcgplayerCatalog } from '#application/catalog/ports.ts';
+import { type AnyCardPrices, type AnyCardPricing, type AnyCardToPrice, type CardChange, type CardChanges, type CardDatabase, type CardPricing, type JapaneseIndexStore, type Scheduler, SourceUnavailable, type TcgplayerCatalog } from '#application/catalog/ports.ts';
 import type { TcgdexBrief, TcgdexCard, TcgdexSet, TcgdexSetBrief } from '#domain/catalog/tcgdex.ts';
-import type { TcgGroup, TcgGroupContents } from '#domain/catalog/tcgplayer.ts';
+import type { JapaneseIndexData } from '#domain/catalog/japanese.ts';
+import type { TcgGroup, TcgGroupContents, TcgProduct } from '#domain/catalog/tcgplayer.ts';
 import type { Fields } from '#domain/ledger/document.ts';
 import { list, setFrom, tcgdexPaths } from '../catalog/tcgdex.ts';
 
@@ -76,6 +77,10 @@ export class MemoryTcgplayerCatalog implements TcgplayerCatalog {
   resets = 0;
   /** How many times the list of sets was asked for. */
   lists = 0;
+  /** How many times a set's products were asked for alone. */
+  productLists = 0;
+  /** The sets whose products were asked for alone, in order. */
+  readonly productsAsked: number[] = [];
 
   constructor(groups: readonly TcgGroup[], contents: ReadonlyMap<number, TcgGroupContents>) {
     this.#groups = groups;
@@ -95,6 +100,31 @@ export class MemoryTcgplayerCatalog implements TcgplayerCatalog {
   async group(groupId: number): Promise<TcgGroupContents> {
     if (this.down) throw new SourceUnavailable('tcgcsv.com answered 503', 503);
     return this.#contents.get(groupId) ?? { products: [], prices: [] };
+  }
+
+  async products(groupId: number): Promise<readonly TcgProduct[]> {
+    if (this.down) throw new SourceUnavailable('tcgcsv.com answered 503', 503);
+    this.productLists++;
+    this.productsAsked.push(groupId);
+    return this.#contents.get(groupId)?.products ?? [];
+  }
+}
+
+/** The Japanese card index's saved copy in memory. */
+export class MemoryJapaneseIndexStore implements JapaneseIndexStore {
+  saved: JapaneseIndexData | null = null;
+  saves = 0;
+  /** Set to fail loading, as with an unreadable file. */
+  failLoad = false;
+
+  async load(): Promise<JapaneseIndexData | null> {
+    if (this.failLoad) throw new Error('japanese-cards.json is damaged');
+    return this.saved ? structuredClone(this.saved) : null;
+  }
+
+  async save(data: JapaneseIndexData): Promise<void> {
+    this.saves++;
+    this.saved = structuredClone(data);
   }
 }
 
@@ -187,6 +217,10 @@ export class MemoryAnyCardPricing implements AnyCardPricing {
     this.warmed.push(card);
     await this.hold;
     if (this.warmFails) throw new SourceUnavailable('TCGplayer did not answer');
+  }
+
+  rates(): { readonly usd: number } {
+    return { usd: 1.37 };
   }
 
   async price(card: AnyCardToPrice): Promise<AnyCardPrices> {

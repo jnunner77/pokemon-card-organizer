@@ -90,3 +90,14 @@ export const cardNumber = (n: unknown): string => {
   const left = (String(n ?? '').split('/')[0] ?? '').trim().toLowerCase();
   return /^\d+$/.test(left) ? String(Number(left)) : left.replace(/^([a-z]+)0+(?=\d)/, '$1');
 };
+
+/**
+ * Which card catalog a card's language is looked up in: blank or English → 'en', Japanese → 'ja';
+ * any other language has no catalog (null).
+ */
+export function catalogLanguage(lang: unknown): 'en' | 'ja' | null {
+  const s = String(lang ?? '').trim();
+  if (!s || /^en/i.test(s)) return 'en';
+  if (/^(ja|jp|japanese)/i.test(s)) return 'ja';
+  return null;
+}

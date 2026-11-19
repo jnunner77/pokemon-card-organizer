@@ -110,4 +110,20 @@ describe("TCGplayer's catalog from tcgcsv.com", () => {
     assert.match(String((results[3] as PromiseRejectedResult).reason), /kept failing/);
     assert.ok(!asked.some((p) => p.startsWith('/4/')));
   });
+
+  it("downloads only a set's products for the Japanese index, and keeps nothing of them", async () => {
+    const asked: string[] = [];
+    const client = new TcgCsvClient({ fetcher: tcgcsv({ '/1/products': [{ productId: 5, groupId: 1, name: 'Ho-Oh' }], '/1/prices': [] }, asked), gapMs: 0 });
+    assert.deepEqual(await client.products(1), [{ productId: 5, groupId: 1, name: 'Ho-Oh' }]);
+    await client.products(1);
+    assert.deepEqual(asked, ['/1/products', '/1/products']);
+  });
+
+  it('reuses a set already downloaded today for its products', async () => {
+    const asked: string[] = [];
+    const client = new TcgCsvClient({ fetcher: tcgcsv({ '/1/products': [{ productId: 5, groupId: 1, name: 'Ho-Oh' }], '/1/prices': [] }, asked), gapMs: 0 });
+    await client.group(1);
+    assert.deepEqual(await client.products(1), [{ productId: 5, groupId: 1, name: 'Ho-Oh' }]);
+    assert.deepEqual(asked, ['/1/products', '/1/prices']);
+  });
 });

@@ -120,9 +120,10 @@ describe('which cards want a lookup', () => {
   const now = new Date('2026-10-03T12:00:00Z');
   const pikachu = { name: 'Pikachu', number: '51/162' };
 
-  it('leaves alone cards that are complete, not English, or missing a name or number', () => {
+  it('leaves alone cards that are complete, in a language with no catalog, or missing a name or number', () => {
     assert.equal(wantsDetails({ ...pikachu, set: 'x', setCode: 'x', rarity: 'x', artist: 'x', released: '2024-03-22' }, now), false);
-    assert.equal(wantsDetails({ ...pikachu, language: 'Japanese' }, now), false);
+    assert.equal(wantsDetails({ ...pikachu, language: 'Korean' }, now), false);
+    assert.equal(wantsDetails({ ...pikachu, language: 'Japanese' }, now), true);
     assert.equal(wantsDetails({ ...pikachu, language: 'English' }, now), true);
     assert.equal(wantsDetails({ number: '51/162' }, now), false);
     assert.equal(wantsDetails(undefined, now), false);

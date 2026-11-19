@@ -43,8 +43,8 @@ class CardDetails {
   }
 
   async lookup(name: string, number: string, hints: { set?: string; setCode?: string } = {}) {
-    const r = await new LookUpCard({ database: this.database }).execute({ name, number, ...hints });
-    if (!r.ok) throw new Error(r.error.message);
+    const r = await new LookUpCard({ database: this.database, japanese: null }).execute({ name, number, language: 'en', ...hints });
+    if (!r.ok) throw new Error('message' in r.error ? r.error.message : r.error.code);
     return r.value.matches;
   }
 

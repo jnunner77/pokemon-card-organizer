@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { CatalogDeps } from '#application/catalog/deps.ts';
+import { JapaneseCatalog } from '#application/catalog/japanese-catalog.ts';
 import type { TcgGroup, TcgGroupContents } from '#domain/catalog/tcgplayer.ts';
 import type { LedgerEvent } from '#domain/ledger/events.ts';
-import { InstantScheduler, MemoryAnyCardPricing, MemoryCardChanges, MemoryCardDatabase, MemoryCardPricing, MemoryTcgplayerCatalog } from '#infrastructure/memory/catalog.ts';
+import { InstantScheduler, MemoryAnyCardPricing, MemoryCardChanges, MemoryCardDatabase, MemoryCardPricing, MemoryJapaneseIndexStore, MemoryTcgplayerCatalog } from '#infrastructure/memory/catalog.ts';
 import { MemoryLedger } from '#infrastructure/memory/ledger.ts';
 
 const FIXTURES = path.join(import.meta.dirname, '../../fixtures/tcgdex');
@@ -21,6 +22,8 @@ export const NOW = new Date('2026-10-03T12:00:00.000Z');
 export interface SetUpOptions {
   readonly answers?: ReadonlyMap<string, unknown> | ((path: string) => unknown);
   readonly tcgplayer?: { readonly groups: readonly TcgGroup[]; readonly contents: ReadonlyMap<number, TcgGroupContents> };
+  /** TCGplayer's Japanese catalog and TCGdex's Japanese answers (by path); without it there are no Japanese lookups. */
+  readonly japanese?: { readonly groups: readonly TcgGroup[]; readonly contents: ReadonlyMap<number, TcgGroupContents>; readonly answers?: ReadonlyMap<string, unknown> };
 }
 
 /** The card lookups' dependencies, all in memory, with what they logged and published. */
@@ -28,6 +31,10 @@ export function setUp(o: SetUpOptions = {}) {
   const ledger = new MemoryLedger();
   const database = new MemoryCardDatabase(o.answers ?? recordedTcgdex());
   const tcgplayer = o.tcgplayer ? new MemoryTcgplayerCatalog(o.tcgplayer.groups, o.tcgplayer.contents) : null;
+  const japaneseCatalog = new JapaneseCatalog();
+  const japaneseStore = new MemoryJapaneseIndexStore();
+  const japaneseTcgplayer = o.japanese ? new MemoryTcgplayerCatalog(o.japanese.groups, o.japanese.contents) : null;
+  const japaneseDatabase = new MemoryCardDatabase(o.japanese?.answers ?? new Map());
   const pricing = new MemoryCardPricing();
   const anyCardPricing = new MemoryAnyCardPricing();
   const scheduler = new InstantScheduler();
@@ -41,6 +48,7 @@ export function setUp(o: SetUpOptions = {}) {
     tcgplayer,
     pricing,
     anyCardPricing,
+    japanese: japaneseTcgplayer ? { tcgplayer: japaneseTcgplayer, database: japaneseDatabase, catalog: japaneseCatalog, store: japaneseStore } : null,
     cards: ledger.cards,
     binders: ledger.binders,
     settings: ledger.settings,
@@ -54,7 +62,7 @@ export function setUp(o: SetUpOptions = {}) {
     activity: { info: (m) => void logged.app.push(m), warn: (m) => void logged.app.push(m) },
     delayMs: 1,
   };
-  return { ledger, database, tcgplayer, pricing, anyCardPricing, scheduler, changes, clock, logged, published, deps };
+  return { ledger, database, tcgplayer, japaneseCatalog, japaneseStore, japaneseTcgplayer, japaneseDatabase, pricing, anyCardPricing, scheduler, changes, clock, logged, published, deps };
 }
 
 /** What a card is now, in the ledger. */
